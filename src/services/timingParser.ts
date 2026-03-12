@@ -92,6 +92,7 @@ export function parseTimingHTML(html: string): TimingEntry[] | null {
         bestS1: null,
         bestS2: null,
         progress: null,
+        currentLapSec: null,
       });
     });
 

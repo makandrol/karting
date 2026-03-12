@@ -120,17 +120,18 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
 
       // Обчислити нову velocity з різниці targets
       const dt = now - existing.lastUpdateTime;
-      if (dt > 0.1) { // мінімум 100мс між оновленнями
+      if (dt > 0.1) {
         let progressDiff = t.progress - existing.lastTarget;
-        // Wraparound
-        if (progressDiff < -0.5) progressDiff += 1;
-        if (progressDiff < 0) progressDiff += 1; // завжди вперед
+        // Wraparound: якщо піот перетнув фініш, прогрес стрибнув з ~0.99 на ~0.01
+        if (progressDiff < -0.3) progressDiff += 1;
+        // Не допускаємо від'ємної швидкості
+        if (progressDiff < 0) progressDiff = 0;
 
         const newVelocity = progressDiff / dt;
 
-        // Згладжена velocity (80% стара + 20% нова) для стабільності
+        // Згладжена velocity (60% стара + 40% нова)
         const smoothVelocity = newVelocity > 0.001
-          ? existing.velocity * 0.7 + newVelocity * 0.3
+          ? existing.velocity * 0.6 + newVelocity * 0.4
           : existing.velocity;
 
         return {
@@ -215,18 +216,26 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
   }, [track.id, hasPath]);
 
   return (
-    <div className="card p-4 overflow-hidden">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-dark-400 text-xs font-medium">
-          {track.name} — {track.length}
-        </span>
-        {!hasPath && (
-          <span className="text-dark-600 text-xs">Шлях не налаштований</span>
-        )}
-      </div>
-
+    <div className="card p-0 overflow-hidden">
       <div className="relative">
         <img src={track.image} alt={track.name} className="w-full rounded-lg opacity-90" />
+
+        {/* F1-style legend — top left */}
+        {rendered.length > 0 && hasPath && (
+          <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-sm rounded-lg p-2 space-y-0.5 z-10">
+            {[...rendered].sort((a, b) => a.position - b.position).map((kp) => {
+              const color = POSITION_COLORS[Math.min(kp.position - 1, POSITION_COLORS.length - 1)];
+              return (
+                <div key={kp.kart} className="flex items-center gap-1.5 text-[10px] leading-tight">
+                  <span className="w-[14px] text-right font-mono font-bold" style={{ color }}>{kp.position}</span>
+                  <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: color }} />
+                  <span className="font-mono text-dark-300 w-[18px]">{kp.kart}</span>
+                  <span className="text-white font-medium truncate max-w-[80px]">{kp.pilot.split(' ')[0]}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {hasPath && (
           <svg
@@ -264,24 +273,6 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
           </svg>
         )}
       </div>
-
-      {rendered.length > 0 && hasPath && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {rendered.slice(0, 6).map((kp) => {
-            const color = POSITION_COLORS[Math.min(kp.position - 1, POSITION_COLORS.length - 1)];
-            return (
-              <span key={kp.kart} className="inline-flex items-center gap-1.5 text-xs text-dark-400">
-                <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: color }} />
-                <span className="font-mono">{kp.kart}</span>
-                <span className="text-dark-600">{kp.pilot.split(' ')[0]}</span>
-              </span>
-            );
-          })}
-          {rendered.length > 6 && (
-            <span className="text-xs text-dark-600">+{rendered.length - 6}</span>
-          )}
-        </div>
-      )}
     </div>
   );
 }

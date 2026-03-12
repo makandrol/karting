@@ -18,6 +18,8 @@ export interface TimingEntry {
   bestS2: string | null;
   /** 0..1 прогрес по колу (для повзунка). null якщо невідомо */
   progress: number | null;
+  /** Прогнозований час поточного кола в секундах (тільки демо) */
+  currentLapSec: number | null;
 }
 
 export interface TimingSnapshot {

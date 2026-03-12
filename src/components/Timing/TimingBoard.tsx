@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { TimingEntry } from '../../types';
 import type { TimingMode } from '../../services/timingPoller';
 
@@ -8,11 +9,65 @@ interface TimingBoardProps {
   compact?: boolean;
 }
 
+/** Парсить час "00:42.123" або "14.500" в секунди */
+function parseTime(t: string | null): number | null {
+  if (!t) return null;
+  const lapMatch = t.match(/^(\d+):(\d+\.\d+)$/);
+  if (lapMatch) return parseInt(lapMatch[1]) * 60 + parseFloat(lapMatch[2]);
+  const secMatch = t.match(/^\d+\.\d+$/);
+  if (secMatch) return parseFloat(t);
+  return null;
+}
+
+type TimeColor = 'purple' | 'green' | 'yellow' | 'white';
+
+/**
+ * Визначає колір для часового значення (F1 стиль):
+ * purple = абсолютний найкращий в сесії
+ * green  = особистий найкращий, але не абсолютний
+ * yellow = гірше за особистий найкращий
+ * white  = немає даних для порівняння
+ */
+function getTimeColor(value: string | null, personalBest: string | null, overallBest: number | null): TimeColor {
+  const val = parseTime(value);
+  if (val === null) return 'white';
+  if (overallBest !== null && Math.abs(val - overallBest) < 0.001) return 'purple';
+  const pb = parseTime(personalBest);
+  if (pb !== null && Math.abs(val - pb) < 0.001) return 'green';
+  if (pb !== null && val > pb) return 'yellow';
+  return 'green';
+}
+
+const COLOR_CLASSES: Record<TimeColor, string> = {
+  purple: 'text-purple-400',
+  green: 'text-green-400',
+  yellow: 'text-yellow-400',
+  white: 'text-dark-300',
+};
+
 export default function TimingBoard({ entries, mode, lastUpdate, compact = false }: TimingBoardProps) {
   const formatTime = (ts: number | null) => {
     if (!ts) return '—';
     return new Date(ts).toLocaleTimeString('uk-UA');
   };
+
+  // Обчислюємо абсолютно найкращі часи в сесії
+  const { overallBestLap, overallBestS1, overallBestS2 } = useMemo(() => {
+    let bestLap: number | null = null;
+    let bestS1: number | null = null;
+    let bestS2: number | null = null;
+
+    for (const e of entries) {
+      const lap = parseTime(e.bestLap);
+      if (lap !== null && (bestLap === null || lap < bestLap)) bestLap = lap;
+      const s1 = parseTime(e.bestS1);
+      if (s1 !== null && (bestS1 === null || s1 < bestS1)) bestS1 = s1;
+      const s2 = parseTime(e.bestS2);
+      if (s2 !== null && (bestS2 === null || s2 < bestS2)) bestS2 = s2;
+    }
+
+    return { overallBestLap: bestLap, overallBestS1: bestS1, overallBestS2: bestS2 };
+  }, [entries]);
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -38,11 +93,13 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
             </span>
           )}
         </div>
-        {entries.length > 0 && (
-          <span className="text-dark-500 text-xs font-mono">
-            {entries.length} пілотів
-          </span>
-        )}
+
+        {/* Color legend */}
+        <div className="flex items-center gap-3 text-[10px]">
+          <span className="text-purple-400">■ Найкращий</span>
+          <span className="text-green-400">■ Особистий рекорд</span>
+          <span className="text-yellow-400">■ Повільніше</span>
+        </div>
       </div>
 
       {/* Table */}
@@ -57,91 +114,96 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
                 <th className="table-cell text-right">Останнє коло</th>
                 {!compact && <th className="table-cell text-right">S1</th>}
                 {!compact && <th className="table-cell text-right">S2</th>}
-                <th className="table-cell text-right">Найкраще коло</th>
+                <th className="table-cell text-right">Найкраще</th>
                 {!compact && <th className="table-cell text-right">Best S1</th>}
                 {!compact && <th className="table-cell text-right">Best S2</th>}
                 <th className="table-cell text-center">Коло</th>
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry) => (
-                <tr key={`${entry.pilot}-${entry.kart}`} className="table-row group">
-                  <td className={`table-cell text-center font-mono font-bold ${
-                    entry.position === 1 ? 'position-1' :
-                    entry.position === 2 ? 'position-2' :
-                    entry.position === 3 ? 'position-3' : 'text-dark-400'
-                  }`}>
-                    {entry.position}
-                  </td>
-                  <td className="table-cell text-left">
-                    <div className="font-medium text-white text-sm">
-                      {entry.pilot}
-                    </div>
-                    {/* Повзунок прогресу по колу */}
-                    {entry.progress !== null && (
-                      <div className="mt-1.5 h-1 w-full bg-dark-800 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-700 ease-linear ${
-                            entry.position === 1
-                              ? 'bg-yellow-500/70'
-                              : entry.position <= 3
-                                ? 'bg-primary-500/50'
-                                : 'bg-dark-500/50'
-                          }`}
-                          style={{ width: `${Math.round(entry.progress * 100)}%` }}
-                        />
+              {entries.map((entry) => {
+                const lastLapColor = getTimeColor(entry.lastLap, entry.bestLap, overallBestLap);
+                const s1Color = getTimeColor(entry.s1, entry.bestS1, overallBestS1);
+                const s2Color = getTimeColor(entry.s2, entry.bestS2, overallBestS2);
+                const bestLapColor = getTimeColor(entry.bestLap, entry.bestLap, overallBestLap);
+                const bestS1Color = getTimeColor(entry.bestS1, entry.bestS1, overallBestS1);
+                const bestS2Color = getTimeColor(entry.bestS2, entry.bestS2, overallBestS2);
+
+                return (
+                  <tr key={`${entry.pilot}-${entry.kart}`} className="table-row group">
+                    <td className={`table-cell text-center font-mono font-bold ${
+                      entry.position === 1 ? 'position-1' :
+                      entry.position === 2 ? 'position-2' :
+                      entry.position === 3 ? 'position-3' : 'text-dark-400'
+                    }`}>
+                      {entry.position}
+                    </td>
+                    <td className="table-cell text-left">
+                      <div className="font-medium text-white text-sm">
+                        {entry.pilot}
+                        {entry.currentLapSec !== null && (
+                          <span className="text-dark-600 text-[10px] ml-1.5 font-mono">
+                            ({entry.currentLapSec.toFixed(1)}s)
+                          </span>
+                        )}
                       </div>
+                      {entry.progress !== null && (
+                        <div className="mt-1 h-1 w-full bg-dark-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-700 ease-linear ${
+                              entry.position === 1 ? 'bg-yellow-500/70' :
+                              entry.position <= 3 ? 'bg-primary-500/50' : 'bg-dark-500/50'
+                            }`}
+                            style={{ width: `${Math.round(entry.progress * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </td>
+                    <td className="table-cell text-center font-mono text-dark-300">
+                      {entry.kart}
+                    </td>
+                    <td className={`table-cell text-right font-mono font-semibold ${COLOR_CLASSES[lastLapColor]}`}>
+                      {entry.lastLap || '—'}
+                    </td>
+                    {!compact && (
+                      <td className={`table-cell text-right font-mono text-xs ${COLOR_CLASSES[s1Color]}`}>
+                        {entry.s1 || '—'}
+                      </td>
                     )}
-                  </td>
-                  <td className="table-cell text-center font-mono text-dark-300">
-                    {entry.kart}
-                  </td>
-                  <td className="table-cell text-right font-mono text-dark-200">
-                    {entry.lastLap || '—'}
-                  </td>
-                  {!compact && (
-                    <td className="table-cell text-right font-mono text-dark-400 text-xs">
-                      {entry.s1 || '—'}
+                    {!compact && (
+                      <td className={`table-cell text-right font-mono text-xs ${COLOR_CLASSES[s2Color]}`}>
+                        {entry.s2 || '—'}
+                      </td>
+                    )}
+                    <td className={`table-cell text-right font-mono font-semibold ${COLOR_CLASSES[bestLapColor]}`}>
+                      {entry.bestLap || '—'}
                     </td>
-                  )}
-                  {!compact && (
-                    <td className="table-cell text-right font-mono text-dark-400 text-xs">
-                      {entry.s2 || '—'}
+                    {!compact && (
+                      <td className={`table-cell text-right font-mono text-xs ${COLOR_CLASSES[bestS1Color]}`}>
+                        {entry.bestS1 || '—'}
+                      </td>
+                    )}
+                    {!compact && (
+                      <td className={`table-cell text-right font-mono text-xs ${COLOR_CLASSES[bestS2Color]}`}>
+                        {entry.bestS2 || '—'}
+                      </td>
+                    )}
+                    <td className="table-cell text-center font-mono text-dark-400">
+                      {entry.lapNumber}
                     </td>
-                  )}
-                  <td className="table-cell text-right font-mono text-green-400 font-semibold">
-                    {entry.bestLap || '—'}
-                  </td>
-                  {!compact && (
-                    <td className="table-cell text-right font-mono text-purple-400 text-xs">
-                      {entry.bestS1 || '—'}
-                    </td>
-                  )}
-                  {!compact && (
-                    <td className="table-cell text-right font-mono text-purple-400 text-xs">
-                      {entry.bestS2 || '—'}
-                    </td>
-                  )}
-                  <td className="table-cell text-center font-mono text-dark-400">
-                    {entry.lapNumber}
-                  </td>
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
 
       {entries.length === 0 && mode === 'idle' && (
-        <div className="px-4 py-12 text-center text-dark-500">
-          Таймінг не активний
-        </div>
+        <div className="px-4 py-12 text-center text-dark-500">Таймінг не активний</div>
       )}
-
       {entries.length === 0 && mode !== 'idle' && (
-        <div className="px-4 py-12 text-center text-dark-500">
-          Завантаження даних...
-        </div>
+        <div className="px-4 py-12 text-center text-dark-500">Завантаження даних...</div>
       )}
     </div>
   );

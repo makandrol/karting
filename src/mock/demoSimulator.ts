@@ -1,17 +1,10 @@
 import type { TimingEntry } from '../types';
 
-// ============================================================
-// Конфігурація пілотів — базова швидкість і стабільність
-// ============================================================
-
 interface PilotConfig {
   name: string;
   kart: number;
-  /** Базовий час кола в секундах */
   baseLapTime: number;
-  /** Дисперсія часу кола (менше = стабільніший) */
   variance: number;
-  /** Частка S1 від загального часу (зазвичай ~0.33) */
   s1Ratio: number;
 }
 
@@ -28,36 +21,20 @@ const PILOT_CONFIGS: PilotConfig[] = [
   { name: 'Мельник І.',         kart: 17, baseLapTime: 43.8, variance: 1.0, s1Ratio: 0.328 },
 ];
 
-// ============================================================
-// Стан кожного пілота в симуляції
-// ============================================================
+// Патерн відхилень від базового часу для тестування
+const LAP_VARIATION_PATTERN = [-1, +2, -1, -1, +2, 0, -0.5, +1.5, -1, +0.5];
 
 interface PilotState {
   config: PilotConfig;
-
-  /** Абсолютний час (мс) коли стартувало поточне коло */
   lapStartTime: number;
-  /** Тривалість поточного кола (мс), визначається на старті */
-  currentLapDuration: number;
-  /** Тривалість S1 поточного кола (мс) */
-  currentS1Duration: number;
-
-  /** Чи вже пройдено S1 на цьому колі */
+  currentLapDuration: number;  // мс
+  currentS1Duration: number;   // мс
   s1Crossed: boolean;
-
-  /** Поточне коло (номер) */
   lapNumber: number;
-  /** Час останнього завершеного кола */
   lastLap: string | null;
-  /** S1 останнього завершеного кола */
   lastS1: string | null;
-  /** S2 останнього завершеного кола */
   lastS2: string | null;
-
-  /** Поточний S1 (оновлюється посередині кола) */
   currentS1: string | null;
-
-  /** Найкращі часи */
   bestLap: string | null;
   bestLapSec: number | null;
   bestS1: string | null;
@@ -65,10 +42,6 @@ interface PilotState {
   bestS2: string | null;
   bestS2Sec: number | null;
 }
-
-// ============================================================
-// Утиліти форматування
-// ============================================================
 
 function formatLapTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
@@ -80,18 +53,13 @@ function formatSector(seconds: number): string {
   return seconds.toFixed(3);
 }
 
-function generateLapDuration(config: PilotConfig): number {
-  // Нормальний розподіл через Box-Muller
-  const u1 = Math.random();
-  const u2 = Math.random();
-  const normal = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  const lapSec = config.baseLapTime + normal * config.variance;
-  return Math.max(lapSec, 39.0) * 1000; // мілісекунди, мінімум 39с
+function generateLapDuration(config: PilotConfig, lapNumber: number): number {
+  // Детерміністичний патерн замість рандому
+  const patternIdx = lapNumber % LAP_VARIATION_PATTERN.length;
+  const variation = LAP_VARIATION_PATTERN[patternIdx];
+  const lapSec = config.baseLapTime + variation;
+  return Math.max(lapSec, 39.0) * 1000;
 }
-
-// ============================================================
-// DemoSimulator — stateful симулятор таймінгу
-// ============================================================
 
 export class DemoSimulator {
   private pilots: PilotState[];
@@ -101,10 +69,10 @@ export class DemoSimulator {
     this.startedAt = Date.now();
     const configs = PILOT_CONFIGS.slice(0, Math.min(pilotCount, PILOT_CONFIGS.length));
 
-    this.pilots = configs.map((config) => {
-      // Кожен пілот стартує з випадковим зміщенням (ніби вже їздять)
-      const initialOffset = Math.random() * config.baseLapTime * 1000;
-      const lapDuration = generateLapDuration(config);
+    this.pilots = configs.map((config, idx) => {
+      // Кожен стартує з різним зміщенням
+      const initialOffset = (idx * 3.5) * 1000; // рівномірно розкидані
+      const lapDuration = generateLapDuration(config, 1);
       const s1Duration = lapDuration * config.s1Ratio;
 
       return {
@@ -113,27 +81,18 @@ export class DemoSimulator {
         currentLapDuration: lapDuration,
         currentS1Duration: s1Duration,
         s1Crossed: initialOffset > s1Duration,
-        lapNumber: Math.floor(Math.random() * 3) + 1,
+        lapNumber: 1,
         lastLap: null,
         lastS1: null,
         lastS2: null,
-        currentS1: initialOffset > s1Duration
-          ? formatSector(s1Duration / 1000)
-          : null,
-        bestLap: null,
-        bestLapSec: null,
-        bestS1: null,
-        bestS1Sec: null,
-        bestS2: null,
-        bestS2Sec: null,
+        currentS1: initialOffset > s1Duration ? formatSector(s1Duration / 1000) : null,
+        bestLap: null, bestLapSec: null,
+        bestS1: null, bestS1Sec: null,
+        bestS2: null, bestS2Sec: null,
       };
     });
   }
 
-  /**
-   * Викликається кожний тік (1 сек).
-   * Оновлює стан пілотів і повертає поточні entries.
-   */
   tick(): TimingEntry[] {
     const now = Date.now();
 
@@ -141,20 +100,15 @@ export class DemoSimulator {
       const elapsed = now - pilot.lapStartTime;
       const progress = elapsed / pilot.currentLapDuration;
 
-      // === Перевірка проходження S1 ===
       if (!pilot.s1Crossed && elapsed >= pilot.currentS1Duration) {
         pilot.s1Crossed = true;
         const s1Sec = pilot.currentS1Duration / 1000;
         pilot.currentS1 = formatSector(s1Sec);
-
-        // Оновити best S1
         if (pilot.bestS1Sec === null || s1Sec < pilot.bestS1Sec) {
-          pilot.bestS1Sec = s1Sec;
-          pilot.bestS1 = formatSector(s1Sec);
+          pilot.bestS1Sec = s1Sec; pilot.bestS1 = formatSector(s1Sec);
         }
       }
 
-      // === Перевірка завершення кола (фініш) ===
       if (progress >= 1.0) {
         const lapSec = pilot.currentLapDuration / 1000;
         const s1Sec = pilot.currentS1Duration / 1000;
@@ -165,26 +119,17 @@ export class DemoSimulator {
         pilot.lastS2 = formatSector(s2Sec);
         pilot.lapNumber += 1;
 
-        // Оновити best lap
         if (pilot.bestLapSec === null || lapSec < pilot.bestLapSec) {
-          pilot.bestLapSec = lapSec;
-          pilot.bestLap = formatLapTime(lapSec);
+          pilot.bestLapSec = lapSec; pilot.bestLap = formatLapTime(lapSec);
         }
-
-        // Оновити best S2
         if (pilot.bestS2Sec === null || s2Sec < pilot.bestS2Sec) {
-          pilot.bestS2Sec = s2Sec;
-          pilot.bestS2 = formatSector(s2Sec);
+          pilot.bestS2Sec = s2Sec; pilot.bestS2 = formatSector(s2Sec);
         }
-
-        // Оновити best S1 (на фініші теж, якщо раптом не оновилося)
         if (pilot.bestS1Sec === null || s1Sec < pilot.bestS1Sec) {
-          pilot.bestS1Sec = s1Sec;
-          pilot.bestS1 = formatSector(s1Sec);
+          pilot.bestS1Sec = s1Sec; pilot.bestS1 = formatSector(s1Sec);
         }
 
-        // === Новий круг ===
-        const newLapDuration = generateLapDuration(pilot.config);
+        const newLapDuration = generateLapDuration(pilot.config, pilot.lapNumber);
         pilot.lapStartTime = now;
         pilot.currentLapDuration = newLapDuration;
         pilot.currentS1Duration = newLapDuration * pilot.config.s1Ratio;
@@ -193,7 +138,6 @@ export class DemoSimulator {
       }
     }
 
-    // === Формуємо entries і сортуємо за bestLap ===
     const entries: TimingEntry[] = this.pilots.map((pilot) => {
       const elapsed = Date.now() - pilot.lapStartTime;
       const progress = Math.min(elapsed / pilot.currentLapDuration, 0.99);
@@ -210,48 +154,35 @@ export class DemoSimulator {
         bestS1: pilot.bestS1,
         bestS2: pilot.bestS2,
         progress,
+        currentLapSec: pilot.currentLapDuration / 1000,
       };
     });
 
-    // Сортуємо: ті в кого є bestLap — за ним, інші — в кінець
     entries.sort((a, b) => {
       if (a.bestLap === null && b.bestLap === null) return 0;
       if (a.bestLap === null) return 1;
       if (b.bestLap === null) return -1;
-
-      const aMatch = a.bestLap.match(/^(\d+):(\d+\.\d+)$/);
-      const bMatch = b.bestLap.match(/^(\d+):(\d+\.\d+)$/);
-      if (!aMatch || !bMatch) return 0;
-
-      const aSec = parseInt(aMatch[1]) * 60 + parseFloat(aMatch[2]);
-      const bSec = parseInt(bMatch[1]) * 60 + parseFloat(bMatch[2]);
-      return aSec - bSec;
+      const aM = a.bestLap.match(/^(\d+):(\d+\.\d+)$/);
+      const bM = b.bestLap.match(/^(\d+):(\d+\.\d+)$/);
+      if (!aM || !bM) return 0;
+      return (parseInt(aM[1])*60+parseFloat(aM[2])) - (parseInt(bM[1])*60+parseFloat(bM[2]));
     });
 
     entries.forEach((e, i) => { e.position = i + 1; });
-
     return entries;
   }
 
-  /** Скидає симуляцію */
   reset(): void {
     this.startedAt = Date.now();
     for (const pilot of this.pilots) {
-      pilot.lapStartTime = this.startedAt - Math.random() * pilot.config.baseLapTime * 1000;
-      pilot.currentLapDuration = generateLapDuration(pilot.config);
+      pilot.lapStartTime = this.startedAt;
+      pilot.currentLapDuration = generateLapDuration(pilot.config, 1);
       pilot.currentS1Duration = pilot.currentLapDuration * pilot.config.s1Ratio;
-      pilot.s1Crossed = false;
-      pilot.lapNumber = 1;
-      pilot.lastLap = null;
-      pilot.lastS1 = null;
-      pilot.lastS2 = null;
-      pilot.currentS1 = null;
-      pilot.bestLap = null;
-      pilot.bestLapSec = null;
-      pilot.bestS1 = null;
-      pilot.bestS1Sec = null;
-      pilot.bestS2 = null;
-      pilot.bestS2Sec = null;
+      pilot.s1Crossed = false; pilot.lapNumber = 1;
+      pilot.lastLap = null; pilot.lastS1 = null; pilot.lastS2 = null; pilot.currentS1 = null;
+      pilot.bestLap = null; pilot.bestLapSec = null;
+      pilot.bestS1 = null; pilot.bestS1Sec = null;
+      pilot.bestS2 = null; pilot.bestS2Sec = null;
     }
   }
 }
