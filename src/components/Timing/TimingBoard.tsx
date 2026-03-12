@@ -19,22 +19,32 @@ function parseTime(t: string | null): number | null {
   return null;
 }
 
-type TimeColor = 'purple' | 'green' | 'yellow' | 'white';
+type TimeColor = 'purple' | 'green' | 'yellow' | 'none';
 
 /**
- * Визначає колір для часового значення (F1 стиль):
- * purple = абсолютний найкращий в сесії
+ * F1 стиль:
+ * purple = абсолютний найкращий в сесії (перше коло теж, бо воно найкраще на момент)
  * green  = особистий найкращий, але не абсолютний
  * yellow = гірше за особистий найкращий
- * white  = немає даних для порівняння
+ * none   = немає значення (покажемо '—')
  */
 function getTimeColor(value: string | null, personalBest: string | null, overallBest: number | null): TimeColor {
   const val = parseTime(value);
-  if (val === null) return 'white';
-  if (overallBest !== null && Math.abs(val - overallBest) < 0.001) return 'purple';
+  if (val === null) return 'none';
+
+  // Якщо це абсолютний найкращий час в сесії → фіолетовий
+  if (overallBest !== null && Math.abs(val - overallBest) < 0.002) return 'purple';
+
+  // Якщо це особистий найкращий → зелений
   const pb = parseTime(personalBest);
-  if (pb !== null && Math.abs(val - pb) < 0.001) return 'green';
+  if (pb !== null && Math.abs(val - pb) < 0.002) return 'green';
+
+  // Якщо гірше за особистий найкращий → жовтий
   if (pb !== null && val > pb) return 'yellow';
+
+  // Перше коло (немає PB для порівняння) — теж перевіряємо overall
+  // Якщо pb null, значить ще нема best → це і є перший результат → purple або green
+  if (overallBest !== null && val <= overallBest + 0.002) return 'purple';
   return 'green';
 }
 
@@ -42,7 +52,7 @@ const COLOR_CLASSES: Record<TimeColor, string> = {
   purple: 'text-purple-400',
   green: 'text-green-400',
   yellow: 'text-yellow-400',
-  white: 'text-dark-300',
+  none: 'text-dark-500',
 };
 
 export default function TimingBoard({ entries, mode, lastUpdate, compact = false }: TimingBoardProps) {
