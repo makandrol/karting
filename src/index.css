@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-dark-900;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-dark-600 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-dark-500;
+  }
+}
+
+@layer components {
+  .nav-link {
+    @apply px-3 py-2 text-sm font-medium text-dark-300 hover:text-white hover:bg-dark-800 rounded-lg transition-colors duration-200;
+  }
+
+  .nav-link-active {
+    @apply px-3 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg;
+  }
+
+  .card {
+    @apply bg-dark-900 border border-dark-800 rounded-xl p-6;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-live {
+    @apply badge bg-green-500/20 text-green-400;
+  }
+
+  .badge-mock {
+    @apply badge bg-yellow-500/20 text-yellow-400;
+  }
+
+  .badge-offline {
+    @apply badge bg-red-500/20 text-red-400;
+  }
+
+  .table-header {
+    @apply bg-dark-800/50 text-dark-300 text-xs font-semibold uppercase tracking-wider;
+  }
+
+  .table-row {
+    @apply border-b border-dark-800/50 hover:bg-dark-800/30 transition-colors;
+  }
+
+  .table-cell {
+    @apply px-4 py-3 text-sm;
+  }
+
+  .position-1 {
+    @apply text-yellow-400 font-bold;
+  }
+
+  .position-2 {
+    @apply text-gray-300 font-bold;
+  }
+
+  .position-3 {
+    @apply text-amber-600 font-bold;
+  }
+}
