@@ -13,6 +13,10 @@ const POSITION_COLORS = [
   '#34d399', '#a78bfa', '#fb923c', '#f472b6', '#94a3b8',
 ];
 
+function pilotShort(name: string): string {
+  return name.slice(0, 3);
+}
+
 function getPointOnPath(pathEl: SVGPathElement, progress: number): { x: number; y: number } {
   const len = pathEl.getTotalLength();
   const clamped = Math.max(0, Math.min(1, progress));
@@ -20,8 +24,15 @@ function getPointOnPath(pathEl: SVGPathElement, progress: number): { x: number; 
   return { x: pt.x, y: pt.y };
 }
 
-function pilotShort(name: string): string {
-  return name.slice(0, 3);
+// Фіксований колір по карту (не змінюється при зміні позицій)
+const KART_COLORS: Record<number, string> = {};
+let colorIndex = 0;
+function getKartColor(kart: number): string {
+  if (!KART_COLORS[kart]) {
+    KART_COLORS[kart] = POSITION_COLORS[colorIndex % POSITION_COLORS.length];
+    colorIndex++;
+  }
+  return KART_COLORS[kart];
 }
 
 /**
@@ -174,7 +185,7 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
     if (!el) return;
     const sorted = [...statesRef.current].sort((a, b) => a.position - b.position);
     el.innerHTML = sorted.map((kp) => {
-      const color = POSITION_COLORS[Math.min(kp.position - 1, POSITION_COLORS.length - 1)];
+      const color = getKartColor(kp.kart);
       return `<div style="display:flex;align-items:center;gap:4px;font-size:10px;line-height:1.2">
         <span style="width:14px;text-align:right;font-family:monospace;font-weight:700;color:${color}">${kp.position}</span>
         <span style="width:8px;height:8px;border-radius:2px;background:${color};flex-shrink:0"></span>
@@ -279,7 +290,7 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
       if (!group) continue;
 
       const pt = getPointOnPath(path, s.currentProgress);
-      const color = POSITION_COLORS[Math.min(s.position - 1, POSITION_COLORS.length - 1)];
+      const color = getKartColor(s.kart);
 
       const glow = group.children[0] as SVGCircleElement;
       const circle = group.children[1] as SVGCircleElement;
