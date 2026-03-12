@@ -63,12 +63,12 @@
 
   <div class="outputs">
     <div>
-      <label>svgPath:</label>
-      <textarea id="outPath" readonly></textarea>
+      <label>svgPath <small>(можна вставити — відобразиться на карті)</small>:</label>
+      <textarea id="outPath" oninput="onPathPaste()"></textarea>
     </div>
     <div>
-      <label>JSON (s1, grid, pit):</label>
-      <textarea id="outJson" readonly></textarea>
+      <label>JSON (s1, grid, pit) <small>(можна вставити для імпорту)</small>:</label>
+      <textarea id="outJson" oninput="onJsonPaste()"></textarea>
     </div>
   </div>
 
@@ -137,14 +137,14 @@
     // ===== STORAGE =====
     function lsKey() { return 'track_edit_v4_' + trackSelect.value; }
     function loadSaved() {
-      pathPoints=[]; isClosed=false; s1Point=null; gridPoints=[]; pitPoints=[];
+      pathPoints=[]; isClosed=false; s1Point=null; gridPoints=[]; pitPoints=[]; importingPath='';
       try {
         var d = JSON.parse(localStorage.getItem(lsKey()));
-        if (d) { pathPoints=d.pathPoints||[]; isClosed=!!d.isClosed; s1Point=d.s1Point||null; gridPoints=d.gridPoints||[]; pitPoints=d.pitPoints||[]; }
+        if (d) { pathPoints=d.pathPoints||[]; isClosed=!!d.isClosed; s1Point=d.s1Point||null; gridPoints=d.gridPoints||[]; pitPoints=d.pitPoints||[]; importingPath=d.importedPath||''; }
       } catch {}
     }
     function save() {
-      localStorage.setItem(lsKey(), JSON.stringify({pathPoints,isClosed,s1Point,gridPoints,pitPoints}));
+      localStorage.setItem(lsKey(), JSON.stringify({pathPoints,isClosed,s1Point,gridPoints,pitPoints,importedPath:importingPath}));
     }
 
     trackSelect.addEventListener('change', function() { loadSaved(); loadImage(parseInt(trackSelect.value)); });
@@ -251,8 +251,10 @@
     }
 
     function copyAll() {
+      var drawnPath = buildPath(pathPoints, isClosed);
+      var finalPath = (pathPoints.length > 0) ? drawnPath : importingPath;
       var data = {
-        svgPath: buildPath(pathPoints, isClosed),
+        svgPath: finalPath,
         s1Point: s1Point,
         gridPositions: gridPoints,
         pitPositions: pitPoints,
@@ -284,9 +286,19 @@
       var html = '';
       var R = Math.max(imgW/200, 4);
 
+      // Визначаємо який path показувати
+      var drawnPath = buildPath(pathPoints, isClosed);
+      var displayPath = (pathPoints.length > 0) ? drawnPath : importingPath;
+
       // Path line
-      var d = buildPath(pathPoints, isClosed);
-      html += '<path d="'+d+'" fill="none" stroke="#e52d1a" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>';
+      if (displayPath) {
+        html += '<path d="'+displayPath+'" fill="none" stroke="#e52d1a" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>';
+      }
+
+      // Imported path indicator (якщо немає своїх точок, але є імпортований)
+      if (pathPoints.length === 0 && importingPath) {
+        html += '<text x="20" y="30" fill="#e52d1a" font-size="14" font-family="sans-serif" opacity="0.7">Імпортований шлях (клікай щоб додати точки поверх)</text>';
+      }
 
       // Path points
       pathPoints.forEach(function(p,i) {
@@ -316,9 +328,13 @@
 
       overlaySvg.innerHTML = html;
 
-      // Update outputs
-      outPath.value = d;
-      outJson.value = JSON.stringify({ s1Point:s1Point, gridPositions:gridPoints, pitPositions:pitPoints }, null, 2);
+      // Update outputs (тільки якщо не редагує вручну)
+      if (document.activeElement !== outPath) {
+        outPath.value = displayPath;
+      }
+      if (document.activeElement !== outJson) {
+        outJson.value = JSON.stringify({ s1Point:s1Point, gridPositions:gridPoints, pitPositions:pitPoints }, null, 2);
+      }
 
       // Stats
       var parts = [];
@@ -329,6 +345,37 @@
       statsEl.textContent = parts.join(' │ ');
 
       document.getElementById('btnClose').style.display = mode==='path'?'':'none';
+    }
+
+    // ===== IMPORT FROM TEXTAREAS =====
+    var importingPath = ''; // зберігаємо вставлений path окремо від згенерованого
+
+    function onPathPaste() {
+      var val = outPath.value.trim();
+      if (!val) { importingPath = ''; render(); return; }
+      // Якщо це валідний SVG path (починається з M)
+      if (val.match(/^M\s/i)) {
+        importingPath = val;
+        render();
+        save();
+        dbg('✅ SVG path імпортовано і відображено', true);
+      }
+    }
+
+    function onJsonPaste() {
+      var val = outJson.value.trim();
+      if (!val) return;
+      try {
+        var d = JSON.parse(val);
+        if (d.s1Point !== undefined) s1Point = d.s1Point || null;
+        if (d.gridPositions) gridPoints = d.gridPositions;
+        if (d.pitPositions) pitPoints = d.pitPositions;
+        if (d.svgPath) { importingPath = d.svgPath; outPath.value = d.svgPath; }
+        save(); render();
+        dbg('✅ JSON імпортовано: S1='+(s1Point?'✓':'—')+' Grid='+gridPoints.length+' Pit='+pitPoints.length, true);
+      } catch(e) {
+        dbg('❌ Невалідний JSON: ' + e.message);
+      }
     }
 
     // ===== START =====
