@@ -52,6 +52,7 @@
     <button onclick="clearCurrent()">🗑 Очистити</button>
     <button onclick="closePath()" id="btnClose">⭕ Замкнути</button>
     <button onclick="copyAll()">📋 Копіювати все</button>
+    <button onclick="saveTracksJson()">💾 Зберегти JSON</button>
     <span id="stats" style="color:#aaa;font-size:12px;margin-left:auto;"></span>
   </div>
 
@@ -499,42 +500,80 @@
       }catch(e){dbg('❌ '+e.message);}
     }
 
-    // ===== AUTO-LOAD FROM tracks.ts =====
-    function tryLoadFromSource(trackId) {
-      fetch('../src/data/tracks.ts').then(function(r){ return r.text(); }).then(function(text) {
-        var re = new RegExp('id:\\s*' + trackId + ',[\\s\\S]*?svgPath:\\s*\\'([^\\']*)\\'');
-        var match = text.match(re);
-        if (match && match[1]) {
-          var parsed = parseSvgPathToPoints(match[1]);
-          if (parsed.length >= 2 && pathPoints.length === 0) {
-            pathPoints = parsed;
-            isClosed = match[1].indexOf('Z') >= 0;
-            var s1Match = text.match(new RegExp('id:\\s*' + trackId + ',[\\s\\S]*?s1Point:\\s*\\{\\s*x:\\s*(\\d+),\\s*y:\\s*(\\d+)'));
-            if (s1Match) s1Point = { x: parseInt(s1Match[1]), y: parseInt(s1Match[2]) };
-            var refMatch = text.match(new RegExp('id:\\s*' + trackId + ',[\\s\\S]*?referenceLapTime:\\s*(\\d+\\.?\\d*)'));
-            if (refMatch) { referenceLapTime = parseFloat(refMatch[1]); refLapInput.value = referenceLapTime; }
-            save(); render();
-            dbg('✅ Завантажено з tracks.ts: ' + parsed.length + ' точок', true);
-          }
-        }
-      }).catch(function(){});
+    // ===== TRACKS.JSON =====
+    var allTracksJson = {};
+
+    function fetchTracksJson(cb) {
+      fetch('../public/tracks/tracks.json').then(function(r){ return r.json(); }).then(function(data) {
+        allTracksJson = data || {};
+        if(cb) cb();
+      }).catch(function(){ if(cb) cb(); });
     }
 
-    // Track change
+    function loadTrackFromJson(trackId) {
+      var d = allTracksJson[String(trackId)];
+      if (!d || !d.svgPath) return false;
+      if (pathPoints.length > 0 || importingPath) return false;
+
+      var parsed = parseSvgPathToPoints(d.svgPath);
+      if (parsed.length < 2) return false;
+
+      pathPoints = parsed;
+      isClosed = d.svgPath.indexOf('Z') >= 0;
+      if (d.s1Point) s1Point = d.s1Point;
+      if (d.gridPositions && d.gridPositions.length) gridPoints = d.gridPositions;
+      if (d.pitPositions && d.pitPositions.length) pitPoints = d.pitPositions;
+      if (d.referenceLapTime) { referenceLapTime = d.referenceLapTime; refLapInput.value = referenceLapTime; }
+      if (d.speedProfile && d.speedProfile.length) {
+        timeMarkers = d.speedProfile.map(function(sp) {
+          return { pointIndex: Math.round(sp.progress * pathPoints.length), time: sp.time };
+        });
+      }
+      save(); render();
+      dbg('✅ Завантажено з tracks.json: ' + parsed.length + ' точок', true);
+      return true;
+    }
+
+    function saveTracksJson() {
+      var tid = trackSelect.value;
+      var drawnPath = buildPath(pathPoints, isClosed);
+      var finalPath = (pathPoints.length > 0) ? drawnPath : importingPath;
+      var sp = timeMarkers.map(function(m) {
+        return { progress: pathPoints.length > 0 ? +(m.pointIndex / pathPoints.length).toFixed(4) : 0, time: m.time };
+      });
+      allTracksJson[tid] = {
+        svgPath: finalPath || '',
+        s1Point: s1Point,
+        gridPositions: gridPoints,
+        pitPositions: pitPoints,
+        speedProfile: sp,
+        referenceLapTime: referenceLapTime
+      };
+      var blob = new Blob([JSON.stringify(allTracksJson, null, 2)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'tracks.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      dbg('💾 tracks.json скачано — збережи в public/tracks/', true);
+    }
+
     trackSelect.addEventListener('change', function(){
       loadSaved();
       var tid = parseInt(trackSelect.value);
-      if (pathPoints.length === 0 && !importingPath) tryLoadFromSource(tid);
+      if (pathPoints.length === 0 && !importingPath) loadTrackFromJson(tid);
       else render();
       loadImage(tid);
     });
 
     // ===== START =====
     overlaySvg.setAttribute('viewBox','0 0 '+imgW+' '+imgH);
-    loadSaved();
-    if (pathPoints.length === 0 && !importingPath) tryLoadFromSource(1);
-    else render();
-    loadImage(1);
+    fetchTracksJson(function() {
+      loadSaved();
+      if (pathPoints.length === 0 && !importingPath) loadTrackFromJson(1);
+      else render();
+      loadImage(1);
+    });
   </script>
 </body>
 </html>
