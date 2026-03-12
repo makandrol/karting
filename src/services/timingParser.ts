@@ -91,6 +91,7 @@ export function parseTimingHTML(html: string): TimingEntry[] | null {
         lapNumber: parseInt(cells[7]?.textContent?.trim() || '0', 10),
         bestS1: null,
         bestS2: null,
+        progress: null,
       });
     });
 

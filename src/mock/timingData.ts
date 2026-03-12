@@ -1,8 +1,7 @@
-import type { TimingEntry, TimingSnapshot, LiveRaceState, RaceResult, KartInfo, KartTopResult } from '../types';
-import { MIN_VALID_LAP_SECONDS } from '../types';
+import type { RaceResult, KartInfo, KartTopResult } from '../types';
 
 // ============================================================
-// Mock timing entries — імітація табло timing.karting.ua
+// Пілоти та карти для моків результатів змагань
 // ============================================================
 
 const PILOTS = [
@@ -18,118 +17,13 @@ const PILOTS = [
   'Мельник І.',
 ];
 
-const KARTS = [1, 3, 5, 7, 8, 10, 12, 14, 15, 17];
+const KARTS = [7, 3, 12, 5, 1, 10, 14, 8, 15, 17];
 
 function randomLapTime(baseSec: number, variance: number): string {
   const total = baseSec + (Math.random() - 0.5) * variance;
   const minutes = Math.floor(total / 60);
   const seconds = total - minutes * 60;
   return `${String(minutes).padStart(2, '0')}:${seconds.toFixed(3).padStart(6, '0')}`;
-}
-
-function randomSector(baseSec: number, variance: number): string {
-  const total = baseSec + (Math.random() - 0.5) * variance;
-  return total.toFixed(3);
-}
-
-/**
- * Парсить час кола зі строки "00:42.123" в секунди (42.123).
- */
-export function parseLapTimeToSeconds(lapTime: string | null): number | null {
-  if (!lapTime) return null;
-  const match = lapTime.match(/^(\d+):(\d+\.\d+)$/);
-  if (!match) return null;
-  return parseInt(match[1], 10) * 60 + parseFloat(match[2]);
-}
-
-/**
- * Перевіряє чи коло валідне (>= MIN_VALID_LAP_SECONDS).
- * Якщо час < 38.5s — хтось скоротив трасу.
- */
-export function isValidLap(lapTime: string | null): boolean {
-  const seconds = parseLapTimeToSeconds(lapTime);
-  if (seconds === null) return false;
-  return seconds >= MIN_VALID_LAP_SECONDS;
-}
-
-export function generateMockTimingEntries(count: number = 10): TimingEntry[] {
-  const entries: TimingEntry[] = [];
-  const usedPilots = PILOTS.slice(0, Math.min(count, PILOTS.length));
-
-  // Апанасенко лідер ~50% часу
-  const apanasenkIsLeader = Math.random() < 0.5;
-
-  for (let i = 0; i < usedPilots.length; i++) {
-    const lapNumber = Math.floor(Math.random() * 15) + 1;
-
-    let baseLap: number;
-    let baseS1: number;
-    let baseS2: number;
-
-    if (i === 0 && apanasenkIsLeader) {
-      // Апанасенко лідер
-      baseLap = 40.5;
-      baseS1 = 13.2;
-      baseS2 = 27.3;
-    } else if (i === 0 && !apanasenkIsLeader) {
-      // Апанасенко не лідер — трохи повільніший
-      baseLap = 41.5 + Math.random() * 1.5;
-      baseS1 = 13.8 + Math.random() * 0.3;
-      baseS2 = 27.7 + Math.random() * 0.5;
-    } else {
-      baseLap = 41.0 + i * 0.4 + Math.random() * 0.5;
-      baseS1 = 13.5 + i * 0.15;
-      baseS2 = 27.5 + i * 0.25;
-    }
-
-    entries.push({
-      position: 0, // will be set after sorting
-      pilot: usedPilots[i],
-      kart: KARTS[i % KARTS.length],
-      lastLap: lapNumber > 0 ? randomLapTime(baseLap, 1.5) : null,
-      s1: lapNumber > 0 ? randomSector(baseS1, 0.4) : null,
-      s2: lapNumber > 0 ? randomSector(baseS2, 0.6) : null,
-      bestLap: randomLapTime(baseLap - 0.3, 0.8),
-      lapNumber,
-      bestS1: randomSector(baseS1 - 0.15, 0.2),
-      bestS2: randomSector(baseS2 - 0.2, 0.3),
-    });
-  }
-
-  // Сортуємо за bestLap і виставляємо позиції
-  entries.sort((a, b) => {
-    const aTime = parseLapTimeToSeconds(a.bestLap);
-    const bTime = parseLapTimeToSeconds(b.bestLap);
-    if (aTime === null && bTime === null) return 0;
-    if (aTime === null) return 1;
-    if (bTime === null) return -1;
-    return aTime - bTime;
-  });
-
-  entries.forEach((e, idx) => { e.position = idx + 1; });
-
-  return entries;
-}
-
-export function generateMockSnapshot(): TimingSnapshot {
-  return {
-    timestamp: Date.now(),
-    sessionId: 'mock-session-001',
-    entries: generateMockTimingEntries(10),
-  };
-}
-
-export function generateMockLiveRace(): LiveRaceState {
-  const minutes = Math.floor(Math.random() * 10);
-  const seconds = Math.floor(Math.random() * 60);
-
-  return {
-    isActive: true,
-    sessionName: 'Вечірня практика — Сесія 3',
-    timeRemaining: `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`,
-    entries: generateMockTimingEntries(10),
-    lastUpdate: Date.now(),
-  };
 }
 
 // ============================================================
@@ -170,11 +64,10 @@ export function generateMockRaceResults(count: number = 10): RaceResult[] {
 // ============================================================
 
 function generateKartTop5(kartNumber: number): KartTopResult[] {
-  // Генеруємо top-5 результатів для кожного карту від різних пілотів
   const shuffled = [...PILOTS].sort(() => Math.random() - 0.5);
   const top5Pilots = shuffled.slice(0, 5);
 
-  const baseLap = 40.0 + (kartNumber % 5) * 0.4; // різна швидкість карту
+  const baseLap = 40.0 + (kartNumber % 5) * 0.4;
 
   return top5Pilots.map((pilot, i) => {
     const lapSec = baseLap + i * 0.3 + Math.random() * 0.5;

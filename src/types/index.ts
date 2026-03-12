@@ -16,6 +16,8 @@ export interface TimingEntry {
   lapNumber: number;
   bestS1: string | null;
   bestS2: string | null;
+  /** 0..1 прогрес по колу (для повзунка). null якщо невідомо */
+  progress: number | null;
 }
 
 export interface TimingSnapshot {

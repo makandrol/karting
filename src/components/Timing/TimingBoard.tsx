@@ -52,7 +52,7 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
             <thead>
               <tr className="table-header">
                 <th className="table-cell text-center w-12">#</th>
-                <th className="table-cell text-left">Пілот</th>
+                <th className="table-cell text-left min-w-[180px]">Пілот</th>
                 <th className="table-cell text-center">Карт</th>
                 <th className="table-cell text-right">Останнє коло</th>
                 {!compact && <th className="table-cell text-right">S1</th>}
@@ -65,7 +65,7 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
             </thead>
             <tbody>
               {entries.map((entry) => (
-                <tr key={`${entry.pilot}-${entry.kart}`} className="table-row">
+                <tr key={`${entry.pilot}-${entry.kart}`} className="table-row group">
                   <td className={`table-cell text-center font-mono font-bold ${
                     entry.position === 1 ? 'position-1' :
                     entry.position === 2 ? 'position-2' :
@@ -73,8 +73,25 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
                   }`}>
                     {entry.position}
                   </td>
-                  <td className="table-cell text-left font-medium text-white">
-                    {entry.pilot}
+                  <td className="table-cell text-left">
+                    <div className="font-medium text-white text-sm">
+                      {entry.pilot}
+                    </div>
+                    {/* Повзунок прогресу по колу */}
+                    {entry.progress !== null && (
+                      <div className="mt-1.5 h-1 w-full bg-dark-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ease-linear ${
+                            entry.position === 1
+                              ? 'bg-yellow-500/70'
+                              : entry.position <= 3
+                                ? 'bg-primary-500/50'
+                                : 'bg-dark-500/50'
+                          }`}
+                          style={{ width: `${Math.round(entry.progress * 100)}%` }}
+                        />
+                      </div>
+                    )}
                   </td>
                   <td className="table-cell text-center font-mono text-dark-300">
                     {entry.kart}
