@@ -166,7 +166,7 @@
       save(); render();
     }
 
-    trackSelect.addEventListener('change', function(){loadSaved();loadImage(parseInt(trackSelect.value));});
+    // Track change handled below in START section
 
     // ===== COORD HELPERS =====
     function evtToCoord(e) {
@@ -499,9 +499,42 @@
       }catch(e){dbg('❌ '+e.message);}
     }
 
+    // ===== AUTO-LOAD FROM tracks.ts =====
+    function tryLoadFromSource(trackId) {
+      fetch('../src/data/tracks.ts').then(function(r){ return r.text(); }).then(function(text) {
+        var re = new RegExp('id:\\s*' + trackId + ',[\\s\\S]*?svgPath:\\s*\\'([^\\']*)\\'');
+        var match = text.match(re);
+        if (match && match[1]) {
+          var parsed = parseSvgPathToPoints(match[1]);
+          if (parsed.length >= 2 && pathPoints.length === 0) {
+            pathPoints = parsed;
+            isClosed = match[1].indexOf('Z') >= 0;
+            var s1Match = text.match(new RegExp('id:\\s*' + trackId + ',[\\s\\S]*?s1Point:\\s*\\{\\s*x:\\s*(\\d+),\\s*y:\\s*(\\d+)'));
+            if (s1Match) s1Point = { x: parseInt(s1Match[1]), y: parseInt(s1Match[2]) };
+            var refMatch = text.match(new RegExp('id:\\s*' + trackId + ',[\\s\\S]*?referenceLapTime:\\s*(\\d+\\.?\\d*)'));
+            if (refMatch) { referenceLapTime = parseFloat(refMatch[1]); refLapInput.value = referenceLapTime; }
+            save(); render();
+            dbg('✅ Завантажено з tracks.ts: ' + parsed.length + ' точок', true);
+          }
+        }
+      }).catch(function(){});
+    }
+
+    // Track change
+    trackSelect.addEventListener('change', function(){
+      loadSaved();
+      var tid = parseInt(trackSelect.value);
+      if (pathPoints.length === 0 && !importingPath) tryLoadFromSource(tid);
+      else render();
+      loadImage(tid);
+    });
+
     // ===== START =====
     overlaySvg.setAttribute('viewBox','0 0 '+imgW+' '+imgH);
-    loadSaved();render();loadImage(1);
+    loadSaved();
+    if (pathPoints.length === 0 && !importingPath) tryLoadFromSource(1);
+    else render();
+    loadImage(1);
   </script>
 </body>
 </html>
