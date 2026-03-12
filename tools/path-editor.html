@@ -10,23 +10,22 @@
     .controls { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
     button { background: #333; color: #fff; border: 1px solid #555; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; }
     button:hover { background: #444; }
-    button.active { background: #e52d1a; border-color: #e52d1a; }
     select { background: #333; color: #fff; border: 1px solid #555; padding: 8px 12px; border-radius: 8px; font-size: 13px; }
-    .canvas-wrap { position: relative; display: inline-block; cursor: crosshair; }
-    .canvas-wrap img { display: block; max-width: 100%; border-radius: 8px; }
-    .canvas-wrap svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    .canvas-wrap { position: relative; cursor: crosshair; width: 100%; }
+    .canvas-wrap img { display: block; width: 100%; height: auto; border-radius: 8px; }
+    .canvas-wrap svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
     .output { margin-top: 16px; }
     textarea { width: 100%; height: 120px; background: #222; color: #4ade80; border: 1px solid #444; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 13px; resize: vertical; }
-    .point-list { margin-top: 8px; font-size: 12px; color: #888; max-height: 200px; overflow-y: auto; }
-    .hint { color: #888; font-size: 12px; margin-bottom: 12px; }
+    .hint { color: #888; font-size: 12px; margin-bottom: 12px; line-height: 1.5; }
+    .hint code { background: #333; padding: 2px 6px; border-radius: 4px; }
     .stats { color: #aaa; font-size: 13px; margin-left: auto; }
   </style>
 </head>
 <body>
   <h1>🏎️ Редактор SVG шляху для треків</h1>
   <p class="hint">
-    Клікай по трасі послідовно — від фінішу (старт/фініш) по напрямку руху і назад до фінішу.
-    Точки з'єднуються плавною кривою. Результат копіюй в <code>src/data/tracks.ts</code>.
+    Клікай по трасі послідовно — починай від фінішної лінії, йди по напрямку руху (за годинниковою), і замкни контур.<br>
+    Достатньо 20-30 точок. Результат копіюй в <code>src/data/tracks.ts</code> → поле <code>svgPath</code>.
   </p>
 
   <div class="controls">
@@ -35,15 +34,15 @@
     </label>
     <button onclick="undo()">↩ Undo</button>
     <button onclick="clearPoints()">🗑 Очистити</button>
-    <button onclick="closePath()">⭕ Замкнути шлях</button>
+    <button onclick="closePath()">⭕ Замкнути</button>
     <button onclick="copyPath()">📋 Копіювати</button>
     <span class="stats" id="stats">Точок: 0</span>
   </div>
 
   <div class="canvas-wrap" id="canvasWrap">
-    <img id="trackImg" src="" alt="Track">
-    <svg id="overlaySvg" viewBox="0 0 800 500">
-      <path id="svgPath" fill="none" stroke="#e52d1a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" />
+    <img id="trackImg" src="" alt="Track" crossorigin="anonymous">
+    <svg id="overlaySvg" preserveAspectRatio="none">
+      <path id="svgPath" fill="none" stroke="#e52d1a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" />
       <g id="pointsGroup"></g>
     </svg>
   </div>
@@ -59,13 +58,12 @@
       TRACKS.push({
         id: i,
         name: `Конфігурація №${i}`,
-        image: `tracks/nfs_${String(i).padStart(2, '0')}.jpg`,
+        image: `../public/tracks/nfs_${String(i).padStart(2, '0')}.jpg`,
       });
     }
 
-    // viewBox dimensions
-    const VB_W = 800;
-    const VB_H = 500;
+    let imgNaturalW = 1280;
+    let imgNaturalH = 800;
 
     let points = [];
     let isClosed = false;
@@ -87,45 +85,59 @@
       trackSelect.appendChild(opt);
     });
 
+    function updateViewBox() {
+      overlaySvg.setAttribute('viewBox', `0 0 ${imgNaturalW} ${imgNaturalH}`);
+    }
+
+    trackImg.addEventListener('load', () => {
+      imgNaturalW = trackImg.naturalWidth;
+      imgNaturalH = trackImg.naturalHeight;
+      updateViewBox();
+      render();
+    });
+
     // Load saved points from localStorage
     function loadSaved() {
       try {
-        const saved = localStorage.getItem(`track_path_${trackSelect.value}`);
+        const saved = localStorage.getItem(`track_path_v2_${trackSelect.value}`);
         if (saved) {
           const data = JSON.parse(saved);
           points = data.points || [];
           isClosed = data.isClosed || false;
-          render();
+        } else {
+          points = [];
+          isClosed = false;
         }
-      } catch {}
+      } catch {
+        points = [];
+        isClosed = false;
+      }
     }
 
     function saveCurrent() {
-      localStorage.setItem(`track_path_${trackSelect.value}`, JSON.stringify({ points, isClosed }));
+      localStorage.setItem(`track_path_v2_${trackSelect.value}`, JSON.stringify({ points, isClosed }));
     }
 
     trackSelect.addEventListener('change', () => {
       const t = TRACKS.find(x => x.id === parseInt(trackSelect.value));
       trackImg.src = t.image;
-      points = [];
-      isClosed = false;
       loadSaved();
       render();
     });
 
-    // Init
+    // Init first track
     trackImg.src = TRACKS[0].image;
     loadSaved();
 
-    // Click handler
+    // Click handler — coordinates in image native pixels
     canvasWrap.addEventListener('click', (e) => {
       if (isClosed) return;
 
-      const rect = canvasWrap.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * VB_W;
-      const y = ((e.clientY - rect.top) / rect.height) * VB_H;
+      const rect = trackImg.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * imgNaturalW;
+      const y = ((e.clientY - rect.top) / rect.height) * imgNaturalH;
 
-      points.push({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
+      points.push({ x: Math.round(x), y: Math.round(y) });
       saveCurrent();
       render();
     });
@@ -138,6 +150,7 @@
     }
 
     function clearPoints() {
+      if (!confirm('Очистити всі точки?')) return;
       points = [];
       isClosed = false;
       saveCurrent();
@@ -153,10 +166,11 @@
     }
 
     function copyPath() {
-      pathOutput.select();
-      navigator.clipboard.writeText(pathOutput.value);
-      pathOutput.style.borderColor = '#4ade80';
-      setTimeout(() => { pathOutput.style.borderColor = '#444'; }, 1000);
+      const text = pathOutput.value;
+      navigator.clipboard.writeText(text).then(() => {
+        pathOutput.style.borderColor = '#4ade80';
+        setTimeout(() => { pathOutput.style.borderColor = '#444'; }, 1500);
+      });
     }
 
     function buildSmoothPath(pts, closed) {
@@ -170,7 +184,7 @@
         return d;
       }
 
-      // Catmull-Rom to cubic bezier
+      // Catmull-Rom → cubic bezier
       const allPts = closed
         ? [pts[pts.length - 1], ...pts, pts[0], pts[1]]
         : [pts[0], ...pts, pts[pts.length - 1]];
@@ -187,16 +201,10 @@
         const cp2x = p2.x - (p3.x - p1.x) * tension;
         const cp2y = p2.y - (p3.y - p1.y) * tension;
 
-        if (i === 1 && !closed) {
-          d += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x},${p2.y}`;
-        } else {
-          d += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x},${p2.y}`;
-        }
+        d += ` C ${Math.round(cp1x)},${Math.round(cp1y)} ${Math.round(cp2x)},${Math.round(cp2y)} ${p2.x},${p2.y}`;
       }
 
-      if (closed) {
-        d += ' Z';
-      }
+      if (closed) d += ' Z';
 
       return d;
     }
@@ -209,29 +217,37 @@
 
       // Render point dots
       pointsGroup.innerHTML = '';
+      
+      // Dot size relative to image
+      const dotR = Math.max(imgNaturalW / 200, 4);
+      const startR = dotR * 1.5;
+      const fontSize = Math.max(imgNaturalW / 100, 10);
+
       points.forEach((p, i) => {
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         circle.setAttribute('cx', p.x);
         circle.setAttribute('cy', p.y);
-        circle.setAttribute('r', i === 0 ? '6' : '4');
+        circle.setAttribute('r', i === 0 ? startR : dotR);
         circle.setAttribute('fill', i === 0 ? '#4ade80' : '#facc15');
         circle.setAttribute('stroke', '#000');
-        circle.setAttribute('stroke-width', '1.5');
+        circle.setAttribute('stroke-width', Math.max(dotR / 3, 1));
         circle.setAttribute('opacity', '0.9');
         pointsGroup.appendChild(circle);
 
         // Number label
         const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', p.x + 8);
-        text.setAttribute('y', p.y - 8);
-        text.setAttribute('fill', '#888');
-        text.setAttribute('font-size', '10');
+        text.setAttribute('x', p.x + dotR + 4);
+        text.setAttribute('y', p.y - dotR - 2);
+        text.setAttribute('fill', '#ccc');
+        text.setAttribute('font-size', fontSize);
         text.setAttribute('font-family', 'monospace');
+        text.setAttribute('font-weight', 'bold');
         text.textContent = String(i + 1);
         pointsGroup.appendChild(text);
       });
     }
 
+    updateViewBox();
     render();
   </script>
 </body>
