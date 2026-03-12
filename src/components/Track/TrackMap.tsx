@@ -23,25 +23,27 @@ function pilotShort(name: string): string {
   return name.slice(0, 3);
 }
 
-interface KartPos {
+interface KartState {
   kart: number;
   pilot: string;
-  current: number;   // поточний progress (анімований)
-  target: number;    // цільовий progress (з даних)
   position: number;
+  current: number;       // поточна відрендерена позиція (0..1)
+  velocity: number;      // швидкість (progress/sec), оцінена з останніх оновлень
+  lastTarget: number;    // останній отриманий target
+  prevTarget: number;    // попередній target (для обчислення velocity)
+  lastUpdateTime: number; // час останнього оновлення даних
 }
 
 export default function TrackMap({ track, entries }: TrackMapProps) {
   const pathRef = useRef<SVGPathElement>(null);
   const [pathReady, setPathReady] = useState(false);
-  const positionsRef = useRef<KartPos[]>([]);
-  const [rendered, setRendered] = useState<KartPos[]>([]);
+  const statesRef = useRef<KartState[]>([]);
+  const [rendered, setRendered] = useState<KartState[]>([]);
   const rafRef = useRef<number>(0);
-  const lastTimeRef = useRef<number>(0);
+  const lastFrameRef = useRef<number>(0);
 
   const hasPath = track.svgPath.length > 0;
 
-  // Оновити таргети коли приходять нові дані
   const targets = useMemo(() => {
     return entries
       .filter((e) => e.progress !== null && e.progress >= 0)
@@ -53,51 +55,102 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
       }));
   }, [entries]);
 
+  // Оновити стани коли приходять нові дані
   useEffect(() => {
-    const prev = positionsRef.current;
-    positionsRef.current = targets.map((t) => {
+    const now = performance.now() / 1000;
+    const prev = statesRef.current;
+
+    statesRef.current = targets.map((t) => {
       const existing = prev.find((p) => p.kart === t.kart);
+
+      if (!existing) {
+        // Новий карт — початковий стан
+        return {
+          kart: t.kart,
+          pilot: t.pilot,
+          position: t.position,
+          current: t.progress,
+          velocity: 0.024, // ~1 коло за 42с → 1/42 ≈ 0.024 progress/sec
+          lastTarget: t.progress,
+          prevTarget: t.progress,
+          lastUpdateTime: now,
+        };
+      }
+
+      // Обчислити нову velocity з різниці targets
+      const dt = now - existing.lastUpdateTime;
+      if (dt > 0.1) { // мінімум 100мс між оновленнями
+        let progressDiff = t.progress - existing.lastTarget;
+        // Wraparound
+        if (progressDiff < -0.5) progressDiff += 1;
+        if (progressDiff < 0) progressDiff += 1; // завжди вперед
+
+        const newVelocity = progressDiff / dt;
+
+        // Згладжена velocity (80% стара + 20% нова) для стабільності
+        const smoothVelocity = newVelocity > 0.001
+          ? existing.velocity * 0.7 + newVelocity * 0.3
+          : existing.velocity;
+
+        return {
+          ...existing,
+          pilot: t.pilot,
+          position: t.position,
+          velocity: Math.max(smoothVelocity, 0.005), // мінімальна швидкість
+          prevTarget: existing.lastTarget,
+          lastTarget: t.progress,
+          lastUpdateTime: now,
+        };
+      }
+
       return {
-        kart: t.kart,
+        ...existing,
         pilot: t.pilot,
-        current: existing ? existing.current : t.progress,
-        target: t.progress,
         position: t.position,
+        lastTarget: t.progress,
       };
     });
   }, [targets]);
 
-  // 60fps animation loop
+  // 60fps: рівномірний рух з постійною швидкістю + м'яка корекція
   const tick = useCallback((time: number) => {
-    const dt = lastTimeRef.current ? (time - lastTimeRef.current) / 1000 : 0.016;
-    lastTimeRef.current = time;
+    const now = time / 1000;
+    const dt = lastFrameRef.current ? now - lastFrameRef.current : 0.016;
+    lastFrameRef.current = now;
 
-    // Швидкість інтерполяції — чим більше, тим швидше наздоганяє таргет
-    // 5.0 = наздоганяє за ~0.3с, плавно
-    const speed = 5.0;
-    const factor = 1 - Math.exp(-speed * dt);
-
+    const states = statesRef.current;
     let changed = false;
-    const positions = positionsRef.current;
 
-    for (const p of positions) {
-      let diff = p.target - p.current;
+    for (const s of states) {
+      // 1. Рівномірний рух вперед з поточною швидкістю
+      let newPos = s.current + s.velocity * dt;
 
-      // Wraparound через фініш (0→1)
-      if (diff > 0.5) diff -= 1;
-      if (diff < -0.5) diff += 1;
+      // 2. М'яка корекція до таргету (щоб не розходитись)
+      //    Екстраполюємо де таргет зараз (таргет + швидкість × час_після_оновлення)
+      const timeSinceUpdate = now - s.lastUpdateTime;
+      let expectedPos = s.lastTarget + s.velocity * timeSinceUpdate;
 
-      const newCurrent = p.current + diff * factor;
-      const normalized = ((newCurrent % 1) + 1) % 1;
+      // Wraparound
+      expectedPos = ((expectedPos % 1) + 1) % 1;
 
-      if (Math.abs(normalized - p.current) > 0.0001) {
-        p.current = normalized;
+      let correction = expectedPos - newPos;
+      if (correction > 0.5) correction -= 1;
+      if (correction < -0.5) correction += 1;
+
+      // Дуже м'яка корекція — 2% за кадр
+      newPos += correction * 0.02;
+
+      // Normalize
+      newPos = ((newPos % 1) + 1) % 1;
+
+      if (Math.abs(newPos - s.current) > 0.00001) {
+        s.current = newPos;
         changed = true;
       }
     }
 
     if (changed) {
-      setRendered([...positions]);
+      setRendered(states.map((s) => ({ ...s })));
     }
 
     rafRef.current = requestAnimationFrame(tick);
@@ -111,7 +164,6 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
     };
   }, [hasPath, pathReady, tick]);
 
-  // Path ready
   useEffect(() => {
     setPathReady(false);
     if (!hasPath) return;
