@@ -52,7 +52,8 @@
     <button onclick="clearCurrent()">🗑 Очистити</button>
     <button onclick="closePath()" id="btnClose">⭕ Замкнути</button>
     <button onclick="copyAll()">📋 Копіювати все</button>
-    <button onclick="saveTracksJson()">💾 Зберегти JSON</button>
+    <button onclick="saveTracksJson()">💾 Зберегти</button>
+    <button onclick="downloadTracksJson()">📥 Завантажити JSON</button>
     <span id="stats" style="color:#aaa;font-size:12px;margin-left:auto;"></span>
   </div>
 
@@ -534,7 +535,7 @@
       return true;
     }
 
-    function saveTracksJson() {
+    function buildCurrentTrackData() {
       var tid = trackSelect.value;
       var drawnPath = buildPath(pathPoints, isClosed);
       var finalPath = (pathPoints.length > 0) ? drawnPath : importingPath;
@@ -549,13 +550,33 @@
         speedProfile: sp,
         referenceLapTime: referenceLapTime
       };
-      var blob = new Blob([JSON.stringify(allTracksJson, null, 2)], { type: 'application/json' });
+      return allTracksJson;
+    }
+
+    function saveTracksJson() {
+      var data = buildCurrentTrackData();
+      var json = JSON.stringify(data, null, 2);
+      fetch('/save-tracks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: json
+      }).then(function(r) { return r.json(); }).then(function(resp) {
+        if (resp.ok) dbg('💾 Збережено в tracks.json', true);
+        else dbg('❌ ' + (resp.error || 'Помилка'));
+      }).catch(function() {
+        dbg('❌ Сервер недоступний. Запусти: node tools/server.js');
+      });
+    }
+
+    function downloadTracksJson() {
+      var data = buildCurrentTrackData();
+      var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'tracks.json';
       a.click();
       URL.revokeObjectURL(a.href);
-      dbg('💾 tracks.json скачано — збережи в public/tracks/', true);
+      dbg('📥 tracks.json скачано', true);
     }
 
     trackSelect.addEventListener('change', function(){
