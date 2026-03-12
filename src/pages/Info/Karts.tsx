@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MOCK_KARTS } from '../../mock/timingData';
 import { MIN_VALID_LAP_SECONDS } from '../../types';
+import { LapFilter, getDefaultFilter, type LapFilterState } from '../../components/Filters';
 
 function formatDatetime(dt: string): string {
   try {
@@ -13,6 +14,7 @@ function formatDatetime(dt: string): string {
 
 export default function Karts() {
   const [expandedKart, setExpandedKart] = useState<number | null>(null);
+  const [filter, setFilter] = useState<LapFilterState>(getDefaultFilter);
 
   const toggleKart = (num: number) => {
     setExpandedKart(expandedKart === num ? null : num);
@@ -27,6 +29,8 @@ export default function Karts() {
           Кола менше {MIN_VALID_LAP_SECONDS}с автоматично ігноруються.
         </p>
       </div>
+
+      <LapFilter filter={filter} onChange={setFilter} />
 
       <div className="space-y-3">
         {MOCK_KARTS.map((kart) => {

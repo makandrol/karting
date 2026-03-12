@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { MOCK_KARTS, generateKartLaps } from '../../mock/timingData';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { LapFilter, getDefaultFilter, type LapFilterState } from '../../components/Filters';
 
 function formatDatetime(dt: string): string {
   try {
@@ -14,6 +15,7 @@ export default function KartDetail() {
   const { kartId } = useParams<{ kartId: string }>();
   const kartNumber = parseInt(kartId || '0', 10);
   const kart = MOCK_KARTS.find((k) => k.number === kartNumber);
+  const [filter, setFilter] = useState<LapFilterState>(getDefaultFilter);
 
   const allLaps = useMemo(() => generateKartLaps(kartNumber, 50), [kartNumber]);
 
@@ -54,6 +56,8 @@ export default function KartDetail() {
           )}
         </div>
       </div>
+
+      <LapFilter filter={filter} onChange={setFilter} />
 
       {/* Top 5 */}
       <div className="card p-0 overflow-hidden">
