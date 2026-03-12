@@ -14,34 +14,35 @@ const POSITION_COLORS = [
 ];
 
 function getPointOnPath(pathEl: SVGPathElement, progress: number): { x: number; y: number } {
-  const totalLength = pathEl.getTotalLength();
-  const point = pathEl.getPointAtLength(progress * totalLength);
-  return { x: point.x, y: point.y };
+  const len = pathEl.getTotalLength();
+  const pt = pathEl.getPointAtLength(progress * len);
+  return { x: pt.x, y: pt.y };
 }
 
-/** Перші 3 букви прізвища (або імені якщо коротке) */
 function pilotShort(name: string): string {
   return name.slice(0, 3);
 }
 
-interface KartPosition {
+interface KartPos {
   kart: number;
   pilot: string;
-  progress: number;
+  current: number;   // поточний progress (анімований)
+  target: number;    // цільовий progress (з даних)
   position: number;
 }
 
 export default function TrackMap({ track, entries }: TrackMapProps) {
   const pathRef = useRef<SVGPathElement>(null);
   const [pathReady, setPathReady] = useState(false);
-  const [smoothPositions, setSmoothPositions] = useState<KartPosition[]>([]);
-  const targetRef = useRef<KartPosition[]>([]);
-  const animFrameRef = useRef<number>(0);
+  const positionsRef = useRef<KartPos[]>([]);
+  const [rendered, setRendered] = useState<KartPos[]>([]);
+  const rafRef = useRef<number>(0);
+  const lastTimeRef = useRef<number>(0);
 
   const hasPath = track.svgPath.length > 0;
 
-  // Target positions from entries
-  const kartPositions = useMemo(() => {
+  // Оновити таргети коли приходять нові дані
+  const targets = useMemo(() => {
     return entries
       .filter((e) => e.progress !== null && e.progress >= 0)
       .map((e) => ({
@@ -52,52 +53,65 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
       }));
   }, [entries]);
 
-  // Update target ref
   useEffect(() => {
-    targetRef.current = kartPositions;
-  }, [kartPositions]);
-
-  // Smooth animation loop at ~10fps (100ms)
-  const animate = useCallback(() => {
-    setSmoothPositions((prev) => {
-      const targets = targetRef.current;
-      if (targets.length === 0) return targets;
-
-      return targets.map((target) => {
-        const existing = prev.find((p) => p.kart === target.kart);
-        if (!existing) return target;
-
-        // Lerp progress toward target (handle wraparound at 0/1)
-        let diff = target.progress - existing.progress;
-        // If kart crossed finish line (progress jumped from ~0.99 to ~0.01)
-        if (diff < -0.5) diff += 1;
-        if (diff > 0.5) diff -= 1;
-
-        const lerped = existing.progress + diff * 0.3;
-        // Normalize to 0..1
-        const normalized = ((lerped % 1) + 1) % 1;
-
-        return {
-          ...target,
-          progress: normalized,
-        };
-      });
+    const prev = positionsRef.current;
+    positionsRef.current = targets.map((t) => {
+      const existing = prev.find((p) => p.kart === t.kart);
+      return {
+        kart: t.kart,
+        pilot: t.pilot,
+        current: existing ? existing.current : t.progress,
+        target: t.progress,
+        position: t.position,
+      };
     });
+  }, [targets]);
 
-    animFrameRef.current = window.setTimeout(() => {
-      requestAnimationFrame(animate);
-    }, 100); // ~10fps
+  // 60fps animation loop
+  const tick = useCallback((time: number) => {
+    const dt = lastTimeRef.current ? (time - lastTimeRef.current) / 1000 : 0.016;
+    lastTimeRef.current = time;
+
+    // Швидкість інтерполяції — чим більше, тим швидше наздоганяє таргет
+    // 5.0 = наздоганяє за ~0.3с, плавно
+    const speed = 5.0;
+    const factor = 1 - Math.exp(-speed * dt);
+
+    let changed = false;
+    const positions = positionsRef.current;
+
+    for (const p of positions) {
+      let diff = p.target - p.current;
+
+      // Wraparound через фініш (0→1)
+      if (diff > 0.5) diff -= 1;
+      if (diff < -0.5) diff += 1;
+
+      const newCurrent = p.current + diff * factor;
+      const normalized = ((newCurrent % 1) + 1) % 1;
+
+      if (Math.abs(normalized - p.current) > 0.0001) {
+        p.current = normalized;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      setRendered([...positions]);
+    }
+
+    rafRef.current = requestAnimationFrame(tick);
   }, []);
 
   useEffect(() => {
     if (!hasPath || !pathReady) return;
-    requestAnimationFrame(animate);
+    rafRef.current = requestAnimationFrame(tick);
     return () => {
-      if (animFrameRef.current) clearTimeout(animFrameRef.current);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [hasPath, pathReady, animate]);
+  }, [hasPath, pathReady, tick]);
 
-  // Path ready detection
+  // Path ready
   useEffect(() => {
     setPathReady(false);
     if (!hasPath) return;
@@ -114,18 +128,12 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
           {track.name} — {track.length}
         </span>
         {!hasPath && (
-          <span className="text-dark-600 text-xs">
-            Шлях не налаштований
-          </span>
+          <span className="text-dark-600 text-xs">Шлях не налаштований</span>
         )}
       </div>
 
       <div className="relative">
-        <img
-          src={track.image}
-          alt={track.name}
-          className="w-full rounded-lg opacity-90"
-        />
+        <img src={track.image} alt={track.name} className="w-full rounded-lg opacity-90" />
 
         {hasPath && (
           <svg
@@ -133,50 +141,26 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
             className="absolute inset-0 w-full h-full"
             style={{ pointerEvents: 'none' }}
           >
-            <path
-              ref={pathRef}
-              d={track.svgPath}
-              fill="none"
-              stroke="none"
-            />
+            <path ref={pathRef} d={track.svgPath} fill="none" stroke="none" />
 
-            {pathReady && pathRef.current && smoothPositions.map((kp) => {
-              const point = getPointOnPath(pathRef.current!, kp.progress);
+            {pathReady && pathRef.current && rendered.map((kp) => {
+              const pt = getPointOnPath(pathRef.current!, kp.current);
               const color = POSITION_COLORS[Math.min(kp.position - 1, POSITION_COLORS.length - 1)];
-              const short = pilotShort(kp.pilot);
 
               return (
                 <g key={kp.kart}>
-                  {/* Outer glow */}
-                  <circle cx={point.x} cy={point.y} r={28} fill={color} opacity={0.15} />
-                  {/* Background circle */}
-                  <circle cx={point.x} cy={point.y} r={20} fill={color} stroke="#1a1a1a" strokeWidth={2.5} />
-                  {/* Kart number */}
+                  <circle cx={pt.x} cy={pt.y} r={28} fill={color} opacity={0.15} />
+                  <circle cx={pt.x} cy={pt.y} r={20} fill={color} stroke="#1a1a1a" strokeWidth={2.5} />
                   <text
-                    x={point.x}
-                    y={point.y - 3}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fill="#1a1a1a"
-                    fontSize="13"
-                    fontWeight="bold"
-                    fontFamily="monospace"
-                  >
-                    {kp.kart}
-                  </text>
-                  {/* 3-letter pilot name */}
+                    x={pt.x} y={pt.y - 3}
+                    textAnchor="middle" dominantBaseline="central"
+                    fill="#1a1a1a" fontSize="13" fontWeight="bold" fontFamily="monospace"
+                  >{kp.kart}</text>
                   <text
-                    x={point.x}
-                    y={point.y + 10}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fill="#1a1a1a"
-                    fontSize="8"
-                    fontWeight="600"
-                    fontFamily="system-ui, sans-serif"
-                  >
-                    {short}
-                  </text>
+                    x={pt.x} y={pt.y + 10}
+                    textAnchor="middle" dominantBaseline="central"
+                    fill="#1a1a1a" fontSize="8" fontWeight="600" fontFamily="system-ui, sans-serif"
+                  >{pilotShort(kp.pilot)}</text>
                 </g>
               );
             })}
@@ -184,10 +168,9 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
         )}
       </div>
 
-      {/* Legend */}
-      {smoothPositions.length > 0 && hasPath && (
+      {rendered.length > 0 && hasPath && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {smoothPositions.slice(0, 6).map((kp) => {
+          {rendered.slice(0, 6).map((kp) => {
             const color = POSITION_COLORS[Math.min(kp.position - 1, POSITION_COLORS.length - 1)];
             return (
               <span key={kp.kart} className="inline-flex items-center gap-1.5 text-xs text-dark-400">
@@ -197,8 +180,8 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
               </span>
             );
           })}
-          {smoothPositions.length > 6 && (
-            <span className="text-xs text-dark-600">+{smoothPositions.length - 6}</span>
+          {rendered.length > 6 && (
+            <span className="text-xs text-dark-600">+{rendered.length - 6}</span>
           )}
         </div>
       )}
