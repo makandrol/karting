@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { NavItem } from '../../types';
-import { useAuth } from '../../services/auth';
+import { useAuth, ROLE_ICONS } from '../../services/auth';
 
 const NAV_ITEMS: NavItem[] = [
   {
@@ -30,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export default function Header() {
   const location = useLocation();
-  const { user, isAdmin, isSuperAdmin, logout } = useAuth();
+  const { user, isOwner, isModerator, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
@@ -103,18 +103,24 @@ export default function Header() {
                 >
                   <button className="nav-link flex items-center gap-2">
                     <span className="text-xs">
-                      {isSuperAdmin ? '👑' : isAdmin ? '🛡️' : '👤'}
+                      {ROLE_ICONS[user.role]}
                     </span>
                     {user.name}
                   </button>
                   {openDropdown === 'user' && (
                     <div className="absolute top-full right-0 mt-1 w-48 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-2 z-50">
-                      {isSuperAdmin && (
+                      <Link
+                        to="/login"
+                        className="block px-4 py-2.5 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
+                      >
+                        👤 Профіль
+                      </Link>
+                      {isOwner && (
                         <Link
                           to="/admin"
                           className="block px-4 py-2.5 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
                         >
-                          🔧 Панель адміна
+                          🔧 Модератори
                         </Link>
                       )}
                       <button
@@ -180,16 +186,20 @@ export default function Header() {
             <div className="pt-2 mt-2 border-t border-dark-800">
               {user ? (
                 <>
-                  <div className="px-3 py-2 text-dark-300 text-sm">
-                    {isSuperAdmin ? '👑' : '🛡️'} {user.name}
-                  </div>
-                  {isSuperAdmin && (
+                  <Link
+                    to="/login"
+                    onClick={() => setMobileOpen(false)}
+                    className="block px-3 py-2 rounded-lg text-sm text-dark-300"
+                  >
+                    {ROLE_ICONS[user.role]} {user.name}
+                  </Link>
+                  {isOwner && (
                     <Link
                       to="/admin"
                       onClick={() => setMobileOpen(false)}
                       className="block px-3 py-2 rounded-lg text-sm text-dark-300 hover:text-white hover:bg-dark-800"
                     >
-                      🔧 Панель адміна
+                      🔧 Модератори
                     </Link>
                   )}
                   <button

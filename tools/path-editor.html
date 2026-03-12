@@ -39,8 +39,10 @@
     <span class="stats" id="stats">Точок: 0</span>
   </div>
 
+  <div id="debugInfo" style="background:#222;padding:8px 12px;border-radius:6px;font-family:monospace;font-size:12px;color:#f87171;margin-bottom:10px;display:none;word-break:break-all;"></div>
+
   <div class="canvas-wrap" id="canvasWrap">
-    <img id="trackImg" src="" alt="Track" crossorigin="anonymous">
+    <img id="trackImg" src="" alt="Track">
     <svg id="overlaySvg" preserveAspectRatio="none">
       <path id="svgPath" fill="none" stroke="#e52d1a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" />
       <g id="pointsGroup"></g>
@@ -55,10 +57,15 @@
   <script>
     const TRACKS = [];
     for (let i = 1; i <= 11; i++) {
+      const num = String(i).padStart(2, '0');
       TRACKS.push({
         id: i,
         name: `Конфігурація №${i}`,
-        image: `../public/tracks/nfs_${String(i).padStart(2, '0')}.jpg`,
+        // Спробуємо кілька шляхів
+        paths: [
+          `../public/tracks/nfs_${num}.jpg`,
+          `../tracks/nfs/nfs_${num}.jpg`,
+        ],
       });
     }
 
@@ -89,13 +96,45 @@
       overlaySvg.setAttribute('viewBox', `0 0 ${imgNaturalW} ${imgNaturalH}`);
     }
 
-    trackImg.addEventListener('load', () => {
-      imgNaturalW = trackImg.naturalWidth;
-      imgNaturalH = trackImg.naturalHeight;
-      updateViewBox();
+    function loadTrackImage(trackId) {
+      const t = TRACKS.find(x => x.id === trackId);
+      if (!t) return;
+
+      let pathIdx = 0;
+
+      function tryNext() {
+        if (pathIdx >= t.paths.length) {
+          showDebug('❌ Жоден шлях не спрацював: ' + t.paths.join(' , '));
+          return;
+        }
+        const src = t.paths[pathIdx];
+        showDebug('⏳ Пробую: ' + src);
+        trackImg.src = src;
+        pathIdx++;
+      }
+
+      // On error — try next path
+      trackImg.onerror = tryNext;
+      trackImg.onload = () => {
+        debugEl.style.display = 'none';
+        imgNaturalW = trackImg.naturalWidth;
+        imgNaturalH = trackImg.naturalHeight;
+        updateViewBox();
+        render();
+      };
+
+      tryNext();
+    }
+
+    trackSelect.addEventListener('change', () => {
+      loadSaved();
       render();
+      loadTrackImage(parseInt(trackSelect.value));
     });
 
+    // Init first track
+    loadSaved();
+    loadTrackImage(1);
     // Load saved points from localStorage
     function loadSaved() {
       try {
@@ -118,16 +157,7 @@
       localStorage.setItem(`track_path_v2_${trackSelect.value}`, JSON.stringify({ points, isClosed }));
     }
 
-    trackSelect.addEventListener('change', () => {
-      const t = TRACKS.find(x => x.id === parseInt(trackSelect.value));
-      trackImg.src = t.image;
-      loadSaved();
-      render();
-    });
-
-    // Init first track
-    trackImg.src = TRACKS[0].image;
-    loadSaved();
+    // (track loading is handled above via loadTrackImage)
 
     // Click handler — coordinates in image native pixels
     canvasWrap.addEventListener('click', (e) => {

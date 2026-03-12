@@ -4,28 +4,42 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 // Types
 // ============================================================
 
-export type UserRole = 'super_admin' | 'admin' | 'user';
+export type UserRole = 'owner' | 'moderator' | 'user';
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  owner: 'Власник',
+  moderator: 'Модератор',
+  user: 'Користувач',
+};
+
+export const ROLE_ICONS: Record<UserRole, string> = {
+  owner: '👑',
+  moderator: '🛡️',
+  user: '👤',
+};
 
 export interface User {
   id: string;
   name: string;
+  login: string;
   role: UserRole;
 }
 
-export interface AdminEntry {
+export interface ModeratorEntry {
   id: string;
   name: string;
-  role: 'admin';
-  permissions: AdminPermission[];
+  login: string;
+  password: string;
+  permissions: ModeratorPermission[];
 }
 
-export type AdminPermission =
+export type ModeratorPermission =
   | 'change_track'
   | 'manage_results'
   | 'manage_videos'
   | 'manage_karts';
 
-export const ALL_PERMISSIONS: { key: AdminPermission; label: string }[] = [
+export const ALL_PERMISSIONS: { key: ModeratorPermission; label: string }[] = [
   { key: 'change_track', label: 'Зміна конфігурації траси' },
   { key: 'manage_results', label: 'Управління результатами' },
   { key: 'manage_videos', label: 'Управління відео' },
@@ -33,22 +47,24 @@ export const ALL_PERMISSIONS: { key: AdminPermission; label: string }[] = [
 ];
 
 // ============================================================
-// Хардкод super_admin (ти)
+// Власник (Owner) — хардкод
 // ============================================================
 
-const SUPER_ADMIN_PASSWORD = 'zhaga2025';
-const SUPER_ADMIN: User = {
-  id: 'super_admin',
-  name: 'Адміністратор',
-  role: 'super_admin',
+const OWNER_LOGIN = 'admin';
+const OWNER_PASSWORD = 'zhaga2025';
+const OWNER_USER: User = {
+  id: 'owner',
+  name: 'Власник',
+  login: OWNER_LOGIN,
+  role: 'owner',
 };
 
 // ============================================================
 // LocalStorage keys
 // ============================================================
 
-const LS_CURRENT_USER = 'karting_current_user';
-const LS_ADMINS = 'karting_admins';
+const LS_CURRENT_USER = 'karting_current_user_v2';
+const LS_MODERATORS = 'karting_moderators_v2';
 
 // ============================================================
 // Context
@@ -57,20 +73,19 @@ const LS_ADMINS = 'karting_admins';
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
-  isSuperAdmin: boolean;
-  isAdmin: boolean;
+  isOwner: boolean;
+  /** Owner або Moderator */
+  isModerator: boolean;
   /** Повертає true якщо поточний юзер має цей дозвіл */
-  hasPermission: (perm: AdminPermission) => boolean;
-  /** Логін як super_admin по паролю */
-  loginSuperAdmin: (password: string) => boolean;
-  /** Логін як admin по імені */
-  loginAdmin: (name: string) => boolean;
+  hasPermission: (perm: ModeratorPermission) => boolean;
+  /** Єдиний метод логіну — login + password, система сама визначає роль */
+  login: (login: string, password: string) => { success: boolean; error?: string };
   logout: () => void;
-  /** Список адмінів (видимий тільки для super_admin) */
-  admins: AdminEntry[];
-  addAdmin: (name: string, permissions: AdminPermission[]) => void;
-  removeAdmin: (id: string) => void;
-  updateAdminPermissions: (id: string, permissions: AdminPermission[]) => void;
+  /** Список модераторів (видимий тільки для owner) */
+  moderators: ModeratorEntry[];
+  addModerator: (name: string, login: string, password: string, permissions: ModeratorPermission[]) => string | null;
+  removeModerator: (id: string) => void;
+  updateModerator: (id: string, updates: Partial<Pick<ModeratorEntry, 'name' | 'password' | 'permissions'>>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -81,28 +96,22 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [admins, setAdmins] = useState<AdminEntry[]>([]);
+  const [moderators, setModerators] = useState<ModeratorEntry[]>([]);
 
   // Load from localStorage on mount
   useEffect(() => {
     try {
       const savedUser = localStorage.getItem(LS_CURRENT_USER);
-      if (savedUser) {
-        setUser(JSON.parse(savedUser));
-      }
-      const savedAdmins = localStorage.getItem(LS_ADMINS);
-      if (savedAdmins) {
-        setAdmins(JSON.parse(savedAdmins));
-      }
-    } catch {
-      // ignore
-    }
+      if (savedUser) setUser(JSON.parse(savedUser));
+      const savedMods = localStorage.getItem(LS_MODERATORS);
+      if (savedMods) setModerators(JSON.parse(savedMods));
+    } catch { /* ignore */ }
   }, []);
 
-  // Persist admins
+  // Persist moderators
   useEffect(() => {
-    localStorage.setItem(LS_ADMINS, JSON.stringify(admins));
-  }, [admins]);
+    localStorage.setItem(LS_MODERATORS, JSON.stringify(moderators));
+  }, [moderators]);
 
   const persistUser = useCallback((u: User | null) => {
     setUser(u);
@@ -113,71 +122,89 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const loginSuperAdmin = useCallback((password: string): boolean => {
-    if (password === SUPER_ADMIN_PASSWORD) {
-      persistUser(SUPER_ADMIN);
-      return true;
-    }
-    return false;
-  }, [persistUser]);
+  const login = useCallback((loginStr: string, password: string): { success: boolean; error?: string } => {
+    const trimLogin = loginStr.trim().toLowerCase();
 
-  const loginAdmin = useCallback((name: string): boolean => {
-    const admin = admins.find(
-      (a) => a.name.toLowerCase() === name.toLowerCase()
-    );
-    if (admin) {
-      persistUser({
-        id: admin.id,
-        name: admin.name,
-        role: 'admin',
-      });
-      return true;
+    // 1. Перевірити Власника
+    if (trimLogin === OWNER_LOGIN && password === OWNER_PASSWORD) {
+      persistUser(OWNER_USER);
+      return { success: true };
     }
-    return false;
-  }, [admins, persistUser]);
+
+    // 2. Перевірити модераторів
+    const mod = moderators.find((m) => m.login.toLowerCase() === trimLogin);
+    if (mod) {
+      if (mod.password === password) {
+        persistUser({
+          id: mod.id,
+          name: mod.name,
+          login: mod.login,
+          role: 'moderator',
+        });
+        return { success: true };
+      }
+      return { success: false, error: 'Невірний пароль' };
+    }
+
+    // 3. Не знайдено
+    return { success: false, error: 'Користувача з таким логіном не знайдено' };
+  }, [moderators, persistUser]);
 
   const logout = useCallback(() => {
     persistUser(null);
   }, [persistUser]);
 
-  const hasPermission = useCallback((perm: AdminPermission): boolean => {
+  const hasPermission = useCallback((perm: ModeratorPermission): boolean => {
     if (!user) return false;
-    if (user.role === 'super_admin') return true;
-    if (user.role === 'admin') {
-      const admin = admins.find((a) => a.id === user.id);
-      return admin?.permissions.includes(perm) ?? false;
+    if (user.role === 'owner') return true;
+    if (user.role === 'moderator') {
+      const mod = moderators.find((m) => m.id === user.id);
+      return mod?.permissions.includes(perm) ?? false;
     }
     return false;
-  }, [user, admins]);
+  }, [user, moderators]);
 
-  const addAdmin = useCallback((name: string, permissions: AdminPermission[]) => {
-    const id = `admin_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    setAdmins((prev) => [...prev, { id, name, role: 'admin', permissions }]);
+  const addModerator = useCallback((
+    name: string, loginStr: string, password: string, permissions: ModeratorPermission[]
+  ): string | null => {
+    const trimLogin = loginStr.trim().toLowerCase();
+
+    // Перевірити унікальність логіну
+    if (trimLogin === OWNER_LOGIN) return 'Цей логін зарезервовано';
+    if (moderators.some((m) => m.login.toLowerCase() === trimLogin)) {
+      return 'Модератор з таким логіном вже існує';
+    }
+
+    const id = `mod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setModerators((prev) => [...prev, { id, name, login: trimLogin, password, permissions }]);
+    return null; // success
+  }, [moderators]);
+
+  const removeModerator = useCallback((id: string) => {
+    setModerators((prev) => prev.filter((m) => m.id !== id));
   }, []);
 
-  const removeAdmin = useCallback((id: string) => {
-    setAdmins((prev) => prev.filter((a) => a.id !== id));
-  }, []);
-
-  const updateAdminPermissions = useCallback((id: string, permissions: AdminPermission[]) => {
-    setAdmins((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, permissions } : a))
+  const updateModerator = useCallback((
+    id: string,
+    updates: Partial<Pick<ModeratorEntry, 'name' | 'password' | 'permissions'>>
+  ) => {
+    setModerators((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, ...updates } : m))
     );
   }, []);
 
   const value: AuthContextValue = {
     user,
     isAuthenticated: !!user,
-    isSuperAdmin: user?.role === 'super_admin',
-    isAdmin: user?.role === 'super_admin' || user?.role === 'admin',
+    isOwner: user?.role === 'owner',
+    isModerator: user?.role === 'owner' || user?.role === 'moderator',
     hasPermission,
-    loginSuperAdmin,
-    loginAdmin,
+    login,
     logout,
-    admins,
-    addAdmin,
-    removeAdmin,
-    updateAdminPermissions,
+    moderators,
+    addModerator,
+    removeModerator,
+    updateModerator,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
