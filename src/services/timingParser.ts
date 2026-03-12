@@ -1,4 +1,5 @@
 import type { TimingEntry } from '../types';
+import { MIN_VALID_LAP_SECONDS } from '../types';
 
 /**
  * Парсер табло timing.karting.ua/board.html
@@ -13,6 +14,48 @@ import type { TimingEntry } from '../types';
  */
 
 const TIMING_URL = 'https://timing.karting.ua/board.html';
+
+/**
+ * Парсить час кола зі строки "00:42.123" в секунди (42.123).
+ */
+export function parseLapTimeToSeconds(lapTime: string | null): number | null {
+  if (!lapTime) return null;
+  const match = lapTime.match(/^(\d+):(\d+\.\d+)$/);
+  if (!match) return null;
+  return parseInt(match[1], 10) * 60 + parseFloat(match[2]);
+}
+
+/**
+ * Перевіряє чи коло валідне (>= MIN_VALID_LAP_SECONDS).
+ * Якщо час < 38.5s — хтось скоротив трасу, не враховуємо.
+ */
+export function isValidLap(lapTime: string | null): boolean {
+  const seconds = parseLapTimeToSeconds(lapTime);
+  if (seconds === null) return false;
+  return seconds >= MIN_VALID_LAP_SECONDS;
+}
+
+/**
+ * Фільтрує невалідні часи кіл в entries.
+ * Якщо lastLap < 38.5s — обнуляємо lastLap, s1, s2 для цього запису.
+ * Якщо bestLap < 38.5s — обнуляємо bestLap.
+ */
+export function filterInvalidLaps(entries: TimingEntry[]): TimingEntry[] {
+  return entries.map((entry) => {
+    const lastLapValid = isValidLap(entry.lastLap);
+    const bestLapValid = isValidLap(entry.bestLap);
+
+    return {
+      ...entry,
+      lastLap: lastLapValid ? entry.lastLap : null,
+      s1: lastLapValid ? entry.s1 : null,
+      s2: lastLapValid ? entry.s2 : null,
+      bestLap: bestLapValid ? entry.bestLap : null,
+      bestS1: bestLapValid ? entry.bestS1 : null,
+      bestS2: bestLapValid ? entry.bestS2 : null,
+    };
+  });
+}
 
 /**
  * Парсить HTML з сайту таймінгу і повертає масив записів.
@@ -46,13 +89,15 @@ export function parseTimingHTML(html: string): TimingEntry[] | null {
         s2: cells[5]?.textContent?.trim() || null,
         bestLap: cells[6]?.textContent?.trim() || null,
         lapNumber: parseInt(cells[7]?.textContent?.trim() || '0', 10),
-        // best sectors ми зберігатимемо окремо
         bestS1: null,
         bestS2: null,
       });
     });
 
-    return entries.length > 0 ? entries : null;
+    if (entries.length === 0) return null;
+
+    // Фільтруємо невалідні кола (< 38.5s)
+    return filterInvalidLaps(entries);
   } catch {
     console.error('Failed to parse timing HTML');
     return null;
@@ -82,6 +127,7 @@ export async function fetchTimingFromSite(): Promise<TimingEntry[] | null> {
 /**
  * Tracks best sector times across polling cycles.
  * Call this after each snapshot to update best sectors.
+ * Тільки валідні кола (>= 38.5s) враховуються.
  */
 export function updateBestSectors(
   entries: TimingEntry[],
@@ -91,8 +137,11 @@ export function updateBestSectors(
     const key = entry.pilot;
     const prev = bestSectors.get(key) || { bestS1: null, bestS2: null };
 
-    const bestS1 = getBetterTime(prev.bestS1, entry.s1);
-    const bestS2 = getBetterTime(prev.bestS2, entry.s2);
+    // Тільки якщо поточне коло валідне — оновлюємо best sectors
+    const lapValid = isValidLap(entry.lastLap);
+
+    const bestS1 = lapValid ? getBetterTime(prev.bestS1, entry.s1) : prev.bestS1;
+    const bestS2 = lapValid ? getBetterTime(prev.bestS2, entry.s2) : prev.bestS2;
 
     bestSectors.set(key, { bestS1, bestS2 });
 

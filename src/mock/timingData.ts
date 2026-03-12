@@ -1,13 +1,21 @@
-import type { TimingEntry, TimingSnapshot, LiveRaceState, RaceResult, KartInfo } from '../types';
+import type { TimingEntry, TimingSnapshot, LiveRaceState, RaceResult, KartInfo, KartTopResult } from '../types';
+import { MIN_VALID_LAP_SECONDS } from '../types';
 
 // ============================================================
 // Mock timing entries — імітація табло timing.karting.ua
 // ============================================================
 
 const PILOTS = [
-  'Макаревич А.', 'Шевченко Д.', 'Бондаренко К.', 'Коваленко М.',
-  'Петренко О.', 'Ткаченко В.', 'Мельник І.', 'Литвиненко С.',
-  'Кравченко Р.', 'Сидоренко П.',
+  'Апанасенко Олексій',
+  'Джасім Салєх',
+  'Жигаленко Антон',
+  'Яковлєв Ярослав',
+  'Шевченко Д.',
+  'Бондаренко К.',
+  'Коваленко М.',
+  'Петренко О.',
+  'Ткаченко В.',
+  'Мельник І.',
 ];
 
 const KARTS = [1, 3, 5, 7, 8, 10, 12, 14, 15, 17];
@@ -24,28 +32,81 @@ function randomSector(baseSec: number, variance: number): string {
   return total.toFixed(3);
 }
 
+/**
+ * Парсить час кола зі строки "00:42.123" в секунди (42.123).
+ */
+export function parseLapTimeToSeconds(lapTime: string | null): number | null {
+  if (!lapTime) return null;
+  const match = lapTime.match(/^(\d+):(\d+\.\d+)$/);
+  if (!match) return null;
+  return parseInt(match[1], 10) * 60 + parseFloat(match[2]);
+}
+
+/**
+ * Перевіряє чи коло валідне (>= MIN_VALID_LAP_SECONDS).
+ * Якщо час < 38.5s — хтось скоротив трасу.
+ */
+export function isValidLap(lapTime: string | null): boolean {
+  const seconds = parseLapTimeToSeconds(lapTime);
+  if (seconds === null) return false;
+  return seconds >= MIN_VALID_LAP_SECONDS;
+}
+
 export function generateMockTimingEntries(count: number = 10): TimingEntry[] {
   const entries: TimingEntry[] = [];
+  const usedPilots = PILOTS.slice(0, Math.min(count, PILOTS.length));
 
-  for (let i = 0; i < Math.min(count, PILOTS.length); i++) {
+  // Апанасенко лідер ~50% часу
+  const apanasenkIsLeader = Math.random() < 0.5;
+
+  for (let i = 0; i < usedPilots.length; i++) {
     const lapNumber = Math.floor(Math.random() * 15) + 1;
-    const baseLap = 42 + i * 0.3;
-    const baseS1 = 14 + i * 0.1;
-    const baseS2 = 28 + i * 0.2;
+
+    let baseLap: number;
+    let baseS1: number;
+    let baseS2: number;
+
+    if (i === 0 && apanasenkIsLeader) {
+      // Апанасенко лідер
+      baseLap = 40.5;
+      baseS1 = 13.2;
+      baseS2 = 27.3;
+    } else if (i === 0 && !apanasenkIsLeader) {
+      // Апанасенко не лідер — трохи повільніший
+      baseLap = 41.5 + Math.random() * 1.5;
+      baseS1 = 13.8 + Math.random() * 0.3;
+      baseS2 = 27.7 + Math.random() * 0.5;
+    } else {
+      baseLap = 41.0 + i * 0.4 + Math.random() * 0.5;
+      baseS1 = 13.5 + i * 0.15;
+      baseS2 = 27.5 + i * 0.25;
+    }
 
     entries.push({
-      position: i + 1,
-      pilot: PILOTS[i],
-      kart: KARTS[i],
-      lastLap: lapNumber > 0 ? randomLapTime(baseLap, 2) : null,
-      s1: lapNumber > 0 ? randomSector(baseS1, 0.5) : null,
-      s2: lapNumber > 0 ? randomSector(baseS2, 0.8) : null,
-      bestLap: randomLapTime(baseLap - 0.5, 1),
+      position: 0, // will be set after sorting
+      pilot: usedPilots[i],
+      kart: KARTS[i % KARTS.length],
+      lastLap: lapNumber > 0 ? randomLapTime(baseLap, 1.5) : null,
+      s1: lapNumber > 0 ? randomSector(baseS1, 0.4) : null,
+      s2: lapNumber > 0 ? randomSector(baseS2, 0.6) : null,
+      bestLap: randomLapTime(baseLap - 0.3, 0.8),
       lapNumber,
-      bestS1: randomSector(baseS1 - 0.2, 0.3),
-      bestS2: randomSector(baseS2 - 0.3, 0.4),
+      bestS1: randomSector(baseS1 - 0.15, 0.2),
+      bestS2: randomSector(baseS2 - 0.2, 0.3),
     });
   }
+
+  // Сортуємо за bestLap і виставляємо позиції
+  entries.sort((a, b) => {
+    const aTime = parseLapTimeToSeconds(a.bestLap);
+    const bTime = parseLapTimeToSeconds(b.bestLap);
+    if (aTime === null && bTime === null) return 0;
+    if (aTime === null) return 1;
+    if (bTime === null) return -1;
+    return aTime - bTime;
+  });
+
+  entries.forEach((e, idx) => { e.position = idx + 1; });
 
   return entries;
 }
@@ -76,11 +137,27 @@ export function generateMockLiveRace(): LiveRaceState {
 // ============================================================
 
 export function generateMockRaceResults(count: number = 10): RaceResult[] {
-  return PILOTS.slice(0, count).map((pilot, i) => ({
+  const usedPilots = PILOTS.slice(0, Math.min(count, PILOTS.length));
+
+  // Апанасенко ~50% першості
+  const shuffled = [...usedPilots];
+  if (Math.random() >= 0.5 && shuffled[0] === 'Апанасенко Олексій') {
+    // залишити на 1 місці
+  } else {
+    // перемішати випадково (Апанасенко десь 2-4 місце)
+    const apIdx = shuffled.indexOf('Апанасенко Олексій');
+    if (apIdx >= 0) {
+      const newPos = 1 + Math.floor(Math.random() * 3); // 1-3
+      shuffled.splice(apIdx, 1);
+      shuffled.splice(newPos, 0, 'Апанасенко Олексій');
+    }
+  }
+
+  return shuffled.map((pilot, i) => ({
     position: i + 1,
     pilot,
-    kart: KARTS[i],
-    bestLap: randomLapTime(41 + i * 0.2, 1),
+    kart: KARTS[PILOTS.indexOf(pilot) % KARTS.length],
+    bestLap: randomLapTime(40.5 + i * 0.3, 0.8),
     totalTime: randomLapTime(600 + i * 5, 10),
     laps: 15 - Math.floor(i / 4),
     points: Math.max(25 - i * 2, 1),
@@ -89,21 +166,35 @@ export function generateMockRaceResults(count: number = 10): RaceResult[] {
 }
 
 // ============================================================
-// Mock kart info
+// Mock kart info — всі карти зі списком + top-5 результатів
 // ============================================================
 
-export const MOCK_KARTS: KartInfo[] = [
-  { number: 1, status: 'good', avgLapTime: '00:41.500', notes: 'Швидкий, стабільний' },
-  { number: 3, status: 'good', avgLapTime: '00:41.800', notes: 'Хороший розгін' },
-  { number: 5, status: 'average', avgLapTime: '00:42.100', notes: 'Середній' },
-  { number: 7, status: 'good', avgLapTime: '00:41.600', notes: 'Один з найкращих' },
-  { number: 8, status: 'poor', avgLapTime: '00:43.200', notes: 'Повільний, слабкі гальма' },
-  { number: 10, status: 'average', avgLapTime: '00:42.400', notes: 'Нормальний' },
-  { number: 12, status: 'good', avgLapTime: '00:41.900', notes: 'Добрий' },
-  { number: 14, status: 'average', avgLapTime: '00:42.600', notes: 'Середній' },
-  { number: 15, status: 'poor', avgLapTime: '00:43.500', notes: 'Повільний' },
-  { number: 17, status: 'unknown', avgLapTime: '—', notes: 'Новий, немає даних' },
-];
+function generateKartTop5(kartNumber: number): KartTopResult[] {
+  // Генеруємо top-5 результатів для кожного карту від різних пілотів
+  const shuffled = [...PILOTS].sort(() => Math.random() - 0.5);
+  const top5Pilots = shuffled.slice(0, 5);
+
+  const baseLap = 40.0 + (kartNumber % 5) * 0.4; // різна швидкість карту
+
+  return top5Pilots.map((pilot, i) => {
+    const lapSec = baseLap + i * 0.3 + Math.random() * 0.5;
+    return {
+      pilot,
+      bestLap: randomLapTime(lapSec, 0.3),
+      bestLapSeconds: lapSec,
+      date: `2025-0${Math.min(i + 1, 3)}-${String(10 + i * 5).padStart(2, '0')}`,
+    };
+  }).sort((a, b) => a.bestLapSeconds - b.bestLapSeconds);
+}
+
+export const ALL_KART_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+
+export const MOCK_KARTS: KartInfo[] = ALL_KART_NUMBERS.map((num) => ({
+  number: num,
+  status: 'unknown' as const,
+  avgLapTime: undefined,
+  top5: generateKartTop5(num),
+}));
 
 // ============================================================
 // Mock competitions data

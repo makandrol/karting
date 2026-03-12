@@ -5,68 +5,77 @@ import { generateMockTimingEntries } from '../mock/timingData';
 
 const DEFAULT_POLL_INTERVAL = 1000; // 1 second
 
+export type TimingMode = 'idle' | 'live' | 'demo';
+
 interface UseTimingPollerOptions {
   interval?: number;
-  useMock?: boolean;
-  enabled?: boolean;
 }
 
 interface UseTimingPollerResult {
   entries: TimingEntry[];
   snapshots: TimingSnapshot[];
-  isLive: boolean;
-  isMock: boolean;
+  mode: TimingMode;
   lastUpdate: number | null;
   error: string | null;
-  start: () => void;
+  /** Спробувати підключитись до live таймінгу */
+  connectLive: () => void;
+  /** Увімкнути демо-режим */
+  startDemo: () => void;
+  /** Зупинити все */
   stop: () => void;
 }
 
 /**
  * React hook для polling таймінгу.
  *
- * Спочатку намагається отримати дані з timing.karting.ua.
- * Якщо сайт недоступний — перемикається на mock-дані.
- *
- * Зберігає всі snapshots в пам'яті для подальшої обробки.
+ * Починає в режимі 'idle' — нічого не робить.
+ * Користувач може:
+ * - connectLive() — спробувати підключитись до timing.karting.ua
+ * - startDemo() — увімкнути демо-дані
+ * - stop() — зупинити
  */
 export function useTimingPoller(options: UseTimingPollerOptions = {}): UseTimingPollerResult {
-  const {
-    interval = DEFAULT_POLL_INTERVAL,
-    useMock = false,
-    enabled = true,
-  } = options;
+  const { interval = DEFAULT_POLL_INTERVAL } = options;
 
   const [entries, setEntries] = useState<TimingEntry[]>([]);
   const [snapshots, setSnapshots] = useState<TimingSnapshot[]>([]);
-  const [isLive, setIsLive] = useState(false);
-  const [isMock, setIsMock] = useState(false);
+  const [mode, setMode] = useState<TimingMode>('idle');
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(enabled);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const bestSectorsRef = useRef(new Map<string, { bestS1: string | null; bestS2: string | null }>());
+  const modeRef = useRef<TimingMode>('idle');
+
+  // Keep modeRef in sync
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+
+  const clearPolling = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
 
   const poll = useCallback(async () => {
+    const currentMode = modeRef.current;
+    if (currentMode === 'idle') return;
+
     try {
       let newEntries: TimingEntry[] | null = null;
 
-      if (!useMock) {
+      if (currentMode === 'live') {
         newEntries = await fetchTimingFromSite();
+        if (!newEntries) {
+          setError('Таймінг недоступний. Картодром не працює або сайт offline.');
+          return;
+        }
+        newEntries = updateBestSectors(newEntries, bestSectorsRef.current);
+      } else if (currentMode === 'demo') {
+        newEntries = generateMockTimingEntries(10);
       }
 
-      if (newEntries) {
-        // Real data from timing site
-        newEntries = updateBestSectors(newEntries, bestSectorsRef.current);
-        setIsLive(true);
-        setIsMock(false);
-      } else {
-        // Fallback to mock
-        newEntries = generateMockTimingEntries(10);
-        setIsLive(false);
-        setIsMock(true);
-      }
+      if (!newEntries) return;
 
       const now = Date.now();
       setEntries(newEntries);
@@ -77,7 +86,7 @@ export function useTimingPoller(options: UseTimingPollerOptions = {}): UseTiming
       setSnapshots((prev) => {
         const snapshot: TimingSnapshot = {
           timestamp: now,
-          sessionId: 'current',
+          sessionId: currentMode === 'demo' ? 'demo' : 'live',
           entries: newEntries!,
         };
         const updated = [...prev, snapshot];
@@ -86,42 +95,59 @@ export function useTimingPoller(options: UseTimingPollerOptions = {}): UseTiming
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Помилка отримання даних');
     }
-  }, [useMock]);
+  }, []);
 
-  const start = useCallback(() => setIsRunning(true), []);
-  const stop = useCallback(() => setIsRunning(false), []);
+  const startPolling = useCallback(() => {
+    clearPolling();
+    poll();
+    intervalRef.current = setInterval(poll, interval);
+  }, [clearPolling, poll, interval]);
 
+  const connectLive = useCallback(() => {
+    setMode('live');
+    setError(null);
+    setEntries([]);
+    setSnapshots([]);
+    bestSectorsRef.current.clear();
+  }, []);
+
+  const startDemo = useCallback(() => {
+    setMode('demo');
+    setError(null);
+    setEntries([]);
+    setSnapshots([]);
+    bestSectorsRef.current.clear();
+  }, []);
+
+  const stop = useCallback(() => {
+    setMode('idle');
+    clearPolling();
+    setEntries([]);
+    setSnapshots([]);
+    setError(null);
+    setLastUpdate(null);
+  }, [clearPolling]);
+
+  // Start/stop polling when mode changes
   useEffect(() => {
-    if (!isRunning) {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+    if (mode === 'idle') {
+      clearPolling();
       return;
     }
 
-    // Initial poll
-    poll();
+    startPolling();
 
-    // Set up interval
-    intervalRef.current = setInterval(poll, interval);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [isRunning, interval, poll]);
+    return () => clearPolling();
+  }, [mode, startPolling, clearPolling]);
 
   return {
     entries,
     snapshots,
-    isLive,
-    isMock,
+    mode,
     lastUpdate,
     error,
-    start,
+    connectLive,
+    startDemo,
     stop,
   };
 }

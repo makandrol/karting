@@ -2,6 +2,9 @@
 // Timing data — дані з табло timing.karting.ua
 // ============================================================
 
+/** Мінімальний валідний час кола в секундах. Менше = скоротили трасу */
+export const MIN_VALID_LAP_SECONDS = 38.5;
+
 export interface TimingEntry {
   position: number;
   pilot: string;
@@ -86,11 +89,19 @@ export interface LiveRaceState {
 // Karts info
 // ============================================================
 
+export interface KartTopResult {
+  pilot: string;
+  bestLap: string;
+  bestLapSeconds: number;
+  date: string;
+}
+
 export interface KartInfo {
   number: number;
   notes?: string;
   avgLapTime?: string;
   status: 'good' | 'average' | 'poor' | 'unknown';
+  top5: KartTopResult[];
 }
 
 // ============================================================
