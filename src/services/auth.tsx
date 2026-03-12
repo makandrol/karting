@@ -51,7 +51,7 @@ export const ALL_PERMISSIONS: { key: ModeratorPermission; label: string }[] = [
 // ============================================================
 
 const OWNER_LOGIN = 'admin';
-const OWNER_PASSWORD = 'zhaga2025';
+const OWNER_PASSWORD = 'zhaga2026';
 const OWNER_USER: User = {
   id: 'owner',
   name: 'Власник',

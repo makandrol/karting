@@ -19,19 +19,18 @@
     .hint { color: #888; font-size: 12px; margin-bottom: 12px; line-height: 1.5; }
     .hint code { background: #333; padding: 2px 6px; border-radius: 4px; }
     .stats { color: #aaa; font-size: 13px; margin-left: auto; }
+    #debugInfo { background: #222; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 12px; color: #f87171; margin-bottom: 10px; word-break: break-all; }
   </style>
 </head>
 <body>
   <h1>🏎️ Редактор SVG шляху для треків</h1>
   <p class="hint">
-    Клікай по трасі послідовно — починай від фінішної лінії, йди по напрямку руху (за годинниковою), і замкни контур.<br>
+    Клікай по трасі послідовно — починай від фінішної лінії, йди по напрямку руху, і замкни контур.<br>
     Достатньо 20-30 точок. Результат копіюй в <code>src/data/tracks.ts</code> → поле <code>svgPath</code>.
   </p>
 
   <div class="controls">
-    <label>Трек:
-      <select id="trackSelect"></select>
-    </label>
+    <label>Трек: <select id="trackSelect"></select></label>
     <button onclick="undo()">↩ Undo</button>
     <button onclick="clearPoints()">🗑 Очистити</button>
     <button onclick="closePath()">⭕ Замкнути</button>
@@ -39,7 +38,7 @@
     <span class="stats" id="stats">Точок: 0</span>
   </div>
 
-  <div id="debugInfo" style="background:#222;padding:8px 12px;border-radius:6px;font-family:monospace;font-size:12px;color:#f87171;margin-bottom:10px;display:none;word-break:break-all;"></div>
+  <div id="debugInfo">Завантаження...</div>
 
   <div class="canvas-wrap" id="canvasWrap">
     <img id="trackImg" src="" alt="Track">
@@ -55,230 +54,195 @@
   </div>
 
   <script>
-    const TRACKS = [];
-    for (let i = 1; i <= 11; i++) {
-      const num = String(i).padStart(2, '0');
-      TRACKS.push({
-        id: i,
-        name: `Конфігурація №${i}`,
-        // Спробуємо кілька шляхів
-        paths: [
-          `../public/tracks/nfs_${num}.jpg`,
-          `../tracks/nfs/nfs_${num}.jpg`,
-        ],
-      });
-    }
+    // ===== CONFIG =====
+    const TRACK_PATHS = [
+      'public/tracks/nfs_{NUM}.jpg',
+      'tracks/nfs/nfs_{NUM}.jpg',
+    ];
 
-    let imgNaturalW = 1280;
-    let imgNaturalH = 800;
+    // ===== DOM =====
+    const debugEl    = document.getElementById('debugInfo');
+    const trackSelect = document.getElementById('trackSelect');
+    const trackImg   = document.getElementById('trackImg');
+    const overlaySvg = document.getElementById('overlaySvg');
+    const svgPathEl  = document.getElementById('svgPath');
+    const pointsGroup = document.getElementById('pointsGroup');
+    const pathOutput = document.getElementById('pathOutput');
+    const statsEl    = document.getElementById('stats');
+    const canvasWrap = document.getElementById('canvasWrap');
 
+    // ===== STATE =====
+    let imgW = 1280, imgH = 720;
     let points = [];
     let isClosed = false;
 
-    const trackSelect = document.getElementById('trackSelect');
-    const trackImg = document.getElementById('trackImg');
-    const overlaySvg = document.getElementById('overlaySvg');
-    const svgPathEl = document.getElementById('svgPath');
-    const pointsGroup = document.getElementById('pointsGroup');
-    const pathOutput = document.getElementById('pathOutput');
-    const statsEl = document.getElementById('stats');
-    const canvasWrap = document.getElementById('canvasWrap');
-
-    // Populate select
-    TRACKS.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = t.name;
-      trackSelect.appendChild(opt);
-    });
-
-    function updateViewBox() {
-      overlaySvg.setAttribute('viewBox', `0 0 ${imgNaturalW} ${imgNaturalH}`);
+    // ===== DEBUG =====
+    function dbg(msg) {
+      debugEl.textContent = msg;
+      debugEl.style.color = '#f87171';
+    }
+    function dbgOk(msg) {
+      debugEl.textContent = msg;
+      debugEl.style.color = '#4ade80';
     }
 
-    function loadTrackImage(trackId) {
-      const t = TRACKS.find(x => x.id === trackId);
-      if (!t) return;
+    // ===== INIT TRACKS =====
+    for (let i = 1; i <= 11; i++) {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = 'Конфігурація №' + i;
+      trackSelect.appendChild(opt);
+    }
 
-      let pathIdx = 0;
+    // ===== LOAD IMAGE =====
+    function loadImage(trackId) {
+      const num = String(trackId).padStart(2, '0');
+      const candidates = TRACK_PATHS.map(p => p.replace('{NUM}', num));
+      let idx = 0;
+
+      dbg('⏳ Шукаю картинку: ' + candidates[0]);
 
       function tryNext() {
-        if (pathIdx >= t.paths.length) {
-          showDebug('❌ Жоден шлях не спрацював: ' + t.paths.join(' , '));
+        if (idx >= candidates.length) {
+          dbg('❌ Не знайдено. Спробовані шляхи: ' + candidates.join(' | '));
           return;
         }
-        const src = t.paths[pathIdx];
-        showDebug('⏳ Пробую: ' + src);
-        trackImg.src = src;
-        pathIdx++;
+        trackImg.src = candidates[idx];
+        idx++;
       }
 
-      // On error — try next path
-      trackImg.onerror = tryNext;
-      trackImg.onload = () => {
-        debugEl.style.display = 'none';
-        imgNaturalW = trackImg.naturalWidth;
-        imgNaturalH = trackImg.naturalHeight;
-        updateViewBox();
+      trackImg.onload = function() {
+        imgW = trackImg.naturalWidth || 1280;
+        imgH = trackImg.naturalHeight || 720;
+        overlaySvg.setAttribute('viewBox', '0 0 ' + imgW + ' ' + imgH);
+        dbgOk('✅ Завантажено: ' + trackImg.src + ' (' + imgW + '×' + imgH + ')');
         render();
+      };
+      trackImg.onerror = function() {
+        dbg('⚠️ Не вдалось: ' + trackImg.src + (idx < candidates.length ? ' → пробую наступний...' : ''));
+        tryNext();
       };
 
       tryNext();
     }
 
-    trackSelect.addEventListener('change', () => {
-      loadSaved();
-      render();
-      loadTrackImage(parseInt(trackSelect.value));
-    });
+    // ===== LOCALSTORAGE =====
+    function lsKey() { return 'track_path_v3_' + trackSelect.value; }
 
-    // Init first track
-    loadSaved();
-    loadTrackImage(1);
-    // Load saved points from localStorage
     function loadSaved() {
+      points = [];
+      isClosed = false;
       try {
-        const saved = localStorage.getItem(`track_path_v2_${trackSelect.value}`);
-        if (saved) {
-          const data = JSON.parse(saved);
-          points = data.points || [];
-          isClosed = data.isClosed || false;
-        } else {
-          points = [];
-          isClosed = false;
-        }
-      } catch {
-        points = [];
-        isClosed = false;
-      }
+        const s = localStorage.getItem(lsKey());
+        if (s) { const d = JSON.parse(s); points = d.points || []; isClosed = !!d.isClosed; }
+      } catch {}
     }
 
-    function saveCurrent() {
-      localStorage.setItem(`track_path_v2_${trackSelect.value}`, JSON.stringify({ points, isClosed }));
+    function save() {
+      localStorage.setItem(lsKey(), JSON.stringify({ points, isClosed }));
     }
 
-    // (track loading is handled above via loadTrackImage)
+    // ===== TRACK CHANGE =====
+    trackSelect.addEventListener('change', function() {
+      loadSaved();
+      loadImage(parseInt(trackSelect.value));
+    });
 
-    // Click handler — coordinates in image native pixels
-    canvasWrap.addEventListener('click', (e) => {
+    // ===== CLICK =====
+    canvasWrap.addEventListener('click', function(e) {
       if (isClosed) return;
-
       const rect = trackImg.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * imgNaturalW;
-      const y = ((e.clientY - rect.top) / rect.height) * imgNaturalH;
-
-      points.push({ x: Math.round(x), y: Math.round(y) });
-      saveCurrent();
+      const x = Math.round(((e.clientX - rect.left) / rect.width) * imgW);
+      const y = Math.round(((e.clientY - rect.top) / rect.height) * imgH);
+      points.push({ x, y });
+      save();
       render();
     });
 
+    // ===== ACTIONS =====
     function undo() {
-      if (isClosed) { isClosed = false; }
-      else { points.pop(); }
-      saveCurrent();
-      render();
+      if (isClosed) { isClosed = false; } else { points.pop(); }
+      save(); render();
     }
 
     function clearPoints() {
-      if (!confirm('Очистити всі точки?')) return;
-      points = [];
-      isClosed = false;
-      saveCurrent();
-      render();
+      if (points.length > 0 && !confirm('Очистити всі точки?')) return;
+      points = []; isClosed = false; save(); render();
     }
 
     function closePath() {
-      if (points.length >= 3) {
-        isClosed = true;
-        saveCurrent();
-        render();
-      }
+      if (points.length >= 3) { isClosed = true; save(); render(); }
     }
 
     function copyPath() {
-      const text = pathOutput.value;
-      navigator.clipboard.writeText(text).then(() => {
+      navigator.clipboard.writeText(pathOutput.value).then(function() {
         pathOutput.style.borderColor = '#4ade80';
-        setTimeout(() => { pathOutput.style.borderColor = '#444'; }, 1500);
+        setTimeout(function() { pathOutput.style.borderColor = '#444'; }, 1500);
       });
     }
 
-    function buildSmoothPath(pts, closed) {
+    // ===== SMOOTH PATH =====
+    function buildPath(pts, closed) {
       if (pts.length === 0) return '';
-      if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
-
-      let d = `M ${pts[0].x},${pts[0].y}`;
-
-      if (pts.length === 2) {
-        d += ` L ${pts[1].x},${pts[1].y}`;
-        return d;
-      }
+      if (pts.length === 1) return 'M ' + pts[0].x + ',' + pts[0].y;
+      var d = 'M ' + pts[0].x + ',' + pts[0].y;
+      if (pts.length === 2) return d + ' L ' + pts[1].x + ',' + pts[1].y;
 
       // Catmull-Rom → cubic bezier
-      const allPts = closed
-        ? [pts[pts.length - 1], ...pts, pts[0], pts[1]]
-        : [pts[0], ...pts, pts[pts.length - 1]];
+      var all = closed
+        ? [pts[pts.length - 1]].concat(pts, [pts[0], pts[1]])
+        : [pts[0]].concat(pts, [pts[pts.length - 1]]);
 
-      for (let i = 1; i < allPts.length - 2; i++) {
-        const p0 = allPts[i - 1];
-        const p1 = allPts[i];
-        const p2 = allPts[i + 1];
-        const p3 = allPts[i + 2];
-
-        const tension = 0.3;
-        const cp1x = p1.x + (p2.x - p0.x) * tension;
-        const cp1y = p1.y + (p2.y - p0.y) * tension;
-        const cp2x = p2.x - (p3.x - p1.x) * tension;
-        const cp2y = p2.y - (p3.y - p1.y) * tension;
-
-        d += ` C ${Math.round(cp1x)},${Math.round(cp1y)} ${Math.round(cp2x)},${Math.round(cp2y)} ${p2.x},${p2.y}`;
+      for (var i = 1; i < all.length - 2; i++) {
+        var p0 = all[i-1], p1 = all[i], p2 = all[i+1], p3 = all[i+2];
+        var t = 0.3;
+        var c1x = Math.round(p1.x + (p2.x - p0.x) * t);
+        var c1y = Math.round(p1.y + (p2.y - p0.y) * t);
+        var c2x = Math.round(p2.x - (p3.x - p1.x) * t);
+        var c2y = Math.round(p2.y - (p3.y - p1.y) * t);
+        d += ' C ' + c1x + ',' + c1y + ' ' + c2x + ',' + c2y + ' ' + p2.x + ',' + p2.y;
       }
-
       if (closed) d += ' Z';
-
       return d;
     }
 
+    // ===== RENDER =====
     function render() {
-      const d = buildSmoothPath(points, isClosed);
+      var d = buildPath(points, isClosed);
       svgPathEl.setAttribute('d', d);
       pathOutput.value = d;
-      statsEl.textContent = `Точок: ${points.length}${isClosed ? ' (замкнуто)' : ''}`;
+      statsEl.textContent = 'Точок: ' + points.length + (isClosed ? ' (замкнуто)' : '');
 
-      // Render point dots
       pointsGroup.innerHTML = '';
-      
-      // Dot size relative to image
-      const dotR = Math.max(imgNaturalW / 200, 4);
-      const startR = dotR * 1.5;
-      const fontSize = Math.max(imgNaturalW / 100, 10);
+      var r = Math.max(imgW / 200, 4);
 
-      points.forEach((p, i) => {
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', p.x);
-        circle.setAttribute('cy', p.y);
-        circle.setAttribute('r', i === 0 ? startR : dotR);
-        circle.setAttribute('fill', i === 0 ? '#4ade80' : '#facc15');
-        circle.setAttribute('stroke', '#000');
-        circle.setAttribute('stroke-width', Math.max(dotR / 3, 1));
-        circle.setAttribute('opacity', '0.9');
-        pointsGroup.appendChild(circle);
+      points.forEach(function(p, i) {
+        var c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        c.setAttribute('cx', p.x);
+        c.setAttribute('cy', p.y);
+        c.setAttribute('r', i === 0 ? r * 1.5 : r);
+        c.setAttribute('fill', i === 0 ? '#4ade80' : '#facc15');
+        c.setAttribute('stroke', '#000');
+        c.setAttribute('stroke-width', Math.max(r / 3, 1));
+        pointsGroup.appendChild(c);
 
-        // Number label
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', p.x + dotR + 4);
-        text.setAttribute('y', p.y - dotR - 2);
-        text.setAttribute('fill', '#ccc');
-        text.setAttribute('font-size', fontSize);
-        text.setAttribute('font-family', 'monospace');
-        text.setAttribute('font-weight', 'bold');
-        text.textContent = String(i + 1);
-        pointsGroup.appendChild(text);
+        var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        t.setAttribute('x', p.x + r + 4);
+        t.setAttribute('y', p.y - r - 2);
+        t.setAttribute('fill', '#ccc');
+        t.setAttribute('font-size', Math.max(imgW / 100, 10));
+        t.setAttribute('font-family', 'monospace');
+        t.setAttribute('font-weight', 'bold');
+        t.textContent = '' + (i + 1);
+        pointsGroup.appendChild(t);
       });
     }
 
-    updateViewBox();
+    // ===== START =====
+    overlaySvg.setAttribute('viewBox', '0 0 ' + imgW + ' ' + imgH);
+    loadSaved();
     render();
+    loadImage(1);
   </script>
 </body>
 </html>
