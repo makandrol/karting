@@ -2,247 +2,338 @@
 <html lang="uk">
 <head>
   <meta charset="UTF-8">
-  <title>Редактор SVG шляху для треків</title>
+  <title>Редактор треків — Жага швидкості</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #1a1a1a; color: #fff; font-family: system-ui, sans-serif; padding: 20px; }
-    h1 { font-size: 20px; margin-bottom: 16px; }
-    .controls { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-    button { background: #333; color: #fff; border: 1px solid #555; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+    h1 { font-size: 20px; margin-bottom: 10px; }
+    .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
+    button { background: #333; color: #fff; border: 1px solid #555; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; }
     button:hover { background: #444; }
-    select { background: #333; color: #fff; border: 1px solid #555; padding: 8px 12px; border-radius: 8px; font-size: 13px; }
-    .canvas-wrap { position: relative; cursor: crosshair; width: 100%; }
+    button.active { background: #e52d1a; border-color: #e52d1a; }
+    select { background: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+    .canvas-wrap { position: relative; width: 100%; user-select: none; }
     .canvas-wrap img { display: block; width: 100%; height: auto; border-radius: 8px; }
-    .canvas-wrap svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-    .output { margin-top: 16px; }
-    textarea { width: 100%; height: 120px; background: #222; color: #4ade80; border: 1px solid #444; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 13px; resize: vertical; }
-    .hint { color: #888; font-size: 12px; margin-bottom: 12px; line-height: 1.5; }
-    .hint code { background: #333; padding: 2px 6px; border-radius: 4px; }
-    .stats { color: #aaa; font-size: 13px; margin-left: auto; }
-    #debugInfo { background: #222; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 12px; color: #f87171; margin-bottom: 10px; word-break: break-all; }
+    .canvas-wrap svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    textarea { width: 100%; height: 100px; background: #222; color: #4ade80; border: 1px solid #444; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; resize: vertical; margin-top: 6px; }
+    .hint { color: #666; font-size: 11px; margin-bottom: 8px; line-height: 1.4; }
+    code { background: #333; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+    #debugInfo { background: #222; padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 11px; color: #4ade80; margin-bottom: 8px; }
+    .mode-label { color: #aaa; font-size: 12px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+    .outputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    .outputs label { font-size: 11px; color: #888; display: block; margin-bottom: 2px; }
+    @media (max-width: 800px) { .outputs { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <h1>🏎️ Редактор SVG шляху для треків</h1>
+  <h1>🏎️ Редактор треків</h1>
   <p class="hint">
-    Клікай по трасі послідовно — починай від фінішної лінії, йди по напрямку руху, і замкни контур.<br>
-    Достатньо 20-30 точок. Результат копіюй в <code>src/data/tracks.ts</code> → поле <code>svgPath</code>.
+    Вибери режим → клікай по трасі. Для шляху: починай від фінішу за напрямком руху.<br>
+    Точки можна <strong>перетягувати</strong> в будь-якому режимі. Результати копіюй в <code>src/data/tracks.ts</code>.
   </p>
 
-  <div class="controls">
+  <div class="row">
     <label>Трек: <select id="trackSelect"></select></label>
+  </div>
+
+  <!-- Mode buttons -->
+  <div class="row">
+    <span class="mode-label">Режим:</span>
+    <button id="mPath" class="active" onclick="setMode('path')">🛤️ Шлях</button>
+    <button id="mS1" onclick="setMode('s1')">🔵 S1 точка</button>
+    <button id="mGrid" onclick="setMode('grid')">🏁 Стартова решітка</button>
+    <button id="mPit" onclick="setMode('pit')">🔧 Піти</button>
+  </div>
+
+  <div class="row">
     <button onclick="undo()">↩ Undo</button>
-    <button onclick="clearPoints()">🗑 Очистити</button>
-    <button onclick="closePath()">⭕ Замкнути</button>
-    <button onclick="copyPath()">📋 Копіювати</button>
-    <span class="stats" id="stats">Точок: 0</span>
+    <button onclick="clearCurrent()">🗑 Очистити поточне</button>
+    <button onclick="closePath()" id="btnClose">⭕ Замкнути шлях</button>
+    <button onclick="copyAll()">📋 Копіювати все (JSON)</button>
+    <span id="stats" style="color:#aaa;font-size:12px;margin-left:auto;"></span>
   </div>
 
   <div id="debugInfo">Завантаження...</div>
 
   <div class="canvas-wrap" id="canvasWrap">
     <img id="trackImg" src="" alt="Track">
-    <svg id="overlaySvg" preserveAspectRatio="none">
-      <path id="svgPath" fill="none" stroke="#e52d1a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" />
-      <g id="pointsGroup"></g>
-    </svg>
+    <svg id="overlaySvg"></svg>
   </div>
 
-  <div class="output">
-    <label style="font-size:13px;color:#aaa;">SVG Path (копіюй це в tracks.ts → svgPath):</label>
-    <textarea id="pathOutput" readonly></textarea>
+  <div class="outputs">
+    <div>
+      <label>svgPath:</label>
+      <textarea id="outPath" readonly></textarea>
+    </div>
+    <div>
+      <label>JSON (s1, grid, pit):</label>
+      <textarea id="outJson" readonly></textarea>
+    </div>
   </div>
 
   <script>
     // ===== CONFIG =====
-    const TRACK_PATHS = [
-      '../public/tracks/nfs_{NUM}.jpg',
-      '../tracks/nfs/nfs_{NUM}.jpg',
-    ];
-
-    // ===== DOM =====
-    const debugEl    = document.getElementById('debugInfo');
-    const trackSelect = document.getElementById('trackSelect');
-    const trackImg   = document.getElementById('trackImg');
-    const overlaySvg = document.getElementById('overlaySvg');
-    const svgPathEl  = document.getElementById('svgPath');
-    const pointsGroup = document.getElementById('pointsGroup');
-    const pathOutput = document.getElementById('pathOutput');
-    const statsEl    = document.getElementById('stats');
-    const canvasWrap = document.getElementById('canvasWrap');
+    var TRACK_PATHS = ['../public/tracks/nfs_{NUM}.jpg', '../tracks/nfs/nfs_{NUM}.jpg'];
+    var imgW = 1280, imgH = 720;
 
     // ===== STATE =====
-    let imgW = 1280, imgH = 720;
-    let points = [];
-    let isClosed = false;
+    var mode = 'path';  // 'path' | 's1' | 'grid' | 'pit'
+    var pathPoints = [], isClosed = false;
+    var s1Point = null;      // {x,y} або null
+    var gridPoints = [];     // [{x,y}, ...]
+    var pitPoints = [];      // [{x,y}, ...]
 
-    // ===== DEBUG =====
-    function dbg(msg) {
-      debugEl.textContent = msg;
-      debugEl.style.color = '#f87171';
+    // Drag state
+    var dragging = null; // { type: 'path'|'s1'|'grid'|'pit', index: number }
+    var dragMoved = false;
+
+    // ===== DOM =====
+    var debugEl = document.getElementById('debugInfo');
+    var trackSelect = document.getElementById('trackSelect');
+    var trackImg = document.getElementById('trackImg');
+    var overlaySvg = document.getElementById('overlaySvg');
+    var canvasWrap = document.getElementById('canvasWrap');
+    var outPath = document.getElementById('outPath');
+    var outJson = document.getElementById('outJson');
+    var statsEl = document.getElementById('stats');
+
+    function dbg(m, ok) { debugEl.textContent = m; debugEl.style.color = ok ? '#4ade80' : '#f87171'; }
+
+    // ===== INIT =====
+    for (var i = 1; i <= 11; i++) {
+      var o = document.createElement('option'); o.value = i; o.textContent = '№' + i;
+      trackSelect.appendChild(o);
     }
-    function dbgOk(msg) {
-      debugEl.textContent = msg;
-      debugEl.style.color = '#4ade80';
+
+    // ===== MODE =====
+    function setMode(m) {
+      mode = m;
+      ['mPath','mS1','mGrid','mPit'].forEach(function(id) {
+        document.getElementById(id).classList.remove('active');
+      });
+      document.getElementById({path:'mPath',s1:'mS1',grid:'mGrid',pit:'mPit'}[m]).classList.add('active');
+      canvasWrap.style.cursor = m === 'path' && isClosed ? 'default' : 'crosshair';
+      render();
     }
 
-    // ===== INIT TRACKS =====
-    for (let i = 1; i <= 11; i++) {
-      const opt = document.createElement('option');
-      opt.value = i;
-      opt.textContent = 'Конфігурація №' + i;
-      trackSelect.appendChild(opt);
-    }
-
-    // ===== LOAD IMAGE =====
-    function loadImage(trackId) {
-      const num = String(trackId).padStart(2, '0');
-      const candidates = TRACK_PATHS.map(p => p.replace('{NUM}', num));
-      let idx = 0;
-
-      dbg('⏳ Шукаю картинку: ' + candidates[0]);
-
+    // ===== IMAGE =====
+    function loadImage(id) {
+      var num = String(id).padStart(2,'0'), cands = TRACK_PATHS.map(function(p){return p.replace('{NUM}',num);}), idx=0;
+      dbg('⏳ '+cands[0]);
       function tryNext() {
-        if (idx >= candidates.length) {
-          dbg('❌ Не знайдено. Спробовані шляхи: ' + candidates.join(' | '));
-          return;
-        }
-        trackImg.src = candidates[idx];
-        idx++;
+        if (idx >= cands.length) { dbg('❌ Не знайдено: '+cands.join(' | ')); return; }
+        trackImg.src = cands[idx++];
       }
-
       trackImg.onload = function() {
-        imgW = trackImg.naturalWidth || 1280;
-        imgH = trackImg.naturalHeight || 720;
-        overlaySvg.setAttribute('viewBox', '0 0 ' + imgW + ' ' + imgH);
-        dbgOk('✅ Завантажено: ' + trackImg.src + ' (' + imgW + '×' + imgH + ')');
-        render();
+        imgW = trackImg.naturalWidth||1280; imgH = trackImg.naturalHeight||720;
+        overlaySvg.setAttribute('viewBox','0 0 '+imgW+' '+imgH);
+        dbg('✅ '+trackImg.src+' ('+imgW+'×'+imgH+')', true); render();
       };
-      trackImg.onerror = function() {
-        dbg('⚠️ Не вдалось: ' + trackImg.src + (idx < candidates.length ? ' → пробую наступний...' : ''));
-        tryNext();
-      };
-
+      trackImg.onerror = function() { dbg('⚠️ Не вдалось: '+trackImg.src); tryNext(); };
       tryNext();
     }
 
-    // ===== LOCALSTORAGE =====
-    function lsKey() { return 'track_path_v3_' + trackSelect.value; }
-
+    // ===== STORAGE =====
+    function lsKey() { return 'track_edit_v4_' + trackSelect.value; }
     function loadSaved() {
-      points = [];
-      isClosed = false;
+      pathPoints=[]; isClosed=false; s1Point=null; gridPoints=[]; pitPoints=[];
       try {
-        const s = localStorage.getItem(lsKey());
-        if (s) { const d = JSON.parse(s); points = d.points || []; isClosed = !!d.isClosed; }
+        var d = JSON.parse(localStorage.getItem(lsKey()));
+        if (d) { pathPoints=d.pathPoints||[]; isClosed=!!d.isClosed; s1Point=d.s1Point||null; gridPoints=d.gridPoints||[]; pitPoints=d.pitPoints||[]; }
       } catch {}
     }
-
     function save() {
-      localStorage.setItem(lsKey(), JSON.stringify({ points, isClosed }));
+      localStorage.setItem(lsKey(), JSON.stringify({pathPoints,isClosed,s1Point,gridPoints,pitPoints}));
     }
 
-    // ===== TRACK CHANGE =====
-    trackSelect.addEventListener('change', function() {
-      loadSaved();
-      loadImage(parseInt(trackSelect.value));
+    trackSelect.addEventListener('change', function() { loadSaved(); loadImage(parseInt(trackSelect.value)); });
+
+    // ===== COORDINATE HELPERS =====
+    function evtToCoord(e) {
+      var r = trackImg.getBoundingClientRect();
+      return { x: Math.round(((e.clientX-r.left)/r.width)*imgW), y: Math.round(((e.clientY-r.top)/r.height)*imgH) };
+    }
+
+    function dist(a,b) { return Math.sqrt((a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y)); }
+
+    // ===== FIND NEAREST POINT FOR DRAGGING =====
+    function findNearest(coord, threshold) {
+      var best = null, bestD = threshold;
+      pathPoints.forEach(function(p,i) { var d=dist(coord,p); if(d<bestD){bestD=d;best={type:'path',index:i};} });
+      if (s1Point) { var d=dist(coord,s1Point); if(d<bestD){bestD=d;best={type:'s1',index:0};} }
+      gridPoints.forEach(function(p,i) { var d=dist(coord,p); if(d<bestD){bestD=d;best={type:'grid',index:i};} });
+      pitPoints.forEach(function(p,i) { var d=dist(coord,p); if(d<bestD){bestD=d;best={type:'pit',index:i};} });
+      return best;
+    }
+
+    // ===== MOUSE EVENTS =====
+    canvasWrap.addEventListener('mousedown', function(e) {
+      if (e.button !== 0) return;
+      var coord = evtToCoord(e);
+      var near = findNearest(coord, Math.max(imgW/50, 20));
+      if (near) {
+        dragging = near; dragMoved = false;
+        e.preventDefault();
+        return;
+      }
     });
 
-    // ===== CLICK =====
-    canvasWrap.addEventListener('click', function(e) {
-      if (isClosed) return;
-      const rect = trackImg.getBoundingClientRect();
-      const x = Math.round(((e.clientX - rect.left) / rect.width) * imgW);
-      const y = Math.round(((e.clientY - rect.top) / rect.height) * imgH);
-      points.push({ x, y });
-      save();
+    canvasWrap.addEventListener('mousemove', function(e) {
+      if (!dragging) return;
+      dragMoved = true;
+      var coord = evtToCoord(e);
+      if (dragging.type==='path') pathPoints[dragging.index] = coord;
+      else if (dragging.type==='s1') s1Point = coord;
+      else if (dragging.type==='grid') gridPoints[dragging.index] = coord;
+      else if (dragging.type==='pit') pitPoints[dragging.index] = coord;
       render();
+    });
+
+    canvasWrap.addEventListener('mouseup', function(e) {
+      if (dragging) {
+        if (dragMoved) { save(); render(); }
+        var wasDrag = dragMoved;
+        dragging = null; dragMoved = false;
+        if (wasDrag) return; // don't place new point if dragged
+      }
+      // CLICK — add point
+      var coord = evtToCoord(e);
+      if (mode==='path') {
+        if (isClosed) return;
+        pathPoints.push(coord);
+      } else if (mode==='s1') {
+        s1Point = coord;
+      } else if (mode==='grid') {
+        gridPoints.push(coord);
+      } else if (mode==='pit') {
+        pitPoints.push(coord);
+      }
+      save(); render();
+    });
+
+    // Prevent context menu on canvas
+    canvasWrap.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+    // Right-click to delete nearest point
+    canvasWrap.addEventListener('mousedown', function(e) {
+      if (e.button !== 2) return;
+      e.preventDefault();
+      var coord = evtToCoord(e);
+      var near = findNearest(coord, Math.max(imgW/50, 20));
+      if (!near) return;
+      if (near.type==='path') pathPoints.splice(near.index, 1);
+      else if (near.type==='s1') s1Point = null;
+      else if (near.type==='grid') gridPoints.splice(near.index, 1);
+      else if (near.type==='pit') pitPoints.splice(near.index, 1);
+      save(); render();
     });
 
     // ===== ACTIONS =====
     function undo() {
-      if (isClosed) { isClosed = false; } else { points.pop(); }
+      if (mode==='path') { if (isClosed) isClosed=false; else pathPoints.pop(); }
+      else if (mode==='s1') s1Point=null;
+      else if (mode==='grid') gridPoints.pop();
+      else if (mode==='pit') pitPoints.pop();
       save(); render();
     }
 
-    function clearPoints() {
-      if (points.length > 0 && !confirm('Очистити всі точки?')) return;
-      points = []; isClosed = false; save(); render();
+    function clearCurrent() {
+      if (mode==='path') { if(!confirm('Очистити шлях?'))return; pathPoints=[]; isClosed=false; }
+      else if (mode==='s1') s1Point=null;
+      else if (mode==='grid') { gridPoints=[]; }
+      else if (mode==='pit') { pitPoints=[]; }
+      save(); render();
     }
 
     function closePath() {
-      if (points.length >= 3) { isClosed = true; save(); render(); }
+      if (pathPoints.length >= 3) { isClosed=true; save(); render(); }
     }
 
-    function copyPath() {
-      navigator.clipboard.writeText(pathOutput.value).then(function() {
-        pathOutput.style.borderColor = '#4ade80';
-        setTimeout(function() { pathOutput.style.borderColor = '#444'; }, 1500);
+    function copyAll() {
+      var data = {
+        svgPath: buildPath(pathPoints, isClosed),
+        s1Point: s1Point,
+        gridPositions: gridPoints,
+        pitPositions: pitPoints,
+      };
+      var text = JSON.stringify(data, null, 2);
+      navigator.clipboard.writeText(text).then(function() {
+        outJson.style.borderColor='#4ade80';
+        setTimeout(function(){outJson.style.borderColor='#444';},1500);
       });
     }
 
     // ===== SMOOTH PATH =====
     function buildPath(pts, closed) {
-      if (pts.length === 0) return '';
-      if (pts.length === 1) return 'M ' + pts[0].x + ',' + pts[0].y;
-      var d = 'M ' + pts[0].x + ',' + pts[0].y;
-      if (pts.length === 2) return d + ' L ' + pts[1].x + ',' + pts[1].y;
-
-      // Catmull-Rom → cubic bezier
-      var all = closed
-        ? [pts[pts.length - 1]].concat(pts, [pts[0], pts[1]])
-        : [pts[0]].concat(pts, [pts[pts.length - 1]]);
-
-      for (var i = 1; i < all.length - 2; i++) {
-        var p0 = all[i-1], p1 = all[i], p2 = all[i+1], p3 = all[i+2];
-        var t = 0.3;
-        var c1x = Math.round(p1.x + (p2.x - p0.x) * t);
-        var c1y = Math.round(p1.y + (p2.y - p0.y) * t);
-        var c2x = Math.round(p2.x - (p3.x - p1.x) * t);
-        var c2y = Math.round(p2.y - (p3.y - p1.y) * t);
-        d += ' C ' + c1x + ',' + c1y + ' ' + c2x + ',' + c2y + ' ' + p2.x + ',' + p2.y;
+      if (pts.length===0) return '';
+      if (pts.length===1) return 'M '+pts[0].x+','+pts[0].y;
+      var d = 'M '+pts[0].x+','+pts[0].y;
+      if (pts.length===2) return d+' L '+pts[1].x+','+pts[1].y;
+      var all = closed ? [pts[pts.length-1]].concat(pts,[pts[0],pts[1]]) : [pts[0]].concat(pts,[pts[pts.length-1]]);
+      for (var i=1;i<all.length-2;i++) {
+        var p0=all[i-1],p1=all[i],p2=all[i+1],p3=all[i+2],t=0.3;
+        d+=' C '+Math.round(p1.x+(p2.x-p0.x)*t)+','+Math.round(p1.y+(p2.y-p0.y)*t)+' '+Math.round(p2.x-(p3.x-p1.x)*t)+','+Math.round(p2.y-(p3.y-p1.y)*t)+' '+p2.x+','+p2.y;
       }
-      if (closed) d += ' Z';
+      if (closed) d+=' Z';
       return d;
     }
 
     // ===== RENDER =====
     function render() {
-      var d = buildPath(points, isClosed);
-      svgPathEl.setAttribute('d', d);
-      pathOutput.value = d;
-      statsEl.textContent = 'Точок: ' + points.length + (isClosed ? ' (замкнуто)' : '');
+      var html = '';
+      var R = Math.max(imgW/200, 4);
 
-      pointsGroup.innerHTML = '';
-      var r = Math.max(imgW / 200, 4);
+      // Path line
+      var d = buildPath(pathPoints, isClosed);
+      html += '<path d="'+d+'" fill="none" stroke="#e52d1a" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>';
 
-      points.forEach(function(p, i) {
-        var c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        c.setAttribute('cx', p.x);
-        c.setAttribute('cy', p.y);
-        c.setAttribute('r', i === 0 ? r * 1.5 : r);
-        c.setAttribute('fill', i === 0 ? '#4ade80' : '#facc15');
-        c.setAttribute('stroke', '#000');
-        c.setAttribute('stroke-width', Math.max(r / 3, 1));
-        pointsGroup.appendChild(c);
-
-        var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        t.setAttribute('x', p.x + r + 4);
-        t.setAttribute('y', p.y - r - 2);
-        t.setAttribute('fill', '#ccc');
-        t.setAttribute('font-size', Math.max(imgW / 100, 10));
-        t.setAttribute('font-family', 'monospace');
-        t.setAttribute('font-weight', 'bold');
-        t.textContent = '' + (i + 1);
-        pointsGroup.appendChild(t);
+      // Path points
+      pathPoints.forEach(function(p,i) {
+        var fill = i===0?'#4ade80':'#facc15', rad = i===0?R*1.5:R;
+        html += '<circle cx="'+p.x+'" cy="'+p.y+'" r="'+rad+'" fill="'+fill+'" stroke="#000" stroke-width="1.5" style="cursor:grab"/>';
+        html += '<text x="'+(p.x+R+3)+'" y="'+(p.y-R-1)+'" fill="#ccc" font-size="'+Math.max(imgW/120,8)+'" font-family="monospace">'+(i+1)+'</text>';
       });
+
+      // S1 point
+      if (s1Point) {
+        html += '<circle cx="'+s1Point.x+'" cy="'+s1Point.y+'" r="'+(R*2)+'" fill="none" stroke="#3b82f6" stroke-width="3" stroke-dasharray="6,4" style="cursor:grab"/>';
+        html += '<circle cx="'+s1Point.x+'" cy="'+s1Point.y+'" r="'+(R*0.8)+'" fill="#3b82f6" style="cursor:grab"/>';
+        html += '<text x="'+(s1Point.x+R*2+4)+'" y="'+(s1Point.y+4)+'" fill="#3b82f6" font-size="'+Math.max(imgW/90,10)+'" font-weight="bold" font-family="sans-serif">S1</text>';
+      }
+
+      // Grid positions
+      gridPoints.forEach(function(p,i) {
+        html += '<rect x="'+(p.x-R*1.2)+'" y="'+(p.y-R*1.2)+'" width="'+(R*2.4)+'" height="'+(R*2.4)+'" fill="#4ade80" stroke="#000" stroke-width="1.5" rx="3" style="cursor:grab"/>';
+        html += '<text x="'+p.x+'" y="'+(p.y+1)+'" text-anchor="middle" dominant-baseline="central" fill="#000" font-size="'+Math.max(R*1.5,8)+'" font-weight="bold" font-family="monospace">'+(i+1)+'</text>';
+      });
+
+      // Pit positions
+      pitPoints.forEach(function(p,i) {
+        html += '<polygon points="'+(p.x)+','+(p.y-R*1.8)+' '+(p.x+R*1.6)+','+(p.y+R*1)+' '+(p.x-R*1.6)+','+(p.y+R*1)+'" fill="#f59e0b" stroke="#000" stroke-width="1.5" style="cursor:grab"/>';
+        html += '<text x="'+p.x+'" y="'+(p.y+1)+'" text-anchor="middle" dominant-baseline="central" fill="#000" font-size="'+Math.max(R*1.2,7)+'" font-weight="bold" font-family="monospace">P'+(i+1)+'</text>';
+      });
+
+      overlaySvg.innerHTML = html;
+
+      // Update outputs
+      outPath.value = d;
+      outJson.value = JSON.stringify({ s1Point:s1Point, gridPositions:gridPoints, pitPositions:pitPoints }, null, 2);
+
+      // Stats
+      var parts = [];
+      parts.push('Шлях: '+pathPoints.length+(isClosed?' ✓':''));
+      parts.push('S1: '+(s1Point?'✓':'—'));
+      parts.push('Решітка: '+gridPoints.length);
+      parts.push('Піти: '+pitPoints.length);
+      statsEl.textContent = parts.join(' │ ');
+
+      document.getElementById('btnClose').style.display = mode==='path'?'':'none';
     }
 
     // ===== START =====
-    overlaySvg.setAttribute('viewBox', '0 0 ' + imgW + ' ' + imgH);
-    loadSaved();
-    render();
-    loadImage(1);
+    overlaySvg.setAttribute('viewBox','0 0 '+imgW+' '+imgH);
+    loadSaved(); render(); loadImage(1);
   </script>
 </body>
 </html>
