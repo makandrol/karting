@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>Редактор SVG шляху для треків</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a1a; color: #fff; font-family: system-ui, sans-serif; padding: 20px; }
+    h1 { font-size: 20px; margin-bottom: 16px; }
+    .controls { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+    button { background: #333; color: #fff; border: 1px solid #555; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+    button:hover { background: #444; }
+    button.active { background: #e52d1a; border-color: #e52d1a; }
+    select { background: #333; color: #fff; border: 1px solid #555; padding: 8px 12px; border-radius: 8px; font-size: 13px; }
+    .canvas-wrap { position: relative; display: inline-block; cursor: crosshair; }
+    .canvas-wrap img { display: block; max-width: 100%; border-radius: 8px; }
+    .canvas-wrap svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    .output { margin-top: 16px; }
+    textarea { width: 100%; height: 120px; background: #222; color: #4ade80; border: 1px solid #444; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 13px; resize: vertical; }
+    .point-list { margin-top: 8px; font-size: 12px; color: #888; max-height: 200px; overflow-y: auto; }
+    .hint { color: #888; font-size: 12px; margin-bottom: 12px; }
+    .stats { color: #aaa; font-size: 13px; margin-left: auto; }
+  </style>
+</head>
+<body>
+  <h1>🏎️ Редактор SVG шляху для треків</h1>
+  <p class="hint">
+    Клікай по трасі послідовно — від фінішу (старт/фініш) по напрямку руху і назад до фінішу.
+    Точки з'єднуються плавною кривою. Результат копіюй в <code>src/data/tracks.ts</code>.
+  </p>
+
+  <div class="controls">
+    <label>Трек:
+      <select id="trackSelect"></select>
+    </label>
+    <button onclick="undo()">↩ Undo</button>
+    <button onclick="clearPoints()">🗑 Очистити</button>
+    <button onclick="closePath()">⭕ Замкнути шлях</button>
+    <button onclick="copyPath()">📋 Копіювати</button>
+    <span class="stats" id="stats">Точок: 0</span>
+  </div>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <img id="trackImg" src="" alt="Track">
+    <svg id="overlaySvg" viewBox="0 0 800 500">
+      <path id="svgPath" fill="none" stroke="#e52d1a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" />
+      <g id="pointsGroup"></g>
+    </svg>
+  </div>
+
+  <div class="output">
+    <label style="font-size:13px;color:#aaa;">SVG Path (копіюй це в tracks.ts → svgPath):</label>
+    <textarea id="pathOutput" readonly></textarea>
+  </div>
+
+  <script>
+    const TRACKS = [];
+    for (let i = 1; i <= 11; i++) {
+      TRACKS.push({
+        id: i,
+        name: `Конфігурація №${i}`,
+        image: `tracks/nfs_${String(i).padStart(2, '0')}.jpg`,
+      });
+    }
+
+    // viewBox dimensions
+    const VB_W = 800;
+    const VB_H = 500;
+
+    let points = [];
+    let isClosed = false;
+
+    const trackSelect = document.getElementById('trackSelect');
+    const trackImg = document.getElementById('trackImg');
+    const overlaySvg = document.getElementById('overlaySvg');
+    const svgPathEl = document.getElementById('svgPath');
+    const pointsGroup = document.getElementById('pointsGroup');
+    const pathOutput = document.getElementById('pathOutput');
+    const statsEl = document.getElementById('stats');
+    const canvasWrap = document.getElementById('canvasWrap');
+
+    // Populate select
+    TRACKS.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      trackSelect.appendChild(opt);
+    });
+
+    // Load saved points from localStorage
+    function loadSaved() {
+      try {
+        const saved = localStorage.getItem(`track_path_${trackSelect.value}`);
+        if (saved) {
+          const data = JSON.parse(saved);
+          points = data.points || [];
+          isClosed = data.isClosed || false;
+          render();
+        }
+      } catch {}
+    }
+
+    function saveCurrent() {
+      localStorage.setItem(`track_path_${trackSelect.value}`, JSON.stringify({ points, isClosed }));
+    }
+
+    trackSelect.addEventListener('change', () => {
+      const t = TRACKS.find(x => x.id === parseInt(trackSelect.value));
+      trackImg.src = t.image;
+      points = [];
+      isClosed = false;
+      loadSaved();
+      render();
+    });
+
+    // Init
+    trackImg.src = TRACKS[0].image;
+    loadSaved();
+
+    // Click handler
+    canvasWrap.addEventListener('click', (e) => {
+      if (isClosed) return;
+
+      const rect = canvasWrap.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * VB_W;
+      const y = ((e.clientY - rect.top) / rect.height) * VB_H;
+
+      points.push({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
+      saveCurrent();
+      render();
+    });
+
+    function undo() {
+      if (isClosed) { isClosed = false; }
+      else { points.pop(); }
+      saveCurrent();
+      render();
+    }
+
+    function clearPoints() {
+      points = [];
+      isClosed = false;
+      saveCurrent();
+      render();
+    }
+
+    function closePath() {
+      if (points.length >= 3) {
+        isClosed = true;
+        saveCurrent();
+        render();
+      }
+    }
+
+    function copyPath() {
+      pathOutput.select();
+      navigator.clipboard.writeText(pathOutput.value);
+      pathOutput.style.borderColor = '#4ade80';
+      setTimeout(() => { pathOutput.style.borderColor = '#444'; }, 1000);
+    }
+
+    function buildSmoothPath(pts, closed) {
+      if (pts.length === 0) return '';
+      if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
+
+      let d = `M ${pts[0].x},${pts[0].y}`;
+
+      if (pts.length === 2) {
+        d += ` L ${pts[1].x},${pts[1].y}`;
+        return d;
+      }
+
+      // Catmull-Rom to cubic bezier
+      const allPts = closed
+        ? [pts[pts.length - 1], ...pts, pts[0], pts[1]]
+        : [pts[0], ...pts, pts[pts.length - 1]];
+
+      for (let i = 1; i < allPts.length - 2; i++) {
+        const p0 = allPts[i - 1];
+        const p1 = allPts[i];
+        const p2 = allPts[i + 1];
+        const p3 = allPts[i + 2];
+
+        const tension = 0.3;
+        const cp1x = p1.x + (p2.x - p0.x) * tension;
+        const cp1y = p1.y + (p2.y - p0.y) * tension;
+        const cp2x = p2.x - (p3.x - p1.x) * tension;
+        const cp2y = p2.y - (p3.y - p1.y) * tension;
+
+        if (i === 1 && !closed) {
+          d += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x},${p2.y}`;
+        } else {
+          d += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x},${p2.y}`;
+        }
+      }
+
+      if (closed) {
+        d += ' Z';
+      }
+
+      return d;
+    }
+
+    function render() {
+      const d = buildSmoothPath(points, isClosed);
+      svgPathEl.setAttribute('d', d);
+      pathOutput.value = d;
+      statsEl.textContent = `Точок: ${points.length}${isClosed ? ' (замкнуто)' : ''}`;
+
+      // Render point dots
+      pointsGroup.innerHTML = '';
+      points.forEach((p, i) => {
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', p.x);
+        circle.setAttribute('cy', p.y);
+        circle.setAttribute('r', i === 0 ? '6' : '4');
+        circle.setAttribute('fill', i === 0 ? '#4ade80' : '#facc15');
+        circle.setAttribute('stroke', '#000');
+        circle.setAttribute('stroke-width', '1.5');
+        circle.setAttribute('opacity', '0.9');
+        pointsGroup.appendChild(circle);
+
+        // Number label
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', p.x + 8);
+        text.setAttribute('y', p.y - 8);
+        text.setAttribute('fill', '#888');
+        text.setAttribute('font-size', '10');
+        text.setAttribute('font-family', 'monospace');
+        text.textContent = String(i + 1);
+        pointsGroup.appendChild(text);
+      });
+    }
+
+    render();
+  </script>
+</body>
+</html>

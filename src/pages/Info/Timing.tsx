@@ -134,14 +134,14 @@ export default function Timing() {
             </button>
           </div>
 
-          {/* Track map with animated karts */}
-          <TrackMap track={currentTrack} entries={entries} />
-
           <TimingBoard
             entries={entries}
             mode={mode}
             lastUpdate={lastUpdate}
           />
+
+          {/* Track map with animated karts */}
+          <TrackMap track={currentTrack} entries={entries} />
 
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
