@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, hasConfig, type FirebaseUser } from './firebase';
 
 // ============================================================
 // Types
@@ -18,18 +19,16 @@ export const ROLE_ICONS: Record<UserRole, string> = {
   user: '👤',
 };
 
-export interface User {
-  id: string;
+export interface AppUser {
+  uid: string;
+  email: string;
   name: string;
-  login: string;
+  photo: string | null;
   role: UserRole;
 }
 
 export interface ModeratorEntry {
-  id: string;
-  name: string;
-  login: string;
-  password: string;
+  email: string;
   permissions: ModeratorPermission[];
 }
 
@@ -47,64 +46,65 @@ export const ALL_PERMISSIONS: { key: ModeratorPermission; label: string }[] = [
 ];
 
 // ============================================================
-// Власник (Owner) — хардкод
+// Власник — по email
 // ============================================================
 
-const OWNER_LOGIN = 'admin';
-const OWNER_PASSWORD = 'zhaga2026';
-const OWNER_USER: User = {
-  id: 'owner',
-  name: 'Власник',
-  login: OWNER_LOGIN,
-  role: 'owner',
-};
+const OWNER_EMAIL = 'makandrol@gmail.com';
 
 // ============================================================
-// LocalStorage keys
+// LocalStorage
 // ============================================================
 
-const LS_CURRENT_USER = 'karting_current_user_v2';
-const LS_MODERATORS = 'karting_moderators_v2';
+const LS_MODERATORS = 'karting_moderators_v3';
 
 // ============================================================
 // Context
 // ============================================================
 
 interface AuthContextValue {
-  user: User | null;
+  user: AppUser | null;
+  firebaseUser: FirebaseUser | null;
+  loading: boolean;
   isAuthenticated: boolean;
   isOwner: boolean;
-  /** Owner або Moderator */
   isModerator: boolean;
-  /** Повертає true якщо поточний юзер має цей дозвіл */
   hasPermission: (perm: ModeratorPermission) => boolean;
-  /** Єдиний метод логіну — login + password, система сама визначає роль */
-  login: (login: string, password: string) => { success: boolean; error?: string };
-  logout: () => void;
-  /** Список модераторів (видимий тільки для owner) */
+  loginWithGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
   moderators: ModeratorEntry[];
-  addModerator: (name: string, login: string, password: string, permissions: ModeratorPermission[]) => string | null;
-  removeModerator: (id: string) => void;
-  updateModerator: (id: string, updates: Partial<Pick<ModeratorEntry, 'name' | 'password' | 'permissions'>>) => void;
+  addModerator: (email: string, permissions: ModeratorPermission[]) => string | null;
+  removeModerator: (email: string) => void;
+  updateModerator: (email: string, permissions: ModeratorPermission[]) => void;
+  /** true якщо Firebase налаштовано */
+  firebaseConfigured: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+// ============================================================
+// Helper — визначити роль по email
+// ============================================================
+
+function determineRole(email: string, moderators: ModeratorEntry[]): UserRole {
+  if (email.toLowerCase() === OWNER_EMAIL) return 'owner';
+  if (moderators.some((m) => m.email.toLowerCase() === email.toLowerCase())) return 'moderator';
+  return 'user';
+}
 
 // ============================================================
 // Provider
 // ============================================================
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [loading, setLoading] = useState(true);
   const [moderators, setModerators] = useState<ModeratorEntry[]>([]);
 
-  // Load from localStorage on mount
+  // Load moderators
   useEffect(() => {
     try {
-      const savedUser = localStorage.getItem(LS_CURRENT_USER);
-      if (savedUser) setUser(JSON.parse(savedUser));
-      const savedMods = localStorage.getItem(LS_MODERATORS);
-      if (savedMods) setModerators(JSON.parse(savedMods));
+      const saved = localStorage.getItem(LS_MODERATORS);
+      if (saved) setModerators(JSON.parse(saved));
     } catch { /* ignore */ }
   }, []);
 
@@ -113,98 +113,85 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(LS_MODERATORS, JSON.stringify(moderators));
   }, [moderators]);
 
-  const persistUser = useCallback((u: User | null) => {
-    setUser(u);
-    if (u) {
-      localStorage.setItem(LS_CURRENT_USER, JSON.stringify(u));
-    } else {
-      localStorage.removeItem(LS_CURRENT_USER);
+  // Listen to Firebase auth state
+  useEffect(() => {
+    if (!auth) {
+      setLoading(false);
+      return;
+    }
+    const unsub = onAuthStateChanged(auth, (fbUser) => {
+      setFirebaseUser(fbUser);
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  // Build AppUser from Firebase user
+  const user: AppUser | null = firebaseUser && firebaseUser.email ? {
+    uid: firebaseUser.uid,
+    email: firebaseUser.email,
+    name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+    photo: firebaseUser.photoURL,
+    role: determineRole(firebaseUser.email, moderators),
+  } : null;
+
+  const loginWithGoogle = useCallback(async () => {
+    if (!auth) return;
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err) {
+      console.error('Google login failed:', err);
     }
   }, []);
 
-  const login = useCallback((loginStr: string, password: string): { success: boolean; error?: string } => {
-    const trimLogin = loginStr.trim().toLowerCase();
-
-    // 1. Перевірити Власника
-    if (trimLogin === OWNER_LOGIN && password === OWNER_PASSWORD) {
-      persistUser(OWNER_USER);
-      return { success: true };
-    }
-
-    // 2. Перевірити модераторів
-    const mod = moderators.find((m) => m.login.toLowerCase() === trimLogin);
-    if (mod) {
-      if (mod.password === password) {
-        persistUser({
-          id: mod.id,
-          name: mod.name,
-          login: mod.login,
-          role: 'moderator',
-        });
-        return { success: true };
-      }
-      return { success: false, error: 'Невірний пароль' };
-    }
-
-    // 3. Не знайдено
-    return { success: false, error: 'Користувача з таким логіном не знайдено' };
-  }, [moderators, persistUser]);
-
-  const logout = useCallback(() => {
-    persistUser(null);
-  }, [persistUser]);
+  const logout = useCallback(async () => {
+    if (!auth) return;
+    await signOut(auth);
+  }, []);
 
   const hasPermission = useCallback((perm: ModeratorPermission): boolean => {
     if (!user) return false;
     if (user.role === 'owner') return true;
     if (user.role === 'moderator') {
-      const mod = moderators.find((m) => m.id === user.id);
+      const mod = moderators.find((m) => m.email.toLowerCase() === user.email.toLowerCase());
       return mod?.permissions.includes(perm) ?? false;
     }
     return false;
   }, [user, moderators]);
 
-  const addModerator = useCallback((
-    name: string, loginStr: string, password: string, permissions: ModeratorPermission[]
-  ): string | null => {
-    const trimLogin = loginStr.trim().toLowerCase();
-
-    // Перевірити унікальність логіну
-    if (trimLogin === OWNER_LOGIN) return 'Цей логін зарезервовано';
-    if (moderators.some((m) => m.login.toLowerCase() === trimLogin)) {
-      return 'Модератор з таким логіном вже існує';
-    }
-
-    const id = `mod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    setModerators((prev) => [...prev, { id, name, login: trimLogin, password, permissions }]);
-    return null; // success
+  const addModerator = useCallback((email: string, permissions: ModeratorPermission[]): string | null => {
+    const trimmed = email.trim().toLowerCase();
+    if (trimmed === OWNER_EMAIL) return 'Це email власника';
+    if (moderators.some((m) => m.email.toLowerCase() === trimmed)) return 'Цей email вже доданий';
+    setModerators((prev) => [...prev, { email: trimmed, permissions }]);
+    return null;
   }, [moderators]);
 
-  const removeModerator = useCallback((id: string) => {
-    setModerators((prev) => prev.filter((m) => m.id !== id));
+  const removeModerator = useCallback((email: string) => {
+    setModerators((prev) => prev.filter((m) => m.email.toLowerCase() !== email.toLowerCase()));
   }, []);
 
-  const updateModerator = useCallback((
-    id: string,
-    updates: Partial<Pick<ModeratorEntry, 'name' | 'password' | 'permissions'>>
-  ) => {
+  const updateModerator = useCallback((email: string, permissions: ModeratorPermission[]) => {
     setModerators((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, ...updates } : m))
+      prev.map((m) => m.email.toLowerCase() === email.toLowerCase() ? { ...m, permissions } : m)
     );
   }, []);
 
   const value: AuthContextValue = {
     user,
+    firebaseUser,
+    loading,
     isAuthenticated: !!user,
     isOwner: user?.role === 'owner',
     isModerator: user?.role === 'owner' || user?.role === 'moderator',
     hasPermission,
-    login,
+    loginWithGoogle,
     logout,
     moderators,
     addModerator,
     removeModerator,
     updateModerator,
+    firebaseConfigured: hasConfig,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,0 +1,33 @@
+import { initializeApp } from 'firebase/app';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  type User as FirebaseUser,
+} from 'firebase/auth';
+
+// ============================================================
+// Firebase config
+// Потрібно створити проєкт на https://console.firebase.google.com
+// і включити Google Sign-In в Authentication → Sign-in method
+// ============================================================
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+};
+
+// Ініціалізація тільки якщо є конфіг
+const hasConfig = !!firebaseConfig.apiKey;
+const app = hasConfig ? initializeApp(firebaseConfig) : null;
+const auth = app ? getAuth(app) : null;
+const googleProvider = new GoogleAuthProvider();
+
+export { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, hasConfig };
+export type { FirebaseUser };

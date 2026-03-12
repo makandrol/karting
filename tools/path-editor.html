@@ -404,27 +404,86 @@
     }
 
     // ===== IMPORT =====
+
+    /** Парсить SVG path string назад в масив точок (endpoints кривих) */
+    function parseSvgPathToPoints(d) {
+      var pts = [];
+      if (!d) return pts;
+      // Витягуємо M x,y
+      var mMatch = d.match(/M\s*([\d.-]+)[,\s]+([\d.-]+)/);
+      if (mMatch) pts.push({ x: Math.round(parseFloat(mMatch[1])), y: Math.round(parseFloat(mMatch[2])) });
+      // Витягуємо endpoints кожного C ... ... x,y
+      var cRegex = /C\s*[\d.-]+[,\s]+[\d.-]+\s+[\d.-]+[,\s]+[\d.-]+\s+([\d.-]+)[,\s]+([\d.-]+)/g;
+      var m;
+      while ((m = cRegex.exec(d)) !== null) {
+        pts.push({ x: Math.round(parseFloat(m[1])), y: Math.round(parseFloat(m[2])) });
+      }
+      // Також L x,y
+      var lRegex = /L\s*([\d.-]+)[,\s]+([\d.-]+)/g;
+      while ((m = lRegex.exec(d)) !== null) {
+        pts.push({ x: Math.round(parseFloat(m[1])), y: Math.round(parseFloat(m[2])) });
+      }
+      return pts;
+    }
+
     function onPathPaste(){
       var val=outPath.value.trim();
       if(!val){importingPath='';render();return;}
-      if(val.match(/^M\s/i)){importingPath=val;render();save();dbg('✅ Path імпортовано',true);}
+      if(val.match(/^M[\s\d]/i)){
+        // Парсимо в точки
+        var parsed = parseSvgPathToPoints(val);
+        if (parsed.length >= 2) {
+          pathPoints = parsed;
+          isClosed = val.indexOf('Z') >= 0;
+          importingPath = '';
+          save(); render();
+          dbg('✅ Імпортовано '+parsed.length+' точок з path'+(isClosed?' (замкнуто)':''), true);
+        } else {
+          importingPath = val;
+          render(); save();
+          dbg('✅ Path відображено (без точок — занадто мало координат)', true);
+        }
+      }
     }
     function onJsonPaste(){
       var val=outJson.value.trim();if(!val)return;
       try{
         var d=JSON.parse(val);
-        if(d.s1Point!==undefined)s1Point=d.s1Point||null;
-        if(d.gridPositions)gridPoints=d.gridPositions;
-        if(d.pitPositions)pitPoints=d.pitPositions;
-        if(d.svgPath){importingPath=d.svgPath;outPath.value=d.svgPath;}
-        if(d.speedProfile&&pathPoints.length>0){
-          timeMarkers=d.speedProfile.map(function(sp){
-            return{pointIndex:Math.round(sp.progress*pathPoints.length),time:sp.time};
-          });
+        var changed = false;
+        if(d.s1Point!==undefined){s1Point=d.s1Point||null; changed=true;}
+        if(d.gridPositions&&d.gridPositions.length){gridPoints=d.gridPositions; changed=true;}
+        if(d.pitPositions&&d.pitPositions.length){pitPoints=d.pitPositions; changed=true;}
+        if(d.svgPath){
+          var parsed = parseSvgPathToPoints(d.svgPath);
+          if (parsed.length >= 2) {
+            pathPoints = parsed;
+            isClosed = d.svgPath.indexOf('Z') >= 0;
+            importingPath = '';
+          } else {
+            importingPath = d.svgPath;
+          }
+          changed=true;
+        }
+        if(d.speedProfile&&d.speedProfile.length){
+          if(pathPoints.length>0){
+            timeMarkers=d.speedProfile.map(function(sp){
+              return{pointIndex:Math.round(sp.progress*pathPoints.length),time:sp.time};
+            });
+          }
+          changed=true;
         }
         if(d.referenceLapTime){referenceLapTime=d.referenceLapTime;refLapInput.value=referenceLapTime;}
-        save();render();
-        dbg('✅ JSON імпортовано',true);
+        if(changed){
+          save();
+          // Delay render so textarea isn't overwritten immediately
+          setTimeout(function(){ render(); }, 50);
+          var parts = [];
+          if(d.svgPath) parts.push('Path');
+          if(d.s1Point) parts.push('S1');
+          if(d.gridPositions&&d.gridPositions.length) parts.push('Grid:'+d.gridPositions.length);
+          if(d.pitPositions&&d.pitPositions.length) parts.push('Pit:'+d.pitPositions.length);
+          dbg('✅ Імпортовано: '+parts.join(', '),true);
+        }
       }catch(e){dbg('❌ '+e.message);}
     }
 

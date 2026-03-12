@@ -102,9 +102,11 @@ export default function Header() {
                   onMouseLeave={() => setOpenDropdown(null)}
                 >
                   <button className="nav-link flex items-center gap-2">
-                    <span className="text-xs">
-                      {ROLE_ICONS[user.role]}
-                    </span>
+                    {user.photo ? (
+                      <img src={user.photo} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
+                    ) : (
+                      <span className="text-xs">{ROLE_ICONS[user.role]}</span>
+                    )}
                     {user.name}
                   </button>
                   {openDropdown === 'user' && (
