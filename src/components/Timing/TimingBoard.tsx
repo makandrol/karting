@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
 import type { TimingMode } from '../../services/timingPoller';
 
@@ -218,7 +219,12 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
                       )}
                     </td>
                     <td className="table-cell text-center font-mono text-dark-300 text-sm">
-                      {entry.kart}
+                      <Link
+                        to={`/info/karts/${entry.kart}`}
+                        className="hover:text-primary-400 transition-colors"
+                      >
+                        {entry.kart}
+                      </Link>
                     </td>
                     <td className={`table-cell text-right font-mono text-sm font-semibold ${COLOR_CLASSES[lastLapColor]}`}>
                       {entry.lastLap || '—'}

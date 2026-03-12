@@ -1,4 +1,4 @@
-import type { RaceResult, KartInfo, KartTopResult } from '../types';
+import type { RaceResult, KartInfo, KartTopResult, KartLapRecord } from '../types';
 
 // ============================================================
 // Пілоти та карти для моків результатів змагань
@@ -66,18 +66,49 @@ export function generateMockRaceResults(count: number = 10): RaceResult[] {
 function generateKartTop5(kartNumber: number): KartTopResult[] {
   const shuffled = [...PILOTS].sort(() => Math.random() - 0.5);
   const top5Pilots = shuffled.slice(0, 5);
-
   const baseLap = 40.0 + (kartNumber % 5) * 0.4;
 
   return top5Pilots.map((pilot, i) => {
     const lapSec = baseLap + i * 0.3 + Math.random() * 0.5;
+    const hour = 16 + Math.floor(Math.random() * 5);
+    const min = Math.floor(Math.random() * 60);
+    const sec = Math.floor(Math.random() * 60);
     return {
       pilot,
       bestLap: randomLapTime(lapSec, 0.3),
       bestLapSeconds: lapSec,
-      date: `2025-0${Math.min(i + 1, 3)}-${String(10 + i * 5).padStart(2, '0')}`,
+      datetime: `2025-0${Math.min(i + 1, 3)}-${String(10 + i * 5).padStart(2, '0')}T${String(hour).padStart(2,'0')}:${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`,
     };
   }).sort((a, b) => a.bestLapSeconds - b.bestLapSeconds);
+}
+
+/** Генерує моки всіх кіл для карту */
+export function generateKartLaps(kartNumber: number, count: number = 30): KartLapRecord[] {
+  const baseLap = 40.5 + (kartNumber % 5) * 0.4;
+  const laps: KartLapRecord[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const pilot = PILOTS[i % PILOTS.length];
+    const lapSec = baseLap + (Math.random() - 0.3) * 3;
+    const s1Sec = lapSec * (0.32 + Math.random() * 0.02);
+    const s2Sec = lapSec - s1Sec;
+    const day = 1 + Math.floor(i / 10);
+    const hour = 16 + (i % 5);
+    const min = (i * 7) % 60;
+
+    laps.push({
+      pilot,
+      lapTime: randomLapTime(lapSec, 0),
+      lapTimeSeconds: lapSec,
+      s1: s1Sec.toFixed(3),
+      s2: s2Sec.toFixed(3),
+      datetime: `2025-03-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}:00`,
+      lapNumber: (i % 15) + 1,
+      sessionName: `Сесія ${Math.floor(i / 15) + 1}`,
+    });
+  }
+
+  return laps.sort((a, b) => a.lapTimeSeconds - b.lapTimeSeconds);
 }
 
 export const ALL_KART_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];

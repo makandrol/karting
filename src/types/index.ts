@@ -99,7 +99,20 @@ export interface KartTopResult {
   pilot: string;
   bestLap: string;
   bestLapSeconds: number;
-  date: string;
+  /** ISO datetime: "2025-03-10T18:35:12" */
+  datetime: string;
+}
+
+/** Один запис кола карту (для повної статистики) */
+export interface KartLapRecord {
+  pilot: string;
+  lapTime: string;
+  lapTimeSeconds: number;
+  s1: string | null;
+  s2: string | null;
+  datetime: string;
+  lapNumber: number;
+  sessionName: string;
 }
 
 export interface KartInfo {

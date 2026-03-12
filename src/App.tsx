@@ -12,6 +12,7 @@ import Marathons from './pages/Results/Marathons';
 import Timing from './pages/Info/Timing';
 import Tracks from './pages/Info/Tracks';
 import Karts from './pages/Info/Karts';
+import KartDetail from './pages/Info/KartDetail';
 import Videos from './pages/Info/Videos';
 import Login from './pages/Auth/Login';
 import AdminPanel from './pages/Auth/AdminPanel';
@@ -39,6 +40,7 @@ export default function App() {
               <Route path="/info/timing" element={<Timing />} />
               <Route path="/info/tracks" element={<Tracks />} />
               <Route path="/info/karts" element={<Karts />} />
+              <Route path="/info/karts/:kartId" element={<KartDetail />} />
               <Route path="/info/videos" element={<Videos />} />
 
               {/* Auth */}
