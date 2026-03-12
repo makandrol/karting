@@ -46,7 +46,10 @@ interface PilotState {
 function formatLapTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = seconds - mins * 60;
-  return `${String(mins).padStart(2, '0')}:${secs.toFixed(3).padStart(6, '0')}`;
+  if (mins > 0) {
+    return `${mins}:${secs.toFixed(3).padStart(6, '0')}`;
+  }
+  return secs.toFixed(3);
 }
 
 function formatSector(seconds: number): string {

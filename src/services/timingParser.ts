@@ -16,13 +16,17 @@ import { MIN_VALID_LAP_SECONDS } from '../types';
 const TIMING_URL = 'https://timing.karting.ua/board.html';
 
 /**
- * Парсить час кола зі строки "00:42.123" в секунди (42.123).
+ * Парсить час кола: "39.800" → 39.8, "1:02.222" → 62.222, "00:42.123" → 42.123
  */
 export function parseLapTimeToSeconds(lapTime: string | null): number | null {
   if (!lapTime) return null;
+  // "1:02.222" або "00:42.123"
   const match = lapTime.match(/^(\d+):(\d+\.\d+)$/);
-  if (!match) return null;
-  return parseInt(match[1], 10) * 60 + parseFloat(match[2]);
+  if (match) return parseInt(match[1], 10) * 60 + parseFloat(match[2]);
+  // "39.800"
+  const secMatch = lapTime.match(/^\d+\.\d+$/);
+  if (secMatch) return parseFloat(lapTime);
+  return null;
 }
 
 /**

@@ -9,11 +9,13 @@ interface TimingBoardProps {
   compact?: boolean;
 }
 
-/** Парсить час "00:42.123" або "14.500" в секунди */
+/** Парсить час "39.800", "1:02.222", "00:42.123" або "14.500" в секунди */
 function parseTime(t: string | null): number | null {
   if (!t) return null;
+  // "1:02.222" або "00:42.123"
   const lapMatch = t.match(/^(\d+):(\d+\.\d+)$/);
   if (lapMatch) return parseInt(lapMatch[1]) * 60 + parseFloat(lapMatch[2]);
+  // "39.800" або "14.500"
   const secMatch = t.match(/^\d+\.\d+$/);
   if (secMatch) return parseFloat(t);
   return null;
