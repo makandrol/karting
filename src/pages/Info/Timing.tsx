@@ -1,10 +1,16 @@
 import { TimingBoard } from '../../components/Timing';
+import { TrackMap } from '../../components/Track';
 import { useTimingPoller } from '../../services/timingPoller';
+import { useTrack } from '../../services/trackContext';
+import { useAuth } from '../../services/auth';
 
 export default function Timing() {
   const { entries, snapshots, mode, lastUpdate, error, connectLive, startDemo, stop } = useTimingPoller({
     interval: 1000,
   });
+  const { currentTrack, setCurrentTrack, allTracks } = useTrack();
+  const { hasPermission } = useAuth();
+  const canChangeTrack = hasPermission('change_track');
 
   return (
     <div className="space-y-6">
@@ -22,6 +28,34 @@ export default function Timing() {
           </a>
           . Оновлення кожну секунду.
         </p>
+      </div>
+
+      {/* Track config info + selector */}
+      <div className="card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primary-600/20 text-primary-400 rounded-lg flex items-center justify-center font-bold font-mono shrink-0">
+            {currentTrack.id}
+          </div>
+          <div>
+            <div className="text-white font-semibold text-sm">{currentTrack.name}</div>
+            <div className="text-dark-500 text-xs">
+              {currentTrack.length} • {currentTrack.turns} поворотів
+            </div>
+          </div>
+        </div>
+        {canChangeTrack && (
+          <select
+            value={currentTrack.id}
+            onChange={(e) => setCurrentTrack(parseInt(e.target.value, 10))}
+            className="bg-dark-800 border border-dark-700 text-white text-sm rounded-lg px-3 py-1.5 outline-none focus:border-primary-500"
+          >
+            {allTracks.map((t) => (
+              <option key={t.id} value={t.id}>
+                №{t.id} — {t.length}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Controls */}
@@ -100,6 +134,9 @@ export default function Timing() {
             </button>
           </div>
 
+          {/* Track map with animated karts */}
+          <TrackMap track={currentTrack} entries={entries} />
+
           <TimingBoard
             entries={entries}
             mode={mode}
@@ -127,17 +164,11 @@ export default function Timing() {
         <div className="text-dark-400 text-sm space-y-2">
           <p>
             Система опитує сайт таймінгу кожну секунду і зберігає кожен "знімок" табла.
-            Це дозволяє відстежувати зміни позицій, обгони та динаміку гонки.
+            Карти рухаються по обраній конфігурації траси відповідно до свого прогресу на колі.
           </p>
           <p>
             <strong className="text-dark-200">LIVE</strong> — дані з реального табла.{' '}
             <strong className="text-dark-200">DEMO</strong> — згенеровані дані (коли картодром не працює).
-          </p>
-          <p className="text-dark-500 text-xs">
-            ⚠️ Кола менше 38.5 секунд автоматично ігноруються (скорочення траси).
-          </p>
-          <p className="text-dark-500 text-xs">
-            В майбутньому: постійний збір даних на сервері → БД → аналітика обгонів, статистика пілотів.
           </p>
         </div>
       </div>

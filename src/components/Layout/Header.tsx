@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { NavItem } from '../../types';
+import { useAuth } from '../../services/auth';
 
 const NAV_ITEMS: NavItem[] = [
   {
@@ -20,6 +21,7 @@ const NAV_ITEMS: NavItem[] = [
     path: '/info',
     children: [
       { label: 'Таймінг', path: '/info/timing' },
+      { label: 'Траси', path: '/info/tracks' },
       { label: 'Карти', path: '/info/karts' },
       { label: 'Відео', path: '/info/videos' },
     ],
@@ -28,6 +30,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export default function Header() {
   const location = useLocation();
+  const { user, isAdmin, isSuperAdmin, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
@@ -89,6 +92,46 @@ export default function Header() {
                 )}
               </div>
             ))}
+
+            {/* Auth section */}
+            <div className="ml-2 pl-2 border-l border-dark-800">
+              {user ? (
+                <div
+                  className="relative"
+                  onMouseEnter={() => setOpenDropdown('user')}
+                  onMouseLeave={() => setOpenDropdown(null)}
+                >
+                  <button className="nav-link flex items-center gap-2">
+                    <span className="text-xs">
+                      {isSuperAdmin ? '👑' : isAdmin ? '🛡️' : '👤'}
+                    </span>
+                    {user.name}
+                  </button>
+                  {openDropdown === 'user' && (
+                    <div className="absolute top-full right-0 mt-1 w-48 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-2 z-50">
+                      {isSuperAdmin && (
+                        <Link
+                          to="/admin"
+                          className="block px-4 py-2.5 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
+                        >
+                          🔧 Панель адміна
+                        </Link>
+                      )}
+                      <button
+                        onClick={logout}
+                        className="block w-full text-left px-4 py-2.5 text-sm text-dark-300 hover:text-red-400 hover:bg-dark-800 transition-colors"
+                      >
+                        Вийти
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <Link to="/login" className="nav-link text-dark-400 hover:text-white">
+                  🔐 Вхід
+                </Link>
+              )}
+            </div>
           </nav>
 
           {/* Mobile menu button */}
@@ -132,6 +175,40 @@ export default function Header() {
                 ))}
               </div>
             ))}
+
+            {/* Mobile auth */}
+            <div className="pt-2 mt-2 border-t border-dark-800">
+              {user ? (
+                <>
+                  <div className="px-3 py-2 text-dark-300 text-sm">
+                    {isSuperAdmin ? '👑' : '🛡️'} {user.name}
+                  </div>
+                  {isSuperAdmin && (
+                    <Link
+                      to="/admin"
+                      onClick={() => setMobileOpen(false)}
+                      className="block px-3 py-2 rounded-lg text-sm text-dark-300 hover:text-white hover:bg-dark-800"
+                    >
+                      🔧 Панель адміна
+                    </Link>
+                  )}
+                  <button
+                    onClick={() => { logout(); setMobileOpen(false); }}
+                    className="block w-full text-left px-3 py-2 rounded-lg text-sm text-dark-400 hover:text-red-400"
+                  >
+                    Вийти
+                  </button>
+                </>
+              ) : (
+                <Link
+                  to="/login"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-3 py-2 rounded-lg text-sm text-dark-300 hover:text-white hover:bg-dark-800"
+                >
+                  🔐 Вхід
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       )}
