@@ -230,16 +230,28 @@
         if(idx<0){dbg('⏱️ Клікни ближче до точки шляху');return;}
         var existing=timeMarkers.find(function(m){return m.pointIndex===idx;});
         var currentVal=existing?existing.time.toFixed(1):'';
-        var input=prompt('Час на точці #'+(idx+1)+' (секунди від старту кола).\nВидалити: залиш порожнім.', currentVal);
+        var isLastPoint = isClosed && idx === pathPoints.length - 1;
+        var promptMsg = isLastPoint
+          ? 'Час кола (фініш, точка #'+(idx+1)+').\nЦе встановить referenceLapTime.'
+          : 'Час на точці #'+(idx+1)+' (секунди від старту кола).\nВидалити: залиш порожнім.';
+        if (isLastPoint && !currentVal) currentVal = String(referenceLapTime);
+        var input=prompt(promptMsg, currentVal);
         if(input===null)return; // cancelled
         if(input.trim()===''){
           timeMarkers=timeMarkers.filter(function(m){return m.pointIndex!==idx;});
         } else {
           var t=parseFloat(input);
           if(isNaN(t)||t<0){dbg('❌ Невалідний час');return;}
-          if(existing) existing.time=t;
-          else timeMarkers.push({pointIndex:idx,time:t});
-          timeMarkers.sort(function(a,b){return a.pointIndex-b.pointIndex;});
+          // Остання точка = час кола
+          if(isLastPoint){
+            referenceLapTime=t;
+            refLapInput.value=t;
+            // Не додаємо як маркер, це і є кінець кола
+          } else {
+            if(existing) existing.time=t;
+            else timeMarkers.push({pointIndex:idx,time:t});
+            timeMarkers.sort(function(a,b){return a.pointIndex-b.pointIndex;});
+          }
         }
         save();render();
         dbg('⏱️ Маркерів часу: '+timeMarkers.length, true);

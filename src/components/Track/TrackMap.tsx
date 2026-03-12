@@ -93,14 +93,20 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
       const dt = now - existing.lastUpdateTime;
       if (dt > 0.1) {
         let progressDiff = t.progress - existing.lastTarget;
-        if (progressDiff < -0.3) progressDiff += 1;
+
+        // Detect finish line crossing: target jumped backwards
+        const crossedFinish = progressDiff < -0.3;
+        if (crossedFinish) progressDiff += 1;
         if (progressDiff < 0) progressDiff = 0;
+
         const newVel = progressDiff / dt;
         const smoothVel = newVel > 0.001 ? existing.velocity * 0.6 + newVel * 0.4 : existing.velocity;
 
         return {
           ...existing, pilot: t.pilot, position: t.position,
           velocity: Math.max(smoothVel, 0.005),
+          // On finish crossing: snap current to new position to avoid stall
+          current: crossedFinish ? t.progress : existing.current,
           lastTarget: t.progress, lastUpdateTime: now,
         };
       }
