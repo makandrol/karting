@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import type { TimingEntry } from '../../types';
-import type { TrackConfig } from '../../data/tracks';
+import type { TrackConfig, SpeedProfilePoint } from '../../data/tracks';
 import { TRACK_SVG_VIEWBOX } from '../../data/tracks';
 
 interface TrackMapProps {
@@ -21,6 +21,47 @@ function getPointOnPath(pathEl: SVGPathElement, progress: number): { x: number; 
 
 function pilotShort(name: string): string {
   return name.slice(0, 3);
+}
+
+/**
+ * Конвертує рівномірний progress (0..1) у нерівномірний,
+ * базуючись на speedProfile (progress→time маппінг).
+ *
+ * uniformProgress = час_пілота_на_колі / час_кола (лінійний)
+ * Повертає progress по трасі (може бути нерівномірним — швидше на прямих, повільніше в поворотах)
+ */
+function applySpeedProfile(
+  uniformProgress: number,
+  profile: SpeedProfilePoint[],
+  referenceLapTime: number,
+  actualLapTime: number
+): number {
+  if (profile.length < 2) return uniformProgress;
+
+  // uniformProgress = elapsed / lapTime → elapsed = uniformProgress * actualLapTime
+  // Масштабуємо час до reference: scaledTime = elapsed * (referenceLapTime / actualLapTime)
+  const elapsed = uniformProgress * referenceLapTime;
+
+  // Шукаємо між якими маркерами ми зараз
+  // Profile відсортований за progress, але нам потрібно шукати за time
+  // Додаємо початкову (0,0) і кінцеву (1, referenceLapTime) точки
+  const fullProfile: SpeedProfilePoint[] = [
+    { progress: 0, time: 0 },
+    ...profile,
+    { progress: 1, time: referenceLapTime },
+  ];
+
+  // Знаходимо сегмент
+  for (let i = 0; i < fullProfile.length - 1; i++) {
+    const a = fullProfile[i];
+    const b = fullProfile[i + 1];
+    if (elapsed >= a.time && elapsed <= b.time) {
+      const timeFraction = b.time > a.time ? (elapsed - a.time) / (b.time - a.time) : 0;
+      return a.progress + timeFraction * (b.progress - a.progress);
+    }
+  }
+
+  return uniformProgress;
 }
 
 interface KartState {
@@ -196,7 +237,11 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
             <path ref={pathRef} d={track.svgPath} fill="none" stroke="none" />
 
             {pathReady && pathRef.current && rendered.map((kp) => {
-              const pt = getPointOnPath(pathRef.current!, kp.current);
+              // Застосувати speed profile для нерівномірного руху
+              const mappedProgress = track.speedProfile.length >= 2
+                ? applySpeedProfile(kp.current, track.speedProfile, track.referenceLapTime, track.referenceLapTime)
+                : kp.current;
+              const pt = getPointOnPath(pathRef.current!, mappedProgress);
               const color = POSITION_COLORS[Math.min(kp.position - 1, POSITION_COLORS.length - 1)];
 
               return (

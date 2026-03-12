@@ -11,7 +11,8 @@
     button { background: #333; color: #fff; border: 1px solid #555; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; }
     button:hover { background: #444; }
     button.active { background: #e52d1a; border-color: #e52d1a; }
-    select { background: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+    select, input[type=number] { background: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+    input[type=number] { width: 80px; }
     .canvas-wrap { position: relative; width: 100%; user-select: none; }
     .canvas-wrap img { display: block; width: 100%; height: auto; border-radius: 8px; }
     .canvas-wrap svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
@@ -20,7 +21,6 @@
     code { background: #333; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
     #debugInfo { background: #222; padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 11px; color: #4ade80; margin-bottom: 8px; }
     .mode-label { color: #aaa; font-size: 12px; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
     .outputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
     .outputs label { font-size: 11px; color: #888; display: block; margin-bottom: 2px; }
     @media (max-width: 800px) { .outputs { grid-template-columns: 1fr; } }
@@ -29,28 +29,29 @@
 <body>
   <h1>🏎️ Редактор треків</h1>
   <p class="hint">
-    Вибери режим → клікай по трасі. Для шляху: починай від фінішу за напрямком руху.<br>
-    Точки можна <strong>перетягувати</strong> в будь-якому режимі. Результати копіюй в <code>src/data/tracks.ts</code>.
+    Вибери режим → клікай по трасі. <strong>Перетягування</strong> — ліва кнопка. <strong>Видалити</strong> — права кнопка.<br>
+    <strong>⏱️ Час</strong>: клікни на існуючу точку шляху → введи час проходження. Вказуй час кола внизу.
   </p>
 
   <div class="row">
     <label>Трек: <select id="trackSelect"></select></label>
+    <label style="color:#aaa;font-size:12px;">Час кола (с): <input type="number" id="refLapTime" value="42" step="0.1" min="30" max="120" onchange="onRefTimeChange()"></label>
   </div>
 
-  <!-- Mode buttons -->
   <div class="row">
     <span class="mode-label">Режим:</span>
     <button id="mPath" class="active" onclick="setMode('path')">🛤️ Шлях</button>
-    <button id="mS1" onclick="setMode('s1')">🔵 S1 точка</button>
-    <button id="mGrid" onclick="setMode('grid')">🏁 Стартова решітка</button>
+    <button id="mTime" onclick="setMode('time')">⏱️ Час</button>
+    <button id="mS1" onclick="setMode('s1')">🔵 S1</button>
+    <button id="mGrid" onclick="setMode('grid')">🏁 Решітка</button>
     <button id="mPit" onclick="setMode('pit')">🔧 Піти</button>
   </div>
 
   <div class="row">
     <button onclick="undo()">↩ Undo</button>
-    <button onclick="clearCurrent()">🗑 Очистити поточне</button>
-    <button onclick="closePath()" id="btnClose">⭕ Замкнути шлях</button>
-    <button onclick="copyAll()">📋 Копіювати все (JSON)</button>
+    <button onclick="clearCurrent()">🗑 Очистити</button>
+    <button onclick="closePath()" id="btnClose">⭕ Замкнути</button>
+    <button onclick="copyAll()">📋 Копіювати все</button>
     <span id="stats" style="color:#aaa;font-size:12px;margin-left:auto;"></span>
   </div>
 
@@ -63,30 +64,32 @@
 
   <div class="outputs">
     <div>
-      <label>svgPath <small>(можна вставити — відобразиться на карті)</small>:</label>
+      <label>svgPath <small>(можна вставити)</small>:</label>
       <textarea id="outPath" oninput="onPathPaste()"></textarea>
     </div>
     <div>
-      <label>JSON (s1, grid, pit) <small>(можна вставити для імпорту)</small>:</label>
+      <label>JSON (все разом) <small>(можна вставити)</small>:</label>
       <textarea id="outJson" oninput="onJsonPaste()"></textarea>
     </div>
   </div>
 
   <script>
-    // ===== CONFIG =====
     var TRACK_PATHS = ['../public/tracks/nfs_{NUM}.jpg', '../tracks/nfs/nfs_{NUM}.jpg'];
     var imgW = 1280, imgH = 720;
 
     // ===== STATE =====
-    var mode = 'path';  // 'path' | 's1' | 'grid' | 'pit'
+    var mode = 'path'; // 'path'|'time'|'s1'|'grid'|'pit'
     var pathPoints = [], isClosed = false;
-    var s1Point = null;      // {x,y} або null
-    var gridPoints = [];     // [{x,y}, ...]
-    var pitPoints = [];      // [{x,y}, ...]
+    var s1Point = null;
+    var gridPoints = [];
+    var pitPoints = [];
+    var importingPath = '';
+    // Time markers: { pointIndex: number, time: number }[]
+    // pointIndex = index in pathPoints, time = seconds from lap start at that point
+    var timeMarkers = [];
+    var referenceLapTime = 42;
 
-    // Drag state
-    var dragging = null; // { type: 'path'|'s1'|'grid'|'pit', index: number }
-    var dragMoved = false;
+    var dragging = null, dragMoved = false;
 
     // ===== DOM =====
     var debugEl = document.getElementById('debugInfo');
@@ -97,23 +100,24 @@
     var outPath = document.getElementById('outPath');
     var outJson = document.getElementById('outJson');
     var statsEl = document.getElementById('stats');
+    var refLapInput = document.getElementById('refLapTime');
 
     function dbg(m, ok) { debugEl.textContent = m; debugEl.style.color = ok ? '#4ade80' : '#f87171'; }
 
-    // ===== INIT =====
     for (var i = 1; i <= 11; i++) {
       var o = document.createElement('option'); o.value = i; o.textContent = '№' + i;
       trackSelect.appendChild(o);
     }
 
     // ===== MODE =====
+    var modeMap = {path:'mPath',time:'mTime',s1:'mS1',grid:'mGrid',pit:'mPit'};
     function setMode(m) {
       mode = m;
-      ['mPath','mS1','mGrid','mPit'].forEach(function(id) {
-        document.getElementById(id).classList.remove('active');
-      });
-      document.getElementById({path:'mPath',s1:'mS1',grid:'mGrid',pit:'mPit'}[m]).classList.add('active');
-      canvasWrap.style.cursor = m === 'path' && isClosed ? 'default' : 'crosshair';
+      Object.values(modeMap).forEach(function(id){document.getElementById(id).classList.remove('active');});
+      document.getElementById(modeMap[m]).classList.add('active');
+      canvasWrap.style.cursor = (m==='path'&&isClosed)?'default':'crosshair';
+      document.getElementById('btnClose').style.display = m==='path'?'':'none';
+      if (m==='time') dbg('⏱️ Клікни на точку шляху щоб задати час', true);
       render();
     }
 
@@ -122,265 +126,311 @@
       var num = String(id).padStart(2,'0'), cands = TRACK_PATHS.map(function(p){return p.replace('{NUM}',num);}), idx=0;
       dbg('⏳ '+cands[0]);
       function tryNext() {
-        if (idx >= cands.length) { dbg('❌ Не знайдено: '+cands.join(' | ')); return; }
-        trackImg.src = cands[idx++];
+        if (idx>=cands.length){dbg('❌ Не знайдено: '+cands.join(' | '));return;}
+        trackImg.src=cands[idx++];
       }
       trackImg.onload = function() {
-        imgW = trackImg.naturalWidth||1280; imgH = trackImg.naturalHeight||720;
+        imgW=trackImg.naturalWidth||1280; imgH=trackImg.naturalHeight||720;
         overlaySvg.setAttribute('viewBox','0 0 '+imgW+' '+imgH);
         dbg('✅ '+trackImg.src+' ('+imgW+'×'+imgH+')', true); render();
       };
-      trackImg.onerror = function() { dbg('⚠️ Не вдалось: '+trackImg.src); tryNext(); };
+      trackImg.onerror = function(){dbg('⚠️ '+trackImg.src);tryNext();};
       tryNext();
     }
 
     // ===== STORAGE =====
-    function lsKey() { return 'track_edit_v4_' + trackSelect.value; }
+    function lsKey(){return 'track_edit_v5_'+trackSelect.value;}
     function loadSaved() {
-      pathPoints=[]; isClosed=false; s1Point=null; gridPoints=[]; pitPoints=[]; importingPath='';
+      pathPoints=[]; isClosed=false; s1Point=null; gridPoints=[]; pitPoints=[];
+      importingPath=''; timeMarkers=[]; referenceLapTime=42;
       try {
-        var d = JSON.parse(localStorage.getItem(lsKey()));
-        if (d) { pathPoints=d.pathPoints||[]; isClosed=!!d.isClosed; s1Point=d.s1Point||null; gridPoints=d.gridPoints||[]; pitPoints=d.pitPoints||[]; importingPath=d.importedPath||''; }
+        var d=JSON.parse(localStorage.getItem(lsKey()));
+        if(d){
+          pathPoints=d.pathPoints||[]; isClosed=!!d.isClosed; s1Point=d.s1Point||null;
+          gridPoints=d.gridPoints||[]; pitPoints=d.pitPoints||[];
+          importingPath=d.importedPath||''; timeMarkers=d.timeMarkers||[];
+          referenceLapTime=d.referenceLapTime||42;
+        }
       } catch {}
+      refLapInput.value = referenceLapTime;
     }
     function save() {
-      localStorage.setItem(lsKey(), JSON.stringify({pathPoints,isClosed,s1Point,gridPoints,pitPoints,importedPath:importingPath}));
+      localStorage.setItem(lsKey(), JSON.stringify({
+        pathPoints,isClosed,s1Point,gridPoints,pitPoints,
+        importedPath:importingPath,timeMarkers,referenceLapTime
+      }));
     }
 
-    trackSelect.addEventListener('change', function() { loadSaved(); loadImage(parseInt(trackSelect.value)); });
+    function onRefTimeChange() {
+      referenceLapTime = parseFloat(refLapInput.value) || 42;
+      save(); render();
+    }
 
-    // ===== COORDINATE HELPERS =====
+    trackSelect.addEventListener('change', function(){loadSaved();loadImage(parseInt(trackSelect.value));});
+
+    // ===== COORD HELPERS =====
     function evtToCoord(e) {
-      var r = trackImg.getBoundingClientRect();
-      return { x: Math.round(((e.clientX-r.left)/r.width)*imgW), y: Math.round(((e.clientY-r.top)/r.height)*imgH) };
+      var r=trackImg.getBoundingClientRect();
+      return {x:Math.round(((e.clientX-r.left)/r.width)*imgW), y:Math.round(((e.clientY-r.top)/r.height)*imgH)};
     }
+    function dist(a,b){return Math.sqrt((a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y));}
 
-    function dist(a,b) { return Math.sqrt((a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y)); }
-
-    // ===== FIND NEAREST POINT FOR DRAGGING =====
     function findNearest(coord, threshold) {
-      var best = null, bestD = threshold;
-      pathPoints.forEach(function(p,i) { var d=dist(coord,p); if(d<bestD){bestD=d;best={type:'path',index:i};} });
-      if (s1Point) { var d=dist(coord,s1Point); if(d<bestD){bestD=d;best={type:'s1',index:0};} }
-      gridPoints.forEach(function(p,i) { var d=dist(coord,p); if(d<bestD){bestD=d;best={type:'grid',index:i};} });
-      pitPoints.forEach(function(p,i) { var d=dist(coord,p); if(d<bestD){bestD=d;best={type:'pit',index:i};} });
+      var best=null, bestD=threshold;
+      pathPoints.forEach(function(p,i){var d=dist(coord,p);if(d<bestD){bestD=d;best={type:'path',index:i};}});
+      if(s1Point){var d=dist(coord,s1Point);if(d<bestD){bestD=d;best={type:'s1',index:0};}}
+      gridPoints.forEach(function(p,i){var d=dist(coord,p);if(d<bestD){bestD=d;best={type:'grid',index:i};}});
+      pitPoints.forEach(function(p,i){var d=dist(coord,p);if(d<bestD){bestD=d;best={type:'pit',index:i};}});
       return best;
     }
 
-    // ===== MOUSE EVENTS =====
+    function findNearestPathPoint(coord, threshold) {
+      var best=-1, bestD=threshold;
+      pathPoints.forEach(function(p,i){var d=dist(coord,p);if(d<bestD){bestD=d;best=i;}});
+      return best;
+    }
+
+    // ===== MOUSE =====
     canvasWrap.addEventListener('mousedown', function(e) {
-      if (e.button !== 0) return;
-      var coord = evtToCoord(e);
-      var near = findNearest(coord, Math.max(imgW/50, 20));
-      if (near) {
-        dragging = near; dragMoved = false;
-        e.preventDefault();
-        return;
-      }
+      if(e.button!==0)return;
+      if(mode==='time')return; // time mode handles click differently
+      var coord=evtToCoord(e);
+      var near=findNearest(coord,Math.max(imgW/50,20));
+      if(near){dragging=near;dragMoved=false;e.preventDefault();}
     });
 
     canvasWrap.addEventListener('mousemove', function(e) {
-      if (!dragging) return;
-      dragMoved = true;
-      var coord = evtToCoord(e);
-      if (dragging.type==='path') pathPoints[dragging.index] = coord;
-      else if (dragging.type==='s1') s1Point = coord;
-      else if (dragging.type==='grid') gridPoints[dragging.index] = coord;
-      else if (dragging.type==='pit') pitPoints[dragging.index] = coord;
+      if(!dragging)return;
+      dragMoved=true;
+      var coord=evtToCoord(e);
+      if(dragging.type==='path'){
+        // Also move associated time marker
+        pathPoints[dragging.index]=coord;
+      }
+      else if(dragging.type==='s1')s1Point=coord;
+      else if(dragging.type==='grid')gridPoints[dragging.index]=coord;
+      else if(dragging.type==='pit')pitPoints[dragging.index]=coord;
       render();
     });
 
     canvasWrap.addEventListener('mouseup', function(e) {
-      if (dragging) {
-        if (dragMoved) { save(); render(); }
-        var wasDrag = dragMoved;
-        dragging = null; dragMoved = false;
-        if (wasDrag) return; // don't place new point if dragged
+      if(e.button!==0)return;
+
+      if(dragging){
+        if(dragMoved){save();render();}
+        var wasDrag=dragMoved; dragging=null; dragMoved=false;
+        if(wasDrag)return;
       }
-      // CLICK — add point
-      var coord = evtToCoord(e);
-      if (mode==='path') {
-        if (isClosed) return;
-        pathPoints.push(coord);
-      } else if (mode==='s1') {
-        s1Point = coord;
-      } else if (mode==='grid') {
-        gridPoints.push(coord);
-      } else if (mode==='pit') {
-        pitPoints.push(coord);
+
+      var coord=evtToCoord(e);
+
+      // TIME MODE: клік на існуючу точку шляху → запит часу
+      if(mode==='time'){
+        var idx=findNearestPathPoint(coord,Math.max(imgW/40,25));
+        if(idx<0){dbg('⏱️ Клікни ближче до точки шляху');return;}
+        var existing=timeMarkers.find(function(m){return m.pointIndex===idx;});
+        var currentVal=existing?existing.time.toFixed(1):'';
+        var input=prompt('Час на точці #'+(idx+1)+' (секунди від старту кола).\nВидалити: залиш порожнім.', currentVal);
+        if(input===null)return; // cancelled
+        if(input.trim()===''){
+          timeMarkers=timeMarkers.filter(function(m){return m.pointIndex!==idx;});
+        } else {
+          var t=parseFloat(input);
+          if(isNaN(t)||t<0){dbg('❌ Невалідний час');return;}
+          if(existing) existing.time=t;
+          else timeMarkers.push({pointIndex:idx,time:t});
+          timeMarkers.sort(function(a,b){return a.pointIndex-b.pointIndex;});
+        }
+        save();render();
+        dbg('⏱️ Маркерів часу: '+timeMarkers.length, true);
+        return;
       }
-      save(); render();
+
+      // OTHER MODES: add point
+      if(mode==='path'){if(isClosed)return;pathPoints.push(coord);}
+      else if(mode==='s1')s1Point=coord;
+      else if(mode==='grid')gridPoints.push(coord);
+      else if(mode==='pit')pitPoints.push(coord);
+      save();render();
     });
 
-    // Prevent context menu on canvas
-    canvasWrap.addEventListener('contextmenu', function(e) { e.preventDefault(); });
-
-    // Right-click to delete nearest point
+    canvasWrap.addEventListener('contextmenu',function(e){e.preventDefault();});
     canvasWrap.addEventListener('mousedown', function(e) {
-      if (e.button !== 2) return;
-      e.preventDefault();
-      var coord = evtToCoord(e);
-      var near = findNearest(coord, Math.max(imgW/50, 20));
-      if (!near) return;
-      if (near.type==='path') pathPoints.splice(near.index, 1);
-      else if (near.type==='s1') s1Point = null;
-      else if (near.type==='grid') gridPoints.splice(near.index, 1);
-      else if (near.type==='pit') pitPoints.splice(near.index, 1);
-      save(); render();
+      if(e.button!==2)return; e.preventDefault();
+      var coord=evtToCoord(e);
+
+      // In time mode, right-click removes time marker
+      if(mode==='time'){
+        var idx=findNearestPathPoint(coord,Math.max(imgW/40,25));
+        if(idx>=0){
+          timeMarkers=timeMarkers.filter(function(m){return m.pointIndex!==idx;});
+          save();render();
+        }
+        return;
+      }
+
+      var near=findNearest(coord,Math.max(imgW/50,20));
+      if(!near)return;
+      if(near.type==='path'){
+        // Also remove associated time marker
+        timeMarkers=timeMarkers.filter(function(m){return m.pointIndex!==near.index;});
+        // Shift indices of markers after this point
+        timeMarkers.forEach(function(m){if(m.pointIndex>near.index)m.pointIndex--;});
+        pathPoints.splice(near.index,1);
+      }
+      else if(near.type==='s1')s1Point=null;
+      else if(near.type==='grid')gridPoints.splice(near.index,1);
+      else if(near.type==='pit')pitPoints.splice(near.index,1);
+      save();render();
     });
 
     // ===== ACTIONS =====
     function undo() {
-      if (mode==='path') { if (isClosed) isClosed=false; else pathPoints.pop(); }
-      else if (mode==='s1') s1Point=null;
-      else if (mode==='grid') gridPoints.pop();
-      else if (mode==='pit') pitPoints.pop();
-      save(); render();
+      if(mode==='path'){if(isClosed)isClosed=false;else pathPoints.pop();}
+      else if(mode==='time'){if(timeMarkers.length)timeMarkers.pop();}
+      else if(mode==='s1')s1Point=null;
+      else if(mode==='grid')gridPoints.pop();
+      else if(mode==='pit')pitPoints.pop();
+      save();render();
     }
-
     function clearCurrent() {
-      if (mode==='path') { if(!confirm('Очистити шлях?'))return; pathPoints=[]; isClosed=false; }
-      else if (mode==='s1') s1Point=null;
-      else if (mode==='grid') { gridPoints=[]; }
-      else if (mode==='pit') { pitPoints=[]; }
-      save(); render();
+      if(mode==='path'){if(!confirm('Очистити шлях?'))return;pathPoints=[];isClosed=false;timeMarkers=[];}
+      else if(mode==='time'){timeMarkers=[];}
+      else if(mode==='s1')s1Point=null;
+      else if(mode==='grid')gridPoints=[];
+      else if(mode==='pit')pitPoints=[];
+      save();render();
     }
-
-    function closePath() {
-      if (pathPoints.length >= 3) { isClosed=true; save(); render(); }
-    }
+    function closePath(){if(pathPoints.length>=3){isClosed=true;save();render();}}
 
     function copyAll() {
-      var drawnPath = buildPath(pathPoints, isClosed);
-      var finalPath = (pathPoints.length > 0) ? drawnPath : importingPath;
+      var drawnPath=buildPath(pathPoints,isClosed);
+      var finalPath=(pathPoints.length>0)?drawnPath:importingPath;
+      // Convert timeMarkers to progress-based for export
+      var speedProfile = timeMarkers.map(function(m){
+        return { progress: pathPoints.length>0 ? m.pointIndex/(pathPoints.length) : 0, time: m.time };
+      });
       var data = {
         svgPath: finalPath,
         s1Point: s1Point,
         gridPositions: gridPoints,
         pitPositions: pitPoints,
+        speedProfile: speedProfile,
+        referenceLapTime: referenceLapTime,
       };
       var text = JSON.stringify(data, null, 2);
-      navigator.clipboard.writeText(text).then(function() {
+      navigator.clipboard.writeText(text).then(function(){
         outJson.style.borderColor='#4ade80';
         setTimeout(function(){outJson.style.borderColor='#444';},1500);
       });
     }
 
     // ===== SMOOTH PATH =====
-    function buildPath(pts, closed) {
-      if (pts.length===0) return '';
-      if (pts.length===1) return 'M '+pts[0].x+','+pts[0].y;
-      var d = 'M '+pts[0].x+','+pts[0].y;
-      if (pts.length===2) return d+' L '+pts[1].x+','+pts[1].y;
-      var all = closed ? [pts[pts.length-1]].concat(pts,[pts[0],pts[1]]) : [pts[0]].concat(pts,[pts[pts.length-1]]);
-      for (var i=1;i<all.length-2;i++) {
+    function buildPath(pts,closed){
+      if(!pts.length)return '';
+      if(pts.length===1)return 'M '+pts[0].x+','+pts[0].y;
+      var d='M '+pts[0].x+','+pts[0].y;
+      if(pts.length===2)return d+' L '+pts[1].x+','+pts[1].y;
+      var all=closed?[pts[pts.length-1]].concat(pts,[pts[0],pts[1]]):[pts[0]].concat(pts,[pts[pts.length-1]]);
+      for(var i=1;i<all.length-2;i++){
         var p0=all[i-1],p1=all[i],p2=all[i+1],p3=all[i+2],t=0.3;
         d+=' C '+Math.round(p1.x+(p2.x-p0.x)*t)+','+Math.round(p1.y+(p2.y-p0.y)*t)+' '+Math.round(p2.x-(p3.x-p1.x)*t)+','+Math.round(p2.y-(p3.y-p1.y)*t)+' '+p2.x+','+p2.y;
       }
-      if (closed) d+=' Z';
+      if(closed)d+=' Z';
       return d;
     }
 
     // ===== RENDER =====
     function render() {
-      var html = '';
-      var R = Math.max(imgW/200, 4);
+      var html='', R=Math.max(imgW/200,4);
+      var drawnPath=buildPath(pathPoints,isClosed);
+      var displayPath=(pathPoints.length>0)?drawnPath:importingPath;
 
-      // Визначаємо який path показувати
-      var drawnPath = buildPath(pathPoints, isClosed);
-      var displayPath = (pathPoints.length > 0) ? drawnPath : importingPath;
+      if(displayPath)
+        html+='<path d="'+displayPath+'" fill="none" stroke="#e52d1a" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>';
+      if(!pathPoints.length&&importingPath)
+        html+='<text x="20" y="30" fill="#e52d1a" font-size="14" font-family="sans-serif" opacity="0.7">Імпортований шлях</text>';
 
-      // Path line
-      if (displayPath) {
-        html += '<path d="'+displayPath+'" fill="none" stroke="#e52d1a" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>';
-      }
-
-      // Imported path indicator (якщо немає своїх точок, але є імпортований)
-      if (pathPoints.length === 0 && importingPath) {
-        html += '<text x="20" y="30" fill="#e52d1a" font-size="14" font-family="sans-serif" opacity="0.7">Імпортований шлях (клікай щоб додати точки поверх)</text>';
-      }
+      // Build set of pointIndices that have time markers for quick lookup
+      var tmSet={};
+      timeMarkers.forEach(function(m){tmSet[m.pointIndex]=m.time;});
 
       // Path points
       pathPoints.forEach(function(p,i) {
-        var fill = i===0?'#4ade80':'#facc15', rad = i===0?R*1.5:R;
-        html += '<circle cx="'+p.x+'" cy="'+p.y+'" r="'+rad+'" fill="'+fill+'" stroke="#000" stroke-width="1.5" style="cursor:grab"/>';
-        html += '<text x="'+(p.x+R+3)+'" y="'+(p.y-R-1)+'" fill="#ccc" font-size="'+Math.max(imgW/120,8)+'" font-family="monospace">'+(i+1)+'</text>';
+        var hasTime = tmSet[i] !== undefined;
+        var fill = i===0?'#4ade80': hasTime?'#f472b6':'#facc15';
+        var rad = i===0?R*1.5: hasTime?R*1.3:R;
+        html+='<circle cx="'+p.x+'" cy="'+p.y+'" r="'+rad+'" fill="'+fill+'" stroke="#000" stroke-width="1.5" style="cursor:grab"/>';
+        // Label
+        var label = ''+(i+1);
+        if(hasTime) label += ' ('+tmSet[i].toFixed(1)+'s)';
+        html+='<text x="'+(p.x+R+3)+'" y="'+(p.y-R-1)+'" fill="'+(hasTime?'#f472b6':'#ccc')+'" font-size="'+Math.max(imgW/120,8)+'" font-family="monospace" font-weight="'+(hasTime?'bold':'normal')+'">'+label+'</text>';
       });
 
-      // S1 point
-      if (s1Point) {
-        html += '<circle cx="'+s1Point.x+'" cy="'+s1Point.y+'" r="'+(R*2)+'" fill="none" stroke="#3b82f6" stroke-width="3" stroke-dasharray="6,4" style="cursor:grab"/>';
-        html += '<circle cx="'+s1Point.x+'" cy="'+s1Point.y+'" r="'+(R*0.8)+'" fill="#3b82f6" style="cursor:grab"/>';
-        html += '<text x="'+(s1Point.x+R*2+4)+'" y="'+(s1Point.y+4)+'" fill="#3b82f6" font-size="'+Math.max(imgW/90,10)+'" font-weight="bold" font-family="sans-serif">S1</text>';
+      // S1
+      if(s1Point){
+        html+='<circle cx="'+s1Point.x+'" cy="'+s1Point.y+'" r="'+(R*2)+'" fill="none" stroke="#3b82f6" stroke-width="3" stroke-dasharray="6,4"/>';
+        html+='<circle cx="'+s1Point.x+'" cy="'+s1Point.y+'" r="'+(R*0.8)+'" fill="#3b82f6"/>';
+        html+='<text x="'+(s1Point.x+R*2+4)+'" y="'+(s1Point.y+4)+'" fill="#3b82f6" font-size="'+Math.max(imgW/90,10)+'" font-weight="bold">S1</text>';
       }
-
-      // Grid positions
-      gridPoints.forEach(function(p,i) {
-        html += '<rect x="'+(p.x-R*1.2)+'" y="'+(p.y-R*1.2)+'" width="'+(R*2.4)+'" height="'+(R*2.4)+'" fill="#4ade80" stroke="#000" stroke-width="1.5" rx="3" style="cursor:grab"/>';
-        html += '<text x="'+p.x+'" y="'+(p.y+1)+'" text-anchor="middle" dominant-baseline="central" fill="#000" font-size="'+Math.max(R*1.5,8)+'" font-weight="bold" font-family="monospace">'+(i+1)+'</text>';
+      // Grid
+      gridPoints.forEach(function(p,i){
+        html+='<rect x="'+(p.x-R*1.2)+'" y="'+(p.y-R*1.2)+'" width="'+(R*2.4)+'" height="'+(R*2.4)+'" fill="#4ade80" stroke="#000" stroke-width="1.5" rx="3"/>';
+        html+='<text x="'+p.x+'" y="'+(p.y+1)+'" text-anchor="middle" dominant-baseline="central" fill="#000" font-size="'+Math.max(R*1.5,8)+'" font-weight="bold" font-family="monospace">'+(i+1)+'</text>';
+      });
+      // Pit
+      pitPoints.forEach(function(p,i){
+        html+='<polygon points="'+p.x+','+(p.y-R*1.8)+' '+(p.x+R*1.6)+','+(p.y+R)+' '+(p.x-R*1.6)+','+(p.y+R)+'" fill="#f59e0b" stroke="#000" stroke-width="1.5"/>';
+        html+='<text x="'+p.x+'" y="'+(p.y+1)+'" text-anchor="middle" dominant-baseline="central" fill="#000" font-size="'+Math.max(R*1.2,7)+'" font-weight="bold">P'+(i+1)+'</text>';
       });
 
-      // Pit positions
-      pitPoints.forEach(function(p,i) {
-        html += '<polygon points="'+(p.x)+','+(p.y-R*1.8)+' '+(p.x+R*1.6)+','+(p.y+R*1)+' '+(p.x-R*1.6)+','+(p.y+R*1)+'" fill="#f59e0b" stroke="#000" stroke-width="1.5" style="cursor:grab"/>';
-        html += '<text x="'+p.x+'" y="'+(p.y+1)+'" text-anchor="middle" dominant-baseline="central" fill="#000" font-size="'+Math.max(R*1.2,7)+'" font-weight="bold" font-family="monospace">P'+(i+1)+'</text>';
-      });
+      overlaySvg.innerHTML=html;
 
-      overlaySvg.innerHTML = html;
-
-      // Update outputs (тільки якщо не редагує вручну)
-      if (document.activeElement !== outPath) {
-        outPath.value = displayPath;
-      }
-      if (document.activeElement !== outJson) {
-        outJson.value = JSON.stringify({ s1Point:s1Point, gridPositions:gridPoints, pitPositions:pitPoints }, null, 2);
+      if(document.activeElement!==outPath) outPath.value=displayPath;
+      if(document.activeElement!==outJson){
+        var speedProfile=timeMarkers.map(function(m){
+          return {progress:pathPoints.length>0?+(m.pointIndex/pathPoints.length).toFixed(4):0, time:m.time};
+        });
+        outJson.value=JSON.stringify({s1Point:s1Point,gridPositions:gridPoints,pitPositions:pitPoints,speedProfile:speedProfile,referenceLapTime:referenceLapTime},null,2);
       }
 
-      // Stats
-      var parts = [];
-      parts.push('Шлях: '+pathPoints.length+(isClosed?' ✓':''));
-      parts.push('S1: '+(s1Point?'✓':'—'));
-      parts.push('Решітка: '+gridPoints.length);
-      parts.push('Піти: '+pitPoints.length);
-      statsEl.textContent = parts.join(' │ ');
-
-      document.getElementById('btnClose').style.display = mode==='path'?'':'none';
+      var parts=['Шлях:'+pathPoints.length+(isClosed?' ✓':'')];
+      parts.push('⏱️:'+timeMarkers.length);
+      parts.push('S1:'+(s1Point?'✓':'—'));
+      parts.push('Решітка:'+gridPoints.length);
+      parts.push('Піти:'+pitPoints.length);
+      statsEl.textContent=parts.join(' │ ');
+      document.getElementById('btnClose').style.display=mode==='path'?'':'none';
     }
 
-    // ===== IMPORT FROM TEXTAREAS =====
-    var importingPath = ''; // зберігаємо вставлений path окремо від згенерованого
-
-    function onPathPaste() {
-      var val = outPath.value.trim();
-      if (!val) { importingPath = ''; render(); return; }
-      // Якщо це валідний SVG path (починається з M)
-      if (val.match(/^M\s/i)) {
-        importingPath = val;
-        render();
-        save();
-        dbg('✅ SVG path імпортовано і відображено', true);
-      }
+    // ===== IMPORT =====
+    function onPathPaste(){
+      var val=outPath.value.trim();
+      if(!val){importingPath='';render();return;}
+      if(val.match(/^M\s/i)){importingPath=val;render();save();dbg('✅ Path імпортовано',true);}
     }
-
-    function onJsonPaste() {
-      var val = outJson.value.trim();
-      if (!val) return;
-      try {
-        var d = JSON.parse(val);
-        if (d.s1Point !== undefined) s1Point = d.s1Point || null;
-        if (d.gridPositions) gridPoints = d.gridPositions;
-        if (d.pitPositions) pitPoints = d.pitPositions;
-        if (d.svgPath) { importingPath = d.svgPath; outPath.value = d.svgPath; }
-        save(); render();
-        dbg('✅ JSON імпортовано: S1='+(s1Point?'✓':'—')+' Grid='+gridPoints.length+' Pit='+pitPoints.length, true);
-      } catch(e) {
-        dbg('❌ Невалідний JSON: ' + e.message);
-      }
+    function onJsonPaste(){
+      var val=outJson.value.trim();if(!val)return;
+      try{
+        var d=JSON.parse(val);
+        if(d.s1Point!==undefined)s1Point=d.s1Point||null;
+        if(d.gridPositions)gridPoints=d.gridPositions;
+        if(d.pitPositions)pitPoints=d.pitPositions;
+        if(d.svgPath){importingPath=d.svgPath;outPath.value=d.svgPath;}
+        if(d.speedProfile&&pathPoints.length>0){
+          timeMarkers=d.speedProfile.map(function(sp){
+            return{pointIndex:Math.round(sp.progress*pathPoints.length),time:sp.time};
+          });
+        }
+        if(d.referenceLapTime){referenceLapTime=d.referenceLapTime;refLapInput.value=referenceLapTime;}
+        save();render();
+        dbg('✅ JSON імпортовано',true);
+      }catch(e){dbg('❌ '+e.message);}
     }
 
     // ===== START =====
     overlaySvg.setAttribute('viewBox','0 0 '+imgW+' '+imgH);
-    loadSaved(); render(); loadImage(1);
+    loadSaved();render();loadImage(1);
   </script>
 </body>
 </html>
