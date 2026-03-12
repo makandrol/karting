@@ -41,6 +41,8 @@ interface PilotState {
   bestS1Sec: number | null;
   bestS2: string | null;
   bestS2Sec: number | null;
+  /** Час попереднього завершеного кола в секундах */
+  previousLapSec: number | null;
 }
 
 function formatLapTime(seconds: number): string {
@@ -92,6 +94,7 @@ export class DemoSimulator {
         bestLap: null, bestLapSec: null,
         bestS1: null, bestS1Sec: null,
         bestS2: null, bestS2Sec: null,
+        previousLapSec: null,
       };
     });
   }
@@ -133,6 +136,7 @@ export class DemoSimulator {
         }
 
         const newLapDuration = generateLapDuration(pilot.config, pilot.lapNumber);
+        pilot.previousLapSec = pilot.currentLapDuration / 1000;
         pilot.lapStartTime = now;
         pilot.currentLapDuration = newLapDuration;
         pilot.currentS1Duration = newLapDuration * pilot.config.s1Ratio;
@@ -158,6 +162,7 @@ export class DemoSimulator {
         bestS2: pilot.bestS2,
         progress,
         currentLapSec: pilot.currentLapDuration / 1000,
+        previousLapSec: pilot.previousLapSec,
       };
     });
 
@@ -186,6 +191,7 @@ export class DemoSimulator {
       pilot.bestLap = null; pilot.bestLapSec = null;
       pilot.bestS1 = null; pilot.bestS1Sec = null;
       pilot.bestS2 = null; pilot.bestS2Sec = null;
+      pilot.previousLapSec = null;
     }
   }
 }

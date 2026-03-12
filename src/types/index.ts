@@ -9,17 +9,19 @@ export interface TimingEntry {
   position: number;
   pilot: string;
   kart: number;
-  lastLap: string | null;   // "00:42.123" or null if no lap yet
+  lastLap: string | null;   // "39.800" or "1:02.222"
   s1: string | null;
   s2: string | null;
   bestLap: string | null;
   lapNumber: number;
   bestS1: string | null;
   bestS2: string | null;
-  /** 0..1 прогрес по колу (для повзунка). null якщо невідомо */
+  /** 0..1 прогрес по колу */
   progress: number | null;
-  /** Прогнозований час поточного кола в секундах (тільки демо) */
+  /** Час поточного кола в секундах (демо) */
   currentLapSec: number | null;
+  /** Час попереднього завершеного кола в секундах. null = перше коло */
+  previousLapSec: number | null;
 }
 
 export interface TimingSnapshot {

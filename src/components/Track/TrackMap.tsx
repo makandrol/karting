@@ -15,7 +15,8 @@ const POSITION_COLORS = [
 
 function getPointOnPath(pathEl: SVGPathElement, progress: number): { x: number; y: number } {
   const len = pathEl.getTotalLength();
-  const pt = pathEl.getPointAtLength(progress * len);
+  const clamped = Math.max(0, Math.min(1, progress));
+  const pt = pathEl.getPointAtLength(clamped * len);
   return { x: pt.x, y: pt.y };
 }
 
@@ -23,48 +24,75 @@ function pilotShort(name: string): string {
   return name.slice(0, 3);
 }
 
-function applySpeedProfile(
-  uniformProgress: number,
+/**
+ * Конвертує час (секунди від старту кола) в позицію на трасі (0..1)
+ * через speed profile.
+ *
+ * speedProfile визначений для referenceLapTime.
+ * Якщо пілот їде за інший час (pilotLapTime) — пропорційно масштабуємо.
+ */
+function timeToProgress(
+  elapsedSec: number,
   profile: SpeedProfilePoint[],
   referenceLapTime: number,
+  pilotLapTime: number,
 ): number {
-  if (profile.length < 2) return uniformProgress;
-  const elapsed = uniformProgress * referenceLapTime;
-  const fullProfile: SpeedProfilePoint[] = [
-    { progress: 0, time: 0 }, ...profile, { progress: 1, time: referenceLapTime },
+  if (pilotLapTime <= 0) return 0;
+
+  // Масштабуємо elapsed до reference: якщо пілот їде за 44с а reference 42с,
+  // то за 22с реальних він на позиції як 22 * 42/44 = 21с reference
+  const scaledTime = elapsedSec * referenceLapTime / pilotLapTime;
+
+  if (profile.length < 2) {
+    // Без профілю — рівномірний рух
+    return Math.min(scaledTime / referenceLapTime, 1);
+  }
+
+  // Повний профіль з початком і кінцем
+  const full: SpeedProfilePoint[] = [
+    { progress: 0, time: 0 },
+    ...profile,
+    { progress: 1, time: referenceLapTime },
   ];
-  for (let i = 0; i < fullProfile.length - 1; i++) {
-    const a = fullProfile[i], b = fullProfile[i + 1];
-    if (elapsed >= a.time && elapsed <= b.time) {
-      const f = b.time > a.time ? (elapsed - a.time) / (b.time - a.time) : 0;
+
+  // Знаходимо сегмент за часом
+  for (let i = 0; i < full.length - 1; i++) {
+    const a = full[i], b = full[i + 1];
+    if (scaledTime >= a.time && scaledTime <= b.time) {
+      const f = b.time > a.time ? (scaledTime - a.time) / (b.time - a.time) : 0;
       return a.progress + f * (b.progress - a.progress);
     }
   }
-  return uniformProgress;
+
+  return scaledTime >= referenceLapTime ? 1 : 0;
 }
+
+// ============================================================
+// Стан карту на карті
+// ============================================================
 
 interface KartState {
   kart: number;
   pilot: string;
   position: number;
-  current: number;
-  velocity: number;
-  lastTarget: number;
-  lastUpdateTime: number;
+  /** Час початку поточного кола (performance.now() / 1000) */
+  lapStartWallTime: number;
+  /** Час кола для розрахунку руху: previousLapSec або referenceLapTime */
+  movementLapTime: number;
+  /** Номер кола (для відстеження зміни) */
+  lapNumber: number;
+  /** Чи заморожений на фініші (їде повільніше за попереднє коло) */
+  frozenAtFinish: boolean;
+  /** Поточний відрендерений progress */
+  currentProgress: number;
 }
 
-/**
- * TrackMap — рендерить карту траси з кружечками пілотів.
- * Анімація через прямий DOM (без React re-renders) для плавності.
- */
 export default function TrackMap({ track, entries }: TrackMapProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const pathRef = useRef<SVGPathElement>(null);
   const kartsGroupRef = useRef<SVGGElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
   const statesRef = useRef<KartState[]>([]);
   const rafRef = useRef<number>(0);
-  const lastFrameRef = useRef<number>(0);
   const pathReadyRef = useRef(false);
 
   const hasPath = track.svgPath.length > 0;
@@ -72,51 +100,75 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
   const targets = useMemo(() => {
     return entries
       .filter((e) => e.progress !== null && e.progress >= 0)
-      .map((e) => ({ kart: e.kart, pilot: e.pilot, progress: e.progress!, position: e.position }));
+      .map((e) => ({
+        kart: e.kart,
+        pilot: e.pilot,
+        position: e.position,
+        progress: e.progress!,
+        lapNumber: e.lapNumber,
+        previousLapSec: e.previousLapSec,
+        currentLapSec: e.currentLapSec,
+      }));
   }, [entries]);
 
-  // Update states from new data
+  // Оновити стани при нових даних
   useEffect(() => {
     const now = performance.now() / 1000;
     const prev = statesRef.current;
+    const refLap = track.referenceLapTime || 42;
 
     statesRef.current = targets.map((t) => {
       const existing = prev.find((p) => p.kart === t.kart);
+
+      // Час для руху: попереднє коло або reference (для першого кола)
+      const movementLapTime = t.previousLapSec || refLap;
+
       if (!existing) {
+        // Новий карт
         return {
-          kart: t.kart, pilot: t.pilot, position: t.position,
-          current: t.progress, velocity: 0.024,
-          lastTarget: t.progress, lastUpdateTime: now,
+          kart: t.kart,
+          pilot: t.pilot,
+          position: t.position,
+          lapStartWallTime: now - (t.progress * movementLapTime),
+          movementLapTime,
+          lapNumber: t.lapNumber,
+          frozenAtFinish: false,
+          currentProgress: t.progress,
         };
       }
 
-      const dt = now - existing.lastUpdateTime;
-      if (dt > 0.1) {
-        let progressDiff = t.progress - existing.lastTarget;
-
-        // Detect finish line crossing: target jumped backwards
-        const crossedFinish = progressDiff < -0.3;
-        if (crossedFinish) progressDiff += 1;
-        if (progressDiff < 0) progressDiff = 0;
-
-        const newVel = progressDiff / dt;
-        const smoothVel = newVel > 0.001 ? existing.velocity * 0.6 + newVel * 0.4 : existing.velocity;
+      // Перевірити чи змінилось коло
+      if (t.lapNumber !== existing.lapNumber) {
+        // Нове коло! 
+        const wasFaster = existing.frozenAtFinish === false && existing.currentProgress < 0.95;
 
         return {
-          ...existing, pilot: t.pilot, position: t.position,
-          velocity: Math.max(smoothVel, 0.005),
-          // On finish crossing: snap current to new position to avoid stall
-          current: crossedFinish ? t.progress : existing.current,
-          lastTarget: t.progress, lastUpdateTime: now,
+          ...existing,
+          pilot: t.pilot,
+          position: t.position,
+          // Нове коло починається зараз
+          lapStartWallTime: now,
+          movementLapTime,
+          lapNumber: t.lapNumber,
+          frozenAtFinish: false,
+          // Якщо їхав швидше — snap до реальної позиції
+          currentProgress: wasFaster ? t.progress : 0,
         };
       }
-      return { ...existing, pilot: t.pilot, position: t.position, lastTarget: t.progress };
+
+      // Те ж коло — оновити metadata
+      return {
+        ...existing,
+        pilot: t.pilot,
+        position: t.position,
+        movementLapTime,
+      };
     });
 
-    // Update legend via DOM
     updateLegend();
-  }, [targets]);
+  }, [targets, track.referenceLapTime]);
 
+  // Legend
   function updateLegend() {
     const el = legendRef.current;
     if (!el) return;
@@ -132,49 +184,45 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
     }).join('');
   }
 
-  // 60fps animation — direct DOM manipulation, NO React setState
+  // 60fps animation
   useEffect(() => {
     if (!hasPath) return;
 
-    // Wait for path to be ready
     const initTimer = setTimeout(() => {
       if (!pathRef.current) return;
       pathReadyRef.current = true;
-      // Create SVG elements for each kart once
       ensureKartElements();
-      lastFrameRef.current = 0;
       rafRef.current = requestAnimationFrame(tick);
     }, 100);
 
-    function tick(time: number) {
-      const now = time / 1000;
-      const dt = lastFrameRef.current ? now - lastFrameRef.current : 0.016;
-      lastFrameRef.current = now;
-
+    function tick() {
       if (!pathRef.current || !kartsGroupRef.current) {
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
 
+      const now = performance.now() / 1000;
       const states = statesRef.current;
+      const profile = track.speedProfile;
+      const refLap = track.referenceLapTime || 42;
 
       for (const s of states) {
-        let newPos = s.current + s.velocity * dt;
-        const timeSinceUpdate = now - s.lastUpdateTime;
-        let expectedPos = s.lastTarget + s.velocity * timeSinceUpdate;
-        expectedPos = ((expectedPos % 1) + 1) % 1;
+        const elapsed = now - s.lapStartWallTime;
 
-        let correction = expectedPos - newPos;
-        if (correction > 0.5) correction -= 1;
-        if (correction < -0.5) correction += 1;
-        newPos += correction * 0.02;
-        s.current = ((newPos % 1) + 1) % 1;
+        if (elapsed >= s.movementLapTime && !s.frozenAtFinish) {
+          // Пілот їде довше за попереднє коло → заморозити на фініші
+          s.frozenAtFinish = true;
+          s.currentProgress = 0.999;
+        }
+
+        if (!s.frozenAtFinish) {
+          // Нормальний рух: час → позиція через speed profile
+          s.currentProgress = timeToProgress(elapsed, profile, refLap, s.movementLapTime);
+        }
       }
 
-      // Update DOM directly
       ensureKartElements();
       updateKartPositions();
-
       rafRef.current = requestAnimationFrame(tick);
     }
 
@@ -182,42 +230,39 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
       clearTimeout(initTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [hasPath, track.id]);
+  }, [hasPath, track.id, track.speedProfile, track.referenceLapTime]);
+
+  // Path ready
+  useEffect(() => {
+    pathReadyRef.current = false;
+    if (!hasPath) return;
+    const t = setTimeout(() => { if (pathRef.current) pathReadyRef.current = true; }, 50);
+    return () => clearTimeout(t);
+  }, [track.id, hasPath]);
 
   function ensureKartElements() {
     const g = kartsGroupRef.current;
     if (!g) return;
     const states = statesRef.current;
-
-    // Remove extra elements
-    while (g.children.length > states.length) {
-      g.removeChild(g.lastChild!);
-    }
-
-    // Add missing elements
+    while (g.children.length > states.length) g.removeChild(g.lastChild!);
     while (g.children.length < states.length) {
       const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      // Glow
       const glow = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       glow.setAttribute('r', '28'); glow.setAttribute('opacity', '0.15');
       group.appendChild(glow);
-      // Main circle
       const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       circle.setAttribute('r', '20'); circle.setAttribute('stroke', '#1a1a1a'); circle.setAttribute('stroke-width', '2.5');
       group.appendChild(circle);
-      // Kart number
       const numText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       numText.setAttribute('text-anchor', 'middle'); numText.setAttribute('dominant-baseline', 'central');
       numText.setAttribute('fill', '#1a1a1a'); numText.setAttribute('font-size', '13');
       numText.setAttribute('font-weight', 'bold'); numText.setAttribute('font-family', 'monospace');
       group.appendChild(numText);
-      // Pilot name
       const nameText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       nameText.setAttribute('text-anchor', 'middle'); nameText.setAttribute('dominant-baseline', 'central');
       nameText.setAttribute('fill', '#1a1a1a'); nameText.setAttribute('font-size', '8');
       nameText.setAttribute('font-weight', '600'); nameText.setAttribute('font-family', 'system-ui, sans-serif');
       group.appendChild(nameText);
-
       g.appendChild(group);
     }
   }
@@ -233,10 +278,7 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
       const group = g.children[i] as SVGGElement;
       if (!group) continue;
 
-      const mapped = track.speedProfile.length >= 2
-        ? applySpeedProfile(s.current, track.speedProfile, track.referenceLapTime)
-        : s.current;
-      const pt = getPointOnPath(path, mapped);
+      const pt = getPointOnPath(path, s.currentProgress);
       const color = POSITION_COLORS[Math.min(s.position - 1, POSITION_COLORS.length - 1)];
 
       const glow = group.children[0] as SVGCircleElement;
@@ -254,11 +296,10 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
   }
 
   return (
-    <div ref={containerRef} className="card p-0 overflow-hidden">
+    <div className="card p-0 overflow-hidden">
       <div className="relative">
         <img src={track.image} alt={track.name} className="w-full rounded-lg opacity-90" />
 
-        {/* F1 legend — direct DOM updated, no re-renders */}
         {hasPath && (
           <div
             ref={legendRef}
