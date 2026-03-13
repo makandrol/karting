@@ -145,7 +145,9 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
   sorted.forEach((r, i) => r.pos = i + 1);
 
   const hasGroups = sorted.some(r => r.raceData.some(rd => rd && rd.group > 1));
-  const subCols = hasGroups ? 8 : 7; // група, старт, фініш, бали, позиція, обгони, час, штрафи
+  const mainCols = hasGroups ? 3 : 2; // група+старт+фініш or старт+фініш
+  const pointsCols = 5; // сума, позиція, обгони, час, штрафи
+  const totalSubCols = mainCols + pointsCols;
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -153,35 +155,45 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
         <h3 className="text-white font-semibold">Результати ({sorted.length} пілотів)</h3>
       </div>
       <div className="overflow-x-auto">
-        <style>{`.rotate-header { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; min-height: 70px; display: inline-block; font-size: 10px; }`}</style>
+        <style>{`.rh { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; min-height: 60px; display: inline-block; font-size: 10px; }`}</style>
         <table className="w-full text-[11px]">
           <thead>
+            {/* Row 1: race names */}
             <tr className="table-header">
-              <th className="table-cell text-center align-bottom" rowSpan={2}>#</th>
-              <th className="table-cell text-left align-bottom" rowSpan={2}>Пілот</th>
-              <th className="table-cell text-center align-bottom border-l border-dark-700" rowSpan={2}>
-                <span className="rotate-header">Квала</span>
+              <th className="table-cell text-center" rowSpan={3}>#</th>
+              <th className="table-cell text-left" rowSpan={3}>Пілот</th>
+              <th className="table-cell text-center border-l border-dark-700" rowSpan={3}>
+                <span className="rh">Квала</span>
               </th>
               {raceRounds.map((round, ri) => (
-                <th key={ri} className="table-cell text-center border-l border-dark-700 py-1" colSpan={subCols}>
+                <th key={ri} className="table-cell text-center border-l border-dark-700 py-1" colSpan={totalSubCols}>
                   {round.name}
                 </th>
               ))}
-              <th className="table-cell text-center align-bottom border-l border-dark-700 font-bold" rowSpan={2}>
-                <span className="rotate-header">Всього</span>
+              <th className="table-cell text-center border-l border-dark-700" rowSpan={3}>
+                <span className="rh">Всього</span>
               </th>
             </tr>
+            {/* Row 2: main + Бали */}
             <tr className="table-header">
               {raceRounds.map((_, ri) => (
                 <>
-                  {hasGroups && <th key={`g${ri}`} className="table-cell text-center py-0 px-0.5 border-l border-dark-700"><span className="rotate-header">група</span></th>}
-                  <th key={`s${ri}`} className={`table-cell text-center py-0 px-0.5 ${!hasGroups ? 'border-l border-dark-700' : ''}`}><span className="rotate-header">старт</span></th>
-                  <th key={`f${ri}`} className="table-cell text-center py-0 px-0.5"><span className="rotate-header">фініш</span></th>
-                  <th key={`t${ri}`} className="table-cell text-center py-0 px-0.5 font-bold"><span className="rotate-header">бали</span></th>
-                  <th key={`p${ri}`} className="table-cell text-center py-0 px-0.5 border-l border-dark-800/30"><span className="rotate-header">позиція</span></th>
-                  <th key={`o${ri}`} className="table-cell text-center py-0 px-0.5"><span className="rotate-header">обгони</span></th>
-                  <th key={`c${ri}`} className="table-cell text-center py-0 px-0.5"><span className="rotate-header">час</span></th>
-                  <th key={`x${ri}`} className="table-cell text-center py-0 px-0.5"><span className="rotate-header">штрафи</span></th>
+                  {hasGroups && <th key={`g${ri}`} className="table-cell text-center border-l border-dark-700 px-0" rowSpan={2}><span className="rh">група</span></th>}
+                  <th key={`s${ri}`} className={`table-cell text-center px-0 ${!hasGroups ? 'border-l border-dark-700' : ''}`} rowSpan={2}><span className="rh">старт</span></th>
+                  <th key={`f${ri}`} className="table-cell text-center px-0" rowSpan={2}><span className="rh">фініш</span></th>
+                  <th key={`b${ri}`} className="table-cell text-center border-l border-dark-700 text-primary-400 font-bold text-[10px] py-0.5" colSpan={pointsCols}>Бали</th>
+                </>
+              ))}
+            </tr>
+            {/* Row 3: points sub-columns */}
+            <tr className="table-header">
+              {raceRounds.map((_, ri) => (
+                <>
+                  <th key={`ts${ri}`} className="table-cell text-center px-0 border-l border-dark-700"><span className="rh">сума</span></th>
+                  <th key={`p${ri}`} className="table-cell text-center px-0"><span className="rh">позиція</span></th>
+                  <th key={`o${ri}`} className="table-cell text-center px-0"><span className="rh">обгони</span></th>
+                  <th key={`c${ri}`} className="table-cell text-center px-0"><span className="rh">час</span></th>
+                  <th key={`x${ri}`} className="table-cell text-center px-0"><span className="rh">штрафи</span></th>
                 </>
               ))}
             </tr>
@@ -195,12 +207,12 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
                     {row.pilot}
                   </Link>
                 </td>
-                <td className="table-cell text-center font-mono text-dark-300 border-l border-dark-800/50">
-                  {row.qualiPts > 0 ? pts(row.qualiPts) : '—'}
+                <td className="table-cell text-center font-mono border-l border-dark-800/50">
+                  {row.qualiPts > 0 ? <span className="text-primary-400 font-bold">{pts(row.qualiPts)}</span> : <span className="text-dark-700">—</span>}
                 </td>
                 {row.raceData.map((rd, ri) => {
                   if (!rd) {
-                    const emptyCols = hasGroups ? 8 : 7;
+                    const emptyCols = totalSubCols;
                     return Array.from({ length: emptyCols }, (_, ci) => (
                       <td key={`e${ri}_${ci}`} className={`table-cell text-center text-dark-700 ${ci === 0 ? 'border-l border-dark-800/50' : ''}`}>—</td>
                     ));
@@ -209,8 +221,8 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
                     <>{hasGroups && <td key={`g${ri}`} className="table-cell text-center font-mono text-dark-500 border-l border-dark-800/50">{rd.group}</td>}
                     <td key={`s${ri}`} className={`table-cell text-center font-mono text-dark-400 ${!hasGroups ? 'border-l border-dark-800/50' : ''}`}>{rd.start}</td>
                     <td key={`f${ri}`} className="table-cell text-center font-mono text-dark-200 font-semibold">{rd.finish}</td>
-                    <td key={`t${ri}`} className="table-cell text-center font-mono text-primary-400 font-bold">{pts(rd.totalPts)}</td>
-                    <td key={`p${ri}`} className="table-cell text-center font-mono text-dark-300 border-l border-dark-800/30">{rd.posPts > 0 ? pts(rd.posPts) : '—'}</td>
+                    <td key={`ts${ri}`} className="table-cell text-center font-mono text-primary-400 font-bold border-l border-dark-800/50">{pts(rd.totalPts)}</td>
+                    <td key={`p${ri}`} className="table-cell text-center font-mono text-dark-300">{rd.posPts > 0 ? pts(rd.posPts) : '—'}</td>
                     <td key={`o${ri}`} className="table-cell text-center font-mono text-dark-400">{rd.overtakePts > 0 ? pts(rd.overtakePts) : '—'}</td>
                     <td key={`c${ri}`} className="table-cell text-center font-mono text-dark-400">{rd.speedPts > 0 ? pts(rd.speedPts) : '—'}</td>
                     <td key={`x${ri}`} className={`table-cell text-center font-mono ${rd.penalty ? 'text-red-400' : 'text-dark-700'}`}>{rd.penalty ? pts(rd.penalty) : '—'}</td></>
