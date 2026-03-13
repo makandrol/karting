@@ -43,9 +43,15 @@ export default function SessionsList() {
                 <div>
                   <div className="text-white font-semibold group-hover:text-primary-400 transition-colors">
                     Заїзд #{s.number}
+                    {s.competitionName && (
+                      <span className="ml-2 text-xs text-primary-400 font-normal">{s.competitionName}</span>
+                    )}
                   </div>
                   <div className="text-dark-500 text-xs">
-                    {s.startTime.slice(0, 5)} – {s.endTime.slice(0, 5)} • {s.pilots.length} пілотів
+                    {s.startTime.slice(0, 5)} – {s.endTime.slice(0, 5)} • {s.pilots.length} пілотів •
+                    <span className={s.competitionName ? 'text-primary-400/60' : 'text-dark-600'}>
+                      {' '}{s.competitionName ? s.type === 'qualifying' ? 'Квала' : s.type === 'gonzales_round' ? 'Раунд' : 'Гонка' : 'Прокат'}
+                    </span>
                   </div>
                 </div>
               </div>

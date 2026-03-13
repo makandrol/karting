@@ -148,7 +148,7 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
                 sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
               }`}
             >
-              ⏱️ Квалі
+              ⏱️ Квала
             </button>
           </div>
 

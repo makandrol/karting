@@ -13,6 +13,10 @@ export interface SessionData {
   durationSec: number;
   pilots: string[];
   laps: SessionLap[];
+  /** Тип: прокат або змагання */
+  type: 'prokat' | 'qualifying' | 'race' | 'gonzales_round';
+  /** Назва змагання (якщо є) */
+  competitionName: string | null;
 }
 
 export interface SessionLap {
@@ -32,7 +36,7 @@ export interface PilotProfile {
   totalLaps: number;
   bestLap: string | null;
   bestLapSec: number | null;
-  sessions: { sessionId: string; date: string; sessionNumber: number; laps: number; bestLap: string }[];
+  sessions: { sessionId: string; date: string; sessionNumber: number; laps: number; bestLap: string; kart: number; competitionName: string | null }[];
 }
 
 // ============================================================
@@ -90,6 +94,16 @@ function generateAllSessions(): SessionData[] {
         allLaps.push(...genLaps(pilot, kart, count, base, `${date}-${s}`, date, hour));
       });
 
+      // Деякі сесії — змагання
+      const compTypes: Array<{ type: SessionData['type']; name: string | null }> = [
+        { type: 'prokat', name: null },
+        { type: 'prokat', name: null },
+        { type: 'qualifying', name: 'Лайт Ліга' },
+        { type: 'race', name: 'Лайт Ліга' },
+        { type: 'gonzales_round', name: 'Гонзалес' },
+      ];
+      const comp = compTypes[s % compTypes.length];
+
       sessions.push({
         id: `${date}-${s}`,
         number: s,
@@ -99,6 +113,8 @@ function generateAllSessions(): SessionData[] {
         durationSec: 600 + Math.floor(Math.random() * 300),
         pilots: pilotsInSession,
         laps: allLaps.sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
+        type: comp.type,
+        competitionName: comp.name,
       });
     }
   }
@@ -150,8 +166,17 @@ export function getPilotProfile(name: string): PilotProfile {
       const sLaps = s.laps.filter((l) => l.pilot === name);
       let sBest = Infinity;
       let sBestStr = '—';
-      for (const l of sLaps) { if (l.lapTimeSec < sBest) { sBest = l.lapTimeSec; sBestStr = l.lapTime; } }
-      return { sessionId: s.id, date: s.date, sessionNumber: s.number, laps: sLaps.length, bestLap: sBestStr };
+      let kartUsed = 0;
+      for (const l of sLaps) {
+        if (l.lapTimeSec < sBest) { sBest = l.lapTimeSec; sBestStr = l.lapTime; }
+        kartUsed = l.kart; // останній карт
+      }
+      return {
+        sessionId: s.id, date: s.date, sessionNumber: s.number,
+        laps: sLaps.length, bestLap: sBestStr,
+        kart: kartUsed,
+        competitionName: s.competitionName,
+      };
     }),
   };
 }

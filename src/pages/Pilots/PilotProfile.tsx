@@ -62,12 +62,15 @@ export default function PilotProfile() {
                       <span className="text-dark-500 text-xs ml-2">
                         {new Date(s.date).toLocaleDateString('uk-UA')}
                       </span>
+                      <span className={`text-xs ml-2 ${s.competitionName ? 'text-primary-400' : 'text-dark-600'}`}>
+                        {s.competitionName || 'Прокат'}
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-right">
                       <div className="text-green-400 font-mono text-sm font-semibold">{s.bestLap}</div>
-                      <div className="text-dark-500 text-xs">{s.laps} кіл</div>
+                      <div className="text-dark-500 text-xs">{s.laps} кіл • карт {s.kart}</div>
                     </div>
                     <svg className={`w-4 h-4 text-dark-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                       fill="none" viewBox="0 0 24 24" stroke="currentColor">
