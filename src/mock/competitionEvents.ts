@@ -130,15 +130,95 @@ export let ALL_COMPETITION_EVENTS: CompetitionEvent[] = [
   generateGonzalesEvent('gonz-1', 'Гонзалес Раунд 1', '2025-01-15', 1),
   generateGonzalesEvent('gonz-2', 'Гонзалес Раунд 2', '2025-02-12', 3),
   generateGonzalesEvent('gonz-3', 'Гонзалес Раунд 3', '2025-03-10', 1),
-  generateLightLeagueEvent('ll-1', 'Лайт Ліга Етап 1', '2025-01-20', 1),
-  generateLightLeagueEvent('ll-2', 'Лайт Ліга Етап 2', '2025-02-17', 5),
-  generateLightLeagueEvent('ll-3', 'Лайт Ліга Етап 3', '2025-03-10', 1),
+  generateLightLeagueEvent('ll-2026-1', 'Лайт Ліга 2026 Етап 1', '2026-01-20', 1),
+  generateLightLeagueEvent('ll-2026-2', 'Лайт Ліга 2026 Етап 2', '2026-02-17', 5),
   // CL 2026 (mock)
   generateChampionsLeagueEvent('cl-2026-1', 'Ліга Чемпіонів 2026 Етап 1', '2026-02-01', 3),
   generateChampionsLeagueEvent('cl-2026-2', 'Ліга Чемпіонів 2026 Етап 2', '2026-03-08', 1),
 ];
 
-/** Завантажити реальні дані Ліги Чемпіонів 2025 */
+/** Завантажити реальні дані Лайт Ліги 2025 */
+export async function loadLightLeague2025(): Promise<void> {
+  try {
+    const resp = await fetch('/data/lightLeague2025.json');
+    if (!resp.ok) return;
+    const events: any[] = await resp.json();
+
+    const llEvents: CompetitionEvent[] = events.map((ev, idx) => {
+      const phases: CompetitionPhase[] = [];
+      const numGroups = ev.total_pilots > 26 ? 3 : ev.total_pilots > 13 ? 2 : 1;
+
+      // Qualifying
+      phases.push({
+        id: `ll25-${idx}-q`,
+        type: 'qualifying',
+        name: 'Квала',
+        results: ev.pilots.map((p: any) => ({
+          pilot: p.name, kart: 0, position: p.pos, bestLap: '', bestLapSec: 0, laps: [],
+          points: Math.round((p.quali_pts || 0) * 10) / 10,
+        })),
+      });
+
+      // 2 Races
+      for (let r = 1; r <= 2; r++) {
+        const groupField = r === 1 ? 'quali_group' : 'r2_group';
+        const startField = r === 1 ? 'r1_start' : 'r2_start';
+        const finishField = r === 1 ? 'r1_finish' : 'r2_finish';
+
+        if (numGroups >= 2) {
+          for (let g = numGroups; g >= 1; g--) {
+            const groupPilots = ev.pilots.filter((p: any) => p[groupField] === g);
+            if (!groupPilots.length) continue;
+            phases.push({
+              id: `ll25-${idx}-r${r}g${g}`,
+              type: 'race',
+              name: `Гонка ${r}, Група ${g}`,
+              results: groupPilots.map((p: any) => ({
+                pilot: p.name, kart: 0,
+                position: p[finishField] || 0,
+                bestLap: '', bestLapSec: 0, laps: [],
+                startPosition: p[startField] || 0,
+                overtakes: Math.max(0, (p[startField] || 0) - (p[finishField] || 0)),
+                points: Math.round(((p[`r${r}_pos_pts`] || 0) + (p[`r${r}_overtake_pts`] || 0) + (p[`r${r}_speed_pts`] || 0) + (p[`r${r}_penalty`] || 0)) * 10) / 10,
+              })).sort((a: any, b: any) => a.position - b.position),
+            });
+          }
+        } else {
+          phases.push({
+            id: `ll25-${idx}-r${r}`,
+            type: 'race',
+            name: `Гонка ${r}`,
+            results: ev.pilots.map((p: any) => ({
+              pilot: p.name, kart: 0,
+              position: p[finishField] || 0,
+              bestLap: '', bestLapSec: 0, laps: [],
+              startPosition: p[startField] || 0,
+              overtakes: Math.max(0, (p[startField] || 0) - (p[finishField] || 0)),
+              points: Math.round(((p[`r${r}_pos_pts`] || 0) + (p[`r${r}_overtake_pts`] || 0) + (p[`r${r}_speed_pts`] || 0) + (p[`r${r}_penalty`] || 0)) * 10) / 10,
+            })).sort((a: any, b: any) => a.position - b.position),
+          });
+        }
+      }
+
+      const dateFormatted = new Date(ev.date).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit' });
+      return {
+        id: `ll25-${idx}`,
+        format: 'light_league' as CompetitionFormat,
+        name: `ЛЛ ${dateFormatted}`,
+        date: ev.date,
+        trackConfigId: 1,
+        phases,
+      };
+    });
+
+    ALL_COMPETITION_EVENTS = [
+      ...ALL_COMPETITION_EVENTS.filter(e => e.format !== 'light_league' || e.id.startsWith('ll-2026')),
+      ...llEvents,
+    ].sort((a, b) => a.date.localeCompare(b.date));
+  } catch (e) {
+    console.error('Failed to load LL 2025:', e);
+  }
+}
 export async function loadChampionsLeague2025(): Promise<void> {
   try {
     const resp = await fetch('/data/championsLeague2025.json');
@@ -176,7 +256,7 @@ export async function loadChampionsLeague2025(): Promise<void> {
             phases.push({
               id: `cl25-${idx}-r${r}g${g}`,
               type: 'race',
-              name: `Гонка ${r}, Група ${g === 1 ? 'A' : 'B'}`,
+              name: `Гонка ${r}, Група ${g}`,
               results: groupPilots.map((p: any) => ({
                 pilot: p.name,
                 kart: 0,

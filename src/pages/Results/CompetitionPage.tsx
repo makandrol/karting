@@ -221,50 +221,66 @@ function PhaseDetail({ phase }: { phase: CompetitionPhase }) {
     return (b.points || 0) - (a.points || 0);
   });
 
+  const isRace = phase.type === 'race';
+
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-3 border-b border-dark-800 flex items-center justify-between">
         <h3 className="text-white font-semibold">{phase.name}</h3>
-        {phase.type === 'race' && (
-          <div className="flex bg-dark-800 rounded-md p-0.5">
-            <button onClick={() => setSortBy('position')}
-              className={`px-2 py-0.5 text-[10px] font-semibold rounded ${sortBy === 'position' ? 'bg-primary-600 text-white' : 'text-dark-400'}`}>
-              Позиція
-            </button>
-            <button onClick={() => setSortBy('points')}
-              className={`px-2 py-0.5 text-[10px] font-semibold rounded ${sortBy === 'points' ? 'bg-primary-600 text-white' : 'text-dark-400'}`}>
-              Бали
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {/* TODO: link to demo replay */}
+          {isRace && (
+            <div className="flex bg-dark-800 rounded-md p-0.5">
+              <button onClick={() => setSortBy('position')}
+                className={`px-2 py-0.5 text-[10px] font-semibold rounded ${sortBy === 'position' ? 'bg-primary-600 text-white' : 'text-dark-400'}`}>
+                Позиція
+              </button>
+              <button onClick={() => setSortBy('points')}
+                className={`px-2 py-0.5 text-[10px] font-semibold rounded ${sortBy === 'points' ? 'bg-primary-600 text-white' : 'text-dark-400'}`}>
+                Бали
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="table-header">
-              <th className="table-cell text-center w-10">Фін</th>
+              {!isRace && <th className="table-cell text-center w-10">#</th>}
               <th className="table-cell text-left">Пілот</th>
-              {phase.type === 'race' && <th className="table-cell text-center">Старт</th>}
-              {phase.type === 'race' && <th className="table-cell text-center">Обгони</th>}
+              {isRace && <th className="table-cell text-center">Старт</th>}
+              {isRace && <th className="table-cell text-center">Фініш</th>}
+              {isRace && <th className="table-cell text-center">Обгони</th>}
               <th className="table-cell text-right">Бали</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((r) => {
               const overtakes = (r.startPosition || 0) - r.position;
+              // For points breakdown: total = posPts + overtakePts (we only have total, but show the format)
+              const total = Math.round((r.points || 0) * 10) / 10;
+
               return (
                 <tr key={r.pilot} className="table-row">
-                  <td className={`table-cell text-center font-mono font-bold ${r.position <= 3 ? `position-${r.position}` : 'text-dark-400'}`}>{r.position}</td>
+                  {!isRace && (
+                    <td className={`table-cell text-center font-mono font-bold ${r.position <= 3 ? `position-${r.position}` : 'text-dark-400'}`}>{r.position}</td>
+                  )}
                   <td className="table-cell text-left">
                     <Link to={`/pilots/${encodeURIComponent(r.pilot)}`} className="text-white hover:text-primary-400 font-medium transition-colors text-sm">{r.pilot}</Link>
                   </td>
-                  {phase.type === 'race' && <td className="table-cell text-center font-mono text-dark-400 text-sm">{r.startPosition || '—'}</td>}
-                  {phase.type === 'race' && (
+                  {isRace && <td className="table-cell text-center font-mono text-dark-400 text-sm">{r.startPosition || '—'}</td>}
+                  {isRace && (
+                    <td className={`table-cell text-center font-mono font-semibold text-sm ${r.position <= 3 ? `position-${r.position}` : 'text-dark-200'}`}>{r.position}</td>
+                  )}
+                  {isRace && (
                     <td className={`table-cell text-center font-mono text-sm ${overtakes > 0 ? 'text-green-400' : overtakes < 0 ? 'text-red-400' : 'text-dark-500'}`}>
                       {overtakes > 0 ? `+${overtakes}` : overtakes < 0 ? overtakes : '—'}
                     </td>
                   )}
-                  <td className="table-cell text-right font-mono text-primary-400 font-semibold text-sm">{pts(r.points || 0)}</td>
+                  <td className="table-cell text-right font-mono text-primary-400 font-semibold text-sm">
+                    {total > 0 ? pts(total) : '—'}
+                  </td>
                 </tr>
               );
             })}
