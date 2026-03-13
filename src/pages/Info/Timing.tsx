@@ -3,6 +3,8 @@ import { TrackMap } from '../../components/Track';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
+import { Link } from 'react-router-dom';
+import { getTodaySessions } from '../../mock/sessionData';
 
 export default function Timing() {
   const { entries, snapshots, mode, lastUpdate, error, connectLive, startDemo, stop } = useTimingPoller({
@@ -11,23 +13,30 @@ export default function Timing() {
   const { currentTrack, setCurrentTrack, allTracks } = useTrack();
   const { hasPermission } = useAuth();
   const canChangeTrack = hasPermission('change_track');
+  const todaySessions = getTodaySessions();
+  const currentSessionNum = todaySessions.length; // наступний номер
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white mb-1">🕐 Live таймінг</h1>
-        <p className="text-dark-400 text-sm">
-          Дані з табло{' '}
-          <a
-            href="https://timing.karting.ua/board.html"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary-400 hover:underline"
-          >
-            timing.karting.ua
-          </a>
-          . Оновлення кожну секунду.
-        </p>
+      {/* Session indicator */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white mb-1">🕐 Live таймінг</h1>
+          <p className="text-dark-400 text-sm">
+            Дані з табло{' '}
+            <a href="https://timing.karting.ua/board.html" target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:underline">
+              timing.karting.ua
+            </a>
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="text-dark-300 text-sm font-mono">
+            Заїзд <span className="text-white font-bold text-lg">#{currentSessionNum}</span>
+          </div>
+          <Link to="/sessions" className="text-dark-500 hover:text-primary-400 text-xs transition-colors">
+            Всі заїзди ({todaySessions.length} сьогодні) →
+          </Link>
+        </div>
       </div>
 
       {/* Track config info + selector */}

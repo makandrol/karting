@@ -16,6 +16,9 @@ import KartDetail from './pages/Info/KartDetail';
 import Videos from './pages/Info/Videos';
 import Login from './pages/Auth/Login';
 import AdminPanel from './pages/Auth/AdminPanel';
+import SessionsList from './pages/Sessions/SessionsList';
+import SessionDetail from './pages/Sessions/SessionDetail';
+import PilotProfile from './pages/Pilots/PilotProfile';
 
 export default function App() {
   return (
@@ -46,6 +49,13 @@ export default function App() {
               {/* Auth */}
               <Route path="/login" element={<Login />} />
               <Route path="/admin" element={<AdminPanel />} />
+
+              {/* Sessions */}
+              <Route path="/sessions" element={<SessionsList />} />
+              <Route path="/sessions/:sessionId" element={<SessionDetail />} />
+
+              {/* Pilots */}
+              <Route path="/pilots/:pilotName" element={<PilotProfile />} />
 
               {/* 404 */}
               <Route path="*" element={<NotFound />} />

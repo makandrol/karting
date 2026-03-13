@@ -21,6 +21,7 @@ const NAV_ITEMS: NavItem[] = [
     path: '/info',
     children: [
       { label: 'Таймінг', path: '/info/timing' },
+      { label: 'Заїзди', path: '/sessions' },
       { label: 'Траси', path: '/info/tracks' },
       { label: 'Карти', path: '/info/karts' },
       { label: 'Відео', path: '/info/videos' },

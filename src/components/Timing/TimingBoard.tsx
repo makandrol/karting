@@ -198,8 +198,13 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
                       {entry.position}
                     </td>
                     <td className="table-cell text-left py-2">
-                      <div className="font-medium text-white text-sm leading-tight">
-                        {entry.pilot}
+                      <div className="font-medium text-sm leading-tight">
+                        <Link
+                          to={`/pilots/${encodeURIComponent(entry.pilot)}`}
+                          className="text-white hover:text-primary-400 transition-colors"
+                        >
+                          {entry.pilot}
+                        </Link>
                         {entry.currentLapSec !== null && (
                           <span className="text-dark-600 text-[10px] ml-1 font-mono">
                             ({entry.currentLapSec.toFixed(1)}s)
