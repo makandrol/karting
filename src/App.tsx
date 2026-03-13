@@ -4,11 +4,7 @@ import { AuthProvider } from './services/auth';
 import { TrackProvider } from './services/trackContext';
 import HomePage from './pages/Home';
 import CurrentRace from './pages/Results/CurrentRace';
-import Gonzales from './pages/Results/Gonzales';
-import LightLeague from './pages/Results/LightLeague';
-import ChampionsLeague from './pages/Results/ChampionsLeague';
-import Sprints from './pages/Results/Sprints';
-import Marathons from './pages/Results/Marathons';
+import CompetitionPage from './pages/Results/CompetitionPage';
 import Timing from './pages/Info/Timing';
 import Tracks from './pages/Info/Tracks';
 import Karts from './pages/Info/Karts';
@@ -32,11 +28,9 @@ export default function App() {
               {/* Results */}
               <Route path="/results" element={<Navigate to="/results/current" replace />} />
               <Route path="/results/current" element={<CurrentRace />} />
-              <Route path="/results/gonzales" element={<Gonzales />} />
-              <Route path="/results/light-league" element={<LightLeague />} />
-              <Route path="/results/champions-league" element={<ChampionsLeague />} />
-              <Route path="/results/sprints" element={<Sprints />} />
-              <Route path="/results/marathons" element={<Marathons />} />
+              <Route path="/results/:type" element={<CompetitionPage />} />
+              <Route path="/results/:type/:eventId" element={<CompetitionPage />} />
+              <Route path="/results/:type/:eventId/:phaseId" element={<CompetitionPage />} />
 
               {/* Info / Analytics */}
               <Route path="/info" element={<Navigate to="/info/timing" replace />} />
