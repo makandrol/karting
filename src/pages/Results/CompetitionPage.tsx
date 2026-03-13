@@ -127,61 +127,62 @@ function EventDetail({ event, type, selectedPhase }: { event: CompetitionEvent; 
 }
 
 function OverallResults({ event }: { event: CompetitionEvent }) {
-  // Aggregate results: best lap per pilot across all phases
-  const pilotBests = new Map<string, { bestSec: number; bestLap: string; totalPoints: number }>();
+  // Aggregate total points per pilot
+  const pilotData = new Map<string, { totalPoints: number; qualiPts: number; racePts: number }>();
 
   for (const phase of event.phases) {
     for (const r of phase.results) {
-      const prev = pilotBests.get(r.pilot);
-      if (!prev || r.bestLapSec < prev.bestSec) {
-        pilotBests.set(r.pilot, {
-          bestSec: r.bestLapSec,
-          bestLap: r.bestLap,
-          totalPoints: (prev?.totalPoints || 0) + (r.points || 0),
-        });
+      const prev = pilotData.get(r.pilot) || { totalPoints: 0, qualiPts: 0, racePts: 0 };
+      const pts = r.points || 0;
+      if (phase.type === 'qualifying') {
+        prev.qualiPts += pts;
       } else {
-        pilotBests.set(r.pilot, { ...prev, totalPoints: prev.totalPoints + (r.points || 0) });
+        prev.racePts += pts;
       }
+      prev.totalPoints += pts;
+      pilotData.set(r.pilot, prev);
     }
   }
 
-  const sorted = [...pilotBests.entries()].sort((a, b) => a[1].bestSec - b[1].bestSec);
+  const sorted = [...pilotData.entries()]
+    .sort((a, b) => b[1].totalPoints - a[1].totalPoints)
+    .map(([pilot, data], i) => ({ pilot, ...data, pos: i + 1 }));
 
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-3 border-b border-dark-800">
         <h3 className="text-white font-semibold">Загальні результати</h3>
       </div>
-      <table className="w-full">
-        <thead>
-          <tr className="table-header">
-            <th className="table-cell text-center w-10">#</th>
-            <th className="table-cell text-left">Пілот</th>
-            <th className="table-cell text-right">Найкращий час</th>
-            <th className="table-cell text-right">Бали</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map(([pilot, data], idx) => (
-            <tr key={pilot} className="table-row">
-              <td className={`table-cell text-center font-mono font-bold ${
-                idx === 0 ? 'position-1' : idx === 1 ? 'position-2' : idx === 2 ? 'position-3' : 'text-dark-400'
-              }`}>{idx + 1}</td>
-              <td className="table-cell text-left">
-                <Link to={`/pilots/${encodeURIComponent(pilot)}`} className="text-white hover:text-primary-400 font-medium transition-colors">
-                  {pilot}
-                </Link>
-              </td>
-              <td className={`table-cell text-right font-mono font-semibold ${idx === 0 ? 'text-purple-400' : 'text-green-400'}`}>
-                {data.bestLap}
-              </td>
-              <td className="table-cell text-right font-mono text-primary-400 font-semibold">
-                {data.totalPoints > 0 ? data.totalPoints : '—'}
-              </td>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="table-header">
+              <th className="table-cell text-center w-10">#</th>
+              <th className="table-cell text-left">Пілот</th>
+              <th className="table-cell text-right">Квала</th>
+              <th className="table-cell text-right">Гонки</th>
+              <th className="table-cell text-right font-bold">Всього</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {sorted.map((row) => (
+              <tr key={row.pilot} className="table-row">
+                <td className={`table-cell text-center font-mono font-bold ${
+                  row.pos === 1 ? 'position-1' : row.pos === 2 ? 'position-2' : row.pos === 3 ? 'position-3' : 'text-dark-400'
+                }`}>{row.pos}</td>
+                <td className="table-cell text-left">
+                  <Link to={`/pilots/${encodeURIComponent(row.pilot)}`} className="text-white hover:text-primary-400 font-medium transition-colors text-sm">
+                    {row.pilot}
+                  </Link>
+                </td>
+                <td className="table-cell text-right font-mono text-dark-300 text-sm">{row.qualiPts > 0 ? row.qualiPts.toFixed(1) : '—'}</td>
+                <td className="table-cell text-right font-mono text-dark-300 text-sm">{row.racePts > 0 ? row.racePts.toFixed(1) : '—'}</td>
+                <td className="table-cell text-right font-mono text-primary-400 font-bold text-sm">{row.totalPoints.toFixed(1)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

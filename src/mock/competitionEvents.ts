@@ -126,16 +126,113 @@ function generateGonzalesEvent(id: string, name: string, date: string, track: nu
   return { id, format: 'gonzales', name, date, trackConfigId: track, phases };
 }
 
-export const ALL_COMPETITION_EVENTS: CompetitionEvent[] = [
+export let ALL_COMPETITION_EVENTS: CompetitionEvent[] = [
   generateGonzalesEvent('gonz-1', 'Гонзалес Раунд 1', '2025-01-15', 1),
   generateGonzalesEvent('gonz-2', 'Гонзалес Раунд 2', '2025-02-12', 3),
   generateGonzalesEvent('gonz-3', 'Гонзалес Раунд 3', '2025-03-10', 1),
   generateLightLeagueEvent('ll-1', 'Лайт Ліга Етап 1', '2025-01-20', 1),
   generateLightLeagueEvent('ll-2', 'Лайт Ліга Етап 2', '2025-02-17', 5),
   generateLightLeagueEvent('ll-3', 'Лайт Ліга Етап 3', '2025-03-10', 1),
-  generateChampionsLeagueEvent('cl-1', 'Ліга Чемпіонів Етап 1', '2025-02-01', 3),
-  generateChampionsLeagueEvent('cl-2', 'Ліга Чемпіонів Етап 2', '2025-03-08', 1),
+  // CL 2026 (mock)
+  generateChampionsLeagueEvent('cl-2026-1', 'Ліга Чемпіонів 2026 Етап 1', '2026-02-01', 3),
+  generateChampionsLeagueEvent('cl-2026-2', 'Ліга Чемпіонів 2026 Етап 2', '2026-03-08', 1),
 ];
+
+/** Завантажити реальні дані Ліги Чемпіонів 2025 */
+export async function loadChampionsLeague2025(): Promise<void> {
+  try {
+    const resp = await fetch('/data/championsLeague2025.json');
+    if (!resp.ok) return;
+    const events: any[] = await resp.json();
+
+    const clEvents: CompetitionEvent[] = events.map((ev, idx) => {
+      const phases: CompetitionPhase[] = [];
+      const numGroups = ev.total_pilots > 13 ? 2 : 1;
+
+      // Qualifying phase
+      phases.push({
+        id: `cl25-${idx}-q`,
+        type: 'qualifying',
+        name: 'Квала',
+        results: ev.pilots.map((p: any) => ({
+          pilot: p.name,
+          kart: 0,
+          position: p.pos,
+          bestLap: '',
+          bestLapSec: 0,
+          laps: [],
+          points: p.quali_pts || 0,
+        })),
+      });
+
+      // Races 1-3
+      for (let r = 1; r <= 3; r++) {
+        if (numGroups === 2) {
+          for (let g = 2; g >= 1; g--) {
+            const groupPilots = ev.pilots.filter((p: any) => {
+              const gKey = r === 1 ? 'quali_group' : `r${r}_group`;
+              return p[gKey] === g;
+            });
+            phases.push({
+              id: `cl25-${idx}-r${r}g${g}`,
+              type: 'race',
+              name: `Гонка ${r}, Група ${g === 1 ? 'A' : 'B'}`,
+              results: groupPilots.map((p: any) => ({
+                pilot: p.name,
+                kart: 0,
+                position: p[`r${r}_finish`] || 0,
+                bestLap: '',
+                bestLapSec: 0,
+                laps: [],
+                startPosition: p[`r${r}_start`] || 0,
+                overtakes: Math.max(0, (p[`r${r}_start`] || 0) - (p[`r${r}_finish`] || 0)),
+                points: (p[`r${r}_pos_pts`] || 0) + (p[`r${r}_overtake_pts`] || 0) + (p[`r${r}_speed_pts`] || 0) + (p[`r${r}_penalty`] || 0),
+              })).sort((a: any, b: any) => a.position - b.position),
+            });
+          }
+        } else {
+          phases.push({
+            id: `cl25-${idx}-r${r}`,
+            type: 'race',
+            name: `Гонка ${r}`,
+            results: ev.pilots.map((p: any) => ({
+              pilot: p.name,
+              kart: 0,
+              position: p[`r${r}_finish`] || 0,
+              bestLap: '',
+              bestLapSec: 0,
+              laps: [],
+              startPosition: p[`r${r}_start`] || 0,
+              overtakes: Math.max(0, (p[`r${r}_start`] || 0) - (p[`r${r}_finish`] || 0)),
+              points: (p[`r${r}_pos_pts`] || 0) + (p[`r${r}_overtake_pts`] || 0) + (p[`r${r}_speed_pts`] || 0) + (p[`r${r}_penalty`] || 0),
+            })).sort((a: any, b: any) => a.position - b.position),
+          });
+        }
+      }
+
+      const dateStr = ev.date;
+      const dateFormatted = new Date(dateStr).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit' });
+
+      return {
+        id: `cl25-${idx}`,
+        format: 'champions_league' as CompetitionFormat,
+        name: `ЛЧ ${dateFormatted}`,
+        date: dateStr,
+        trackConfigId: 1,
+        phases,
+      };
+    });
+
+    // Add to global events
+    ALL_COMPETITION_EVENTS = [
+      ...ALL_COMPETITION_EVENTS.filter(e => e.format !== 'champions_league' || e.id.startsWith('cl-2026')),
+      ...clEvents,
+    ].sort((a, b) => a.date.localeCompare(b.date));
+
+  } catch (e) {
+    console.error('Failed to load CL 2025 data:', e);
+  }
+}
 
 export function getEventsByFormat(format: CompetitionFormat): CompetitionEvent[] {
   return ALL_COMPETITION_EVENTS.filter(e => e.format === format);
