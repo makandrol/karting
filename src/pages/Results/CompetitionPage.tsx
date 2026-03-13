@@ -83,7 +83,7 @@ function EventDetail({ event, type, selectedPhase }: { event: CompetitionEvent; 
   );
 }
 
-/** Загальні результати — формат: №, Пілот, Квала, per-race (позиція start→finish, бали total (pos+ovt), коло) */
+/** Загальні результати */
 function OverallResults({ event }: { event: CompetitionEvent }) {
   const races = event.phases.filter(p => p.type === 'race');
   const qualiPhase = event.phases.find(p => p.type === 'qualifying');
@@ -92,50 +92,59 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
   const raceRounds: { name: string; phases: CompetitionPhase[] }[] = [];
   for (const phase of races) {
     const m = phase.name.match(/Гонка (\d+)/);
-    const rName = m ? `Г${m[1]}` : phase.name;
+    const rName = m ? `Гонка ${m[1]}` : phase.name;
     let round = raceRounds.find(r => r.name === rName);
     if (!round) { round = { name: rName, phases: [] }; raceRounds.push(round); }
     round.phases.push(phase);
   }
 
+  interface RaceData {
+    group: number; start: number; finish: number;
+    totalPts: number; posPts: number; overtakePts: number; speedPts: number; penalty: number;
+  }
   interface PilotRow {
     pos: number; pilot: string; qualiPts: number;
-    raceData: { start: number; finish: number; posPts: number; overtakePts: number; totalPts: number; bestLap: string }[];
+    raceData: (RaceData | null)[];
     grandTotal: number;
   }
 
   const pilotMap = new Map<string, PilotRow>();
+  const emptyRaces = () => raceRounds.map(() => null as RaceData | null);
 
-  // Quali
   if (qualiPhase) {
     for (const r of qualiPhase.results) {
-      pilotMap.set(r.pilot, { pos: 0, pilot: r.pilot, qualiPts: Math.round((r.points || 0) * 10) / 10, raceData: [], grandTotal: 0 });
+      pilotMap.set(r.pilot, { pos: 0, pilot: r.pilot, qualiPts: Math.round((r.points || 0) * 10) / 10, raceData: emptyRaces(), grandTotal: 0 });
     }
   }
 
-  // Races
-  for (const round of raceRounds) {
+  raceRounds.forEach((round, ri) => {
     for (const phase of round.phases) {
+      const gMatch = phase.name.match(/Група (\d+)/);
+      const groupNum = gMatch ? parseInt(gMatch[1]) : 1;
       for (const r of phase.results) {
-        if (!pilotMap.has(r.pilot)) pilotMap.set(r.pilot, { pos: 0, pilot: r.pilot, qualiPts: 0, raceData: [], grandTotal: 0 });
+        if (!pilotMap.has(r.pilot)) pilotMap.set(r.pilot, { pos: 0, pilot: r.pilot, qualiPts: 0, raceData: emptyRaces(), grandTotal: 0 });
         const row = pilotMap.get(r.pilot)!;
-        row.raceData.push({
+        row.raceData[ri] = {
+          group: groupNum,
           start: r.startPosition || 0,
           finish: r.position,
+          totalPts: Math.round((r.points || 0) * 10) / 10,
           posPts: Math.round((r.positionPoints || 0) * 10) / 10,
           overtakePts: Math.round((r.overtakePoints || 0) * 10) / 10,
-          totalPts: Math.round((r.points || 0) * 10) / 10,
-          bestLap: r.bestLap || '',
-        });
+          speedPts: Math.round((r.speedPoints || 0) * 10) / 10,
+          penalty: Math.round((r.penalty || 0) * 10) / 10,
+        };
       }
     }
-  }
+  });
 
   for (const [, row] of pilotMap) {
-    row.grandTotal = Math.round((row.qualiPts + row.raceData.reduce((s, r) => s + r.totalPts, 0)) * 10) / 10;
+    row.grandTotal = Math.round((row.qualiPts + row.raceData.reduce((s, r) => s + (r?.totalPts || 0), 0)) * 10) / 10;
   }
   const sorted = [...pilotMap.values()].sort((a, b) => b.grandTotal - a.grandTotal);
   sorted.forEach((r, i) => r.pos = i + 1);
+
+  const hasGroups = sorted.some(r => r.raceData.some(rd => rd && rd.group > 1));
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -143,28 +152,28 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
         <h3 className="text-white font-semibold">Результати ({sorted.length} пілотів)</h3>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+        <table className="w-full text-[11px]">
           <thead>
             <tr className="table-header">
-              <th className="table-cell text-center w-8">#</th>
-              <th className="table-cell text-left">Пілот</th>
-              <th className="table-cell text-center border-l border-dark-700">Квала</th>
+              <th className="table-cell text-center" rowSpan={2}>#</th>
+              <th className="table-cell text-left" rowSpan={2}>Пілот</th>
+              <th className="table-cell text-center border-l border-dark-700" rowSpan={2}>Квала</th>
               {raceRounds.map((round, ri) => (
-                <th key={ri} className="table-cell text-center border-l border-dark-700" colSpan={2}>
-                  {round.name}
-                </th>
+                <th key={ri} className="table-cell text-center border-l border-dark-700"
+                    colSpan={hasGroups ? 7 : 6}>{round.name}</th>
               ))}
-              <th className="table-cell text-center border-l border-dark-700 font-bold">∑</th>
+              <th className="table-cell text-center border-l border-dark-700 font-bold" rowSpan={2}>∑</th>
             </tr>
-            <tr className="table-header">
-              <th className="table-cell"></th>
-              <th className="table-cell"></th>
-              <th className="table-cell text-center text-[9px] border-l border-dark-700">бали</th>
+            <tr className="table-header text-[9px]">
               {raceRounds.map((_, ri) => (
-                <><th key={`p${ri}`} className="table-cell text-center text-[9px] border-l border-dark-700">позиція</th>
-                <th key={`b${ri}`} className="table-cell text-center text-[9px]">бали</th></>
+                <>{hasGroups && <th key={`g${ri}`} className="table-cell text-center border-l border-dark-700">гр</th>}
+                <th key={`s${ri}`} className={`table-cell text-center ${!hasGroups ? 'border-l border-dark-700' : ''}`}>ст</th>
+                <th key={`f${ri}`} className="table-cell text-center">фін</th>
+                <th key={`t${ri}`} className="table-cell text-center font-bold">бал</th>
+                <th key={`p${ri}`} className="table-cell text-center">поз</th>
+                <th key={`o${ri}`} className="table-cell text-center">обг</th>
+                <th key={`c${ri}`} className="table-cell text-center">час</th></>
               ))}
-              <th className="table-cell border-l border-dark-700"></th>
             </tr>
           </thead>
           <tbody>
@@ -179,19 +188,24 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
                 <td className="table-cell text-center font-mono text-dark-300 border-l border-dark-800/50">
                   {row.qualiPts > 0 ? pts(row.qualiPts) : '—'}
                 </td>
-                {Array.from({ length: raceRounds.length }, (_, ri) => {
-                  const rd = row.raceData[ri];
+                {row.raceData.map((rd, ri) => {
                   if (!rd) return (
-                    <><td key={`p${ri}`} className="table-cell text-center text-dark-600 border-l border-dark-800/50">—</td>
-                    <td key={`b${ri}`} className="table-cell text-center text-dark-600">—</td></>
+                    <>{hasGroups && <td key={`g${ri}`} className="table-cell text-center text-dark-700 border-l border-dark-800/50">—</td>}
+                    <td key={`s${ri}`} className={`table-cell text-center text-dark-700 ${!hasGroups ? 'border-l border-dark-800/50' : ''}`}>—</td>
+                    <td key={`f${ri}`} className="table-cell text-center text-dark-700">—</td>
+                    <td key={`t${ri}`} className="table-cell text-center text-dark-700">—</td>
+                    <td key={`p${ri}`} className="table-cell text-center text-dark-700">—</td>
+                    <td key={`o${ri}`} className="table-cell text-center text-dark-700">—</td>
+                    <td key={`c${ri}`} className="table-cell text-center text-dark-700">—</td></>
                   );
-                  const posStr = `${rd.start}→${rd.finish}`;
-                  const baliStr = rd.totalPts > 0
-                    ? `${pts(rd.totalPts)}${rd.posPts || rd.overtakePts ? ` (${pts(rd.posPts)}+${pts(rd.overtakePts)})` : ''}`
-                    : '—';
                   return (
-                    <><td key={`p${ri}`} className="table-cell text-center font-mono text-dark-300 border-l border-dark-800/50">{posStr}</td>
-                    <td key={`b${ri}`} className="table-cell text-center font-mono text-dark-200">{baliStr}</td></>
+                    <>{hasGroups && <td key={`g${ri}`} className="table-cell text-center font-mono text-dark-500 border-l border-dark-800/50">{rd.group}</td>}
+                    <td key={`s${ri}`} className={`table-cell text-center font-mono text-dark-400 ${!hasGroups ? 'border-l border-dark-800/50' : ''}`}>{rd.start}</td>
+                    <td key={`f${ri}`} className="table-cell text-center font-mono text-dark-200 font-semibold">{rd.finish}</td>
+                    <td key={`t${ri}`} className="table-cell text-center font-mono text-primary-400 font-bold">{pts(rd.totalPts)}</td>
+                    <td key={`p${ri}`} className="table-cell text-center font-mono text-dark-300">{rd.posPts > 0 ? pts(rd.posPts) : '—'}</td>
+                    <td key={`o${ri}`} className="table-cell text-center font-mono text-dark-400">{rd.overtakePts > 0 ? pts(rd.overtakePts) : '—'}</td>
+                    <td key={`c${ri}`} className="table-cell text-center font-mono text-dark-400">{rd.speedPts > 0 ? pts(rd.speedPts) : '—'}{rd.penalty ? ` ${pts(rd.penalty)}` : ''}</td></>
                   );
                 })}
                 <td className="table-cell text-center font-mono text-primary-400 font-bold border-l border-dark-800/50">{pts(row.grandTotal)}</td>
