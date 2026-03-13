@@ -24,13 +24,21 @@ export interface CompetitionPhase {
 export interface PhaseResult {
   pilot: string;
   kart: number;
-  position: number;       // фінішна позиція
+  position: number;
   bestLap: string;
   bestLapSec: number;
   laps: PhaseLap[];
   startPosition?: number;
   overtakes?: number;
-  points?: number;
+  points: number;
+  /** Бали за позицію */
+  positionPoints?: number;
+  /** Бали за обгони */
+  overtakePoints?: number;
+  /** Бали за швидкість */
+  speedPoints?: number;
+  /** Штрафи */
+  penalty?: number;
 }
 
 export interface PhaseLap {
@@ -137,6 +145,27 @@ export let ALL_COMPETITION_EVENTS: CompetitionEvent[] = [
   generateChampionsLeagueEvent('cl-2026-2', 'Ліга Чемпіонів 2026 Етап 2', '2026-03-08', 1),
 ];
 
+/** Helper: build race result from raw xlsx pilot data */
+function buildRaceResult(p: any, r: number, startField: string, finishField: string): PhaseResult {
+  const posPts = Math.round((p[`r${r}_pos_pts`] || 0) * 10) / 10;
+  const overtakePts = Math.round((p[`r${r}_overtake_pts`] || 0) * 10) / 10;
+  const speedPts = Math.round((p[`r${r}_speed_pts`] || 0) * 10) / 10;
+  const penalty = Math.round((p[`r${r}_penalty`] || 0) * 10) / 10;
+  const total = Math.round((posPts + overtakePts + speedPts + penalty) * 10) / 10;
+  return {
+    pilot: p.name, kart: 0,
+    position: p[finishField] || 0,
+    bestLap: '', bestLapSec: 0, laps: [],
+    startPosition: p[startField] || 0,
+    overtakes: Math.max(0, (p[startField] || 0) - (p[finishField] || 0)),
+    points: total,
+    positionPoints: posPts,
+    overtakePoints: overtakePts,
+    speedPoints: speedPts,
+    penalty: penalty,
+  };
+}
+
 /** Завантажити реальні дані Лайт Ліги 2025 */
 export async function loadLightLeague2025(): Promise<void> {
   try {
@@ -173,14 +202,8 @@ export async function loadLightLeague2025(): Promise<void> {
               id: `ll25-${idx}-r${r}g${g}`,
               type: 'race',
               name: `Гонка ${r}, Група ${g}`,
-              results: groupPilots.map((p: any) => ({
-                pilot: p.name, kart: 0,
-                position: p[finishField] || 0,
-                bestLap: '', bestLapSec: 0, laps: [],
-                startPosition: p[startField] || 0,
-                overtakes: Math.max(0, (p[startField] || 0) - (p[finishField] || 0)),
-                points: Math.round(((p[`r${r}_pos_pts`] || 0) + (p[`r${r}_overtake_pts`] || 0) + (p[`r${r}_speed_pts`] || 0) + (p[`r${r}_penalty`] || 0)) * 10) / 10,
-              })).sort((a: any, b: any) => a.position - b.position),
+              results: groupPilots.map((p: any) => buildRaceResult(p, r, startField, finishField))
+                .sort((a: PhaseResult, b: PhaseResult) => a.position - b.position),
             });
           }
         } else {
@@ -188,14 +211,8 @@ export async function loadLightLeague2025(): Promise<void> {
             id: `ll25-${idx}-r${r}`,
             type: 'race',
             name: `Гонка ${r}`,
-            results: ev.pilots.map((p: any) => ({
-              pilot: p.name, kart: 0,
-              position: p[finishField] || 0,
-              bestLap: '', bestLapSec: 0, laps: [],
-              startPosition: p[startField] || 0,
-              overtakes: Math.max(0, (p[startField] || 0) - (p[finishField] || 0)),
-              points: Math.round(((p[`r${r}_pos_pts`] || 0) + (p[`r${r}_overtake_pts`] || 0) + (p[`r${r}_speed_pts`] || 0) + (p[`r${r}_penalty`] || 0)) * 10) / 10,
-            })).sort((a: any, b: any) => a.position - b.position),
+            results: ev.pilots.map((p: any) => buildRaceResult(p, r, startField, finishField))
+              .sort((a: PhaseResult, b: PhaseResult) => a.position - b.position),
           });
         }
       }
@@ -257,17 +274,8 @@ export async function loadChampionsLeague2025(): Promise<void> {
               id: `cl25-${idx}-r${r}g${g}`,
               type: 'race',
               name: `Гонка ${r}, Група ${g}`,
-              results: groupPilots.map((p: any) => ({
-                pilot: p.name,
-                kart: 0,
-                position: p[`r${r}_finish`] || 0,
-                bestLap: '',
-                bestLapSec: 0,
-                laps: [],
-                startPosition: p[`r${r}_start`] || 0,
-                overtakes: Math.max(0, (p[`r${r}_start`] || 0) - (p[`r${r}_finish`] || 0)),
-                points: Math.round(((p[`r${r}_pos_pts`] || 0) + (p[`r${r}_overtake_pts`] || 0) + (p[`r${r}_speed_pts`] || 0) + (p[`r${r}_penalty`] || 0)) * 10) / 10,
-              })).sort((a: any, b: any) => a.position - b.position),
+              results: groupPilots.map((p: any) => buildRaceResult(p, r, `r${r}_start`, `r${r}_finish`))
+                .sort((a: PhaseResult, b: PhaseResult) => a.position - b.position),
             });
           }
         } else {
@@ -275,17 +283,8 @@ export async function loadChampionsLeague2025(): Promise<void> {
             id: `cl25-${idx}-r${r}`,
             type: 'race',
             name: `Гонка ${r}`,
-            results: ev.pilots.map((p: any) => ({
-              pilot: p.name,
-              kart: 0,
-              position: p[`r${r}_finish`] || 0,
-              bestLap: '',
-              bestLapSec: 0,
-              laps: [],
-              startPosition: p[`r${r}_start`] || 0,
-              overtakes: Math.max(0, (p[`r${r}_start`] || 0) - (p[`r${r}_finish`] || 0)),
-              points: (p[`r${r}_pos_pts`] || 0) + (p[`r${r}_overtake_pts`] || 0) + (p[`r${r}_speed_pts`] || 0) + (p[`r${r}_penalty`] || 0),
-            })).sort((a: any, b: any) => a.position - b.position),
+            results: ev.pilots.map((p: any) => buildRaceResult(p, r, `r${r}_start`, `r${r}_finish`))
+              .sort((a: PhaseResult, b: PhaseResult) => a.position - b.position),
           });
         }
       }

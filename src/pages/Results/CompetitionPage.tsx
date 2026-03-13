@@ -83,15 +83,24 @@ function EventDetail({ event, type, selectedPhase }: { event: CompetitionEvent; 
   );
 }
 
-/** Загальні результати — формат як в xlsx */
+/** Загальні результати — формат: №, Пілот, Квала, per-race (позиція start→finish, бали total (pos+ovt), коло) */
 function OverallResults({ event }: { event: CompetitionEvent }) {
   const races = event.phases.filter(p => p.type === 'race');
   const qualiPhase = event.phases.find(p => p.type === 'qualifying');
 
-  // Build pilot rows like the spreadsheet
+  // Group races into rounds
+  const raceRounds: { name: string; phases: CompetitionPhase[] }[] = [];
+  for (const phase of races) {
+    const m = phase.name.match(/Гонка (\d+)/);
+    const rName = m ? `Г${m[1]}` : phase.name;
+    let round = raceRounds.find(r => r.name === rName);
+    if (!round) { round = { name: rName, phases: [] }; raceRounds.push(round); }
+    round.phases.push(phase);
+  }
+
   interface PilotRow {
     pos: number; pilot: string; qualiPts: number;
-    races: { group: string; start: number; finish: number; posPts: number; overtakePts: number; speedPts: number; penalty: number; total: number }[];
+    raceData: { start: number; finish: number; posPts: number; overtakePts: number; totalPts: number; bestLap: string }[];
     grandTotal: number;
   }
 
@@ -100,49 +109,33 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
   // Quali
   if (qualiPhase) {
     for (const r of qualiPhase.results) {
-      pilotMap.set(r.pilot, { pos: 0, pilot: r.pilot, qualiPts: Math.round((r.points || 0) * 10) / 10, races: [], grandTotal: 0 });
+      pilotMap.set(r.pilot, { pos: 0, pilot: r.pilot, qualiPts: Math.round((r.points || 0) * 10) / 10, raceData: [], grandTotal: 0 });
     }
   }
 
-  // Races — group consecutive races into race rounds
-  // e.g. "Гонка 1, Група B" + "Гонка 1, Група A" = Race 1
-  const raceRounds: { name: string; phases: CompetitionPhase[] }[] = [];
-  for (const phase of races) {
-    const roundMatch = phase.name.match(/Гонка (\d+)/);
-    const roundNum = roundMatch ? roundMatch[1] : phase.name;
-    let round = raceRounds.find(r => r.name === `Гонка ${roundNum}`);
-    if (!round) { round = { name: `Гонка ${roundNum}`, phases: [] }; raceRounds.push(round); }
-    round.phases.push(phase);
-  }
-
+  // Races
   for (const round of raceRounds) {
     for (const phase of round.phases) {
-      const groupMatch = phase.name.match(/Група (\w)/);
-      const groupName = groupMatch ? groupMatch[1] : '';
       for (const r of phase.results) {
-        if (!pilotMap.has(r.pilot)) {
-          pilotMap.set(r.pilot, { pos: 0, pilot: r.pilot, qualiPts: 0, races: [], grandTotal: 0 });
-        }
+        if (!pilotMap.has(r.pilot)) pilotMap.set(r.pilot, { pos: 0, pilot: r.pilot, qualiPts: 0, raceData: [], grandTotal: 0 });
         const row = pilotMap.get(r.pilot)!;
-        row.races.push({
-          group: groupName,
+        row.raceData.push({
           start: r.startPosition || 0,
           finish: r.position,
-          posPts: 0, overtakePts: 0, speedPts: 0, penalty: 0,
-          total: Math.round((r.points || 0) * 10) / 10,
+          posPts: Math.round((r.positionPoints || 0) * 10) / 10,
+          overtakePts: Math.round((r.overtakePoints || 0) * 10) / 10,
+          totalPts: Math.round((r.points || 0) * 10) / 10,
+          bestLap: r.bestLap || '',
         });
       }
     }
   }
 
-  // Calculate totals
   for (const [, row] of pilotMap) {
-    row.grandTotal = Math.round((row.qualiPts + row.races.reduce((s, r) => s + r.total, 0)) * 10) / 10;
+    row.grandTotal = Math.round((row.qualiPts + row.raceData.reduce((s, r) => s + r.totalPts, 0)) * 10) / 10;
   }
-
   const sorted = [...pilotMap.values()].sort((a, b) => b.grandTotal - a.grandTotal);
   sorted.forEach((r, i) => r.pos = i + 1);
-  const numRaces = Math.max(...sorted.map(r => r.races.length), 0);
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -153,24 +146,25 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
         <table className="w-full text-xs">
           <thead>
             <tr className="table-header">
-              <th className="table-cell text-center" rowSpan={2}>#</th>
-              <th className="table-cell text-left" rowSpan={2}>Пілот</th>
+              <th className="table-cell text-center w-8">#</th>
+              <th className="table-cell text-left">Пілот</th>
+              <th className="table-cell text-center border-l border-dark-700">Квала</th>
               {raceRounds.map((round, ri) => (
-                <th key={ri} className="table-cell text-center border-l border-dark-700" colSpan={2}>{round.name}</th>
+                <th key={ri} className="table-cell text-center border-l border-dark-700" colSpan={2}>
+                  {round.name}
+                </th>
               ))}
-              <th className="table-cell text-center border-l border-dark-700" rowSpan={2}>Квала</th>
-              {raceRounds.map((_, ri) => (
-                <th key={ri} className="table-cell text-center border-l border-dark-700" colSpan={2}>Очки Г{ri + 1}</th>
-              ))}
-              <th className="table-cell text-center border-l border-dark-700 font-bold" rowSpan={2}>∑</th>
+              <th className="table-cell text-center border-l border-dark-700 font-bold">∑</th>
             </tr>
             <tr className="table-header">
+              <th className="table-cell"></th>
+              <th className="table-cell"></th>
+              <th className="table-cell text-center text-[9px] border-l border-dark-700">бали</th>
               {raceRounds.map((_, ri) => (
-                <><th key={`s${ri}`} className="table-cell text-center text-[10px]">Ст</th><th key={`f${ri}`} className="table-cell text-center text-[10px]">Фін</th></>
+                <><th key={`p${ri}`} className="table-cell text-center text-[9px] border-l border-dark-700">позиція</th>
+                <th key={`b${ri}`} className="table-cell text-center text-[9px]">бали</th></>
               ))}
-              {raceRounds.map((_, ri) => (
-                <><th key={`b${ri}`} className="table-cell text-center text-[10px]">Бал</th><th key={`o${ri}`} className="table-cell text-center text-[10px]">Обг</th></>
-              ))}
+              <th className="table-cell border-l border-dark-700"></th>
             </tr>
           </thead>
           <tbody>
@@ -182,26 +176,24 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
                     {row.pilot}
                   </Link>
                 </td>
-                {/* Start/Finish per race */}
+                <td className="table-cell text-center font-mono text-dark-300 border-l border-dark-800/50">
+                  {row.qualiPts > 0 ? pts(row.qualiPts) : '—'}
+                </td>
                 {Array.from({ length: raceRounds.length }, (_, ri) => {
-                  const race = row.races[ri];
+                  const rd = row.raceData[ri];
+                  if (!rd) return (
+                    <><td key={`p${ri}`} className="table-cell text-center text-dark-600 border-l border-dark-800/50">—</td>
+                    <td key={`b${ri}`} className="table-cell text-center text-dark-600">—</td></>
+                  );
+                  const posStr = `${rd.start}→${rd.finish}`;
+                  const baliStr = rd.totalPts > 0
+                    ? `${pts(rd.totalPts)}${rd.posPts || rd.overtakePts ? ` (${pts(rd.posPts)}+${pts(rd.overtakePts)})` : ''}`
+                    : '—';
                   return (
-                    <><td key={`s${ri}`} className="table-cell text-center font-mono text-dark-400 border-l border-dark-800/50">{race?.start || '—'}</td>
-                    <td key={`f${ri}`} className="table-cell text-center font-mono text-dark-200">{race?.finish || '—'}</td></>
+                    <><td key={`p${ri}`} className="table-cell text-center font-mono text-dark-300 border-l border-dark-800/50">{posStr}</td>
+                    <td key={`b${ri}`} className="table-cell text-center font-mono text-dark-200">{baliStr}</td></>
                   );
                 })}
-                {/* Quali */}
-                <td className="table-cell text-center font-mono text-dark-300 border-l border-dark-800/50">{pts(row.qualiPts)}</td>
-                {/* Points per race */}
-                {Array.from({ length: raceRounds.length }, (_, ri) => {
-                  const race = row.races[ri];
-                  const overtakes = race ? Math.max(0, race.start - race.finish) : 0;
-                  return (
-                    <><td key={`b${ri}`} className="table-cell text-center font-mono text-dark-200 border-l border-dark-800/50">{race ? pts(race.total) : '—'}</td>
-                    <td key={`o${ri}`} className="table-cell text-center font-mono text-dark-500">{overtakes > 0 ? `+${overtakes}` : '—'}</td></>
-                  );
-                })}
-                {/* Total */}
                 <td className="table-cell text-center font-mono text-primary-400 font-bold border-l border-dark-800/50">{pts(row.grandTotal)}</td>
               </tr>
             ))}
