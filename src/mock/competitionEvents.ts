@@ -186,7 +186,7 @@ export async function loadChampionsLeague2025(): Promise<void> {
                 laps: [],
                 startPosition: p[`r${r}_start`] || 0,
                 overtakes: Math.max(0, (p[`r${r}_start`] || 0) - (p[`r${r}_finish`] || 0)),
-                points: (p[`r${r}_pos_pts`] || 0) + (p[`r${r}_overtake_pts`] || 0) + (p[`r${r}_speed_pts`] || 0) + (p[`r${r}_penalty`] || 0),
+                points: Math.round(((p[`r${r}_pos_pts`] || 0) + (p[`r${r}_overtake_pts`] || 0) + (p[`r${r}_speed_pts`] || 0) + (p[`r${r}_penalty`] || 0)) * 10) / 10,
               })).sort((a: any, b: any) => a.position - b.position),
             });
           }
