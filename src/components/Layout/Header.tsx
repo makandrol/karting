@@ -126,6 +126,14 @@ export default function Header() {
                           🔧 Модератори
                         </Link>
                       )}
+                      {isOwner && (
+                        <Link
+                          to="/admin/db"
+                          className="block px-4 py-2.5 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
+                        >
+                          💾 База даних
+                        </Link>
+                      )}
                       <button
                         onClick={logout}
                         className="block w-full text-left px-4 py-2.5 text-sm text-dark-300 hover:text-red-400 hover:bg-dark-800 transition-colors"

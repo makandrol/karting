@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth, ALL_PERMISSIONS, type ModeratorPermission } from '../../services/auth';
-import { Navigate } from 'react-router-dom';
+import { Navigate, Link } from 'react-router-dom';
 
 export default function AdminPanel() {
   const { isOwner, moderators, addModerator, removeModerator, updateModerator } = useAuth();
@@ -34,8 +34,8 @@ export default function AdminPanel() {
       <div>
         <h1 className="text-2xl font-bold text-white mb-1">👑 Управління модераторами</h1>
         <p className="text-dark-400 text-sm">
-          Додайте Google email модераторів. Коли вони увійдуть через Google — їм автоматично
-          присвоїться роль модератора з вибраними дозволами.
+          Додайте Google email модераторів.
+          <Link to="/admin/db" className="text-primary-400 hover:underline ml-2">💾 База даних →</Link>
         </p>
       </div>
 

@@ -12,6 +12,7 @@ import KartDetail from './pages/Info/KartDetail';
 import Videos from './pages/Info/Videos';
 import Login from './pages/Auth/Login';
 import AdminPanel from './pages/Auth/AdminPanel';
+import DatabaseStats from './pages/Auth/DatabaseStats';
 import SessionsList from './pages/Sessions/SessionsList';
 import SessionDetail from './pages/Sessions/SessionDetail';
 import PilotProfile from './pages/Pilots/PilotProfile';
@@ -43,6 +44,7 @@ export default function App() {
               {/* Auth */}
               <Route path="/login" element={<Login />} />
               <Route path="/admin" element={<AdminPanel />} />
+              <Route path="/admin/db" element={<DatabaseStats />} />
 
               {/* Sessions */}
               <Route path="/sessions" element={<SessionsList />} />
