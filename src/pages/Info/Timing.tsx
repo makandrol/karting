@@ -1,5 +1,6 @@
 import { TimingBoard } from '../../components/Timing';
 import { TrackMap } from '../../components/Track';
+import DayTimeline from '../../components/Timing/DayTimeline';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
@@ -101,6 +102,19 @@ export default function Timing() {
           )}
         </div>
       </div>
+
+      {/* Day timeline */}
+      <DayTimeline
+        sessions={todaySessions.map(s => ({
+          id: s.id,
+          number: s.number,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          type: s.type,
+          competitionName: s.competitionName,
+        }))}
+        isTimingOnline={isLive}
+      />
 
       {/* Offline / Connecting state */}
       {(isOffline || isConnecting) && !hasData && (
