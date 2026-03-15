@@ -13,6 +13,7 @@ import Videos from './pages/Info/Videos';
 import Login from './pages/Auth/Login';
 import AdminPanel from './pages/Auth/AdminPanel';
 import DatabaseStats from './pages/Auth/DatabaseStats';
+import Changelog from './pages/Changelog';
 import SessionsList from './pages/Sessions/SessionsList';
 import SessionDetail from './pages/Sessions/SessionDetail';
 import PilotProfile from './pages/Pilots/PilotProfile';
@@ -52,6 +53,9 @@ export default function App() {
 
               {/* Pilots */}
               <Route path="/pilots/:pilotName" element={<PilotProfile />} />
+
+              {/* Changelog */}
+              <Route path="/changelog" element={<Changelog />} />
 
               {/* 404 */}
               <Route path="*" element={<NotFound />} />

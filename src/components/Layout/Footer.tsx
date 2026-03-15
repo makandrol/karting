@@ -1,3 +1,6 @@
+import { Link } from 'react-router-dom';
+import { APP_VERSION } from '../../data/changelog';
+
 export default function Footer() {
   return (
     <footer className="bg-dark-900/50 border-t border-dark-800 mt-auto">
@@ -22,6 +25,9 @@ export default function Footer() {
             >
               Таймінг
             </a>
+            <Link to="/changelog" className="hover:text-dark-300 transition-colors font-mono text-xs">
+              v{APP_VERSION}
+            </Link>
             <span>© {new Date().getFullYear()}</span>
           </div>
         </div>
