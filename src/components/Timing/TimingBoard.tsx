@@ -268,7 +268,7 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
         </div>
       )}
 
-      {entries.length === 0 && mode === 'idle' && (
+      {entries.length === 0 && (mode === 'idle' || mode === 'connecting') && (
         <div className="px-4 py-12 text-center text-dark-500">Таймінг не активний</div>
       )}
       {entries.length === 0 && mode !== 'idle' && (

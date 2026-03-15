@@ -3,7 +3,7 @@ import { useTimingPoller } from '../../services/timingPoller';
 import { Link } from 'react-router-dom';
 
 export default function CurrentRace() {
-  const { entries, mode, lastUpdate, error, connectLive, startDemo, stop } = useTimingPoller({
+  const { entries, mode, lastUpdate, error, startDemo, stop } = useTimingPoller({
     interval: 2000,
   });
 
@@ -28,13 +28,6 @@ export default function CurrentRace() {
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-4">
-            <button
-              onClick={connectLive}
-              className="bg-primary-600 hover:bg-primary-500 text-white px-6 py-3 rounded-xl font-semibold transition-colors flex items-center gap-2"
-            >
-              <span className="w-2.5 h-2.5 bg-green-400 rounded-full animate-pulse" />
-              Підключити Live
-            </button>
             <button
               onClick={startDemo}
               className="bg-dark-800 hover:bg-dark-700 text-white px-6 py-3 rounded-xl font-semibold transition-colors border border-dark-700"
