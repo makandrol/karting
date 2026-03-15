@@ -25,7 +25,8 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route element={<Layout />}>
-              <Route path="/" element={<HomePage />} />
+              <Route path="/" element={<Timing />} />
+              <Route path="/home" element={<HomePage />} />
 
               {/* Results */}
               <Route path="/results" element={<Navigate to="/results/current" replace />} />
