@@ -294,8 +294,8 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
           <thead>
             <tr className="table-header">
               <th className="table-cell text-center w-8">#</th>
-              <th className="table-cell text-left">Пілот</th>
-              <th className="table-cell text-center">Карт</th>
+              <th className="table-cell text-left">Pilot</th>
+              <th className="table-cell text-center">Kart</th>
               <th className="table-cell text-right">Час</th>
               <th className="table-cell text-right">S1</th>
               <th className="table-cell text-right">S2</th>
