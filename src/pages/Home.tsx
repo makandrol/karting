@@ -7,7 +7,7 @@ export default function HomePage() {
       <section className="text-center py-12 sm:py-20">
         <div className="inline-flex items-center gap-2 bg-primary-500/10 text-primary-400 px-4 py-1.5 rounded-full text-sm font-medium mb-6">
           <span className="w-2 h-2 bg-primary-400 rounded-full animate-pulse" />
-          Картодром "Жага швидкості"
+          Картодром
         </div>
         <h1 className="text-4xl sm:text-6xl font-black text-white mb-4 leading-tight">
           Результати та<br />

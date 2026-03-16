@@ -14,7 +14,7 @@ export default function Tracks() {
       <div>
         <h1 className="text-2xl font-bold text-white mb-1">🏁 Конфігурації трас</h1>
         <p className="text-dark-400 text-sm">
-          Картодром "Жага швидкості" має 11 різних конфігурацій траси.
+          Картодром має 11 різних конфігурацій траси.
           {canChangeTrack && ' Ви можете змінити поточну конфігурацію.'}
         </p>
       </div>

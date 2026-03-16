@@ -119,7 +119,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: 'Початковий реліз',
     changes: [
       'Ініціалізація проєкту',
-      'Дизайн сайту "Жага швидкості"',
+      'Дизайн сайту',
       'Темна тема, responsive UI',
     ],
   },

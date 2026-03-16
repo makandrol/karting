@@ -11,7 +11,7 @@ export default function Footer() {
               Ж
             </div>
             <div>
-              <div className="text-dark-300 text-sm font-medium">Жага швидкості</div>
+              <div className="text-dark-300 text-sm font-medium">Картинг</div>
               <div className="text-dark-500 text-xs">Картодром • Київ</div>
             </div>
           </div>

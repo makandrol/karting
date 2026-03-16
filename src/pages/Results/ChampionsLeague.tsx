@@ -11,7 +11,7 @@ export default function ChampionsLeague() {
       <div>
         <h1 className="text-2xl font-bold text-white mb-1">👑 {data.name}</h1>
         <p className="text-dark-400 text-sm">
-          Найпрестижніші змагання картодрому "Жага швидкості". Тільки найкращі пілоти.
+          Найпрестижніші змагання картодрому. Тільки найкращі пілоти.
         </p>
       </div>
 

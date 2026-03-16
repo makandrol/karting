@@ -11,7 +11,7 @@ export default function Gonzales() {
       <div>
         <h1 className="text-2xl font-bold text-white mb-1">🏆 {data.name}</h1>
         <p className="text-dark-400 text-sm">
-          Регулярні змагання для досвідчених пілотів картодрому "Жага швидкості".
+          Регулярні змагання для досвідчених пілотів картодрому.
         </p>
       </div>
 

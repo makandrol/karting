@@ -47,7 +47,7 @@ export default function Header() {
               Ж
             </div>
             <div className="hidden sm:block">
-              <div className="text-white font-bold text-sm leading-tight">Жага швидкості</div>
+              <div className="text-white font-bold text-sm leading-tight">Картинг</div>
               <div className="text-dark-400 text-xs leading-tight">Картинг</div>
             </div>
           </Link>
