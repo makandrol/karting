@@ -125,6 +125,27 @@ export default function Karts() {
     return stats;
   }, [statSessions]);
 
+  // Top-N parameter for ranking
+  const [topN, setTopN] = useState(1);
+  const [topNInput, setTopNInput] = useState('1');
+  const [topNPrev, setTopNPrev] = useState('1');
+
+  // Compute ranking: average of top-N laps per kart
+  const kartRanking = useMemo(() => {
+    const ranked = kartStats
+      .filter(k => !disabledKarts.has(k.number) && k.top5.length > 0)
+      .map(k => {
+        const topLaps = k.top5.slice(0, topN);
+        const avg = topLaps.length > 0 ? topLaps.reduce((s, l) => s + l.bestLapSec, 0) / topLaps.length : Infinity;
+        return { number: k.number, avg };
+      })
+      .sort((a, b) => a.avg - b.avg);
+
+    const map = new Map<number, number>();
+    ranked.forEach((k, i) => map.set(k.number, i + 1));
+    return map;
+  }, [kartStats, disabledKarts, topN]);
+
   const activeKarts = kartStats.filter(k => !disabledKarts.has(k.number));
   const inactiveKarts = kartStats.filter(k => disabledKarts.has(k.number));
 
@@ -249,7 +270,20 @@ export default function Karts() {
             Карти ({activeKarts.length} активних{inactiveKarts.length > 0 ? `, ${inactiveKarts.length} прихованих` : ''})
           </div>
           <div className="flex items-center gap-2">
-            {/* View toggle */}
+            {/* Top-N selector */}
+            <label className="text-dark-400 text-[10px] flex items-center gap-1">
+              топ-
+              <input type="text" inputMode="numeric" value={topNInput}
+                onChange={e => setTopNInput(e.target.value.replace(/\D/g, ''))}
+                onFocus={() => setTopNPrev(topNInput)}
+                onBlur={() => {
+                  const v = parseInt(topNInput);
+                  if (!v || v < 1) { setTopNInput(topNPrev); return; }
+                  setTopN(v);
+                }}
+                className="w-8 bg-dark-800 border border-dark-700 text-white rounded px-1 py-0.5 outline-none focus:border-primary-500 text-[10px] text-center" />
+            </label>
+            <span className="text-dark-700">|</span>
             <div className="flex bg-dark-800 rounded-md p-0.5 mr-2">
               <button onClick={() => setViewMode('list')}
                 className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'list' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
@@ -274,7 +308,7 @@ export default function Karts() {
           <>
             <div className="space-y-0.5">
               {activeKarts.map((kart) => (
-                <KartRow key={kart.number} kart={kart}
+                <KartRow key={kart.number} kart={kart} rank={kartRanking.get(kart.number)}
                   onDisable={() => toggleKartDisabled(kart.number)} disabled={false} />
               ))}
             </div>
@@ -282,7 +316,7 @@ export default function Karts() {
               <div className="mt-3 space-y-0.5 opacity-50">
                 <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-1">Неактивні</div>
                 {inactiveKarts.map((kart) => (
-                  <KartRow key={kart.number} kart={kart}
+                  <KartRow key={kart.number} kart={kart} rank={undefined}
                     onDisable={() => toggleKartDisabled(kart.number)} disabled />
                 ))}
               </div>
@@ -292,7 +326,7 @@ export default function Karts() {
           <>
             <div className="grid grid-cols-5 gap-2">
               {activeKarts.map((kart) => (
-                <KartCard key={kart.number} kart={kart} disabled={false}
+                <KartCard key={kart.number} kart={kart} disabled={false} rank={kartRanking.get(kart.number)}
                   onDisable={() => toggleKartDisabled(kart.number)} />
               ))}
             </div>
@@ -301,7 +335,7 @@ export default function Karts() {
                 <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-2">Неактивні</div>
                 <div className="grid grid-cols-5 gap-2">
                   {inactiveKarts.map((kart) => (
-                    <KartCard key={kart.number} kart={kart} disabled
+                    <KartCard key={kart.number} kart={kart} disabled rank={undefined}
                       onDisable={() => toggleKartDisabled(kart.number)} />
                   ))}
                 </div>
@@ -314,26 +348,23 @@ export default function Karts() {
   );
 }
 
-function KartRow({ kart, onDisable, disabled }: {
+function KartRow({ kart, onDisable, disabled, rank }: {
   kart: { number: number; top5: { pilot: string; bestLap: string; bestLapSec: number }[] };
-  onDisable: () => void; disabled: boolean;
+  onDisable: () => void; disabled: boolean; rank?: number;
 }) {
   const top3 = kart.top5.slice(0, 3);
   return (
     <div className="flex items-start group">
       <Link to={`/info/karts/${kart.number}`}
-        className={`flex-1 flex items-start gap-4 px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors`}>
-        <span className={`font-mono font-bold text-sm w-8 shrink-0 pt-0.5 ${disabled ? 'text-dark-600' : 'text-dark-300'}`}>
-          #{kart.number}
+        className="flex-1 flex items-start gap-4 px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors">
+        <span className={`text-sm w-24 shrink-0 pt-0.5 ${disabled ? 'text-dark-600' : 'text-dark-300'}`}>
+          Карт {kart.number}{rank ? <span className="text-dark-500 text-xs ml-1">топ-{rank}</span> : ''}
         </span>
         <div className="flex-1 space-y-0.5">
           {top3.length > 0 ? top3.map((r, idx) => (
-            <div key={idx} className="flex items-center justify-between text-xs">
-              <span>
-                <span className={`font-mono font-bold mr-1.5 ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : 'text-amber-600'}`}>{idx + 1}</span>
-                <span className="font-mono text-green-400">{r.bestLap}</span>
-                <span className="text-dark-500 ml-1.5">{r.pilot.split(' ')[0]}</span>
-              </span>
+            <div key={idx} className="text-xs">
+              <span className="font-mono text-green-400">{r.bestLap}</span>
+              <span className="text-dark-500 ml-1.5">— {r.pilot.split(' ')[0]}</span>
             </div>
           )) : (
             <div className="text-dark-700 text-xs">—</div>
@@ -350,9 +381,9 @@ function KartRow({ kart, onDisable, disabled }: {
   );
 }
 
-function KartCard({ kart, disabled, onDisable }: {
+function KartCard({ kart, disabled, onDisable, rank }: {
   kart: { number: number; top5: { pilot: string; bestLap: string; bestLapSec: number }[] };
-  disabled: boolean; onDisable: () => void;
+  disabled: boolean; onDisable: () => void; rank?: number;
 }) {
   const top3 = kart.top5.slice(0, 3);
   return (
@@ -367,14 +398,15 @@ function KartCard({ kart, disabled, onDisable }: {
         }`}>
         {disabled ? '✓' : '✕'}
       </button>
-      <div className={`font-mono font-bold text-lg text-center mb-1.5 ${disabled ? 'text-dark-600' : 'text-white'}`}>
-        {kart.number}
+      <div className="text-center mb-2">
+        <span className={`font-mono font-bold text-lg ${disabled ? 'text-dark-600' : 'text-white'}`}>{kart.number}</span>
+        {rank && <span className="text-dark-500 text-[10px] ml-1">#{rank}</span>}
       </div>
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {top3.length > 0 ? top3.map((r, idx) => (
-          <div key={idx} className="text-[10px] leading-tight">
+          <div key={idx} className="text-[10px] text-center leading-snug">
             <span className="font-mono text-green-400">{r.bestLap}</span>
-            <span className="text-dark-500"> - {r.pilot.split(' ')[0]}</span>
+            <span className="text-dark-500"> — {r.pilot.split(' ')[0]}</span>
           </div>
         )) : (
           <div className="text-dark-700 text-[10px] text-center">—</div>
