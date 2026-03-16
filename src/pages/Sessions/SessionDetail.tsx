@@ -82,7 +82,8 @@ export default function SessionDetail() {
 
 function PhaseView({ phase, track, eventFormat, eventDate }: { phase: CompetitionPhase; track: any; eventFormat: string; eventDate: string }) {
   const isLeagueRace = phase.type === 'race' && ['light_league', 'champions_league'].includes(eventFormat);
-  const [replayTime, setReplayTime] = useState(0); // seconds
+  const [replayTime, setReplayTime] = useState(0);
+  const [showTrack, setShowTrack] = useState(true);
 
   // Replay data
   const replayLaps = phase.results.flatMap(r =>
@@ -123,8 +124,19 @@ function PhaseView({ phase, track, eventFormat, eventDate }: { phase: Competitio
         />
       )}
 
-      {/* 2. Track map */}
-      {track?.svgPath && <TrackMap track={track} entries={trackEntries} />}
+      {/* 2. Track map (collapsible, open by default) */}
+      {track?.svgPath && (
+        <div>
+          <button
+            onClick={() => setShowTrack(v => !v)}
+            className="flex items-center gap-1.5 text-xs text-dark-400 hover:text-white transition-colors mb-2"
+          >
+            <span className="transition-transform" style={{ display: 'inline-block', transform: showTrack ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+            Трек
+          </button>
+          {showTrack && <TrackMap track={track} entries={trackEntries} />}
+        </div>
+      )}
 
       {/* 3. All laps by pilots */}
       <LapsGrid phase={phase} />
