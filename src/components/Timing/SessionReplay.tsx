@@ -251,10 +251,54 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
   }, [entries]);
 
   return (
-    <div className="card p-0 overflow-hidden">
+    <div>
+      {/* Scrubber — sticky at top */}
+      <div className="sticky top-0 z-20 bg-dark-900/95 backdrop-blur-sm border-b border-dark-700 px-4 py-2.5 rounded-t-xl">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (currentTime >= durationSec) setCurrentTime(0);
+              setPlaying(!playing);
+            }}
+            className="w-8 h-8 bg-dark-800 hover:bg-dark-700 rounded-lg flex items-center justify-center text-white transition-colors shrink-0"
+          >
+            {playing ? '⏸' : '▶'}
+          </button>
+
+          <input
+            type="range"
+            min={0}
+            max={durationSec}
+            step={0.1}
+            value={currentTime}
+            onChange={(e) => handleScrub(parseFloat(e.target.value))}
+            className="flex-1 h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
+              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
+              [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
+          />
+
+          <select
+            value={speed}
+            onChange={(e) => setSpeed(parseFloat(e.target.value))}
+            className="bg-dark-800 border border-dark-700 text-white text-xs rounded-md px-2 py-1 outline-none shrink-0"
+          >
+            <option value={0.5}>0.5x</option>
+            <option value={1}>1x</option>
+            <option value={2}>2x</option>
+            <option value={5}>5x</option>
+            <option value={10}>10x</option>
+          </select>
+
+          <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
+            {simDateTime || `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
+          </span>
+        </div>
+      </div>
+
       {/* Timing board */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+      <div className="card p-0 overflow-hidden rounded-t-none -mt-px">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
           <thead>
             <tr className="table-header">
               <th className="table-cell text-center w-8">#</th>
@@ -329,52 +373,10 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
             })}
           </tbody>
         </table>
-      </div>
-
-      {/* Scrubber */}
-      <div className="px-4 py-3 border-t border-dark-800">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              if (currentTime >= durationSec) setCurrentTime(0);
-              setPlaying(!playing);
-            }}
-            className="w-8 h-8 bg-dark-800 hover:bg-dark-700 rounded-lg flex items-center justify-center text-white transition-colors shrink-0"
-          >
-            {playing ? '⏸' : '▶'}
-          </button>
-
-          <input
-            type="range"
-            min={0}
-            max={durationSec}
-            step={0.1}
-            value={currentTime}
-            onChange={(e) => handleScrub(parseFloat(e.target.value))}
-            className="flex-1 h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
-              [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
-          />
-
-          <select
-            value={speed}
-            onChange={(e) => setSpeed(parseFloat(e.target.value))}
-            className="bg-dark-800 border border-dark-700 text-white text-xs rounded-md px-2 py-1 outline-none shrink-0"
-          >
-            <option value={0.5}>0.5x</option>
-            <option value={1}>1x</option>
-            <option value={2}>2x</option>
-            <option value={5}>5x</option>
-            <option value={10}>10x</option>
-          </select>
-
-          <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
-            {simDateTime || `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
-          </span>
         </div>
 
         {/* Color legend */}
-        <div className="flex items-center gap-3 mt-2 text-[10px]">
+        <div className="px-4 py-2 border-t border-dark-800 flex items-center gap-3 text-[10px]">
           <span className="text-purple-400">■ Абсолют</span>
           <span className="text-green-400">■ Особистий</span>
           <span className="text-yellow-400">■ Повільніше</span>
