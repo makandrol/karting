@@ -1,8 +1,22 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ALL_COMPETITION_EVENTS } from '../../mock/competitionEvents';
 import { SessionCheckboxRows } from '../../components/Sessions/SessionRows';
 import { ALL_KART_NUMBERS } from '../../mock/timingData';
+
+const LS_DISABLED_KARTS = 'karting_disabled_karts';
+
+function loadDisabledKarts(): Set<number> {
+  try {
+    const saved = localStorage.getItem(LS_DISABLED_KARTS);
+    if (saved) return new Set(JSON.parse(saved));
+  } catch { /* ignore */ }
+  return new Set();
+}
+
+function saveDisabledKarts(set: Set<number>) {
+  localStorage.setItem(LS_DISABLED_KARTS, JSON.stringify([...set]));
+}
 
 export default function Karts() {
   const [expandedKart, setExpandedKart] = useState<number | null>(null);
@@ -29,8 +43,12 @@ export default function Karts() {
     });
   }, [dateFrom, dateTo, includeProkat, includeCompetitions]);
 
-  // Sessions for stats
-  const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
+  // Default: all today's sessions in stats
+  const [statSessionIds, setStatSessionIds] = useState<Set<string>>(() => {
+    const todayEvents = ALL_COMPETITION_EVENTS.filter(ev => ev.date === new Date().toISOString().split('T')[0]);
+    return new Set(todayEvents.map(e => e.id));
+  });
+
   const [showFiltered, setShowFiltered] = useState(false);
   const [selectedForAdd, setSelectedForAdd] = useState<Set<string>>(new Set());
   const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set());
@@ -59,6 +77,18 @@ export default function Karts() {
 
   const statSessions = ALL_COMPETITION_EVENTS.filter(e => statSessionIds.has(e.id));
 
+  // Disabled karts (persisted in localStorage)
+  const [disabledKarts, setDisabledKarts] = useState<Set<number>>(loadDisabledKarts);
+  const [showDisabled, setShowDisabled] = useState(false);
+
+  useEffect(() => { saveDisabledKarts(disabledKarts); }, [disabledKarts]);
+
+  const toggleKartDisabled = (num: number) => {
+    const next = new Set(disabledKarts);
+    next.has(num) ? next.delete(num) : next.add(num);
+    setDisabledKarts(next);
+  };
+
   // Compute kart stats from selected stat sessions
   const kartStats = useMemo(() => {
     const byKart = new Map<number, { pilot: string; bestLap: string; bestLapSec: number }[]>();
@@ -68,7 +98,6 @@ export default function Karts() {
         for (const result of phase.results) {
           if (!result.kart || result.kart === 0) continue;
           if (!byKart.has(result.kart)) byKart.set(result.kart, []);
-          // Best lap from this result's laps
           for (const lap of result.laps) {
             byKart.get(result.kart)!.push({
               pilot: result.pilot,
@@ -80,12 +109,10 @@ export default function Karts() {
       }
     }
 
-    // For each kart: deduplicate and get top 5
     const stats: { number: number; top5: { pilot: string; bestLap: string; bestLapSec: number }[] }[] = [];
 
     for (const kartNum of ALL_KART_NUMBERS) {
       const entries = byKart.get(kartNum) || [];
-      // Group by pilot, take best per pilot
       const pilotBest = new Map<string, { pilot: string; bestLap: string; bestLapSec: number }>();
       for (const e of entries) {
         const prev = pilotBest.get(e.pilot);
@@ -97,6 +124,9 @@ export default function Karts() {
 
     return stats;
   }, [statSessions]);
+
+  const activeKarts = kartStats.filter(k => !disabledKarts.has(k.number));
+  const inactiveKarts = kartStats.filter(k => disabledKarts.has(k.number));
 
   return (
     <div className="space-y-6">
@@ -212,55 +242,98 @@ export default function Karts() {
         )}
       </div>
 
-      {/* Kart list — computed from stats sessions */}
-      {statSessions.length === 0 ? (
-        <div className="text-dark-600 text-xs text-center py-4">Додайте заїзди для перегляду статистики картів</div>
-      ) : (
+      {/* Kart list */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">
+            Карти ({activeKarts.length} активних{inactiveKarts.length > 0 ? `, ${inactiveKarts.length} прихованих` : ''})
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setDisabledKarts(new Set()); }}
+              className="text-dark-400 text-[10px] hover:text-white transition-colors">показати всі</button>
+            <span className="text-dark-700">|</span>
+            <button onClick={() => setShowDisabled(v => !v)}
+              className="text-dark-400 text-[10px] hover:text-white transition-colors">
+              {showDisabled ? 'сховати неактивні' : 'показати неактивні'}
+            </button>
+          </div>
+        </div>
+
         <div className="space-y-0.5">
-          {kartStats.filter(k => k.top5.length > 0).map((kart) => {
-            const isExpanded = expandedKart === kart.number;
-            const best = kart.top5[0];
+          {activeKarts.map((kart) => (
+            <KartRow key={kart.number} kart={kart} expanded={expandedKart === kart.number}
+              onToggle={() => setExpandedKart(expandedKart === kart.number ? null : kart.number)}
+              onDisable={() => toggleKartDisabled(kart.number)} disabled={false} />
+          ))}
+        </div>
 
-            return (
-              <div key={kart.number}>
-                <button
-                  onClick={() => setExpandedKart(isExpanded ? null : kart.number)}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors group"
-                >
-                  <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
-                    <span className={`transition-transform inline-block text-[8px] text-dark-500 mr-2 ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
-                    Карт #{kart.number}
-                  </span>
-                  {best && (
-                    <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-                      {best.pilot.split(' ')[0]} — <span className="text-green-400">{best.bestLap}</span>
-                    </span>
-                  )}
-                </button>
+        {/* Inactive karts */}
+        {showDisabled && inactiveKarts.length > 0 && (
+          <div className="mt-3 space-y-0.5 opacity-50">
+            <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-1">Неактивні</div>
+            {inactiveKarts.map((kart) => (
+              <KartRow key={kart.number} kart={kart} expanded={expandedKart === kart.number}
+                onToggle={() => setExpandedKart(expandedKart === kart.number ? null : kart.number)}
+                onDisable={() => toggleKartDisabled(kart.number)} disabled />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-                {isExpanded && (
-                  <div className="ml-6 mb-2 space-y-0.5">
-                    {kart.top5.map((result, idx) => (
-                      <div key={`${result.pilot}-${idx}`} className="flex items-center justify-between px-3 py-1 text-xs">
-                        <span>
-                          <span className={`font-mono font-bold mr-2 ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : 'text-dark-500'}`}>
-                            {idx + 1}
-                          </span>
-                          <Link to={`/pilots/${encodeURIComponent(result.pilot)}`} className="text-dark-300 hover:text-primary-400 transition-colors">
-                            {result.pilot}
-                          </Link>
-                        </span>
-                        <span className="font-mono text-green-400">{result.bestLap}</span>
-                      </div>
-                    ))}
-                    <Link to={`/info/karts/${kart.number}`} className="text-primary-400 hover:text-primary-300 text-xs px-3 py-1 inline-block">
-                      Детальніше →
-                    </Link>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+function KartRow({ kart, expanded, onToggle, onDisable, disabled }: {
+  kart: { number: number; top5: { pilot: string; bestLap: string; bestLapSec: number }[] };
+  expanded: boolean; onToggle: () => void; onDisable: () => void; disabled: boolean;
+}) {
+  const best = kart.top5[0];
+  return (
+    <div>
+      <div className="flex items-center">
+        <button onClick={onToggle}
+          className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors group text-left"
+        >
+          <span className={`text-sm group-hover:text-white transition-colors ${disabled ? 'text-dark-600' : 'text-dark-300'}`}>
+            <span className={`transition-transform inline-block text-[8px] text-dark-500 mr-2 ${expanded ? 'rotate-90' : ''}`}>▶</span>
+            Карт #{kart.number}
+          </span>
+          {best ? (
+            <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
+              {best.pilot.split(' ')[0]} — <span className="text-green-400">{best.bestLap}</span>
+            </span>
+          ) : (
+            <span className="text-dark-700 text-xs shrink-0 ml-4">—</span>
+          )}
+        </button>
+        <button onClick={onDisable} title={disabled ? 'Активувати' : 'Деактивувати'}
+          className={`px-2 py-1 text-[10px] rounded transition-colors shrink-0 ${
+            disabled ? 'text-green-400/50 hover:text-green-400' : 'text-dark-600 hover:text-red-400'
+          }`}>
+          {disabled ? '✓' : '✕'}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="ml-6 mb-2 space-y-0.5">
+          {kart.top5.length > 0 ? kart.top5.map((result, idx) => (
+            <div key={`${result.pilot}-${idx}`} className="flex items-center justify-between px-3 py-1 text-xs">
+              <span>
+                <span className={`font-mono font-bold mr-2 ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : 'text-dark-500'}`}>
+                  {idx + 1}
+                </span>
+                <Link to={`/pilots/${encodeURIComponent(result.pilot)}`} className="text-dark-300 hover:text-primary-400 transition-colors">
+                  {result.pilot}
+                </Link>
+              </span>
+              <span className="font-mono text-green-400">{result.bestLap}</span>
+            </div>
+          )) : (
+            <div className="px-3 py-1 text-xs text-dark-600">Немає даних</div>
+          )}
+          <Link to={`/info/karts/${kart.number}`} className="text-primary-400 hover:text-primary-300 text-xs px-3 py-1 inline-block">
+            Детальніше →
+          </Link>
         </div>
       )}
     </div>
