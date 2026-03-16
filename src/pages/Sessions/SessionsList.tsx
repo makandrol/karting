@@ -14,13 +14,19 @@ function getMonday(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), diff);
 }
 
+/** Parse YYYY-MM-DD as local date (not UTC) */
+function parseLocalDate(s: string): Date {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function fmtDateShort(d: string): string {
-  const dt = new Date(d);
+  const dt = parseLocalDate(d);
   return `${String(dt.getDate()).padStart(2, '0')}.${String(dt.getMonth() + 1).padStart(2, '0')}.${dt.getFullYear()}`;
 }
 
 function fmtDayBtn(d: string): string {
-  const dt = new Date(d);
+  const dt = parseLocalDate(d);
   return `${DAY_NAMES[dt.getDay()]} ${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}`;
 }
 
@@ -45,7 +51,7 @@ export default function SessionsList() {
   const olderByYearMonth = new Map<string, Map<string, string[]>>();
 
   for (const d of allDates) {
-    const dt = new Date(d);
+    const dt = parseLocalDate(d);
     if (dt >= thisMonday) {
       thisWeekDates.push(d);
     } else if (dt >= prevMonday) {
@@ -96,7 +102,10 @@ export default function SessionsList() {
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(monday);
       d.setDate(d.getDate() + i);
-      return d.toISOString().split('T')[0];
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
     }).filter(d => d <= todayStr);
   };
 
