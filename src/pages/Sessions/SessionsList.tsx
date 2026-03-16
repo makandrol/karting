@@ -100,13 +100,13 @@ export default function SessionsList() {
     );
   };
 
-  // Generate all 7 days for a week
+  // Generate days for a week (only up to today)
   const weekDays = (monday: Date) => {
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(monday);
       d.setDate(d.getDate() + i);
       return d.toISOString().split('T')[0];
-    });
+    }).filter(d => d <= todayStr);
   };
 
   return (
