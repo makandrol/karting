@@ -42,10 +42,14 @@ export default function SessionDetail() {
           </svg>
         </Link>
         <div>
-          <h1 className="text-xl font-bold text-white">{event.name}</h1>
+          <h1 className="text-xl font-bold text-white">
+            {event.name}
+            <span className="text-dark-400 font-normal text-sm ml-2">
+              {new Date(event.date).toLocaleDateString('uk-UA', { day: '2-digit', month: 'long', year: 'numeric' })}, 19:00
+            </span>
+          </h1>
           <p className="text-dark-400 text-sm">
-            {new Date(event.date).toLocaleDateString('uk-UA', { day: '2-digit', month: 'long', year: 'numeric' })} •
-            Траса {event.trackConfigId} • {event.phases.length} фаз
+            Траса №{event.trackConfigId}
           </p>
         </div>
       </div>
@@ -66,7 +70,7 @@ export default function SessionDetail() {
       </div>
 
       {activePhase ? (
-        <PhaseView phase={activePhase} track={track} eventFormat={event.format} eventDate={event.date} />
+        <PhaseView phase={activePhase} track={track} eventFormat={event.format} />
       ) : (
         <div className="card text-center py-8 text-dark-500 text-sm">
           Виберіть фазу для перегляду
@@ -80,7 +84,7 @@ export default function SessionDetail() {
 // Phase View — all sections
 // ============================================================
 
-function PhaseView({ phase, track, eventFormat, eventDate }: { phase: CompetitionPhase; track: any; eventFormat: string; eventDate: string }) {
+function PhaseView({ phase, track, eventFormat }: { phase: CompetitionPhase; track: any; eventFormat: string }) {
   const isLeagueRace = phase.type === 'race' && ['light_league', 'champions_league'].includes(eventFormat);
   const [showTrack, setShowTrack] = useState(true);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
@@ -108,8 +112,6 @@ function PhaseView({ phase, track, eventFormat, eventDate }: { phase: Competitio
         <SessionReplay
           laps={replayLaps}
           durationSec={durationSec}
-          title={phase.name}
-          baseDate={eventDate}
           s1Ratio={s1Ratio}
           onEntriesUpdate={setTrackEntries}
         />

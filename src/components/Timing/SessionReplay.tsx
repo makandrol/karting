@@ -42,14 +42,12 @@ const COLOR_CLASSES: Record<TimeColor, string> = {
 interface SessionReplayProps {
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number }[];
   durationSec: number;
-  title: string;
-  baseDate?: string;
   s1Ratio?: number;
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
 }
 
-export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ratio, onTimeUpdate, onEntriesUpdate }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate, onEntriesUpdate }: SessionReplayProps) {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [speed, setSpeed] = useState(1);
@@ -217,20 +215,6 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
     return `${m}:${s.toFixed(1).padStart(4, '0')}`;
   };
 
-  const simDateTime = useMemo(() => {
-    if (!baseDate) return null;
-    const base = new Date(baseDate);
-    if (baseDate.length <= 10) base.setHours(19, 0, 0, 0);
-    const sim = new Date(base.getTime() + currentTime * 1000);
-    const dd = String(sim.getDate()).padStart(2, '0');
-    const mm = String(sim.getMonth() + 1).padStart(2, '0');
-    const yyyy = sim.getFullYear();
-    const hh = String(sim.getHours()).padStart(2, '0');
-    const min = String(sim.getMinutes()).padStart(2, '0');
-    const ss = String(sim.getSeconds()).padStart(2, '0');
-    return `${dd}.${mm}.${yyyy}, ${hh}:${min}:${ss}`;
-  }, [baseDate, Math.floor(currentTime)]);
-
   const handleScrub = (val: number) => {
     setCurrentTime(val);
     const ent = getEntriesAtTime(val);
@@ -289,14 +273,9 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
             <option value={10}>10x</option>
           </select>
 
-          <div className="text-right shrink-0 leading-tight">
-            <div className="text-dark-400 text-xs font-mono whitespace-nowrap">
-              {simDateTime || title}
-            </div>
-            <div className="text-dark-500 text-[10px] font-mono whitespace-nowrap">
-              {formatTimeSec(currentTime)} / {formatTimeSec(durationSec)}
-            </div>
-          </div>
+          <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
+            {formatTimeSec(currentTime)} / {formatTimeSec(durationSec)}
+          </span>
         </div>
       </div>
 

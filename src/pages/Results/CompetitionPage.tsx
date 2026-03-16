@@ -337,7 +337,7 @@ function PhaseDetail({ phase }: { phase: CompetitionPhase }) {
 
     {/* Inline replay */}
     {showReplay && replayLaps.length > 0 && (
-      <SessionReplay laps={replayLaps} durationSec={durationSec} title={phase.name} />
+      <SessionReplay laps={replayLaps} durationSec={durationSec} />
     )}
     </div>
   );
