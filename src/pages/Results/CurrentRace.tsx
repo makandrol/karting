@@ -3,7 +3,7 @@ import { useTimingPoller } from '../../services/timingPoller';
 import { Link } from 'react-router-dom';
 
 export default function CurrentRace() {
-  const { entries, mode, lastUpdate, error, startDemo, stop } = useTimingPoller({
+  const { entries, mode, lastUpdate, error } = useTimingPoller({
     interval: 2000,
   });
 
@@ -23,72 +23,27 @@ export default function CurrentRace() {
           <div>
             <h2 className="text-xl font-bold text-white mb-2">Немає активного змагання</h2>
             <p className="text-dark-400 text-sm max-w-md mx-auto">
-              Підключіться до таймінгу для відстеження поточного змагання
-              або перегляньте результати минулих гонок.
+              Як тільки картодром запрацює — дані з'являться автоматично.
             </p>
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-4">
-            <button
-              onClick={startDemo}
-              className="bg-dark-800 hover:bg-dark-700 text-white px-6 py-3 rounded-xl font-semibold transition-colors border border-dark-700"
-            >
-              🎮 Демо
-            </button>
-            <Link
-              to="/results/gonzales"
-              className="bg-dark-800 hover:bg-dark-700 text-dark-300 hover:text-white px-6 py-3 rounded-xl font-semibold transition-colors border border-dark-700"
-            >
-              📋 Результати змагань
-            </Link>
-          </div>
+          <Link
+            to="/results/gonzales"
+            className="inline-block bg-dark-800 hover:bg-dark-700 text-dark-300 hover:text-white px-6 py-3 rounded-xl font-semibold transition-colors border border-dark-700"
+          >
+            📋 Результати змагань
+          </Link>
         </div>
       ) : (
         <>
           {error && (
-            <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl text-sm flex items-center justify-between">
-              <span>⚠️ {error}</span>
-              <div className="flex gap-2 ml-4">
-                <button
-                  onClick={startDemo}
-                  className="text-yellow-400 hover:text-yellow-300 text-xs font-medium px-3 py-1 bg-yellow-500/10 rounded-lg"
-                >
-                  Демо
-                </button>
-                <button
-                  onClick={stop}
-                  className="text-dark-400 hover:text-dark-300 text-xs font-medium px-3 py-1 bg-dark-800 rounded-lg"
-                >
-                  Зупинити
-                </button>
-              </div>
+            <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl text-sm">
+              ⚠️ {error}
             </div>
           )}
 
-          <div className="flex items-center justify-end">
-            <button
-              onClick={stop}
-              className="text-dark-500 hover:text-red-400 text-xs px-3 py-1.5 bg-dark-800 hover:bg-dark-700 rounded-lg transition-colors"
-            >
-              ⏹ Зупинити
-            </button>
-          </div>
-
-          <TimingBoard
-            entries={entries}
-            mode={mode}
-            lastUpdate={lastUpdate}
-          />
+          <TimingBoard entries={entries} mode={mode} lastUpdate={lastUpdate} />
         </>
       )}
-
-      <div className="card">
-        <h3 className="text-white font-semibold mb-2">ℹ️ Про цю сторінку</h3>
-        <p className="text-dark-400 text-sm">
-          Тут відображаються проміжні результати поточного змагання. Дані автоматично
-          обчислюються на основі інформації з таймінгу. Фінальні результати після завершення
-          гонки будуть доступні у відповідному розділі змагань.
-        </p>
-      </div>
     </div>
   );
 }

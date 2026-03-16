@@ -116,11 +116,6 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
               <span className="w-2 h-2 bg-green-400 rounded-full mr-1.5 animate-pulse" />
               LIVE
             </span>
-          ) : mode === 'demo' ? (
-            <span className="badge-mock">
-              <span className="w-2 h-2 bg-yellow-400 rounded-full mr-1.5 animate-pulse" />
-              DEMO
-            </span>
           ) : (
             <span className="badge-offline">OFFLINE</span>
           )}

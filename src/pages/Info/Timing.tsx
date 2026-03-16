@@ -8,20 +8,17 @@ import { useAuth } from '../../services/auth';
 import { Link } from 'react-router-dom';
 
 export default function Timing() {
-  const { entries, snapshots, mode, lastUpdate, error, startDemo, stop, collectorStatus } = useTimingPoller({
+  const { entries, snapshots, mode, lastUpdate, error, collectorStatus } = useTimingPoller({
     interval: 1000,
   });
   const { currentTrack, setCurrentTrack, allTracks } = useTrack();
-  const { hasPermission, isOwner, isModerator } = useAuth();
+  const { hasPermission, isModerator } = useAuth();
   const canChangeTrack = hasPermission('change_track');
 
-  // TODO: replace with real sessions from collector when available
   const todaySessions: any[] = [];
   const currentSessionNum = todaySessions.length;
 
-  // Auto-determine status
   const isLive = mode === 'live';
-  const isDemo = mode === 'demo';
   const isConnecting = mode === 'connecting';
   const isOffline = mode === 'idle';
   const hasData = entries.length > 0;
@@ -36,20 +33,17 @@ export default function Timing() {
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
             isLive && hasData ? 'bg-green-500/10 text-green-400' :
             isLive ? 'bg-green-500/10 text-green-400/60' :
-            isDemo ? 'bg-yellow-500/10 text-yellow-400' :
             isConnecting ? 'bg-blue-500/10 text-blue-400' :
             'bg-dark-800 text-dark-400'
           }`}>
             <span className={`w-2 h-2 rounded-full ${
               isLive && hasData ? 'bg-green-400 animate-pulse' :
               isLive ? 'bg-green-400/50 animate-pulse' :
-              isDemo ? 'bg-yellow-400 animate-pulse' :
               isConnecting ? 'bg-blue-400 animate-pulse' :
               'bg-dark-500'
             }`} />
             {isLive && hasData ? 'LIVE' :
              isLive ? 'Таймінг Online (порожнє табло)' :
-             isDemo ? 'DEMO' :
              isConnecting ? 'Підключення...' :
              'Офлайн'}
           </div>
@@ -60,7 +54,7 @@ export default function Timing() {
               сервер: ✓ {collectorStatus.online ? 'таймінг online' : 'таймінг offline'} • poll #{collectorStatus.pollCount}
             </span>
           )}
-          {!collectorConnected && !isDemo && !isConnecting && (
+          {!collectorConnected && !isConnecting && (
             <span className="text-red-400/50 text-[10px]">сервер недоступний</span>
           )}
 
@@ -84,24 +78,11 @@ export default function Timing() {
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Session indicator */}
           <div className="text-right">
             <Link to="/sessions" className="text-dark-400 hover:text-primary-400 text-xs transition-colors">
               Заїзд #{currentSessionNum} • {todaySessions.length} сьогодні →
             </Link>
           </div>
-
-          {/* Demo toggle (owner only) */}
-          {isOwner && !isLive && (
-            <button
-              onClick={() => { if (isDemo) stop(); else startDemo(); }}
-              className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
-                isDemo ? 'bg-yellow-500/20 text-yellow-400' : 'bg-dark-800 text-dark-500 hover:text-dark-300'
-              }`}
-            >
-              {isDemo ? '⏹ Стоп демо' : '🎮 Демо'}
-            </button>
-          )}
         </div>
       </div>
 
@@ -152,17 +133,10 @@ export default function Timing() {
           <TimingBoard entries={entries} mode={mode} lastUpdate={lastUpdate} />
           <TrackMap track={currentTrack} entries={entries} />
 
-          {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard label="Пілотів" value={entries.length.toString()} />
-            <StatCard
-              label="Лідер"
-              value={entries.length > 0 ? entries[0].pilot.split(' ')[0] : '—'}
-            />
-            <StatCard
-              label="Найкращий час"
-              value={entries.length > 0 ? (entries[0].bestLap || '—') : '—'}
-            />
+            <StatCard label="Лідер" value={entries.length > 0 ? entries[0].pilot.split(' ')[0] : '—'} />
+            <StatCard label="Найкращий час" value={entries.length > 0 ? (entries[0].bestLap || '—') : '—'} />
             <StatCard label="Снепшотів" value={snapshots.length.toString()} />
           </div>
         </>

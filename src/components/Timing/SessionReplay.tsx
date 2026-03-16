@@ -1,5 +1,43 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
+
+// ============================================================
+// Time parsing & color logic (shared with TimingBoard)
+// ============================================================
+
+function parseTime(t: string | null): number | null {
+  if (!t) return null;
+  const lapMatch = t.match(/^(\d+):(\d+\.\d+)$/);
+  if (lapMatch) return parseInt(lapMatch[1]) * 60 + parseFloat(lapMatch[2]);
+  const secMatch = t.match(/^\d+\.\d+$/);
+  if (secMatch) return parseFloat(t);
+  return null;
+}
+
+type TimeColor = 'purple' | 'green' | 'yellow' | 'none';
+
+function getTimeColor(value: string | null, personalBest: string | null, overallBest: number | null): TimeColor {
+  const val = parseTime(value);
+  if (val === null) return 'none';
+  if (overallBest !== null && Math.abs(val - overallBest) < 0.002) return 'purple';
+  const pb = parseTime(personalBest);
+  if (pb !== null && Math.abs(val - pb) < 0.002) return 'green';
+  if (pb !== null && val > pb) return 'yellow';
+  if (overallBest !== null && val <= overallBest + 0.002) return 'purple';
+  return 'green';
+}
+
+const COLOR_CLASSES: Record<TimeColor, string> = {
+  purple: 'text-purple-400',
+  green: 'text-green-400',
+  yellow: 'text-yellow-400',
+  none: 'text-dark-500',
+};
+
+// ============================================================
+// SessionReplay component
+// ============================================================
 
 interface SessionReplayProps {
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number }[];
@@ -20,7 +58,6 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
 
   const pilots = [...new Set(laps.map(l => l.pilot))];
 
-  // Compute s1Ratio from actual data if not provided
   const effectiveS1Ratio = useMemo(() => {
     if (s1Ratio) return s1Ratio;
     const firstLap = laps[0];
@@ -29,10 +66,10 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
       const lapSec = parseFloat(firstLap.lapTime);
       if (s1Sec > 0 && lapSec > 0) return s1Sec / lapSec;
     }
-    return 0.33;
+    return 0.43;
   }, [s1Ratio, laps]);
 
-  // Get entries at a given time point using actual per-lap durations
+  // Get entries at a given time point with best S1/S2 tracking
   const getEntriesAtTime = useCallback((timeSec: number): TimingEntry[] => {
     const result: TimingEntry[] = [];
 
@@ -41,17 +78,14 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
       const pilotLaps = laps.filter(l => l.pilot === pilot);
       if (pilotLaps.length === 0) continue;
 
-      // Stagger: each pilot crosses start/finish 2s apart
       const enterTime = idx * 2;
       const onTrack = timeSec >= enterTime && timeSec > 0;
 
       if (!onTrack) {
-        // Pilot known but not yet on track — show name only
         result.push({
           position: idx + 1, pilot,
           kart: 0, lastLap: null, s1: null, s2: null, bestLap: null,
-          lapNumber: -1, // -1 = not started
-          bestS1: null, bestS2: null, progress: null,
+          lapNumber: -1, bestS1: null, bestS2: null, progress: null,
           currentLapSec: null, previousLapSec: null,
         });
         continue;
@@ -72,7 +106,6 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
         }
       }
 
-      // Progress within current lap
       let progress: number;
       if (completedLaps >= pilotLaps.length) {
         progress = 1;
@@ -85,7 +118,7 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
       const currentLapData = completedLaps < pilotLaps.length ? pilotLaps[completedLaps] : null;
       const prevLapData = completedLaps > 0 ? pilotLaps[completedLaps - 1] : null;
 
-      // S1: appears at s1Ratio of the lap; S2: appears with lap time on finish
+      // S1/S2/Lap display logic
       let displayS1: string | null;
       let displayS2: string | null;
       let displayLap: string | null;
@@ -104,24 +137,31 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
         displayLap = prevLapData?.lapTime || null;
       }
 
-      let bestLap = '';
-      let bestLapSec = Infinity;
+      // Best lap, S1, S2 among completed laps
+      let bestLap = '', bestLapSec = Infinity;
+      let bestS1 = '', bestS1Sec = Infinity;
+      let bestS2 = '', bestS2Sec = Infinity;
+
       for (let i = 0; i < completedLaps; i++) {
-        const lt = parseFloat(pilotLaps[i]?.lapTime || '999');
-        if (lt < bestLapSec) { bestLapSec = lt; bestLap = pilotLaps[i]?.lapTime || ''; }
+        const l = pilotLaps[i];
+        const lt = parseFloat(l?.lapTime || '999');
+        if (lt < bestLapSec) { bestLapSec = lt; bestLap = l?.lapTime || ''; }
+        const s1v = parseFloat(l?.s1 || '999');
+        if (s1v < bestS1Sec) { bestS1Sec = s1v; bestS1 = l?.s1 || ''; }
+        const s2v = parseFloat(l?.s2 || '999');
+        if (s2v < bestS2Sec) { bestS2Sec = s2v; bestS2 = l?.s2 || ''; }
       }
 
       result.push({
-        position: idx + 1,
-        pilot,
+        position: idx + 1, pilot,
         kart: pilotLaps[0]?.kart || 0,
         lastLap: displayLap,
         s1: displayS1,
         s2: displayS2,
         bestLap: bestLap || null,
         lapNumber: completedLaps,
-        bestS1: null,
-        bestS2: null,
+        bestS1: bestS1 || null,
+        bestS2: bestS2 || null,
         progress,
         currentLapSec: null,
         previousLapSec: null,
@@ -130,11 +170,9 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
 
     return result
       .sort((a, b) => {
-        // Not started at the bottom
         if (a.lapNumber < 0 && b.lapNumber < 0) return 0;
         if (a.lapNumber < 0) return 1;
         if (b.lapNumber < 0) return -1;
-        // Then by completed laps (more = higher), then by best time
         if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
         if (a.lapNumber === 0) return 1;
         if (b.lapNumber === 0) return -1;
@@ -151,28 +189,21 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
   useEffect(() => {
     if (!playing) return;
     lastTickRef.current = performance.now();
-
     function tick(now: number) {
       const dt = (now - lastTickRef.current) / 1000 * speed;
       lastTickRef.current = now;
-
       setCurrentTime(prev => {
         const next = prev + dt;
-        if (next >= durationSec) {
-          setPlaying(false);
-          return durationSec;
-        }
+        if (next >= durationSec) { setPlaying(false); return durationSec; }
         return next;
       });
-
       rafRef.current = requestAnimationFrame(tick);
     }
-
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
   }, [playing, speed, durationSec]);
 
-  // Update entries when time changes (more granular: every 0.2s)
+  // Update entries when time changes
   useEffect(() => {
     const e = getEntriesAtTime(currentTime);
     setEntries(e);
@@ -180,7 +211,7 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
     onEntriesUpdate?.(e);
   }, [Math.floor(currentTime * 5), getEntriesAtTime, onTimeUpdate, onEntriesUpdate]);
 
-  const formatTime = (sec: number) => {
+  const formatTimeSec = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${m}:${String(s).padStart(2, '0')}`;
@@ -208,6 +239,17 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
     onEntriesUpdate?.(ent);
   };
 
+  // Overall bests for color coding
+  const { overallBestLap, overallBestS1, overallBestS2 } = useMemo(() => {
+    let bLap: number | null = null, bS1: number | null = null, bS2: number | null = null;
+    for (const e of entries) {
+      const lap = parseTime(e.bestLap); if (lap !== null && (bLap === null || lap < bLap)) bLap = lap;
+      const s1 = parseTime(e.bestS1); if (s1 !== null && (bS1 === null || s1 < bS1)) bS1 = s1;
+      const s2 = parseTime(e.bestS2); if (s2 !== null && (bS2 === null || s2 < bS2)) bS2 = s2;
+    }
+    return { overallBestLap: bLap, overallBestS1: bS1, overallBestS2: bS2 };
+  }, [entries]);
+
   return (
     <div className="card p-0 overflow-hidden">
       {/* Timing board */}
@@ -222,43 +264,74 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
               <th className="table-cell text-right">S1</th>
               <th className="table-cell text-right">S2</th>
               <th className="table-cell text-right">Найкраще</th>
+              <th className="table-cell text-right">B.S1</th>
+              <th className="table-cell text-right">B.S2</th>
               <th className="table-cell text-center">К</th>
             </tr>
           </thead>
           <tbody>
             {entries.map((e) => {
               const notStarted = e.lapNumber < 0;
+              const lapColor = notStarted ? 'none' as TimeColor : getTimeColor(e.lastLap, e.bestLap, overallBestLap);
+              const s1Color = notStarted ? 'none' as TimeColor : getTimeColor(e.s1, e.bestS1, overallBestS1);
+              const s2Color = notStarted ? 'none' as TimeColor : getTimeColor(e.s2, e.bestS2, overallBestS2);
+              const bestLapColor = notStarted ? 'none' as TimeColor : getTimeColor(e.bestLap, e.bestLap, overallBestLap);
+              const bestS1Color = notStarted ? 'none' as TimeColor : getTimeColor(e.bestS1, e.bestS1, overallBestS1);
+              const bestS2Color = notStarted ? 'none' as TimeColor : getTimeColor(e.bestS2, e.bestS2, overallBestS2);
+
               return (
-              <tr key={e.pilot} className="table-row">
-                <td className={`table-cell text-center font-mono font-bold ${notStarted ? 'text-dark-600' : e.position <= 3 ? `position-${e.position}` : 'text-dark-400'}`}>{notStarted ? '—' : e.position}</td>
-                <td className="table-cell text-left py-2">
-                  <div className={`font-medium text-sm leading-tight ${notStarted ? 'text-dark-500' : 'text-white'}`}>{e.pilot}</div>
-                  {!notStarted && e.progress !== null && (
-                    <div className="mt-1 h-[3px] w-full bg-dark-800 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-700 ease-linear ${
-                          e.position === 1 ? 'bg-yellow-500/70' :
-                          e.position <= 3 ? 'bg-primary-500/50' : 'bg-dark-500/50'
-                        }`}
-                        style={{ width: `${Math.round(e.progress * 100)}%` }}
-                      />
+                <tr key={e.pilot} className="table-row">
+                  <td className={`table-cell text-center font-mono font-bold ${notStarted ? 'text-dark-600' : e.position <= 3 ? `position-${e.position}` : 'text-dark-400'}`}>
+                    {notStarted ? '—' : e.position}
+                  </td>
+                  <td className="table-cell text-left py-2">
+                    <div className={`font-medium text-sm leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
+                      <Link to={`/pilots/${encodeURIComponent(e.pilot)}`} className={`${notStarted ? 'text-dark-500' : 'text-white hover:text-primary-400'} transition-colors`}>
+                        {e.pilot}
+                      </Link>
                     </div>
-                  )}
-                </td>
-                <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
-                <td className="table-cell text-right font-mono text-dark-200">{notStarted ? '' : (e.lastLap || '—')}</td>
-                <td className="table-cell text-right font-mono text-dark-400">{notStarted ? '' : (e.s1 || '—')}</td>
-                <td className="table-cell text-right font-mono text-dark-400">{notStarted ? '' : (e.s2 || '—')}</td>
-                <td className="table-cell text-right font-mono text-green-400 font-semibold">{notStarted ? '' : (e.bestLap || '—')}</td>
-                <td className="table-cell text-center font-mono text-dark-500">{notStarted ? '' : e.lapNumber}</td>
-              </tr>
+                    {!notStarted && e.progress !== null && (
+                      <div className="mt-1 h-[3px] w-full bg-dark-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ease-linear ${
+                            e.position === 1 ? 'bg-yellow-500/70' :
+                            e.position <= 3 ? 'bg-primary-500/50' : 'bg-dark-500/50'
+                          }`}
+                          style={{ width: `${Math.round(e.progress * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </td>
+                  <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
+                  <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
+                    {notStarted ? '' : (e.lastLap || '—')}
+                  </td>
+                  <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
+                    {notStarted ? '' : (e.s1 || '—')}
+                  </td>
+                  <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
+                    {notStarted ? '' : (e.s2 || '—')}
+                  </td>
+                  <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>
+                    {notStarted ? '' : (e.bestLap || '—')}
+                  </td>
+                  <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
+                    {notStarted ? '' : (e.bestS1 || '—')}
+                  </td>
+                  <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
+                    {notStarted ? '' : (e.bestS2 || '—')}
+                  </td>
+                  <td className="table-cell text-center font-mono text-dark-500">
+                    {notStarted ? '' : e.lapNumber}
+                  </td>
+                </tr>
               );
             })}
           </tbody>
         </table>
       </div>
 
-      {/* Scrubber — between timing and track */}
+      {/* Scrubber */}
       <div className="px-4 py-3 border-t border-dark-800">
         <div className="flex items-center gap-3">
           <button
@@ -296,8 +369,15 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
           </select>
 
           <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
-            {simDateTime || `${formatTime(currentTime)} / ${formatTime(durationSec)}`}
+            {simDateTime || `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
           </span>
+        </div>
+
+        {/* Color legend */}
+        <div className="flex items-center gap-3 mt-2 text-[10px]">
+          <span className="text-purple-400">■ Абсолют</span>
+          <span className="text-green-400">■ Особистий</span>
+          <span className="text-yellow-400">■ Повільніше</span>
         </div>
       </div>
     </div>
