@@ -13,12 +13,14 @@ interface SessionReplayProps {
   title: string;
   /** Базова дата/час заїзду для відображення "Симуляція: DD.MM.YYYY, HH:MM:SS" */
   baseDate?: string;
+  /** Частка кола до S1 (0..1). Наприклад 0.33 = S1 на 33% кола. За замовчуванням обчислюється з даних */
+  s1Ratio?: number;
   onTimeUpdate?: (timeSec: number) => void;
   /** Entries callback — passes current entries to parent (for track map sync) */
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
 }
 
-export default function SessionReplay({ laps, durationSec, title, baseDate, onTimeUpdate, onEntriesUpdate }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ratio, onTimeUpdate, onEntriesUpdate }: SessionReplayProps) {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0); // seconds
   const [speed, setSpeed] = useState(1);
@@ -28,10 +30,22 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
   // Build timeline entries from laps
   const pilots = [...new Set(laps.map(l => l.pilot))];
 
+  // Compute s1Ratio from actual data if not provided
+  const effectiveS1Ratio = useMemo(() => {
+    if (s1Ratio) return s1Ratio;
+    // Try to derive from first lap's s1 / lapTime
+    const firstLap = laps[0];
+    if (firstLap?.s1 && firstLap?.lapTime) {
+      const s1Sec = parseFloat(firstLap.s1);
+      const lapSec = parseFloat(firstLap.lapTime);
+      if (s1Sec > 0 && lapSec > 0) return s1Sec / lapSec;
+    }
+    return 0.33; // default
+  }, [s1Ratio, laps]);
+
   // Get entries at a given time point
-  // Logic: pilot crosses start/finish → appears with 0 laps, no times
-  // After completing a full lap → lap 1 with time, etc.
-  // Sectors appear during the lap: S1 at ~40%, S2 at ~75%
+  // S1 appears when pilot crosses S1 marker (at s1Ratio of the lap)
+  // S2 = lapTime - S1, updates together with lap time on start/finish crossing
   const getEntriesAtTime = useCallback((timeSec: number): TimingEntry[] => {
     if (timeSec <= 0) return []; // Board is empty at start
 
@@ -53,16 +67,13 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
       const completedLaps = Math.min(Math.floor(elapsed / avgLapTime), pilotLaps.length);
       const progress = completedLaps < pilotLaps.length ? (elapsed % avgLapTime) / avgLapTime : 1;
 
-      // Current lap being driven (or last if all done)
+      // Current lap being driven
       const currentLapData = completedLaps < pilotLaps.length ? pilotLaps[completedLaps] : null;
       // Last completed lap
       const prevLapData = completedLaps > 0 ? pilotLaps[completedLaps - 1] : null;
 
-      // Sector logic during current lap:
-      // S1 appears at ~40% of the lap, S2 at ~75%
-      // Before S1: show previous lap's S1/S2
-      // After S1 but before S2: show current S1, previous S2
-      // After S2: show current S1 + S2
+      // S1: appears when progress >= s1Ratio (pilot crosses S1 marker mid-lap)
+      // S2: appears together with lap time (on start/finish = new completed lap)
       let displayS1: string | null;
       let displayS2: string | null;
       let displayLap: string | null;
@@ -72,18 +83,13 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
         displayLap = prevLapData?.lapTime || null;
         displayS1 = prevLapData?.s1 || null;
         displayS2 = prevLapData?.s2 || null;
-      } else if (progress >= 0.75 && currentLapData) {
-        // Past S2 point — show current lap's S1 and S2, but lap time from previous
+      } else if (progress >= effectiveS1Ratio && currentLapData) {
+        // Crossed S1 on current lap — show current S1, previous lap's S2 and time
         displayS1 = currentLapData.s1 || null;
-        displayS2 = currentLapData.s2 || null;
-        displayLap = prevLapData?.lapTime || null;
-      } else if (progress >= 0.40 && currentLapData) {
-        // Past S1 point — show current lap's S1, clear S2
-        displayS1 = currentLapData.s1 || null;
-        displayS2 = null;
+        displayS2 = prevLapData?.s2 || null;
         displayLap = prevLapData?.lapTime || null;
       } else {
-        // Before S1 — show previous lap data
+        // Before S1 — show all from previous completed lap
         displayS1 = prevLapData?.s1 || null;
         displayS2 = prevLapData?.s2 || null;
         displayLap = prevLapData?.lapTime || null;
@@ -125,7 +131,7 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
-  }, [laps, pilots, durationSec]);
+  }, [laps, pilots, durationSec, effectiveS1Ratio]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
