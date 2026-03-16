@@ -1,10 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import { ALL_COMPETITION_EVENTS } from '../../mock/competitionEvents';
+import { SessionRows } from '../../components/Sessions/SessionRows';
 
-const FORMAT_MAP: Record<string, string> = {
-  gonzales: 'gonzales', light_league: 'light-league', champions_league: 'champions-league',
-};
 const MONTH_NAMES = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
 const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
@@ -28,16 +25,6 @@ function fmtDateShort(d: string): string {
 function fmtDayBtn(d: string): string {
   const dt = parseLocalDate(d);
   return `${DAY_NAMES[dt.getDay()]} ${String(dt.getDate()).padStart(2, '0')}.${String(dt.getMonth() + 1).padStart(2, '0')}`;
-}
-
-/** Pseudo-random time from id string (deterministic) with seconds */
-function fmtTime(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffff;
-  const hour = 10 + (h % 13); // 10..22
-  const min = (h >> 4) % 60;
-  const sec = (h >> 8) % 60;
-  return `${hour}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
 export default function SessionsList() {
@@ -203,71 +190,11 @@ export default function SessionsList() {
           <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів</div>
         ) : (
           <div className="space-y-0.5">
-            {(() => {
-              const rows: React.ReactNode[] = [];
-              let currentTrack = -1;
-
-              const filteredEvents = hideProkat
+            <SessionRows events={
+              hideProkat
                 ? events.filter(ev => ['gonzales', 'light_league', 'champions_league'].includes(ev.format))
-                : events;
-
-              filteredEvents.forEach((ev) => {
-                // Track header/change
-                if (ev.trackConfigId !== currentTrack) {
-                  currentTrack = ev.trackConfigId;
-                  rows.push(
-                    <div key={`track-${ev.id}`} className="text-dark-400 text-xs font-semibold pt-2 pb-1 px-1">
-                      Траса {currentTrack}
-                    </div>
-                  );
-                }
-
-                const urlType = FORMAT_MAP[ev.format] || ev.format;
-                const isCompetition = ['gonzales', 'light_league', 'champions_league'].includes(ev.format);
-                const compName = ev.format === 'light_league' ? 'ЛЛ' :
-                                 ev.format === 'champions_league' ? 'ЛЧ' :
-                                 ev.format === 'gonzales' ? 'Гонзалес' : ev.name;
-
-                if (!isCompetition) {
-                  const bestPilot = ev.phases[0]?.results?.[0];
-                  rows.push(
-                    <Link key={ev.id} to={`/sessions/${ev.id}`}
-                      className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors group"
-                    >
-                      <span className="text-dark-400 text-sm group-hover:text-white transition-colors">
-                        <span className="text-white font-mono text-xs">{fmtTime(ev.id)}</span>, Прокат
-                      </span>
-                      {bestPilot && (
-                        <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-                          {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestPilot.bestLap}</span>
-                        </span>
-                      )}
-                    </Link>
-                  );
-                } else {
-                  ev.phases.forEach((phase) => {
-                    const bestPilot = phase.results?.[0];
-                    const href = `/results/${urlType}/${ev.id}/${phase.id}`;
-                    rows.push(
-                      <Link key={`${ev.id}-${phase.id}`} to={href}
-                        className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors group"
-                      >
-                        <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
-                          <span className="text-white font-mono text-xs">{fmtTime(ev.id + phase.id)}</span>, {compName}, {phase.name}
-                        </span>
-                        {bestPilot && (
-                          <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-                            {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestPilot.bestLap}</span>
-                          </span>
-                        )}
-                      </Link>
-                    );
-                  });
-                }
-              });
-
-              return rows;
-            })()}
+                : events
+            } />
           </div>
         )}
       </div>

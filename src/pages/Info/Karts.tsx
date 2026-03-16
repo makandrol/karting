@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { MOCK_KARTS } from '../../mock/timingData';
-import { ALL_COMPETITION_EVENTS, type CompetitionEvent } from '../../mock/competitionEvents';
+import { ALL_COMPETITION_EVENTS } from '../../mock/competitionEvents';
+import { SessionCheckboxRows } from '../../components/Sessions/SessionRows';
 
 export default function Karts() {
   const [expandedKart, setExpandedKart] = useState<number | null>(null);
@@ -13,7 +14,11 @@ export default function Karts() {
   const [includeProkat, setIncludeProkat] = useState(true);
   const [includeCompetitions, setIncludeCompetitions] = useState(true);
 
-  // Filtered sessions list
+  // Last sessions input
+  const [lastNInput, setLastNInput] = useState('5');
+  const [lastNPrev, setLastNPrev] = useState('5');
+
+  // Filtered sessions
   const filteredSessions = useMemo(() => {
     return ALL_COMPETITION_EVENTS.filter(ev => {
       if (ev.date < dateFrom || ev.date > dateTo) return false;
@@ -24,12 +29,18 @@ export default function Karts() {
     });
   }, [dateFrom, dateTo, includeProkat, includeCompetitions]);
 
-  // Sessions used for stats
+  // Sessions for stats
   const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
   const [showFiltered, setShowFiltered] = useState(false);
   const [selectedForAdd, setSelectedForAdd] = useState<Set<string>>(new Set());
+  const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set());
 
-  const addSessionsToStats = () => {
+  const toggleShowFiltered = () => {
+    if (!showFiltered) setSelectedForAdd(new Set(filteredSessions.map(e => e.id)));
+    setShowFiltered(v => !v);
+  };
+
+  const addToStats = () => {
     const next = new Set(statSessionIds);
     for (const id of selectedForAdd) next.add(id);
     setStatSessionIds(next);
@@ -37,36 +48,16 @@ export default function Karts() {
     setShowFiltered(false);
   };
 
-  const removeFromStats = (ids: Set<string>) => {
+  const removeFromStats = () => {
     const next = new Set(statSessionIds);
-    for (const id of ids) next.delete(id);
+    for (const id of selectedToRemove) next.delete(id);
     setStatSessionIds(next);
     setSelectedToRemove(new Set());
   };
 
-  const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set());
-
-  // When showing filtered, auto-select all
-  const toggleShowFiltered = () => {
-    if (!showFiltered) {
-      setSelectedForAdd(new Set(filteredSessions.map(e => e.id)));
-    }
-    setShowFiltered(v => !v);
-  };
+  const clearAllStats = () => { setStatSessionIds(new Set()); setSelectedToRemove(new Set()); };
 
   const statSessions = ALL_COMPETITION_EVENTS.filter(e => statSessionIds.has(e.id));
-
-  const fmtEvName = (ev: CompetitionEvent) => {
-    const isComp = ['gonzales', 'light_league', 'champions_league'].includes(ev.format);
-    const compName = ev.format === 'light_league' ? 'ЛЛ' :
-                     ev.format === 'champions_league' ? 'ЛЧ' :
-                     ev.format === 'gonzales' ? 'Гонзалес' : 'Прокат';
-    return `${ev.date}, ${isComp ? compName : 'Прокат'}, траса ${ev.trackConfigId}`;
-  };
-
-  // Last sessions input
-  const [lastNInput, setLastNInput] = useState('5');
-  const [lastNPrev, setLastNPrev] = useState('5');
 
   return (
     <div className="space-y-6">
@@ -105,7 +96,7 @@ export default function Karts() {
           </label>
         </div>
 
-        {/* Filtered sessions (collapsible) */}
+        {/* Filtered sessions */}
         <div>
           <button onClick={toggleShowFiltered}
             className="flex items-center gap-1.5 text-dark-400 text-xs hover:text-white transition-colors">
@@ -115,21 +106,24 @@ export default function Karts() {
 
           {showFiltered && (
             <div className="mt-2 space-y-1">
-              {filteredSessions.map(ev => (
-                <label key={ev.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-dark-800/50 cursor-pointer text-xs text-dark-300">
-                  <input type="checkbox" checked={selectedForAdd.has(ev.id)}
-                    onChange={e => {
-                      const next = new Set(selectedForAdd);
-                      e.target.checked ? next.add(ev.id) : next.delete(ev.id);
-                      setSelectedForAdd(next);
-                    }}
-                    className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0" />
-                  {fmtEvName(ev)}
-                </label>
-              ))}
+              <div className="flex items-center gap-2 mb-1">
+                <button onClick={() => setSelectedForAdd(new Set(filteredSessions.map(e => e.id)))}
+                  className="text-dark-400 text-[10px] hover:text-white transition-colors">виділити всі</button>
+                <span className="text-dark-700">|</span>
+                <button onClick={() => setSelectedForAdd(new Set())}
+                  className="text-dark-400 text-[10px] hover:text-white transition-colors">зняти всі</button>
+              </div>
+
+              <SessionCheckboxRows events={filteredSessions} selected={selectedForAdd} showDate
+                onToggle={(id, checked) => {
+                  const next = new Set(selectedForAdd);
+                  checked ? next.add(id) : next.delete(id);
+                  setSelectedForAdd(next);
+                }} />
+
               {filteredSessions.length > 0 && (
-                <button onClick={addSessionsToStats}
-                  className="mt-1 px-3 py-1.5 bg-primary-600 text-white text-xs rounded-lg hover:bg-primary-500 transition-colors">
+                <button onClick={addToStats}
+                  className="mt-2 px-3 py-1.5 bg-primary-600 text-white text-xs rounded-lg hover:bg-primary-500 transition-colors">
                   Додати до статистики ({selectedForAdd.size})
                 </button>
               )}
@@ -138,32 +132,46 @@ export default function Karts() {
         </div>
       </div>
 
-      {/* Active stats sessions */}
-      {statSessions.length > 0 && (
-        <div className="card p-3 space-y-2">
-          <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">Заїзди для статистики ({statSessions.length})</div>
-          <div className="space-y-0.5">
-            {statSessions.map(ev => (
-              <label key={ev.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-dark-800/50 cursor-pointer text-xs text-dark-300">
-                <input type="checkbox" checked={selectedToRemove.has(ev.id)}
-                  onChange={e => {
-                    const next = new Set(selectedToRemove);
-                    e.target.checked ? next.add(ev.id) : next.delete(ev.id);
-                    setSelectedToRemove(next);
-                  }}
-                  className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0" />
-                {fmtEvName(ev)}
-              </label>
-            ))}
+      {/* Stats sessions — always visible */}
+      <div className="card p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">
+            Заїзди для статистики ({statSessions.length})
           </div>
-          {selectedToRemove.size > 0 && (
-            <button onClick={() => removeFromStats(selectedToRemove)}
-              className="px-3 py-1.5 bg-red-600/20 text-red-400 text-xs rounded-lg hover:bg-red-600/30 transition-colors">
-              Видалити ({selectedToRemove.size})
-            </button>
+          {statSessions.length > 0 && (
+            <div className="flex items-center gap-2">
+              <button onClick={() => setSelectedToRemove(new Set(statSessions.map(e => e.id)))}
+                className="text-dark-400 text-[10px] hover:text-white transition-colors">виділити всі</button>
+              <span className="text-dark-700">|</span>
+              <button onClick={() => setSelectedToRemove(new Set())}
+                className="text-dark-400 text-[10px] hover:text-white transition-colors">зняти всі</button>
+              <span className="text-dark-700">|</span>
+              <button onClick={clearAllStats}
+                className="text-red-400/60 text-[10px] hover:text-red-400 transition-colors">очистити</button>
+            </div>
           )}
         </div>
-      )}
+
+        {statSessions.length === 0 ? (
+          <div className="text-dark-600 text-xs py-2">Немає заїздів. Додайте через фільтр вище.</div>
+        ) : (
+          <div className="space-y-0.5">
+            <SessionCheckboxRows events={statSessions} selected={selectedToRemove} showDate
+              onToggle={(id, checked) => {
+                const next = new Set(selectedToRemove);
+                checked ? next.add(id) : next.delete(id);
+                setSelectedToRemove(next);
+              }} />
+          </div>
+        )}
+
+        {selectedToRemove.size > 0 && (
+          <button onClick={removeFromStats}
+            className="px-3 py-1.5 bg-red-600/20 text-red-400 text-xs rounded-lg hover:bg-red-600/30 transition-colors">
+            Видалити ({selectedToRemove.size})
+          </button>
+        )}
+      </div>
 
       {/* Kart list */}
       <div className="space-y-0.5">
