@@ -31,6 +31,7 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
   // Get entries at a given time point
   // Logic: pilot crosses start/finish → appears with 0 laps, no times
   // After completing a full lap → lap 1 with time, etc.
+  // Sectors appear during the lap: S1 at ~40%, S2 at ~75%
   const getEntriesAtTime = useCallback((timeSec: number): TimingEntry[] => {
     if (timeSec <= 0) return []; // Board is empty at start
 
@@ -50,10 +51,43 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
 
       // completedLaps = how many full laps finished
       const completedLaps = Math.min(Math.floor(elapsed / avgLapTime), pilotLaps.length);
-      const progress = (elapsed % avgLapTime) / avgLapTime;
+      const progress = completedLaps < pilotLaps.length ? (elapsed % avgLapTime) / avgLapTime : 1;
 
-      // Last completed lap data (the one that just finished)
-      const lastCompletedLap = completedLaps > 0 ? pilotLaps[completedLaps - 1] : null;
+      // Current lap being driven (or last if all done)
+      const currentLapData = completedLaps < pilotLaps.length ? pilotLaps[completedLaps] : null;
+      // Last completed lap
+      const prevLapData = completedLaps > 0 ? pilotLaps[completedLaps - 1] : null;
+
+      // Sector logic during current lap:
+      // S1 appears at ~40% of the lap, S2 at ~75%
+      // Before S1: show previous lap's S1/S2
+      // After S1 but before S2: show current S1, previous S2
+      // After S2: show current S1 + S2
+      let displayS1: string | null;
+      let displayS2: string | null;
+      let displayLap: string | null;
+
+      if (completedLaps >= pilotLaps.length) {
+        // All laps done — show last lap data
+        displayLap = prevLapData?.lapTime || null;
+        displayS1 = prevLapData?.s1 || null;
+        displayS2 = prevLapData?.s2 || null;
+      } else if (progress >= 0.75 && currentLapData) {
+        // Past S2 point — show current lap's S1 and S2, but lap time from previous
+        displayS1 = currentLapData.s1 || null;
+        displayS2 = currentLapData.s2 || null;
+        displayLap = prevLapData?.lapTime || null;
+      } else if (progress >= 0.40 && currentLapData) {
+        // Past S1 point — show current lap's S1, clear S2
+        displayS1 = currentLapData.s1 || null;
+        displayS2 = null;
+        displayLap = prevLapData?.lapTime || null;
+      } else {
+        // Before S1 — show previous lap data
+        displayS1 = prevLapData?.s1 || null;
+        displayS2 = prevLapData?.s2 || null;
+        displayLap = prevLapData?.lapTime || null;
+      }
 
       // Find best lap among completed laps
       let bestLap = '';
@@ -67,9 +101,9 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
         position: idx + 1,
         pilot,
         kart: pilotLaps[0]?.kart || 0,
-        lastLap: lastCompletedLap?.lapTime || null,
-        s1: lastCompletedLap?.s1 || null,
-        s2: lastCompletedLap?.s2 || null,
+        lastLap: displayLap,
+        s1: displayS1,
+        s2: displayS2,
         bestLap: bestLap || null,
         lapNumber: completedLaps,
         bestS1: null,
