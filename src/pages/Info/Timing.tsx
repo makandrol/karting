@@ -1,6 +1,7 @@
 import { TimingBoard } from '../../components/Timing';
 import { TrackMap } from '../../components/Track';
 import DayTimeline from '../../components/Timing/DayTimeline';
+import CompetitionControl from '../../components/Timing/CompetitionControl';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
@@ -12,7 +13,7 @@ export default function Timing() {
     interval: 1000,
   });
   const { currentTrack, setCurrentTrack, allTracks } = useTrack();
-  const { hasPermission, isOwner } = useAuth();
+  const { hasPermission, isOwner, isModerator } = useAuth();
   const canChangeTrack = hasPermission('change_track');
   const todaySessions = getTodaySessions();
   const currentSessionNum = todaySessions.length;
@@ -115,6 +116,9 @@ export default function Timing() {
         }))}
         isTimingOnline={isLive}
       />
+
+      {/* Competition control (admin) */}
+      {isModerator && <CompetitionControl />}
 
       {/* Offline / Connecting state */}
       {(isOffline || isConnecting) && !hasData && (
