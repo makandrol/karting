@@ -236,8 +236,8 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
 
   return (
     <div>
-      {/* Scrubber — sticky at top */}
-      <div className="sticky top-0 z-20 bg-dark-900/95 backdrop-blur-sm border-b border-dark-700 px-4 py-2.5 rounded-t-xl">
+      {/* Scrubber — sticky below header */}
+      <div className="sticky top-16 z-20 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
@@ -280,7 +280,7 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
       </div>
 
       {/* Timing board */}
-      <div className="card p-0 overflow-hidden rounded-t-none -mt-px">
+      <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
           <thead>
