@@ -17,11 +17,17 @@ import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { TimingPoller } from './poller.js';
 import { storage } from './storage.js';
+import { CompetitionDetector } from './detector.js';
 
 const PORT = process.env.PORT || 3001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
 const poller = new TimingPoller();
+const detector = new CompetitionDetector();
+
+// Connect detector to poller events
+poller.onSessionStart = (sessionId, pilotCount) => detector.onSessionStart(sessionId, pilotCount);
+poller.onSessionEnd = (sessionId) => detector.onSessionEnd(sessionId);
 
 // ============================================================
 // HTTP API
@@ -52,6 +58,7 @@ const server = http.createServer((req, res) => {
       entries: poller.getCurrentEntries(),
       lastUpdate: poller.getLastUpdateTime(),
       sessionId: poller.getCurrentSessionId(),
+      competition: detector.getState(),
     }));
     return;
   }
@@ -172,6 +179,59 @@ const server = http.createServer((req, res) => {
     const days = parseInt(url.searchParams.get('days') || '7');
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(storage.getAnalytics(days)));
+    return;
+  }
+
+  // GET /competition — стан змагання
+  if (req.method === 'GET' && url.pathname === '/competition') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(detector.getState()));
+    return;
+  }
+
+  // POST /competition/start — вручну запустити змагання
+  if (req.method === 'POST' && url.pathname === '/competition/start') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      try {
+        const { format, name } = JSON.parse(body);
+        detector.manualStart(format, name);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, state: detector.getState() }));
+      } catch { res.writeHead(400); res.end('{"error":"invalid json"}'); }
+    });
+    return;
+  }
+
+  // POST /competition/stop — зупинити змагання
+  if (req.method === 'POST' && url.pathname === '/competition/stop') {
+    detector.manualStop();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // POST /competition/phase — відмітити фазу
+  if (req.method === 'POST' && url.pathname === '/competition/phase') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      try {
+        const { sessionId, type, name } = JSON.parse(body);
+        detector.markPhase(sessionId, type, name);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, state: detector.getState() }));
+      } catch { res.writeHead(400); res.end('{"error":"invalid json"}'); }
+    });
+    return;
+  }
+
+  // POST /competition/reset — скинути автовизначення
+  if (req.method === 'POST' && url.pathname === '/competition/reset') {
+    detector.resetToday();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
 

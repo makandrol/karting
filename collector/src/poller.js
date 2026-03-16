@@ -22,16 +22,21 @@ const SNAPSHOT_INTERVAL = 60_000;       // зберігати повний ст�
 
 export class TimingPoller {
   #online = false;
-  #entries = [];           // поточні дані з табла
-  #previousEntries = [];   // попередні (для diffing)
+  #entries = [];
+  #previousEntries = [];
   #lastUpdate = null;
   #lastSnapshot = 0;
   #pollCount = 0;
   #errorCount = 0;
   #sessionId = null;
-  #sessions = [];          // [{id, startTime, endTime, entryCount}]
-  #events = [];            // event log (in-memory, потім → DB)
+  #sessions = [];
+  #events = [];
   #timer = null;
+
+  /** Callback: викликається при старті сесії */
+  onSessionStart = null;
+  /** Callback: викликається при завершенні сесії */
+  onSessionEnd = null;
 
   start() {
     console.log('🔄 Poller started');
@@ -126,6 +131,8 @@ export class TimingPoller {
       storage.createSession(this.#sessionId, now, entries.length);
       this.#addEvent('snapshot', { entries }, now);
       this.#lastSnapshot = now;
+      // Notify detector
+      if (this.onSessionStart) this.onSessionStart(this.#sessionId, entries.length);
     }
 
     // Diff with previous
@@ -159,6 +166,7 @@ export class TimingPoller {
         const session = this.#sessions.find(s => s.id === this.#sessionId);
         if (session) session.endTime = now;
         storage.endSession(this.#sessionId, now);
+        if (this.onSessionEnd) this.onSessionEnd(this.#sessionId);
       }
       this.#entries = [];
       this.#previousEntries = [];

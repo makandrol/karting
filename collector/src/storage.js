@@ -135,6 +135,9 @@ const stmts = {
   getRecentUsers: db.prepare("SELECT DISTINCT user_email, user_name, MAX(ts) as last_seen FROM page_views WHERE user_email IS NOT NULL AND user_email != '' GROUP BY user_email ORDER BY last_seen DESC LIMIT 50"),
   getTotalPageViews: db.prepare('SELECT COUNT(*) as cnt FROM page_views'),
   getVisitorSessions: db.prepare('SELECT *, (last_seen - first_seen) / 1000 as duration_sec FROM visitor_sessions WHERE date >= ? ORDER BY last_seen DESC LIMIT 100'),
+  // System state
+  getState: db.prepare('SELECT value FROM db_stats WHERE key = ?'),
+  setState: db.prepare('INSERT OR REPLACE INTO db_stats (key, value, updated_at) VALUES (?, ?, ?)'),
 };
 
 // ============================================================
@@ -253,6 +256,17 @@ export const storage = {
   /** Закрити БД */
   close() {
     db.close();
+  },
+
+  /** Отримати системний стан */
+  getSystemState(key) {
+    const row = stmts.getState.get(key);
+    return row?.value || null;
+  },
+
+  /** Зберегти системний стан */
+  setSystemState(key, value) {
+    stmts.setState.run(key, value, Date.now());
   },
 };
 
