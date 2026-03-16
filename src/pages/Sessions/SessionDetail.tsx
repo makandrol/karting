@@ -192,43 +192,35 @@ function RaceResults({ phase }: { phase: CompetitionPhase }) {
 // ============================================================
 
 function LapsGrid({ phase, currentEntries }: { phase: CompetitionPhase; currentEntries: TimingEntry[] }) {
-  // Build per-pilot completed laps count from current replay state
+  // Build per-pilot completed laps count from current replay state (for highlighting)
   const completedLapsMap = new Map<string, number>();
   for (const e of currentEntries) {
     if (e.lapNumber >= 0) completedLapsMap.set(e.pilot, e.lapNumber);
   }
-  // If no replay data (time=0 or no entries), show all laps
-  const hasReplayState = currentEntries.length > 0 && currentEntries.some(e => e.lapNumber >= 0);
+  const hasReplayState = currentEntries.length > 0 && currentEntries.some(e => e.lapNumber > 0);
 
+  // Always compute from ALL laps (full data)
   const pilotBests = new Map<string, number>();
   const pilotLapsData = new Map<string, { lapTime: string; lapTimeSec: number }[]>();
 
   for (const r of phase.results) {
     const laps = r.laps.map(l => ({ lapTime: l.lapTime, lapTimeSec: l.lapTimeSec }));
     pilotLapsData.set(r.pilot, laps);
-
-    // Best lap only among visible (completed) laps
-    const visibleCount = hasReplayState ? (completedLapsMap.get(r.pilot) ?? 0) : laps.length;
-    for (let i = 0; i < Math.min(visibleCount, laps.length); i++) {
+    for (const l of laps) {
       const prev = pilotBests.get(r.pilot) || Infinity;
-      if (laps[i].lapTimeSec < prev) pilotBests.set(r.pilot, laps[i].lapTimeSec);
+      if (l.lapTimeSec < prev) pilotBests.set(r.pilot, l.lapTimeSec);
     }
   }
 
   const sortedPilots = [...pilotBests.entries()].sort((a, b) => a[1] - b[1]).map(([p]) => p);
-  // Add pilots that haven't completed laps yet
   for (const r of phase.results) {
     if (!sortedPilots.includes(r.pilot)) sortedPilots.push(r.pilot);
   }
 
-  // Max visible laps = max completed laps across all pilots (or all if no replay state)
-  const maxVisibleLaps = hasReplayState
-    ? Math.max(...[...completedLapsMap.values()], 0)
-    : Math.max(...[...pilotLapsData.values()].map(l => l.length), 0);
-
+  const maxLaps = Math.max(...[...pilotLapsData.values()].map(l => l.length), 0);
   const overallBest = pilotBests.size > 0 ? Math.min(...[...pilotBests.values()]) : Infinity;
 
-  if (maxVisibleLaps === 0) return null;
+  if (maxLaps === 0) return null;
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -250,31 +242,26 @@ function LapsGrid({ phase, currentEntries }: { phase: CompetitionPhase; currentE
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: maxVisibleLaps }, (_, lapIdx) => (
+            {Array.from({ length: maxLaps }, (_, lapIdx) => (
               <tr key={lapIdx} className="table-row">
                 <td className="table-cell text-center font-mono text-dark-500">{lapIdx + 1}</td>
                 {sortedPilots.map(pilot => {
-                  const laps = pilotLapsData.get(pilot);
-                  const completed = hasReplayState ? (completedLapsMap.get(pilot) ?? 0) : (laps?.length ?? 0);
-                  const lap = laps?.[lapIdx];
-
-                  // Not yet completed this lap
-                  if (!lap || lapIdx >= completed) {
-                    return <td key={pilot} className="table-cell text-center text-dark-700">—</td>;
-                  }
+                  const lap = pilotLapsData.get(pilot)?.[lapIdx];
+                  if (!lap) return <td key={pilot} className="table-cell text-center text-dark-700">—</td>;
 
                   const isBest = pilotBests.get(pilot) === lap.lapTimeSec;
                   const isOverall = Math.abs(lap.lapTimeSec - overallBest) < 0.002;
-                  // Highlight the last completed lap (current) with background
-                  const isCurrent = hasReplayState && lapIdx === completed - 1;
+
+                  // Highlight: last completed lap = the one the pilot just finished at current scrubber time
+                  const completed = completedLapsMap.get(pilot) ?? 0;
+                  const isCurrent = hasReplayState && completed > 0 && lapIdx === completed - 1;
 
                   return (
                     <td key={pilot} className={`table-cell text-center font-mono ${
                       isOverall ? 'text-purple-400 font-bold' :
                       isBest ? 'text-green-400 font-bold' :
-                      isCurrent ? 'text-white font-semibold' :
                       'text-dark-300'
-                    } ${isCurrent ? 'bg-dark-700/50' : ''}`}>{lap.lapTime}</td>
+                    } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>{lap.lapTime}</td>
                   );
                 })}
               </tr>
