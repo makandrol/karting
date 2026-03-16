@@ -16,6 +16,8 @@ export interface TrackConfig {
   turns: number;
   svgPath: string;
   s1Point: TrackPoint | null;
+  /** Час S1 в секундах для reference кола (наприклад 18.2с для 42с кола) */
+  s1Time: number;
   gridPositions: TrackPoint[];
   pitPositions: TrackPoint[];
   speedProfile: SpeedProfilePoint[];
@@ -26,7 +28,7 @@ export interface TrackConfig {
 export const TRACK_SVG_VIEWBOX = '0 0 1280 720';
 
 /** Базова інфо про треки (без даних шляхів) */
-const TRACK_BASE: Omit<TrackConfig, 'svgPath' | 's1Point' | 'gridPositions' | 'pitPositions' | 'speedProfile' | 'referenceLapTime'>[] = [
+const TRACK_BASE: Omit<TrackConfig, 'svgPath' | 's1Point' | 's1Time' | 'gridPositions' | 'pitPositions' | 'speedProfile' | 'referenceLapTime'>[] = [
   { id: 1,  name: 'Конфігурація №1',  length: '510m',  image: '/tracks/nfs_01.jpg', turns: 13 },
   { id: 2,  name: 'Конфігурація №2',  length: 'XXX m', image: '/tracks/nfs_02.jpg', turns: 12 },
   { id: 3,  name: 'Конфігурація №3',  length: '506m',  image: '/tracks/nfs_03.jpg', turns: 13 },
@@ -43,6 +45,7 @@ const TRACK_BASE: Omit<TrackConfig, 'svgPath' | 's1Point' | 'gridPositions' | 'p
 const EMPTY_TRACK_DATA = {
   svgPath: '',
   s1Point: null,
+  s1Time: 0,
   gridPositions: [] as TrackPoint[],
   pitPositions: [] as TrackPoint[],
   speedProfile: [] as SpeedProfilePoint[],
@@ -69,6 +72,7 @@ export async function loadTracksJson(): Promise<void> {
         ...base,
         svgPath: json.svgPath || '',
         s1Point: json.s1Point || null,
+        s1Time: json.s1Time || 0,
         gridPositions: json.gridPositions || [],
         pitPositions: json.pitPositions || [],
         speedProfile: json.speedProfile || [],

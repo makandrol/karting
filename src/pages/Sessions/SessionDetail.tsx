@@ -93,6 +93,11 @@ function PhaseView({ phase, track, eventFormat, eventDate }: { phase: Competitio
   const avgLapSec = phase.results[0]?.laps[0]?.lapTimeSec || 42;
   const durationSec = maxLaps * avgLapSec + 30;
 
+  // S1 time ratio from track config (e.g. 18.2/42 = 0.433)
+  const s1Ratio = track?.s1Time && track?.referenceLapTime
+    ? track.s1Time / track.referenceLapTime
+    : undefined;
+
   return (
     <div className="space-y-6">
       {/* 0. Race results (only for LL/CL races) */}
@@ -105,6 +110,7 @@ function PhaseView({ phase, track, eventFormat, eventDate }: { phase: Competitio
           durationSec={durationSec}
           title={phase.name}
           baseDate={eventDate}
+          s1Ratio={s1Ratio}
           onEntriesUpdate={setTrackEntries}
         />
       )}
