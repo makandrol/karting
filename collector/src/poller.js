@@ -13,6 +13,7 @@
  */
 
 import { parseTimingHtml } from './parser.js';
+import { storage } from './storage.js';
 
 const TIMING_URL = 'https://timing.karting.ua/board.html';
 const POLL_INTERVAL_OFFLINE = 60_000;  // 1 хвилина
@@ -114,7 +115,6 @@ export class TimingPoller {
     if (wasOffline) {
       console.log(`✅ Timing ONLINE — ${entries.length} pilots`);
       this.#online = true;
-      // Start new session
       this.#sessionId = `session-${Date.now()}`;
       this.#sessions.push({
         id: this.#sessionId,
@@ -122,7 +122,8 @@ export class TimingPoller {
         endTime: null,
         entryCount: entries.length,
       });
-      // First snapshot
+      // Save to DB
+      storage.createSession(this.#sessionId, now, entries.length);
       this.#addEvent('snapshot', { entries }, now);
       this.#lastSnapshot = now;
     }
@@ -154,10 +155,10 @@ export class TimingPoller {
     if (this.#online) {
       console.log('🔴 Timing OFFLINE');
       this.#online = false;
-      // End session
       if (this.#sessionId) {
         const session = this.#sessions.find(s => s.id === this.#sessionId);
         if (session) session.endTime = now;
+        storage.endSession(this.#sessionId, now);
       }
       this.#entries = [];
       this.#previousEntries = [];
@@ -227,7 +228,17 @@ export class TimingPoller {
       data,
     });
 
-    // Keep max 100K events in memory (oldest removed)
+    // Write to SQLite
+    if (this.#sessionId) {
+      storage.addEvent(this.#sessionId, type, ts, data);
+
+      // Also save laps to laps table for quick access
+      if (type === 'lap' && data) {
+        storage.addLap(this.#sessionId, { ...data, ts });
+      }
+    }
+
+    // Keep max 100K events in memory
     if (this.#events.length > 100_000) {
       this.#events = this.#events.slice(-80_000);
     }

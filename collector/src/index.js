@@ -14,6 +14,7 @@
 
 import http from 'node:http';
 import { TimingPoller } from './poller.js';
+import { storage } from './storage.js';
 
 const PORT = process.env.PORT || 3001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
@@ -33,10 +34,11 @@ const server = http.createServer((req, res) => {
 
   const url = new URL(req.url || '/', `http://localhost:${PORT}`);
 
-  // GET /status — поточний стан collector'а
+  // GET /status
   if (url.pathname === '/status') {
+    const dbStats = storage.getStats();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(poller.getStatus()));
+    res.end(JSON.stringify({ ...poller.getStatus(), db: dbStats }));
     return;
   }
 
@@ -65,6 +67,33 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/sessions') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(poller.getSessions()));
+    return;
+  }
+
+  // GET /db/sessions?date=2025-03-15 — сесії з БД
+  if (url.pathname === '/db/sessions') {
+    const date = url.searchParams.get('date');
+    const sessions = date ? storage.getSessionsByDate(date) : storage.getSessions(100);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(sessions));
+    return;
+  }
+
+  // GET /db/laps?session=xxx — кола з БД
+  if (url.pathname === '/db/laps') {
+    const sessionId = url.searchParams.get('session');
+    if (!sessionId) { res.writeHead(400); res.end('{"error":"session required"}'); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(storage.getLaps(sessionId)));
+    return;
+  }
+
+  // GET /db/events?session=xxx&since=ts — події з БД
+  if (url.pathname === '/db/events') {
+    const sessionId = url.searchParams.get('session');
+    const since = parseInt(url.searchParams.get('since') || '0');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(storage.getEvents(sessionId, since)));
     return;
   }
 
