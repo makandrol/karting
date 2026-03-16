@@ -195,16 +195,6 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
 
   return (
     <div className="card p-0 overflow-hidden">
-      {/* Header with title */}
-      <div className="px-4 py-3 border-b border-dark-800">
-        <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold text-sm">
-            {simDateTime ? `Симуляція: ${simDateTime}` : `Симуляція: ${title}`}
-          </h3>
-          <span className="text-dark-500 text-xs font-mono">{formatTime(currentTime)} / {formatTime(durationSec)}</span>
-        </div>
-      </div>
-
       {/* Timing board */}
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -250,7 +240,7 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
         </table>
       </div>
 
-      {/* Scrubber — at the bottom, between timing and track */}
+      {/* Scrubber — between timing and track */}
       <div className="px-4 py-3 border-t border-dark-800">
         <div className="flex items-center gap-3">
           <button
@@ -263,23 +253,17 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
             {playing ? '⏸' : '▶'}
           </button>
 
-          <div className="flex-1 relative">
-            <input
-              type="range"
-              min={0}
-              max={durationSec}
-              step={0.1}
-              value={currentTime}
-              onChange={(e) => handleScrub(parseFloat(e.target.value))}
-              className="w-full h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
-                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
-                [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
-            />
-            <div
-              className="absolute top-0 left-0 h-2 bg-primary-500/30 rounded-full pointer-events-none"
-              style={{ width: `${(currentTime / durationSec) * 100}%` }}
-            />
-          </div>
+          <input
+            type="range"
+            min={0}
+            max={durationSec}
+            step={0.1}
+            value={currentTime}
+            onChange={(e) => handleScrub(parseFloat(e.target.value))}
+            className="flex-1 h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
+              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
+              [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
+          />
 
           <select
             value={speed}
@@ -292,6 +276,10 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
             <option value={5}>5x</option>
             <option value={10}>10x</option>
           </select>
+
+          <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
+            {simDateTime || `${formatTime(currentTime)} / ${formatTime(durationSec)}`}
+          </span>
         </div>
       </div>
     </div>
