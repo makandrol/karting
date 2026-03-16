@@ -8,15 +8,13 @@ interface ReplayEvent {
 }
 
 interface SessionReplayProps {
-  /** Всі кола заїзду для побудови replay */
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number }[];
-  /** Тривалість заїзду в секундах */
   durationSec: number;
-  /** Назва заїзду */
   title: string;
+  onTimeUpdate?: (timeSec: number) => void;
 }
 
-export default function SessionReplay({ laps, durationSec, title }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, title, onTimeUpdate }: SessionReplayProps) {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0); // seconds
   const [speed, setSpeed] = useState(1);
@@ -96,7 +94,8 @@ export default function SessionReplay({ laps, durationSec, title }: SessionRepla
   // Update entries when time changes
   useEffect(() => {
     setEntries(getEntriesAtTime(currentTime));
-  }, [Math.floor(currentTime), getEntriesAtTime]);
+    onTimeUpdate?.(currentTime);
+  }, [Math.floor(currentTime), getEntriesAtTime, onTimeUpdate]);
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -138,6 +137,7 @@ export default function SessionReplay({ laps, durationSec, title }: SessionRepla
                 const t = parseFloat(e.target.value);
                 setCurrentTime(t);
                 setEntries(getEntriesAtTime(t));
+                onTimeUpdate?.(t);
               }}
               className="w-full h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
                 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4

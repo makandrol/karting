@@ -81,9 +81,8 @@ export default function SessionDetail() {
 // ============================================================
 
 function PhaseView({ phase, track, eventFormat }: { phase: CompetitionPhase; track: any; eventFormat: string }) {
-  const [showReplay, setShowReplay] = useState(false);
-
   const isLeagueRace = phase.type === 'race' && ['light_league', 'champions_league'].includes(eventFormat);
+  const [replayProgress, setReplayProgress] = useState(0); // 0..1
 
   // Replay data
   const replayLaps = phase.results.flatMap(r =>
@@ -93,6 +92,19 @@ function PhaseView({ phase, track, eventFormat }: { phase: CompetitionPhase; tra
   const avgLapSec = phase.results[0]?.laps[0]?.lapTimeSec || 42;
   const durationSec = maxLaps * avgLapSec + 30;
 
+  // Track entries synced with replay
+  const trackEntries: TimingEntry[] = useMemo(() => {
+    const pilots = [...new Set(phase.results.map(r => r.pilot))];
+    return pilots.map((pilot, idx) => ({
+      position: idx + 1, pilot,
+      kart: replayLaps.find(l => l.pilot === pilot)?.kart || 0,
+      lastLap: null, s1: null, s2: null, bestLap: null,
+      lapNumber: 1, bestS1: null, bestS2: null,
+      progress: replayProgress > 0 ? ((replayProgress * maxLaps + idx * 0.05) % 1) : 0,
+      currentLapSec: null, previousLapSec: null,
+    }));
+  }, [replayProgress, phase.results, replayLaps, maxLaps]);
+
   return (
     <div className="space-y-6">
       {/* 0. Race results (only for LL/CL races) */}
@@ -101,34 +113,24 @@ function PhaseView({ phase, track, eventFormat }: { phase: CompetitionPhase; tra
       {/* 1. All laps by pilots */}
       <LapsGrid phase={phase} />
 
-      {/* 2. Replay */}
-      <div className="space-y-2">
-        <button
-          onClick={() => setShowReplay(!showReplay)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            showReplay ? 'bg-primary-600 text-white' : 'bg-primary-600/20 text-primary-400 hover:bg-primary-600/30'
-          }`}
-        >
-          ▶ Реплей
-        </button>
+      {/* 2. Replay — always visible */}
+      {replayLaps.length > 0 && (
+        <div className="space-y-4">
+          <SessionReplay
+            laps={replayLaps}
+            durationSec={durationSec}
+            title={phase.name}
+            onTimeUpdate={(t) => setReplayProgress(t / durationSec)}
+          />
 
-        {showReplay && replayLaps.length > 0 && (
-          <div className="space-y-4">
-            {/* 2.1 Timing replay */}
-            <SessionReplay laps={replayLaps} durationSec={durationSec} title={phase.name} />
-
-            {/* 2.2 Track replay */}
-            {track?.svgPath && (
-              <ReplayTrackMap
-                track={track}
-                replayLaps={replayLaps}
-                durationSec={durationSec}
-                pilots={[...new Set(phase.results.map(r => r.pilot))]}
-              />
-            )}
-          </div>
-        )}
-      </div>
+          {track?.svgPath && (
+            <div>
+              <div className="text-dark-500 text-xs mb-2">Трек</div>
+              <TrackMap track={track} entries={trackEntries} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -250,43 +252,4 @@ function LapsGrid({ phase }: { phase: CompetitionPhase }) {
   );
 }
 
-// ============================================================
-// 2.2 Replay Track Map — synced with replay time
-// ============================================================
-
-function ReplayTrackMap({ track, replayLaps, durationSec, pilots }: {
-  track: any; replayLaps: any[]; durationSec: number; pilots: string[];
-}) {
-  // Build simple entries for track map
-  const [progress, setProgress] = useState(0);
-
-  // Listen to replay time via a simple interval
-  useEffect(() => {
-    const timer = setInterval(() => {
-      // Find the replay scrubber value from DOM (hacky but works without complex state sharing)
-      const scrubber = document.querySelector('input[type="range"]') as HTMLInputElement;
-      if (scrubber) {
-        const val = parseFloat(scrubber.value) / durationSec;
-        setProgress(val);
-      }
-    }, 200);
-    return () => clearInterval(timer);
-  }, [durationSec]);
-
-  const entries: TimingEntry[] = pilots.map((pilot, idx) => ({
-    position: idx + 1,
-    pilot,
-    kart: replayLaps.find(l => l.pilot === pilot)?.kart || 0,
-    lastLap: null, s1: null, s2: null, bestLap: null,
-    lapNumber: 1, bestS1: null, bestS2: null,
-    progress: ((progress + idx * 0.08) % 1), // offset per pilot
-    currentLapSec: null, previousLapSec: null,
-  }));
-
-  return (
-    <div>
-      <div className="text-dark-500 text-xs mb-2">Трек (синхронізовано з реплеєм)</div>
-      <TrackMap track={track} entries={entries} />
-    </div>
-  );
-}
+// (TrackMap synced via onTimeUpdate callback from SessionReplay)
