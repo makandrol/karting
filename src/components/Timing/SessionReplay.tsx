@@ -35,6 +35,13 @@ const COLOR_CLASSES: Record<TimeColor, string> = {
   none: 'text-dark-500',
 };
 
+/** "Апанасенко Олексій" → "Апанасенко О." */
+function shortName(name: string): string {
+  const parts = name.split(' ');
+  if (parts.length < 2) return name;
+  return `${parts[0]} ${parts[1][0]}.`;
+}
+
 // ============================================================
 // SessionReplay component
 // ============================================================
@@ -323,7 +330,7 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
                   <td className="table-cell text-left py-2">
                     <div className={`font-medium text-sm leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
                       <Link to={`/pilots/${encodeURIComponent(e.pilot)}`} className={`${notStarted ? 'text-dark-500' : 'text-white hover:text-primary-400'} transition-colors`}>
-                        {e.pilot}
+                        {shortName(e.pilot)}
                       </Link>
                     </div>
                     <div className="mt-1 h-[3px] w-full bg-dark-800 rounded-full overflow-hidden">
