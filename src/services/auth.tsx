@@ -92,6 +92,22 @@ function determineRole(email: string, moderators: ModeratorEntry[]): UserRole {
 }
 
 // ============================================================
+// Localhost auto-owner (для розробки)
+// ============================================================
+
+const IS_LOCALHOST = typeof window !== 'undefined' && (
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+);
+
+const LOCALHOST_OWNER: AppUser = {
+  uid: 'localhost-owner',
+  email: OWNER_EMAIL,
+  name: 'Owner (localhost)',
+  photo: null,
+  role: 'owner',
+};
+
+// ============================================================
 // Provider
 // ============================================================
 
@@ -126,8 +142,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  // Build AppUser from Firebase user
-  const user: AppUser | null = firebaseUser && firebaseUser.email ? {
+  // Build AppUser: localhost → auto owner, otherwise from Firebase
+  const user: AppUser | null = IS_LOCALHOST
+    ? LOCALHOST_OWNER
+    : firebaseUser && firebaseUser.email ? {
     uid: firebaseUser.uid,
     email: firebaseUser.email,
     name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
