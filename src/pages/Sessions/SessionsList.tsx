@@ -30,13 +30,14 @@ function fmtDayBtn(d: string): string {
   return `${DAY_NAMES[dt.getDay()]} ${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}`;
 }
 
-/** Pseudo-random time from id string (deterministic) */
+/** Pseudo-random time from id string (deterministic) with seconds */
 function fmtTime(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffff;
   const hour = 10 + (h % 13); // 10..22
   const min = (h >> 4) % 60;
-  return `${hour}:${String(min).padStart(2, '0')}`;
+  const sec = (h >> 8) % 60;
+  return `${hour}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
 export default function SessionsList() {
