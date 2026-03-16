@@ -27,7 +27,7 @@ function fmtDateShort(d: string): string {
 
 function fmtDayBtn(d: string): string {
   const dt = parseLocalDate(d);
-  return `${DAY_NAMES[dt.getDay()]} ${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  return `${DAY_NAMES[dt.getDay()]} ${String(dt.getDate()).padStart(2, '0')}.${String(dt.getMonth() + 1).padStart(2, '0')}`;
 }
 
 /** Pseudo-random time from id string (deterministic) with seconds */

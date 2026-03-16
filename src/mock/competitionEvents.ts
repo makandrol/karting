@@ -115,12 +115,23 @@ function generateLightLeagueEvent(id: string, name: string, date: string, track:
 function generateChampionsLeagueEvent(id: string, name: string, date: string, track: number): CompetitionEvent {
   const phases: CompetitionPhase[] = [];
   const pilotsSubset = PILOTS.slice(0, 10);
+  const numGroups = pilotsSubset.length > 13 ? 2 : pilotsSubset.length > 6 ? 2 : 1;
 
   for (let q = 1; q <= 2; q++) {
     phases.push({ id: `${id}-q${q}`, type: 'qualifying', name: `Квала ${q}`, results: genPhaseResults(pilotsSubset, 40.5) });
   }
   for (let r = 1; r <= 3; r++) {
-    phases.push({ id: `${id}-r${r}`, type: 'race', name: `Гонка ${r}`, results: genPhaseResults(pilotsSubset, 40.5) });
+    if (numGroups >= 2) {
+      for (let g = numGroups; g >= 1; g--) {
+        const groupPilots = pilotsSubset.filter((_, i) => (i % numGroups) === (numGroups - g));
+        phases.push({
+          id: `${id}-r${r}g${g}`, type: 'race', name: `Гонка ${r}, Група ${g}`,
+          results: genPhaseResults(groupPilots, 40.5),
+        });
+      }
+    } else {
+      phases.push({ id: `${id}-r${r}`, type: 'race', name: `Гонка ${r}`, results: genPhaseResults(pilotsSubset, 40.5) });
+    }
   }
   return { id, format: 'champions_league', name, date, trackConfigId: track, phases };
 }
