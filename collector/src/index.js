@@ -13,6 +13,8 @@
  */
 
 import http from 'node:http';
+import os from 'node:os';
+import { execSync } from 'node:child_process';
 import { TimingPoller } from './poller.js';
 import { storage } from './storage.js';
 
@@ -94,6 +96,82 @@ const server = http.createServer((req, res) => {
     const since = parseInt(url.searchParams.get('since') || '0');
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(storage.getEvents(sessionId, since)));
+    return;
+  }
+
+  // GET /system — системні статистики сервера
+  if (url.pathname === '/system') {
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    const cpus = os.cpus();
+    const uptime = os.uptime();
+    const processUptime = process.uptime();
+    const processMemory = process.memoryUsage();
+
+    let diskInfo = { total: 0, used: 0, free: 0 };
+    try {
+      const df = execSync("df -B1 / | tail -1").toString().trim().split(/\s+/);
+      diskInfo = { total: parseInt(df[1]) || 0, used: parseInt(df[2]) || 0, free: parseInt(df[3]) || 0 };
+    } catch {}
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      hostname: os.hostname(),
+      platform: `${os.platform()} ${os.arch()}`,
+      nodeVersion: process.version,
+      serverUptime: uptime,
+      processUptime: processUptime,
+      cpu: {
+        model: cpus[0]?.model || 'unknown',
+        cores: cpus.length,
+        loadAvg: os.loadavg(),
+      },
+      memory: {
+        totalBytes: totalMem,
+        usedBytes: usedMem,
+        freeBytes: freeMem,
+        usedPercent: Math.round((usedMem / totalMem) * 100),
+        process: {
+          rssBytes: processMemory.rss,
+          heapUsedBytes: processMemory.heapUsed,
+          heapTotalBytes: processMemory.heapTotal,
+        },
+      },
+      disk: {
+        totalBytes: diskInfo.total,
+        usedBytes: diskInfo.used,
+        freeBytes: diskInfo.free,
+        usedPercent: diskInfo.total > 0 ? Math.round((diskInfo.used / diskInfo.total) * 100) : 0,
+      },
+      db: storage.getStats(),
+    }));
+    return;
+  }
+
+  // POST /analytics — отримати page view від фронтенду
+  if (req.method === 'POST' && url.pathname === '/analytics') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        storage.trackPageView(data);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{"ok":true}');
+      } catch {
+        res.writeHead(400);
+        res.end('{"error":"invalid json"}');
+      }
+    });
+    return;
+  }
+
+  // GET /analytics — статистика відвідувань
+  if (url.pathname === '/analytics') {
+    const days = parseInt(url.searchParams.get('days') || '7');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(storage.getAnalytics(days)));
     return;
   }
 

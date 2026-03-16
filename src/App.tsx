@@ -13,6 +13,7 @@ import Videos from './pages/Info/Videos';
 import Login from './pages/Auth/Login';
 import AdminPanel from './pages/Auth/AdminPanel';
 import DatabaseStats from './pages/Auth/DatabaseStats';
+import Monitoring from './pages/Auth/Monitoring';
 import Changelog from './pages/Changelog';
 import SessionsList from './pages/Sessions/SessionsList';
 import SessionDetail from './pages/Sessions/SessionDetail';
@@ -47,6 +48,7 @@ export default function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/admin" element={<AdminPanel />} />
               <Route path="/admin/db" element={<DatabaseStats />} />
+              <Route path="/admin/monitoring" element={<Monitoring />} />
 
               {/* Sessions */}
               <Route path="/sessions" element={<SessionsList />} />

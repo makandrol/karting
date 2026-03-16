@@ -73,6 +73,20 @@ db.exec(`
     value TEXT,
     updated_at INTEGER
   );
+
+  CREATE TABLE IF NOT EXISTS page_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    path TEXT NOT NULL,
+    user_email TEXT,
+    user_name TEXT,
+    user_agent TEXT,
+    ip TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_pv_date ON page_views(date);
+  CREATE INDEX IF NOT EXISTS idx_pv_email ON page_views(user_email);
 `);
 
 // ============================================================
@@ -97,6 +111,12 @@ const stmts = {
   cleanupOldPolls: db.prepare("DELETE FROM events WHERE event_type = 'poll_ok' AND ts < ?"),
   // Cleanup: delete all events older than N days for non-competition sessions
   cleanupOldEvents: db.prepare("DELETE FROM events WHERE ts < ? AND event_type NOT IN ('lap', 's1', 'snapshot')"),
+  // Analytics
+  insertPageView: db.prepare('INSERT INTO page_views (ts, date, path, user_email, user_name, user_agent, ip) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+  getPageViewsByDate: db.prepare('SELECT date, COUNT(*) as views, COUNT(DISTINCT user_email) as users, COUNT(DISTINCT ip) as unique_ips FROM page_views WHERE date >= ? GROUP BY date ORDER BY date'),
+  getPageViewsByPath: db.prepare('SELECT path, COUNT(*) as views FROM page_views WHERE date >= ? GROUP BY path ORDER BY views DESC LIMIT 20'),
+  getRecentUsers: db.prepare("SELECT DISTINCT user_email, user_name, MAX(ts) as last_seen FROM page_views WHERE user_email IS NOT NULL AND user_email != '' GROUP BY user_email ORDER BY last_seen DESC LIMIT 50"),
+  getTotalPageViews: db.prepare('SELECT COUNT(*) as cnt FROM page_views'),
 };
 
 // ============================================================
@@ -173,6 +193,24 @@ export const storage = {
     const cutoff = Date.now() - daysToKeep * 24 * 60 * 60 * 1000;
     const result = stmts.cleanupOldPolls.run(cutoff);
     return result.changes;
+  },
+
+  /** Записати перегляд сторінки */
+  trackPageView(data) {
+    const now = Date.now();
+    const date = new Date(now).toISOString().split('T')[0];
+    stmts.insertPageView.run(now, date, data.path || '/', data.email || null, data.name || null, data.userAgent || null, data.ip || null);
+  },
+
+  /** Отримати аналітику за N днів */
+  getAnalytics(days = 7) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    return {
+      byDate: stmts.getPageViewsByDate.all(since),
+      byPath: stmts.getPageViewsByPath.all(since),
+      recentUsers: stmts.getRecentUsers.all(),
+      totalPageViews: stmts.getTotalPageViews.get()?.cnt || 0,
+    };
   },
 
   /** Закрити БД */
