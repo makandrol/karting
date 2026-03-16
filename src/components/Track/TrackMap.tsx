@@ -116,9 +116,8 @@ export default function TrackMap({ track, entries, static: isStatic }: TrackMapP
   // ============================================================
 
   useEffect(() => {
-    if (!isStatic) return;
+    if (!isStatic || !hasPath) return;
 
-    // Build states directly from entries progress
     statesRef.current = targets.map((t) => ({
       kart: t.kart,
       pilot: t.pilot,
@@ -132,15 +131,22 @@ export default function TrackMap({ track, entries, static: isStatic }: TrackMapP
 
     updateLegend();
 
-    // Render once after a short delay for path to be ready
-    const timer = setTimeout(() => {
-      if (!pathRef.current) return;
+    // Try to render immediately, retry if path not ready
+    function tryRender() {
+      if (!pathRef.current) return false;
       ensureKartElements();
       updateKartPositions();
-    }, 50);
+      return true;
+    }
 
-    return () => clearTimeout(timer);
-  }, [isStatic, targets]);
+    if (!tryRender()) {
+      // Path not ready yet — retry a few times
+      const t1 = setTimeout(tryRender, 50);
+      const t2 = setTimeout(tryRender, 150);
+      const t3 = setTimeout(tryRender, 300);
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+    }
+  }, [isStatic, hasPath, targets]);
 
   // ============================================================
   // LIVE MODE — wall-clock animation
