@@ -138,24 +138,8 @@ export default function CompetitionControl() {
             </>
           ) : (
             <>
-              {/* Phase buttons */}
-              <button
-                onClick={() => apiCall('/competition/phase', { type: 'qualifying', name: 'Квала' })}
-                disabled={loading}
-                className="text-[10px] px-2.5 py-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-md transition-colors"
-              >
-                ⏱️ Позначити Квала
-              </button>
-              {[1, 2, 3].map(n => (
-                <button
-                  key={n}
-                  onClick={() => apiCall('/competition/phase', { type: 'race', name: `Гонка ${n}` })}
-                  disabled={loading}
-                  className="text-[10px] px-2.5 py-1 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-md transition-colors"
-                >
-                  🏁 Гонка {n}
-                </button>
-              ))}
+              {/* Phase buttons — format specific */}
+              <PhaseButtons format={comp.competition?.format || comp.scheduled?.format || ''} onMark={(type, name) => apiCall('/competition/phase', { type, name })} disabled={loading} />
               <div className="ml-auto flex gap-2">
                 <button
                   onClick={() => apiCall('/competition/stop')}
@@ -176,6 +160,73 @@ export default function CompetitionControl() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Кнопки фаз — залежать від формату змагання */
+function PhaseButtons({ format, onMark, disabled }: { format: string; onMark: (type: string, name: string) => void; disabled: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const Btn = ({ type, name, icon, color }: { type: string; name: string; icon: string; color: string }) => (
+    <button onClick={() => onMark(type, name)} disabled={disabled}
+      className={`text-[10px] px-2 py-1 ${color} rounded-md transition-colors whitespace-nowrap`}>
+      {icon} {name}
+    </button>
+  );
+
+  const qualaBtn = (n: number) => <Btn key={`q${n}`} type="qualifying" name={`Квала ${n}`} icon="⏱️" color="bg-purple-500/20 hover:bg-purple-500/30 text-purple-400" />;
+  const raceBtn = (r: number, g?: number) => <Btn key={`r${r}g${g||0}`} type="race" name={g ? `Гонка ${r}, Група ${g}` : `Гонка ${r}`} icon="🏁" color="bg-green-500/20 hover:bg-green-500/30 text-green-400" />;
+
+  if (format === 'gonzales') {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {[1, 2, 3, 4].map(n => qualaBtn(n))}
+        <span className="text-dark-600 text-[10px] px-1">|</span>
+        {expanded
+          ? Array.from({ length: 24 }, (_, i) => raceBtn(i + 1))
+          : <>
+              {[1, 2, 3, 4, 5].map(n => raceBtn(n))}
+              <button onClick={() => setExpanded(true)} className="text-[10px] px-2 py-1 bg-dark-800 text-dark-500 rounded-md">
+                +{19} більше
+              </button>
+            </>
+        }
+      </div>
+    );
+  }
+
+  if (format === 'light_league') {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {[1, 2, 3, 4].map(n => qualaBtn(n))}
+        <span className="text-dark-600 text-[10px] px-1">|</span>
+        {[3, 2, 1].map(g => raceBtn(1, g))}
+        <span className="text-dark-600 text-[10px] px-1">|</span>
+        {[3, 2, 1].map(g => raceBtn(2, g))}
+      </div>
+    );
+  }
+
+  if (format === 'champions_league') {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {[1, 2].map(n => qualaBtn(n))}
+        <span className="text-dark-600 text-[10px] px-1">|</span>
+        {[2, 1].map(g => raceBtn(1, g))}
+        <span className="text-dark-600 text-[10px] px-1">|</span>
+        {[2, 1].map(g => raceBtn(2, g))}
+        <span className="text-dark-600 text-[10px] px-1">|</span>
+        {[2, 1].map(g => raceBtn(3, g))}
+      </div>
+    );
+  }
+
+  // Fallback
+  return (
+    <div className="flex flex-wrap gap-1">
+      {[1, 2].map(n => qualaBtn(n))}
+      {[1, 2, 3].map(n => raceBtn(n))}
     </div>
   );
 }
