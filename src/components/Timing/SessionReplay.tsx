@@ -213,8 +213,8 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
 
   const formatTimeSec = (sec: number) => {
     const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m}:${String(s).padStart(2, '0')}`;
+    const s = sec % 60;
+    return `${m}:${s.toFixed(1).padStart(4, '0')}`;
   };
 
   const simDateTime = useMemo(() => {
@@ -289,9 +289,14 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
             <option value={10}>10x</option>
           </select>
 
-          <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
-            {simDateTime || `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
-          </span>
+          <div className="text-right shrink-0 leading-tight">
+            <div className="text-dark-400 text-xs font-mono whitespace-nowrap">
+              {simDateTime || title}
+            </div>
+            <div className="text-dark-500 text-[10px] font-mono whitespace-nowrap">
+              {formatTimeSec(currentTime)} / {formatTimeSec(durationSec)}
+            </div>
+          </div>
         </div>
       </div>
 
