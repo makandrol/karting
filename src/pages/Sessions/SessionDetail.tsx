@@ -129,8 +129,8 @@ function PhaseView({ phase, track, eventFormat, eventDate }: { phase: Competitio
         </div>
       )}
 
-      {/* 3. All laps by pilots */}
-      <LapsGrid phase={phase} />
+      {/* 3. All laps by pilots (synced with replay time) */}
+      <LapsGrid phase={phase} currentEntries={trackEntries} />
     </div>
   );
 }
@@ -188,26 +188,47 @@ function RaceResults({ phase }: { phase: CompetitionPhase }) {
 }
 
 // ============================================================
-// 1. Laps Grid
+// 1. Laps Grid — dynamic, synced with replay time
 // ============================================================
 
-function LapsGrid({ phase }: { phase: CompetitionPhase }) {
+function LapsGrid({ phase, currentEntries }: { phase: CompetitionPhase; currentEntries: TimingEntry[] }) {
+  // Build per-pilot completed laps count from current replay state
+  const completedLapsMap = new Map<string, number>();
+  for (const e of currentEntries) {
+    if (e.lapNumber >= 0) completedLapsMap.set(e.pilot, e.lapNumber);
+  }
+  // If no replay data (time=0 or no entries), show all laps
+  const hasReplayState = currentEntries.length > 0 && currentEntries.some(e => e.lapNumber >= 0);
+
   const pilotBests = new Map<string, number>();
+  const pilotLapsData = new Map<string, { lapTime: string; lapTimeSec: number }[]>();
+
   for (const r of phase.results) {
-    for (const l of r.laps) {
+    const laps = r.laps.map(l => ({ lapTime: l.lapTime, lapTimeSec: l.lapTimeSec }));
+    pilotLapsData.set(r.pilot, laps);
+
+    // Best lap only among visible (completed) laps
+    const visibleCount = hasReplayState ? (completedLapsMap.get(r.pilot) ?? 0) : laps.length;
+    for (let i = 0; i < Math.min(visibleCount, laps.length); i++) {
       const prev = pilotBests.get(r.pilot) || Infinity;
-      if (l.lapTimeSec < prev) pilotBests.set(r.pilot, l.lapTimeSec);
+      if (laps[i].lapTimeSec < prev) pilotBests.set(r.pilot, laps[i].lapTimeSec);
     }
   }
 
   const sortedPilots = [...pilotBests.entries()].sort((a, b) => a[1] - b[1]).map(([p]) => p);
-  const pilotLaps = new Map<string, { lapTime: string; lapTimeSec: number }[]>();
+  // Add pilots that haven't completed laps yet
   for (const r of phase.results) {
-    pilotLaps.set(r.pilot, r.laps.map(l => ({ lapTime: l.lapTime, lapTimeSec: l.lapTimeSec })));
+    if (!sortedPilots.includes(r.pilot)) sortedPilots.push(r.pilot);
   }
 
-  const maxLaps = Math.max(...[...pilotLaps.values()].map(l => l.length), 0);
-  const overallBest = Math.min(...[...pilotBests.values()]);
+  // Max visible laps = max completed laps across all pilots (or all if no replay state)
+  const maxVisibleLaps = hasReplayState
+    ? Math.max(...[...completedLapsMap.values()], 0)
+    : Math.max(...[...pilotLapsData.values()].map(l => l.length), 0);
+
+  const overallBest = pilotBests.size > 0 ? Math.min(...[...pilotBests.values()]) : Infinity;
+
+  if (maxVisibleLaps === 0) return null;
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -229,18 +250,31 @@ function LapsGrid({ phase }: { phase: CompetitionPhase }) {
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: maxLaps }, (_, lapIdx) => (
+            {Array.from({ length: maxVisibleLaps }, (_, lapIdx) => (
               <tr key={lapIdx} className="table-row">
                 <td className="table-cell text-center font-mono text-dark-500">{lapIdx + 1}</td>
                 {sortedPilots.map(pilot => {
-                  const lap = pilotLaps.get(pilot)?.[lapIdx];
-                  if (!lap) return <td key={pilot} className="table-cell text-center text-dark-700">—</td>;
+                  const laps = pilotLapsData.get(pilot);
+                  const completed = hasReplayState ? (completedLapsMap.get(pilot) ?? 0) : (laps?.length ?? 0);
+                  const lap = laps?.[lapIdx];
+
+                  // Not yet completed this lap
+                  if (!lap || lapIdx >= completed) {
+                    return <td key={pilot} className="table-cell text-center text-dark-700">—</td>;
+                  }
+
                   const isBest = pilotBests.get(pilot) === lap.lapTimeSec;
                   const isOverall = Math.abs(lap.lapTimeSec - overallBest) < 0.002;
+                  // Highlight the last completed lap (current) with background
+                  const isCurrent = hasReplayState && lapIdx === completed - 1;
+
                   return (
                     <td key={pilot} className={`table-cell text-center font-mono ${
-                      isOverall ? 'text-purple-400 font-bold' : isBest ? 'text-green-400 font-bold' : 'text-dark-300'
-                    }`}>{lap.lapTime}</td>
+                      isOverall ? 'text-purple-400 font-bold' :
+                      isBest ? 'text-green-400 font-bold' :
+                      isCurrent ? 'text-white font-semibold' :
+                      'text-dark-300'
+                    } ${isCurrent ? 'bg-dark-700/50' : ''}`}>{lap.lapTime}</td>
                   );
                 })}
               </tr>
@@ -252,4 +286,4 @@ function LapsGrid({ phase }: { phase: CompetitionPhase }) {
   );
 }
 
-// (TrackMap synced via onTimeUpdate callback from SessionReplay)
+// (TrackMap synced via onEntriesUpdate callback from SessionReplay)
