@@ -335,7 +335,7 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
                     </div>
                     <div className="mt-1 h-[3px] w-full bg-dark-800 rounded-full overflow-hidden">
                       <div
-                        className="h-full rounded-full transition-all duration-200 ease-linear bg-yellow-500/60"
+                        className="h-full rounded-full transition-all duration-[50ms] ease-linear bg-yellow-500/60"
                         style={{ width: `${!notStarted && e.progress !== null ? Math.round(e.progress * 100) : 0}%` }}
                       />
                     </div>
