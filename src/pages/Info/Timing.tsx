@@ -6,7 +6,6 @@ import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
 import { Link } from 'react-router-dom';
-import { getTodaySessions } from '../../mock/sessionData';
 
 export default function Timing() {
   const { entries, snapshots, mode, lastUpdate, error, startDemo, stop, collectorStatus } = useTimingPoller({
@@ -15,7 +14,9 @@ export default function Timing() {
   const { currentTrack, setCurrentTrack, allTracks } = useTrack();
   const { hasPermission, isOwner, isModerator } = useAuth();
   const canChangeTrack = hasPermission('change_track');
-  const todaySessions = getTodaySessions();
+
+  // TODO: replace with real sessions from collector when available
+  const todaySessions: any[] = [];
   const currentSessionNum = todaySessions.length;
 
   // Auto-determine status
