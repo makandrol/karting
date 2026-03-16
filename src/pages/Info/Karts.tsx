@@ -5,6 +5,8 @@ import { SessionCheckboxRows } from '../../components/Sessions/SessionRows';
 import { ALL_KART_NUMBERS } from '../../mock/timingData';
 
 const LS_DISABLED_KARTS = 'karting_disabled_karts';
+const LS_KARTS_FILTERS = 'karting_karts_filters';
+const LS_KARTS_STATS = 'karting_karts_stats';
 
 function loadDisabledKarts(): Set<number> {
   try {
@@ -18,20 +20,57 @@ function saveDisabledKarts(set: Set<number>) {
   localStorage.setItem(LS_DISABLED_KARTS, JSON.stringify([...set]));
 }
 
-export default function Karts() {
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
-  const [sortByRank, setSortByRank] = useState(false);
+function loadFilters() {
+  try {
+    const saved = localStorage.getItem(LS_KARTS_FILTERS);
+    if (saved) return JSON.parse(saved);
+  } catch { /* ignore */ }
+  return null;
+}
 
-  // Filter state
+function loadStatIds(): Set<string> {
+  try {
+    const saved = localStorage.getItem(LS_KARTS_STATS);
+    if (saved) return new Set(JSON.parse(saved));
+  } catch { /* ignore */ }
+  return new Set();
+}
+
+export default function Karts() {
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
+    const f = loadFilters(); return f?.viewMode || 'list';
+  });
+  const [sortByRank, setSortByRank] = useState(() => {
+    const f = loadFilters(); return f?.sortByRank || false;
+  });
+
+  // Filter state (persisted)
   const today = new Date().toISOString().split('T')[0];
-  const [dateFrom, setDateFrom] = useState(today);
-  const [dateTo, setDateTo] = useState(today);
-  const [includeProkat, setIncludeProkat] = useState(true);
-  const [includeCompetitions, setIncludeCompetitions] = useState(true);
+  const [dateFrom, setDateFrom] = useState(() => {
+    const f = loadFilters(); return f?.dateFrom || today;
+  });
+  const [dateTo, setDateTo] = useState(() => {
+    const f = loadFilters(); return f?.dateTo || today;
+  });
+  const [includeProkat, setIncludeProkat] = useState(() => {
+    const f = loadFilters(); return f?.includeProkat ?? true;
+  });
+  const [includeCompetitions, setIncludeCompetitions] = useState(() => {
+    const f = loadFilters(); return f?.includeCompetitions ?? true;
+  });
 
   // Last sessions input
-  const [lastNInput, setLastNInput] = useState('5');
+  const [lastNInput, setLastNInput] = useState(() => {
+    const f = loadFilters(); return f?.lastNInput || '5';
+  });
   const [lastNPrev, setLastNPrev] = useState('5');
+
+  // Save filters on change
+  useEffect(() => {
+    localStorage.setItem(LS_KARTS_FILTERS, JSON.stringify({
+      viewMode, sortByRank, dateFrom, dateTo, includeProkat, includeCompetitions, lastNInput,
+    }));
+  }, [viewMode, sortByRank, dateFrom, dateTo, includeProkat, includeCompetitions, lastNInput]);
 
   // Filtered sessions
   const filteredSessions = useMemo(() => {
@@ -44,11 +83,19 @@ export default function Karts() {
     });
   }, [dateFrom, dateTo, includeProkat, includeCompetitions]);
 
-  // Default: all today's sessions in stats
+  // Stats sessions (persisted)
   const [statSessionIds, setStatSessionIds] = useState<Set<string>>(() => {
+    const saved = loadStatIds();
+    if (saved.size > 0) return saved;
+    // Default: all today's sessions
     const todayEvents = ALL_COMPETITION_EVENTS.filter(ev => ev.date === new Date().toISOString().split('T')[0]);
     return new Set(todayEvents.map(e => e.id));
   });
+
+  // Save stat sessions on change
+  useEffect(() => {
+    localStorage.setItem(LS_KARTS_STATS, JSON.stringify([...statSessionIds]));
+  }, [statSessionIds]);
 
   const [showFiltered, setShowFiltered] = useState(false);
   const [selectedForAdd, setSelectedForAdd] = useState<Set<string>>(new Set());
