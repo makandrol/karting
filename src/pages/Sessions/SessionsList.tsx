@@ -181,27 +181,51 @@ export default function SessionsList() {
           <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів</div>
         ) : (
           <div className="space-y-1">
-            {events.map((ev) => {
+            {events.flatMap((ev) => {
               const urlType = FORMAT_MAP[ev.format] || ev.format;
-              const isProkat = ev.name === 'Прокат' || !['gonzales', 'light_league', 'champions_league'].includes(ev.format);
-              const href = isProkat ? `/sessions/${ev.id}` : `/results/${urlType}/${ev.id}`;
-              const bestPilot = ev.phases[0]?.results?.[0];
-              const bestLap = bestPilot?.bestLap || '';
+              const isCompetition = ['gonzales', 'light_league', 'champions_league'].includes(ev.format);
+              const isProkat = !isCompetition;
+              const compName = ev.format === 'light_league' ? 'Лайт Ліга' :
+                               ev.format === 'champions_league' ? 'Ліга Чемпіонів' :
+                               ev.format === 'gonzales' ? 'Гонзалес' : ev.name;
 
-              return (
-                <Link key={ev.id} to={href}
-                  className="flex items-center justify-between px-3 py-2 rounded-lg bg-dark-800/50 hover:bg-dark-700/50 transition-colors group"
-                >
-                  <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
-                    {ev.name}, траса {ev.trackConfigId}, {fmtDateShort(ev.date)}, 19:00
-                  </span>
-                  {bestPilot && (
-                    <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-                      {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestLap}</span>
+              if (isProkat) {
+                const bestPilot = ev.phases[0]?.results?.[0];
+                return [(
+                  <Link key={ev.id} to={`/sessions/${ev.id}`}
+                    className="flex items-center justify-between px-3 py-2 rounded-lg bg-dark-800/50 hover:bg-dark-700/50 transition-colors group"
+                  >
+                    <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
+                      Прокат, траса {ev.trackConfigId}, {fmtDateShort(ev.date)}, 19:00
                     </span>
-                  )}
-                </Link>
-              );
+                    {bestPilot && (
+                      <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
+                        {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestPilot.bestLap}</span>
+                      </span>
+                    )}
+                  </Link>
+                )];
+              }
+
+              // Competition: one row per phase
+              return ev.phases.map((phase) => {
+                const bestPilot = phase.results?.[0];
+                const href = `/results/${urlType}/${ev.id}/${phase.id}`;
+                return (
+                  <Link key={`${ev.id}-${phase.id}`} to={href}
+                    className="flex items-center justify-between px-3 py-2 rounded-lg bg-dark-800/50 hover:bg-dark-700/50 transition-colors group"
+                  >
+                    <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
+                      {compName}, {phase.name}, траса {ev.trackConfigId}, {fmtDateShort(ev.date)}
+                    </span>
+                    {bestPilot && (
+                      <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
+                        {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestPilot.bestLap}</span>
+                      </span>
+                    )}
+                  </Link>
+                );
+              });
             })}
           </div>
         )}
