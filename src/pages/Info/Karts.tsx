@@ -19,7 +19,6 @@ function saveDisabledKarts(set: Set<number>) {
 }
 
 export default function Karts() {
-  const [expandedKart, setExpandedKart] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
   // Filter state
@@ -275,8 +274,7 @@ export default function Karts() {
           <>
             <div className="space-y-0.5">
               {activeKarts.map((kart) => (
-                <KartRow key={kart.number} kart={kart} expanded={expandedKart === kart.number}
-                  onToggle={() => setExpandedKart(expandedKart === kart.number ? null : kart.number)}
+                <KartRow key={kart.number} kart={kart}
                   onDisable={() => toggleKartDisabled(kart.number)} disabled={false} />
               ))}
             </div>
@@ -284,8 +282,7 @@ export default function Karts() {
               <div className="mt-3 space-y-0.5 opacity-50">
                 <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-1">Неактивні</div>
                 {inactiveKarts.map((kart) => (
-                  <KartRow key={kart.number} kart={kart} expanded={expandedKart === kart.number}
-                    onToggle={() => setExpandedKart(expandedKart === kart.number ? null : kart.number)}
+                  <KartRow key={kart.number} kart={kart}
                     onDisable={() => toggleKartDisabled(kart.number)} disabled />
                 ))}
               </div>
@@ -317,59 +314,38 @@ export default function Karts() {
   );
 }
 
-function KartRow({ kart, expanded, onToggle, onDisable, disabled }: {
+function KartRow({ kart, onDisable, disabled }: {
   kart: { number: number; top5: { pilot: string; bestLap: string; bestLapSec: number }[] };
-  expanded: boolean; onToggle: () => void; onDisable: () => void; disabled: boolean;
+  onDisable: () => void; disabled: boolean;
 }) {
-  const best = kart.top5[0];
+  const top3 = kart.top5.slice(0, 3);
   return (
-    <div>
-      <div className="flex items-center">
-        <button onClick={onToggle}
-          className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors group text-left"
-        >
-          <span className={`text-sm group-hover:text-white transition-colors ${disabled ? 'text-dark-600' : 'text-dark-300'}`}>
-            <span className={`transition-transform inline-block text-[8px] text-dark-500 mr-2 ${expanded ? 'rotate-90' : ''}`}>▶</span>
-            Карт #{kart.number}
-          </span>
-          {best ? (
-            <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-              {best.pilot.split(' ')[0]} — <span className="text-green-400">{best.bestLap}</span>
-            </span>
-          ) : (
-            <span className="text-dark-700 text-xs shrink-0 ml-4">—</span>
-          )}
-        </button>
-        <button onClick={onDisable} title={disabled ? 'Активувати' : 'Деактивувати'}
-          className={`px-2 py-1 text-[10px] rounded transition-colors shrink-0 ${
-            disabled ? 'text-green-400/50 hover:text-green-400' : 'text-dark-600 hover:text-red-400'
-          }`}>
-          {disabled ? '✓' : '✕'}
-        </button>
-      </div>
-
-      {expanded && (
-        <div className="ml-6 mb-2 space-y-0.5">
-          {kart.top5.length > 0 ? kart.top5.map((result, idx) => (
-            <div key={`${result.pilot}-${idx}`} className="flex items-center justify-between px-3 py-1 text-xs">
+    <div className="flex items-start group">
+      <Link to={`/info/karts/${kart.number}`}
+        className={`flex-1 flex items-start gap-4 px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors`}>
+        <span className={`font-mono font-bold text-sm w-8 shrink-0 pt-0.5 ${disabled ? 'text-dark-600' : 'text-dark-300'}`}>
+          #{kart.number}
+        </span>
+        <div className="flex-1 space-y-0.5">
+          {top3.length > 0 ? top3.map((r, idx) => (
+            <div key={idx} className="flex items-center justify-between text-xs">
               <span>
-                <span className={`font-mono font-bold mr-2 ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : 'text-dark-500'}`}>
-                  {idx + 1}
-                </span>
-                <Link to={`/pilots/${encodeURIComponent(result.pilot)}`} className="text-dark-300 hover:text-primary-400 transition-colors">
-                  {result.pilot}
-                </Link>
+                <span className={`font-mono font-bold mr-1.5 ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : 'text-amber-600'}`}>{idx + 1}</span>
+                <span className="font-mono text-green-400">{r.bestLap}</span>
+                <span className="text-dark-500 ml-1.5">{r.pilot.split(' ')[0]}</span>
               </span>
-              <span className="font-mono text-green-400">{result.bestLap}</span>
             </div>
           )) : (
-            <div className="px-3 py-1 text-xs text-dark-600">Немає даних</div>
+            <div className="text-dark-700 text-xs">—</div>
           )}
-          <Link to={`/info/karts/${kart.number}`} className="text-primary-400 hover:text-primary-300 text-xs px-3 py-1 inline-block">
-            Детальніше →
-          </Link>
         </div>
-      )}
+      </Link>
+      <button onClick={onDisable} title={disabled ? 'Активувати' : 'Деактивувати'}
+        className={`px-2 py-2 text-[10px] rounded transition-colors shrink-0 ${
+          disabled ? 'text-green-400/50 hover:text-green-400' : 'text-dark-700 hover:text-red-400'
+        }`}>
+        {disabled ? '✓' : '✕'}
+      </button>
     </div>
   );
 }
@@ -378,7 +354,7 @@ function KartCard({ kart, disabled, onDisable }: {
   kart: { number: number; top5: { pilot: string; bestLap: string; bestLapSec: number }[] };
   disabled: boolean; onDisable: () => void;
 }) {
-  const best = kart.top5[0];
+  const top3 = kart.top5.slice(0, 3);
   return (
     <Link to={`/info/karts/${kart.number}`}
       className={`relative block rounded-xl border p-3 transition-colors ${
@@ -391,17 +367,19 @@ function KartCard({ kart, disabled, onDisable }: {
         }`}>
         {disabled ? '✓' : '✕'}
       </button>
-      <div className={`font-mono font-bold text-lg text-center mb-1 ${disabled ? 'text-dark-600' : 'text-white'}`}>
+      <div className={`font-mono font-bold text-lg text-center mb-1.5 ${disabled ? 'text-dark-600' : 'text-white'}`}>
         {kart.number}
       </div>
-      {best ? (
-        <div className="text-center">
-          <div className="text-green-400 font-mono text-xs">{best.bestLap}</div>
-          <div className="text-dark-500 text-[10px] truncate">{best.pilot.split(' ')[0]}</div>
-        </div>
-      ) : (
-        <div className="text-dark-700 text-[10px] text-center">—</div>
-      )}
+      <div className="space-y-0.5">
+        {top3.length > 0 ? top3.map((r, idx) => (
+          <div key={idx} className="text-[10px] leading-tight">
+            <span className="font-mono text-green-400">{r.bestLap}</span>
+            <span className="text-dark-500"> - {r.pilot.split(' ')[0]}</span>
+          </div>
+        )) : (
+          <div className="text-dark-700 text-[10px] text-center">—</div>
+        )}
+      </div>
     </Link>
   );
 }
