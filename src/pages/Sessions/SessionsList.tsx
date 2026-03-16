@@ -132,12 +132,8 @@ export default function SessionsList() {
           </div>
         )}
 
-        {/* Older — tree (years collapsed by default, months always expanded) */}
-        {olderByYearMonth.size > 0 && (
-          <div>
-            <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5">Архів</div>
-            <div className="space-y-1">
-              {[...olderByYearMonth.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => (
+        {/* Older — years collapsed by default, months always expanded */}
+        {[...olderByYearMonth.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => (
                 <div key={year}>
                   <button
                     onClick={() => toggleYear(year)}
@@ -164,9 +160,6 @@ export default function SessionsList() {
                   )}
                 </div>
               ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Events for selected date */}
