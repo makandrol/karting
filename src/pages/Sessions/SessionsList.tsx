@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ALL_COMPETITION_EVENTS } from '../../mock/competitionEvents';
 
@@ -174,59 +174,77 @@ export default function SessionsList() {
       {/* Events for selected date */}
       <div>
         <h2 className="text-dark-300 text-sm font-semibold mb-2">
-          {selectedDate === todayStr ? 'Сьогодні' : fmtDateShort(selectedDate)}
+          {selectedDate === todayStr ? 'Сьогодні' : fmtDateShort(selectedDate)}, Траса {events[0]?.trackConfigId || '?'}
         </h2>
 
         {events.length === 0 ? (
           <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів</div>
         ) : (
           <div className="space-y-1">
-            {events.flatMap((ev) => {
-              const urlType = FORMAT_MAP[ev.format] || ev.format;
-              const isCompetition = ['gonzales', 'light_league', 'champions_league'].includes(ev.format);
-              const isProkat = !isCompetition;
-              const compName = ev.format === 'light_league' ? 'Лайт Ліга' :
-                               ev.format === 'champions_league' ? 'Ліга Чемпіонів' :
-                               ev.format === 'gonzales' ? 'Гонзалес' : ev.name;
+            {(() => {
+              const rows: React.ReactNode[] = [];
+              let currentTrack = events[0]?.trackConfigId;
 
-              if (isProkat) {
-                const bestPilot = ev.phases[0]?.results?.[0];
-                return [(
-                  <Link key={ev.id} to={`/sessions/${ev.id}`}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg bg-dark-800/50 hover:bg-dark-700/50 transition-colors group"
-                  >
-                    <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
-                      Прокат, траса {ev.trackConfigId}, {fmtDateShort(ev.date)}, 19:00
-                    </span>
-                    {bestPilot && (
-                      <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-                        {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestPilot.bestLap}</span>
-                      </span>
-                    )}
-                  </Link>
-                )];
-              }
+              events.forEach((ev) => {
+                // Track change divider
+                if (ev.trackConfigId !== currentTrack) {
+                  currentTrack = ev.trackConfigId;
+                  rows.push(
+                    <div key={`track-${ev.id}`} className="flex items-center gap-3 py-2">
+                      <div className="flex-1 h-px bg-dark-700" />
+                      <span className="text-dark-400 text-xs font-semibold">Траса {currentTrack}</span>
+                      <div className="flex-1 h-px bg-dark-700" />
+                    </div>
+                  );
+                }
 
-              // Competition: one row per phase
-              return ev.phases.map((phase) => {
-                const bestPilot = phase.results?.[0];
-                const href = `/results/${urlType}/${ev.id}/${phase.id}`;
-                return (
-                  <Link key={`${ev.id}-${phase.id}`} to={href}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg bg-dark-800/50 hover:bg-dark-700/50 transition-colors group"
-                  >
-                    <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
-                      {compName}, {phase.name}, траса {ev.trackConfigId}, {fmtDateShort(ev.date)}
-                    </span>
-                    {bestPilot && (
-                      <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-                        {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestPilot.bestLap}</span>
+                const urlType = FORMAT_MAP[ev.format] || ev.format;
+                const isCompetition = ['gonzales', 'light_league', 'champions_league'].includes(ev.format);
+                const compName = ev.format === 'light_league' ? 'Лайт Ліга' :
+                                 ev.format === 'champions_league' ? 'Ліга Чемпіонів' :
+                                 ev.format === 'gonzales' ? 'Гонзалес' : ev.name;
+
+                if (!isCompetition) {
+                  const bestPilot = ev.phases[0]?.results?.[0];
+                  rows.push(
+                    <Link key={ev.id} to={`/sessions/${ev.id}`}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg bg-dark-800/50 hover:bg-dark-700/50 transition-colors group"
+                    >
+                      <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
+                        Прокат, 19:00
                       </span>
-                    )}
-                  </Link>
-                );
+                      {bestPilot && (
+                        <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
+                          {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestPilot.bestLap}</span>
+                        </span>
+                      )}
+                    </Link>
+                  );
+                } else {
+                  // Competition: one row per phase
+                  ev.phases.forEach((phase) => {
+                    const bestPilot = phase.results?.[0];
+                    const href = `/results/${urlType}/${ev.id}/${phase.id}`;
+                    rows.push(
+                      <Link key={`${ev.id}-${phase.id}`} to={href}
+                        className="flex items-center justify-between px-3 py-2 rounded-lg bg-dark-800/50 hover:bg-dark-700/50 transition-colors group"
+                      >
+                        <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
+                          {compName}, {phase.name}
+                        </span>
+                        {bestPilot && (
+                          <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
+                            {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestPilot.bestLap}</span>
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  });
+                }
               });
-            })}
+
+              return rows;
+            })()}
           </div>
         )}
       </div>
