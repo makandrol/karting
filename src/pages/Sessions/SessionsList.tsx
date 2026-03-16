@@ -30,6 +30,15 @@ function fmtDayBtn(d: string): string {
   return `${DAY_NAMES[dt.getDay()]} ${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Pseudo-random time from id string (deterministic) */
+function fmtTime(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffff;
+  const hour = 10 + (h % 13); // 10..22
+  const min = (h >> 4) % 60;
+  return `${hour}:${String(min).padStart(2, '0')}`;
+}
+
 export default function SessionsList() {
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
@@ -225,7 +234,7 @@ export default function SessionsList() {
                       className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors group"
                     >
                       <span className="text-dark-400 text-sm group-hover:text-white transition-colors">
-                        <span className="text-dark-500 font-mono text-xs">19:00</span> прокат
+                        <span className="text-dark-500 font-mono text-xs">{fmtTime(ev.id)}</span> Прокат
                       </span>
                       {bestPilot && (
                         <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
@@ -243,7 +252,7 @@ export default function SessionsList() {
                         className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors group"
                       >
                         <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
-                          <span className="text-dark-500 font-mono text-xs">19:00</span> {compName}, {phase.name}
+                          <span className="text-dark-500 font-mono text-xs">{fmtTime(ev.id + phase.id)}</span> {compName}, {phase.name}
                         </span>
                         {bestPilot && (
                           <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
