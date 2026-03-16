@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { getEventsByFormat, getEventById, type CompetitionEvent, type CompetitionPhase } from '../../mock/competitionEvents';
 import type { CompetitionFormat } from '../../data/competitions';
 import { COMPETITION_CONFIGS } from '../../data/competitions';
+import SessionReplay from '../../components/Timing/SessionReplay';
 
 const FORMAT_MAP: Record<string, CompetitionFormat> = {
   gonzales: 'gonzales',
@@ -238,9 +239,10 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
   );
 }
 
-/** Деталі фази — з сортуванням */
+/** Деталі фази — з сортуванням + реплей */
 function PhaseDetail({ phase }: { phase: CompetitionPhase }) {
   const [sortBy, setSortBy] = useState<'position' | 'points'>(phase.type === 'race' ? 'position' : 'points');
+  const [showReplay, setShowReplay] = useState(false);
 
   const sorted = [...phase.results].sort((a, b) => {
     if (sortBy === 'position') return a.position - b.position;
@@ -249,24 +251,42 @@ function PhaseDetail({ phase }: { phase: CompetitionPhase }) {
 
   const isRace = phase.type === 'race';
 
+  // Build replay data
+  const replayLaps = phase.results.flatMap(r =>
+    r.laps.map(l => ({ pilot: r.pilot, kart: r.kart, lapNumber: l.lapNumber, lapTime: l.lapTime, s1: l.s1, s2: l.s2, position: r.position }))
+  );
+  const maxLaps = Math.max(...phase.results.map(r => r.laps.length), 1);
+  const avgLapSec = phase.results[0]?.laps[0]?.lapTimeSec || 42;
+  const durationSec = maxLaps * avgLapSec + 30;
+
   return (
-    <div className="card p-0 overflow-hidden">
-      <div className="px-4 py-3 border-b border-dark-800 flex items-center justify-between">
-        <h3 className="text-white font-semibold">{phase.name}</h3>
-        <div className="flex items-center gap-3">
-          {/* TODO: link to demo replay */}
-          {isRace && (
-            <div className="flex bg-dark-800 rounded-md p-0.5">
-              <button onClick={() => setSortBy('position')}
-                className={`px-2 py-0.5 text-[10px] font-semibold rounded ${sortBy === 'position' ? 'bg-primary-600 text-white' : 'text-dark-400'}`}>
-                Позиція
-              </button>
-              <button onClick={() => setSortBy('points')}
-                className={`px-2 py-0.5 text-[10px] font-semibold rounded ${sortBy === 'points' ? 'bg-primary-600 text-white' : 'text-dark-400'}`}>
-                Бали
-              </button>
-            </div>
-          )}
+    <div className="space-y-4">
+      <div className="card p-0 overflow-hidden">
+        <div className="px-4 py-3 border-b border-dark-800 flex items-center justify-between">
+          <h3 className="text-white font-semibold">{phase.name}</h3>
+          <div className="flex items-center gap-3">
+            {/* Replay button */}
+            <button
+              onClick={() => setShowReplay(!showReplay)}
+              className={`text-[10px] px-3 py-1 rounded-md font-semibold transition-colors flex items-center gap-1 ${
+                showReplay ? 'bg-primary-600 text-white' : 'bg-primary-600/20 text-primary-400 hover:bg-primary-600/30'
+              }`}
+            >
+              ▶ Реплей
+            </button>
+
+            {isRace && (
+              <div className="flex bg-dark-800 rounded-md p-0.5">
+                <button onClick={() => setSortBy('position')}
+                  className={`px-2 py-0.5 text-[10px] font-semibold rounded ${sortBy === 'position' ? 'bg-primary-600 text-white' : 'text-dark-400'}`}>
+                  Позиція
+                </button>
+                <button onClick={() => setSortBy('points')}
+                  className={`px-2 py-0.5 text-[10px] font-semibold rounded ${sortBy === 'points' ? 'bg-primary-600 text-white' : 'text-dark-400'}`}>
+                  Бали
+                </button>
+              </div>
+            )}
         </div>
       </div>
       <div className="overflow-x-auto">
@@ -313,6 +333,12 @@ function PhaseDetail({ phase }: { phase: CompetitionPhase }) {
           </tbody>
         </table>
       </div>
+    </div>
+
+    {/* Inline replay */}
+    {showReplay && replayLaps.length > 0 && (
+      <SessionReplay laps={replayLaps} durationSec={durationSec} title={phase.name} />
+    )}
     </div>
   );
 }
