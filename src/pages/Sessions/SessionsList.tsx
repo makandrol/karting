@@ -69,6 +69,7 @@ export default function SessionsList() {
   // Expand state: previous week collapsed, current year collapsed (months expanded when opened)
   const [prevWeekOpen, setPrevWeekOpen] = useState(false);
   const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
+  const [hideProkat, setHideProkat] = useState(false);
 
   const toggleYear = (y: string) => {
     const next = new Set(expandedYears);
@@ -173,45 +174,58 @@ export default function SessionsList() {
 
       {/* Events for selected date */}
       <div>
-        <h2 className="text-dark-300 text-sm font-semibold mb-2">
-          {selectedDate === todayStr ? 'Сьогодні' : fmtDateShort(selectedDate)}, Траса {events[0]?.trackConfigId || '?'}
-        </h2>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-dark-300 text-sm font-semibold">
+            {selectedDate === todayStr ? 'Сьогодні' : fmtDateShort(selectedDate)}
+          </h2>
+          <label className="flex items-center gap-1.5 text-dark-500 text-xs cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={hideProkat}
+              onChange={(e) => setHideProkat(e.target.checked)}
+              className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0"
+            />
+            сховати прокат
+          </label>
+        </div>
 
         {events.length === 0 ? (
           <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів</div>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {(() => {
               const rows: React.ReactNode[] = [];
-              let currentTrack = events[0]?.trackConfigId;
+              let currentTrack = -1;
 
-              events.forEach((ev) => {
-                // Track change divider
+              const filteredEvents = hideProkat
+                ? events.filter(ev => ['gonzales', 'light_league', 'champions_league'].includes(ev.format))
+                : events;
+
+              filteredEvents.forEach((ev) => {
+                // Track header/change
                 if (ev.trackConfigId !== currentTrack) {
                   currentTrack = ev.trackConfigId;
                   rows.push(
-                    <div key={`track-${ev.id}`} className="flex items-center gap-3 py-2">
-                      <div className="flex-1 h-px bg-dark-700" />
-                      <span className="text-dark-400 text-xs font-semibold">Траса {currentTrack}</span>
-                      <div className="flex-1 h-px bg-dark-700" />
+                    <div key={`track-${ev.id}`} className="text-dark-400 text-xs font-semibold pt-2 pb-1 px-1">
+                      Траса {currentTrack}
                     </div>
                   );
                 }
 
                 const urlType = FORMAT_MAP[ev.format] || ev.format;
                 const isCompetition = ['gonzales', 'light_league', 'champions_league'].includes(ev.format);
-                const compName = ev.format === 'light_league' ? 'Лайт Ліга' :
-                                 ev.format === 'champions_league' ? 'Ліга Чемпіонів' :
+                const compName = ev.format === 'light_league' ? 'ЛЛ' :
+                                 ev.format === 'champions_league' ? 'ЛЧ' :
                                  ev.format === 'gonzales' ? 'Гонзалес' : ev.name;
 
                 if (!isCompetition) {
                   const bestPilot = ev.phases[0]?.results?.[0];
                   rows.push(
                     <Link key={ev.id} to={`/sessions/${ev.id}`}
-                      className="flex items-center justify-between px-3 py-2 rounded-lg bg-dark-800/50 hover:bg-dark-700/50 transition-colors group"
+                      className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors group"
                     >
-                      <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
-                        Прокат, 19:00
+                      <span className="text-dark-400 text-sm group-hover:text-white transition-colors">
+                        <span className="text-dark-500 font-mono text-xs">19:00</span> прокат
                       </span>
                       {bestPilot && (
                         <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
@@ -221,16 +235,15 @@ export default function SessionsList() {
                     </Link>
                   );
                 } else {
-                  // Competition: one row per phase
                   ev.phases.forEach((phase) => {
                     const bestPilot = phase.results?.[0];
                     const href = `/results/${urlType}/${ev.id}/${phase.id}`;
                     rows.push(
                       <Link key={`${ev.id}-${phase.id}`} to={href}
-                        className="flex items-center justify-between px-3 py-2 rounded-lg bg-dark-800/50 hover:bg-dark-700/50 transition-colors group"
+                        className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors group"
                       >
                         <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
-                          {compName}, {phase.name}
+                          <span className="text-dark-500 font-mono text-xs">19:00</span> {compName}, {phase.name}
                         </span>
                         {bestPilot && (
                           <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
