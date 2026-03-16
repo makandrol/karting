@@ -45,9 +45,11 @@ interface SessionReplayProps {
   s1Ratio?: number;
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
+  /** Called with scrubber JSX so parent can position it (e.g. sticky) */
+  renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate, onEntriesUpdate }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [speed, setSpeed] = useState(1);
@@ -234,50 +236,56 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
     return { overallBestLap: bLap, overallBestS1: bS1, overallBestS2: bS2 };
   }, [entries]);
 
+  const scrubberEl = (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={() => {
+          if (currentTime >= durationSec) setCurrentTime(0);
+          setPlaying(!playing);
+        }}
+        className="w-8 h-8 bg-dark-800 hover:bg-dark-700 rounded-lg flex items-center justify-center text-white transition-colors shrink-0"
+      >
+        {playing ? '⏸' : '▶'}
+      </button>
+
+      <input
+        type="range"
+        min={0}
+        max={durationSec}
+        step={0.1}
+        value={currentTime}
+        onChange={(e) => handleScrub(parseFloat(e.target.value))}
+        className="flex-1 h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
+          [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
+          [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
+      />
+
+      <select
+        value={speed}
+        onChange={(e) => setSpeed(parseFloat(e.target.value))}
+        className="bg-dark-800 border border-dark-700 text-white text-xs rounded-md px-2 py-1 outline-none shrink-0"
+      >
+        <option value={0.5}>0.5x</option>
+        <option value={1}>1x</option>
+        <option value={2}>2x</option>
+        <option value={5}>5x</option>
+        <option value={10}>10x</option>
+      </select>
+
+      <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
+        {formatTimeSec(currentTime)} / {formatTimeSec(durationSec)}
+      </span>
+    </div>
+  );
+
   return (
-    <div>
-      {/* Scrubber — sticky below header */}
-      <div className="sticky top-16 z-20 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              if (currentTime >= durationSec) setCurrentTime(0);
-              setPlaying(!playing);
-            }}
-            className="w-8 h-8 bg-dark-800 hover:bg-dark-700 rounded-lg flex items-center justify-center text-white transition-colors shrink-0"
-          >
-            {playing ? '⏸' : '▶'}
-          </button>
-
-          <input
-            type="range"
-            min={0}
-            max={durationSec}
-            step={0.1}
-            value={currentTime}
-            onChange={(e) => handleScrub(parseFloat(e.target.value))}
-            className="flex-1 h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
-              [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
-          />
-
-          <select
-            value={speed}
-            onChange={(e) => setSpeed(parseFloat(e.target.value))}
-            className="bg-dark-800 border border-dark-700 text-white text-xs rounded-md px-2 py-1 outline-none shrink-0"
-          >
-            <option value={0.5}>0.5x</option>
-            <option value={1}>1x</option>
-            <option value={2}>2x</option>
-            <option value={5}>5x</option>
-            <option value={10}>10x</option>
-          </select>
-
-          <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
-            {formatTimeSec(currentTime)} / {formatTimeSec(durationSec)}
-          </span>
+    <>
+      {/* Scrubber — parent can wrap for sticky positioning */}
+      {renderScrubber ? renderScrubber(scrubberEl) : (
+        <div className="bg-dark-900/95 border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+          {scrubberEl}
         </div>
-      </div>
+      )}
 
       {/* Timing board */}
       <div className="card p-0 overflow-hidden">
@@ -360,6 +368,6 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
         </div>
 
       </div>
-    </div>
+    </>
   );
 }

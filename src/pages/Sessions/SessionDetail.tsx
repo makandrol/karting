@@ -95,6 +95,11 @@ function PhaseView({ phase, track, eventFormat }: { phase: CompetitionPhase; tra
           durationSec={durationSec}
           s1Ratio={s1Ratio}
           onEntriesUpdate={setTrackEntries}
+          renderScrubber={(scrubber) => (
+            <div className="sticky top-16 z-20 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+              {scrubber}
+            </div>
+          )}
         />
       )}
 
