@@ -111,7 +111,7 @@ export function generateKartLaps(kartNumber: number, count: number = 30): KartLa
   return laps.sort((a, b) => a.lapTimeSeconds - b.lapTimeSeconds);
 }
 
-export const ALL_KART_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+export const ALL_KART_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 33, 44, 55, 69, 77, 88];
 
 export const MOCK_KARTS: KartInfo[] = ALL_KART_NUMBERS.map((num) => ({
   number: num,

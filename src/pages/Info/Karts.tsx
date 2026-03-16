@@ -20,6 +20,7 @@ function saveDisabledKarts(set: Set<number>) {
 
 export default function Karts() {
   const [expandedKart, setExpandedKart] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
   // Filter state
   const today = new Date().toISOString().split('T')[0];
@@ -249,6 +250,17 @@ export default function Karts() {
             Карти ({activeKarts.length} активних{inactiveKarts.length > 0 ? `, ${inactiveKarts.length} прихованих` : ''})
           </div>
           <div className="flex items-center gap-2">
+            {/* View toggle */}
+            <div className="flex bg-dark-800 rounded-md p-0.5 mr-2">
+              <button onClick={() => setViewMode('list')}
+                className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'list' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
+                ☰
+              </button>
+              <button onClick={() => setViewMode('grid')}
+                className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'grid' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
+                ▦
+              </button>
+            </div>
             <button onClick={() => { setDisabledKarts(new Set()); }}
               className="text-dark-400 text-[10px] hover:text-white transition-colors">показати всі</button>
             <span className="text-dark-700">|</span>
@@ -259,24 +271,46 @@ export default function Karts() {
           </div>
         </div>
 
-        <div className="space-y-0.5">
-          {activeKarts.map((kart) => (
-            <KartRow key={kart.number} kart={kart} expanded={expandedKart === kart.number}
-              onToggle={() => setExpandedKart(expandedKart === kart.number ? null : kart.number)}
-              onDisable={() => toggleKartDisabled(kart.number)} disabled={false} />
-          ))}
-        </div>
-
-        {/* Inactive karts */}
-        {showDisabled && inactiveKarts.length > 0 && (
-          <div className="mt-3 space-y-0.5 opacity-50">
-            <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-1">Неактивні</div>
-            {inactiveKarts.map((kart) => (
-              <KartRow key={kart.number} kart={kart} expanded={expandedKart === kart.number}
-                onToggle={() => setExpandedKart(expandedKart === kart.number ? null : kart.number)}
-                onDisable={() => toggleKartDisabled(kart.number)} disabled />
-            ))}
-          </div>
+        {viewMode === 'list' ? (
+          <>
+            <div className="space-y-0.5">
+              {activeKarts.map((kart) => (
+                <KartRow key={kart.number} kart={kart} expanded={expandedKart === kart.number}
+                  onToggle={() => setExpandedKart(expandedKart === kart.number ? null : kart.number)}
+                  onDisable={() => toggleKartDisabled(kart.number)} disabled={false} />
+              ))}
+            </div>
+            {showDisabled && inactiveKarts.length > 0 && (
+              <div className="mt-3 space-y-0.5 opacity-50">
+                <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-1">Неактивні</div>
+                {inactiveKarts.map((kart) => (
+                  <KartRow key={kart.number} kart={kart} expanded={expandedKart === kart.number}
+                    onToggle={() => setExpandedKart(expandedKart === kart.number ? null : kart.number)}
+                    onDisable={() => toggleKartDisabled(kart.number)} disabled />
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="grid grid-cols-5 gap-2">
+              {activeKarts.map((kart) => (
+                <KartCard key={kart.number} kart={kart} disabled={false}
+                  onDisable={() => toggleKartDisabled(kart.number)} />
+              ))}
+            </div>
+            {showDisabled && inactiveKarts.length > 0 && (
+              <div className="mt-3 opacity-50">
+                <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-2">Неактивні</div>
+                <div className="grid grid-cols-5 gap-2">
+                  {inactiveKarts.map((kart) => (
+                    <KartCard key={kart.number} kart={kart} disabled
+                      onDisable={() => toggleKartDisabled(kart.number)} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -337,5 +371,37 @@ function KartRow({ kart, expanded, onToggle, onDisable, disabled }: {
         </div>
       )}
     </div>
+  );
+}
+
+function KartCard({ kart, disabled, onDisable }: {
+  kart: { number: number; top5: { pilot: string; bestLap: string; bestLapSec: number }[] };
+  disabled: boolean; onDisable: () => void;
+}) {
+  const best = kart.top5[0];
+  return (
+    <Link to={`/info/karts/${kart.number}`}
+      className={`relative block rounded-xl border p-3 transition-colors ${
+        disabled ? 'border-dark-800 bg-dark-900/50' : 'border-dark-700 bg-dark-800/50 hover:border-dark-600 hover:bg-dark-700/50'
+      }`}
+    >
+      <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDisable(); }}
+        className={`absolute top-1 right-1 text-[10px] px-1 rounded transition-colors ${
+          disabled ? 'text-green-400/50 hover:text-green-400' : 'text-dark-700 hover:text-red-400'
+        }`}>
+        {disabled ? '✓' : '✕'}
+      </button>
+      <div className={`font-mono font-bold text-lg text-center mb-1 ${disabled ? 'text-dark-600' : 'text-white'}`}>
+        {kart.number}
+      </div>
+      {best ? (
+        <div className="text-center">
+          <div className="text-green-400 font-mono text-xs">{best.bestLap}</div>
+          <div className="text-dark-500 text-[10px] truncate">{best.pilot.split(' ')[0]}</div>
+        </div>
+      ) : (
+        <div className="text-dark-700 text-[10px] text-center">—</div>
+      )}
+    </Link>
   );
 }
