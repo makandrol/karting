@@ -27,43 +27,68 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
   const pilots = [...new Set(laps.map(l => l.pilot))];
 
   // Get entries at a given time point
+  // Logic: pilot crosses start/finish → appears with 0 laps, no times
+  // After completing a full lap → lap 1 with time, etc.
   const getEntriesAtTime = useCallback((timeSec: number): TimingEntry[] => {
-    return pilots.map((pilot, idx) => {
-      const pilotLaps = laps.filter(l => l.pilot === pilot);
-      // Simulate: each lap takes ~durationSec/totalLaps
-      const avgLapTime = durationSec / Math.max(pilotLaps.length, 1);
-      const currentLapIdx = Math.min(Math.floor(timeSec / avgLapTime), pilotLaps.length - 1);
-      const currentLap = pilotLaps[currentLapIdx];
-      const progress = currentLapIdx >= 0 ? (timeSec % avgLapTime) / avgLapTime : 0;
+    if (timeSec <= 0) return []; // Board is empty at start
 
-      // Find best lap so far
+    const result: TimingEntry[] = [];
+
+    for (let idx = 0; idx < pilots.length; idx++) {
+      const pilot = pilots[idx];
+      const pilotLaps = laps.filter(l => l.pilot === pilot);
+      if (pilotLaps.length === 0) continue;
+
+      // Each pilot crosses start/finish with a small stagger (2s apart)
+      const enterTime = idx * 2;
+      if (timeSec < enterTime) continue; // Not on track yet
+
+      const elapsed = timeSec - enterTime;
+      const avgLapTime = (durationSec - 15) / Math.max(pilotLaps.length, 1);
+
+      // completedLaps = how many full laps finished
+      const completedLaps = Math.min(Math.floor(elapsed / avgLapTime), pilotLaps.length);
+      const progress = (elapsed % avgLapTime) / avgLapTime;
+
+      // Last completed lap data (the one that just finished)
+      const lastCompletedLap = completedLaps > 0 ? pilotLaps[completedLaps - 1] : null;
+
+      // Find best lap among completed laps
       let bestLap = '';
       let bestLapSec = Infinity;
-      for (let i = 0; i <= currentLapIdx; i++) {
+      for (let i = 0; i < completedLaps; i++) {
         const lt = parseFloat(pilotLaps[i]?.lapTime || '999');
         if (lt < bestLapSec) { bestLapSec = lt; bestLap = pilotLaps[i]?.lapTime || ''; }
       }
 
-      return {
+      result.push({
         position: idx + 1,
         pilot,
-        kart: currentLap?.kart || 0,
-        lastLap: currentLap?.lapTime || null,
-        s1: currentLap?.s1 || null,
-        s2: currentLap?.s2 || null,
+        kart: pilotLaps[0]?.kart || 0,
+        lastLap: lastCompletedLap?.lapTime || null,
+        s1: lastCompletedLap?.s1 || null,
+        s2: lastCompletedLap?.s2 || null,
         bestLap: bestLap || null,
-        lapNumber: currentLapIdx + 1,
+        lapNumber: completedLaps,
         bestS1: null,
         bestS2: null,
         progress,
         currentLapSec: null,
         previousLapSec: null,
-      };
-    }).sort((a, b) => {
-      const aT = parseFloat(a.bestLap || '999');
-      const bT = parseFloat(b.bestLap || '999');
-      return aT - bT;
-    }).map((e, i) => ({ ...e, position: i + 1 }));
+      });
+    }
+
+    return result
+      .sort((a, b) => {
+        // Pilots with completed laps first, then by best time
+        if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
+        if (a.lapNumber === 0) return 1;
+        if (b.lapNumber === 0) return -1;
+        const aT = parseFloat(a.bestLap || '999');
+        const bT = parseFloat(b.bestLap || '999');
+        return aT - bT;
+      })
+      .map((e, i) => ({ ...e, position: i + 1 }));
   }, [laps, pilots, durationSec]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
