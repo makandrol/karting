@@ -66,7 +66,7 @@ export default function SessionDetail() {
       </div>
 
       {activePhase ? (
-        <PhaseView phase={activePhase} track={track} eventFormat={event.format} />
+        <PhaseView phase={activePhase} track={track} eventFormat={event.format} eventDate={event.date} />
       ) : (
         <div className="card text-center py-8 text-dark-500 text-sm">
           Виберіть фазу для перегляду
@@ -80,9 +80,9 @@ export default function SessionDetail() {
 // Phase View — all sections
 // ============================================================
 
-function PhaseView({ phase, track, eventFormat }: { phase: CompetitionPhase; track: any; eventFormat: string }) {
+function PhaseView({ phase, track, eventFormat, eventDate }: { phase: CompetitionPhase; track: any; eventFormat: string; eventDate: string }) {
   const isLeagueRace = phase.type === 'race' && ['light_league', 'champions_league'].includes(eventFormat);
-  const [replayProgress, setReplayProgress] = useState(0); // 0..1
+  const [replayTime, setReplayTime] = useState(0); // seconds
 
   // Replay data
   const replayLaps = phase.results.flatMap(r =>
@@ -91,46 +91,43 @@ function PhaseView({ phase, track, eventFormat }: { phase: CompetitionPhase; tra
   const maxLaps = Math.max(...phase.results.map(r => r.laps.length), 1);
   const avgLapSec = phase.results[0]?.laps[0]?.lapTimeSec || 42;
   const durationSec = maxLaps * avgLapSec + 30;
+  const replayProgress = durationSec > 0 ? replayTime / durationSec : 0;
 
-  // Track entries synced with replay
+  // Track entries — empty until replay starts, so karts don't animate
   const trackEntries: TimingEntry[] = useMemo(() => {
+    if (replayTime <= 0) return []; // No karts on track until play
     const pilots = [...new Set(phase.results.map(r => r.pilot))];
     return pilots.map((pilot, idx) => ({
       position: idx + 1, pilot,
       kart: replayLaps.find(l => l.pilot === pilot)?.kart || 0,
       lastLap: null, s1: null, s2: null, bestLap: null,
       lapNumber: 1, bestS1: null, bestS2: null,
-      progress: replayProgress > 0 ? ((replayProgress * maxLaps + idx * 0.05) % 1) : 0,
+      progress: ((replayProgress * maxLaps + idx * 0.05) % 1),
       currentLapSec: null, previousLapSec: null,
     }));
-  }, [replayProgress, phase.results, replayLaps, maxLaps]);
+  }, [replayTime, replayProgress, phase.results, replayLaps, maxLaps]);
 
   return (
     <div className="space-y-6">
       {/* 0. Race results (only for LL/CL races) */}
       {isLeagueRace && <RaceResults phase={phase} />}
 
-      {/* 1. All laps by pilots */}
-      <LapsGrid phase={phase} />
-
-      {/* 2. Replay — always visible */}
+      {/* 1. Replay player (timeline) */}
       {replayLaps.length > 0 && (
-        <div className="space-y-4">
-          <SessionReplay
-            laps={replayLaps}
-            durationSec={durationSec}
-            title={phase.name}
-            onTimeUpdate={(t) => setReplayProgress(t / durationSec)}
-          />
-
-          {track?.svgPath && (
-            <div>
-              <div className="text-dark-500 text-xs mb-2">Трек</div>
-              <TrackMap track={track} entries={trackEntries} />
-            </div>
-          )}
-        </div>
+        <SessionReplay
+          laps={replayLaps}
+          durationSec={durationSec}
+          title={phase.name}
+          baseDate={eventDate}
+          onTimeUpdate={setReplayTime}
+        />
       )}
+
+      {/* 2. Track map */}
+      {track?.svgPath && <TrackMap track={track} entries={trackEntries} />}
+
+      {/* 3. All laps by pilots */}
+      <LapsGrid phase={phase} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import type { TimingEntry } from '../../types';
 
 interface ReplayEvent {
@@ -11,10 +11,12 @@ interface SessionReplayProps {
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number }[];
   durationSec: number;
   title: string;
+  /** Базова дата/час заїзду для відображення "Симуляція: DD.MM.YYYY, HH:MM:SS" */
+  baseDate?: string;
   onTimeUpdate?: (timeSec: number) => void;
 }
 
-export default function SessionReplay({ laps, durationSec, title, onTimeUpdate }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, title, baseDate, onTimeUpdate }: SessionReplayProps) {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0); // seconds
   const [speed, setSpeed] = useState(1);
@@ -103,12 +105,31 @@ export default function SessionReplay({ laps, durationSec, title, onTimeUpdate }
     return `${m}:${String(s).padStart(2, '0')}`;
   };
 
+  // Simulation datetime display
+  const simDateTime = useMemo(() => {
+    if (!baseDate) return null;
+    // Parse date string (YYYY-MM-DD or full ISO)
+    const base = new Date(baseDate);
+    // If date-only (no time component), add default start time 19:00
+    if (baseDate.length <= 10) base.setHours(19, 0, 0, 0);
+    const sim = new Date(base.getTime() + currentTime * 1000);
+    const dd = String(sim.getDate()).padStart(2, '0');
+    const mm = String(sim.getMonth() + 1).padStart(2, '0');
+    const yyyy = sim.getFullYear();
+    const hh = String(sim.getHours()).padStart(2, '0');
+    const min = String(sim.getMinutes()).padStart(2, '0');
+    const ss = String(sim.getSeconds()).padStart(2, '0');
+    return `${dd}.${mm}.${yyyy}, ${hh}:${min}:${ss}`;
+  }, [baseDate, Math.floor(currentTime)]);
+
   return (
     <div className="card p-0 overflow-hidden">
       {/* Player header */}
       <div className="px-4 py-3 border-b border-dark-800">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-white font-semibold text-sm">▶ Симуляція: {title}</h3>
+          <h3 className="text-white font-semibold text-sm">
+            {simDateTime ? `Симуляція: ${simDateTime}` : `▶ Симуляція: ${title}`}
+          </h3>
           <span className="text-dark-500 text-xs font-mono">{formatTime(currentTime)} / {formatTime(durationSec)}</span>
         </div>
 
