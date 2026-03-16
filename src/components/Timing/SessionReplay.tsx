@@ -317,7 +317,7 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
 
               return (
                 <tr key={e.pilot} className="table-row">
-                  <td className={`table-cell text-center font-mono font-bold ${notStarted ? 'text-dark-600' : e.position <= 3 ? `position-${e.position}` : 'text-dark-400'}`}>
+                  <td className="table-cell text-center font-mono font-bold text-dark-400">
                     {notStarted ? '—' : e.position}
                   </td>
                   <td className="table-cell text-left py-2">
@@ -326,17 +326,12 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
                         {e.pilot}
                       </Link>
                     </div>
-                    {!notStarted && e.progress !== null && (
-                      <div className="mt-1 h-[3px] w-full bg-dark-800 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-700 ease-linear ${
-                            e.position === 1 ? 'bg-yellow-500/70' :
-                            e.position <= 3 ? 'bg-primary-500/50' : 'bg-dark-500/50'
-                          }`}
-                          style={{ width: `${Math.round(e.progress * 100)}%` }}
-                        />
-                      </div>
-                    )}
+                    <div className="mt-1 h-[3px] w-full bg-dark-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-700 ease-linear bg-yellow-500/60"
+                        style={{ width: `${!notStarted && e.progress !== null ? Math.round(e.progress * 100) : 0}%` }}
+                      />
+                    </div>
                   </td>
                   <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
