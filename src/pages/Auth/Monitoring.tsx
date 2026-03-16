@@ -163,7 +163,7 @@ export default function Monitoring() {
                       <tr className="table-header">
                         <th className="table-cell text-left">Дата</th>
                         <th className="table-cell text-right">Перегляди</th>
-                        <th className="table-cell text-right">Унік. IP</th>
+                        <th className="table-cell text-right">Сесій</th>
                         <th className="table-cell text-right">Авторизованих</th>
                       </tr>
                     </thead>
@@ -172,7 +172,7 @@ export default function Monitoring() {
                         <tr key={d.date} className="table-row">
                           <td className="table-cell text-left font-mono text-dark-200">{d.date}</td>
                           <td className="table-cell text-right font-mono text-white font-semibold">{d.views}</td>
-                          <td className="table-cell text-right font-mono text-dark-300">{d.unique_ips}</td>
+                          <td className="table-cell text-right font-mono text-dark-300">{d.unique_sessions}</td>
                           <td className="table-cell text-right font-mono text-dark-400">{d.users}</td>
                         </tr>
                       ))}
@@ -223,6 +223,45 @@ export default function Monitoring() {
                             <td className="table-cell text-left font-mono text-dark-200">{u.user_email}</td>
                             <td className="table-cell text-left text-dark-300">{u.user_name || '—'}</td>
                             <td className="table-cell text-right font-mono text-dark-500">{new Date(u.last_seen).toLocaleString('uk-UA')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {/* Visitor sessions with duration */}
+              {analytics.visitorSessions?.length > 0 && (
+                <>
+                  <h4 className="text-dark-300 text-xs font-semibold">Останні сесії відвідувачів</h4>
+                  <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0">
+                        <tr className="table-header">
+                          <th className="table-cell text-left">Користувач</th>
+                          <th className="table-cell text-center">Сторінок</th>
+                          <th className="table-cell text-right">Тривалість</th>
+                          <th className="table-cell text-right">Час</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analytics.visitorSessions.map((s: any) => (
+                          <tr key={s.session_id} className="table-row">
+                            <td className="table-cell text-left text-dark-200">
+                              {s.user_email || <span className="text-dark-500">анонім</span>}
+                            </td>
+                            <td className="table-cell text-center font-mono text-dark-300">{s.page_count}</td>
+                            <td className={`table-cell text-right font-mono font-semibold ${
+                              s.durationMin >= 5 ? 'text-green-400' : s.durationMin >= 1 ? 'text-yellow-400' : 'text-dark-400'
+                            }`}>
+                              {s.durationMin >= 60 ? `${Math.floor(s.durationMin / 60)}г ${Math.round(s.durationMin % 60)}хв` :
+                               s.durationMin >= 1 ? `${s.durationMin.toFixed(1)} хв` :
+                               `${Math.round(s.duration_sec || 0)}с`}
+                            </td>
+                            <td className="table-cell text-right font-mono text-dark-500">
+                              {new Date(s.last_seen).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

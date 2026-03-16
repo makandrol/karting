@@ -79,14 +79,26 @@ db.exec(`
     ts INTEGER NOT NULL,
     date TEXT NOT NULL,
     path TEXT NOT NULL,
+    session_id TEXT,
     user_email TEXT,
     user_name TEXT,
     user_agent TEXT,
     ip TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS visitor_sessions (
+    session_id TEXT PRIMARY KEY,
+    first_seen INTEGER NOT NULL,
+    last_seen INTEGER NOT NULL,
+    page_count INTEGER DEFAULT 1,
+    user_email TEXT,
+    user_name TEXT,
+    date TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_pv_date ON page_views(date);
   CREATE INDEX IF NOT EXISTS idx_pv_email ON page_views(user_email);
+  CREATE INDEX IF NOT EXISTS idx_vs_date ON visitor_sessions(date);
 `);
 
 // ============================================================
@@ -112,11 +124,17 @@ const stmts = {
   // Cleanup: delete all events older than N days for non-competition sessions
   cleanupOldEvents: db.prepare("DELETE FROM events WHERE ts < ? AND event_type NOT IN ('lap', 's1', 'snapshot')"),
   // Analytics
-  insertPageView: db.prepare('INSERT INTO page_views (ts, date, path, user_email, user_name, user_agent, ip) VALUES (?, ?, ?, ?, ?, ?, ?)'),
-  getPageViewsByDate: db.prepare('SELECT date, COUNT(*) as views, COUNT(DISTINCT user_email) as users, COUNT(DISTINCT ip) as unique_ips FROM page_views WHERE date >= ? GROUP BY date ORDER BY date'),
+  insertPageView: db.prepare('INSERT INTO page_views (ts, date, path, session_id, user_email, user_name, user_agent, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
+  upsertVisitorSession: db.prepare(`INSERT INTO visitor_sessions (session_id, first_seen, last_seen, page_count, user_email, user_name, date) 
+    VALUES (?, ?, ?, 1, ?, ?, ?) 
+    ON CONFLICT(session_id) DO UPDATE SET last_seen = excluded.last_seen, page_count = page_count + CASE WHEN excluded.page_count > 0 THEN 1 ELSE 0 END, 
+    user_email = COALESCE(excluded.user_email, user_email), user_name = COALESCE(excluded.user_name, user_name)`),
+  updateVisitorHeartbeat: db.prepare('UPDATE visitor_sessions SET last_seen = ? WHERE session_id = ?'),
+  getPageViewsByDate: db.prepare('SELECT date, COUNT(*) as views, COUNT(DISTINCT user_email) as users, COUNT(DISTINCT session_id) as unique_sessions FROM page_views WHERE date >= ? GROUP BY date ORDER BY date'),
   getPageViewsByPath: db.prepare('SELECT path, COUNT(*) as views FROM page_views WHERE date >= ? GROUP BY path ORDER BY views DESC LIMIT 20'),
   getRecentUsers: db.prepare("SELECT DISTINCT user_email, user_name, MAX(ts) as last_seen FROM page_views WHERE user_email IS NOT NULL AND user_email != '' GROUP BY user_email ORDER BY last_seen DESC LIMIT 50"),
   getTotalPageViews: db.prepare('SELECT COUNT(*) as cnt FROM page_views'),
+  getVisitorSessions: db.prepare('SELECT *, (last_seen - first_seen) / 1000 as duration_sec FROM visitor_sessions WHERE date >= ? ORDER BY last_seen DESC LIMIT 100'),
 };
 
 // ============================================================
@@ -195,21 +213,40 @@ export const storage = {
     return result.changes;
   },
 
-  /** Записати перегляд сторінки */
+  /** Записати аналітику (pageview або heartbeat) */
   trackPageView(data) {
     const now = Date.now();
     const date = new Date(now).toISOString().split('T')[0];
-    stmts.insertPageView.run(now, date, data.path || '/', data.email || null, data.name || null, data.userAgent || null, data.ip || null);
+    const sid = data.sessionId || null;
+
+    if (data.type === 'heartbeat') {
+      // Just update last_seen
+      if (sid) stmts.updateVisitorHeartbeat.run(now, sid);
+      return;
+    }
+
+    // Page view
+    stmts.insertPageView.run(now, date, data.path || '/', sid, data.email || null, data.name || null, data.userAgent || null, data.ip || null);
+
+    // Upsert visitor session
+    if (sid) {
+      stmts.upsertVisitorSession.run(sid, now, now, data.email || null, data.name || null, date);
+    }
   },
 
   /** Отримати аналітику за N днів */
   getAnalytics(days = 7) {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const sessions = stmts.getVisitorSessions.all(since);
     return {
       byDate: stmts.getPageViewsByDate.all(since),
       byPath: stmts.getPageViewsByPath.all(since),
       recentUsers: stmts.getRecentUsers.all(),
       totalPageViews: stmts.getTotalPageViews.get()?.cnt || 0,
+      visitorSessions: sessions.map(s => ({
+        ...s,
+        durationMin: Math.round((s.duration_sec || 0) / 60 * 10) / 10,
+      })),
     };
   },
 
