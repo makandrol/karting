@@ -276,7 +276,7 @@ export default function Karts() {
           <div className="flex items-center gap-2">
             {/* Rank by N best laps */}
             <label className="text-dark-400 text-[10px] flex items-center gap-1">
-              по
+              Рейтинг по середньому з
               <input type="text" inputMode="numeric" value={topNInput}
                 onChange={e => setTopNInput(e.target.value.replace(/\D/g, ''))}
                 onFocus={() => setTopNPrev(topNInput)}
@@ -286,14 +286,20 @@ export default function Karts() {
                   setTopN(v);
                 }}
                 className="w-8 bg-dark-800 border border-dark-700 text-white rounded px-1 py-0.5 outline-none focus:border-primary-500 text-[10px] text-center" />
-              {topN === 1 ? 'колу' : 'колам'}
+              кіл
             </label>
             <span className="text-dark-700">|</span>
-            {/* Sort */}
-            <button onClick={() => setSortByRank(v => !v)}
-              className={`text-[10px] transition-colors ${sortByRank ? 'text-primary-400' : 'text-dark-400 hover:text-white'}`}>
-              {sortByRank ? '↓ за рейтингом' : '↓ сортувати'}
-            </button>
+            {/* Sort toggle */}
+            <div className="flex bg-dark-800 rounded-md p-0.5">
+              <button onClick={() => setSortByRank(false)}
+                className={`px-2 py-0.5 text-[10px] rounded transition-colors ${!sortByRank ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
+                по номеру
+              </button>
+              <button onClick={() => setSortByRank(true)}
+                className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortByRank ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
+                по швидкості
+              </button>
+            </div>
             <span className="text-dark-700">|</span>
             {/* View toggle */}
             <div className="flex bg-dark-800 rounded-md p-0.5">
