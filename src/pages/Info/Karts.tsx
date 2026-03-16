@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { MOCK_KARTS } from '../../mock/timingData';
 import { ALL_COMPETITION_EVENTS } from '../../mock/competitionEvents';
 import { SessionCheckboxRows } from '../../components/Sessions/SessionRows';
+import { ALL_KART_NUMBERS } from '../../mock/timingData';
 
 export default function Karts() {
   const [expandedKart, setExpandedKart] = useState<number | null>(null);
@@ -58,6 +58,45 @@ export default function Karts() {
   const clearAllStats = () => { setStatSessionIds(new Set()); setSelectedToRemove(new Set()); };
 
   const statSessions = ALL_COMPETITION_EVENTS.filter(e => statSessionIds.has(e.id));
+
+  // Compute kart stats from selected stat sessions
+  const kartStats = useMemo(() => {
+    const byKart = new Map<number, { pilot: string; bestLap: string; bestLapSec: number }[]>();
+
+    for (const ev of statSessions) {
+      for (const phase of ev.phases) {
+        for (const result of phase.results) {
+          if (!result.kart || result.kart === 0) continue;
+          if (!byKart.has(result.kart)) byKart.set(result.kart, []);
+          // Best lap from this result's laps
+          for (const lap of result.laps) {
+            byKart.get(result.kart)!.push({
+              pilot: result.pilot,
+              bestLap: lap.lapTime,
+              bestLapSec: lap.lapTimeSec,
+            });
+          }
+        }
+      }
+    }
+
+    // For each kart: deduplicate and get top 5
+    const stats: { number: number; top5: { pilot: string; bestLap: string; bestLapSec: number }[] }[] = [];
+
+    for (const kartNum of ALL_KART_NUMBERS) {
+      const entries = byKart.get(kartNum) || [];
+      // Group by pilot, take best per pilot
+      const pilotBest = new Map<string, { pilot: string; bestLap: string; bestLapSec: number }>();
+      for (const e of entries) {
+        const prev = pilotBest.get(e.pilot);
+        if (!prev || e.bestLapSec < prev.bestLapSec) pilotBest.set(e.pilot, e);
+      }
+      const top5 = [...pilotBest.values()].sort((a, b) => a.bestLapSec - b.bestLapSec).slice(0, 5);
+      stats.push({ number: kartNum, top5 });
+    }
+
+    return stats;
+  }, [statSessions]);
 
   return (
     <div className="space-y-6">
@@ -173,53 +212,57 @@ export default function Karts() {
         )}
       </div>
 
-      {/* Kart list */}
-      <div className="space-y-0.5">
-        {MOCK_KARTS.map((kart) => {
-          const isExpanded = expandedKart === kart.number;
-          const best = kart.top5[0];
+      {/* Kart list — computed from stats sessions */}
+      {statSessions.length === 0 ? (
+        <div className="text-dark-600 text-xs text-center py-4">Додайте заїзди для перегляду статистики картів</div>
+      ) : (
+        <div className="space-y-0.5">
+          {kartStats.filter(k => k.top5.length > 0).map((kart) => {
+            const isExpanded = expandedKart === kart.number;
+            const best = kart.top5[0];
 
-          return (
-            <div key={kart.number}>
-              <button
-                onClick={() => setExpandedKart(isExpanded ? null : kart.number)}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors group"
-              >
-                <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
-                  <span className={`transition-transform inline-block text-[8px] text-dark-500 mr-2 ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
-                  Карт #{kart.number}
-                </span>
-                {best && (
-                  <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-                    {best.pilot.split(' ')[0]} — <span className="text-green-400">{best.bestLap}</span>
+            return (
+              <div key={kart.number}>
+                <button
+                  onClick={() => setExpandedKart(isExpanded ? null : kart.number)}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors group"
+                >
+                  <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
+                    <span className={`transition-transform inline-block text-[8px] text-dark-500 mr-2 ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                    Карт #{kart.number}
                   </span>
-                )}
-              </button>
+                  {best && (
+                    <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
+                      {best.pilot.split(' ')[0]} — <span className="text-green-400">{best.bestLap}</span>
+                    </span>
+                  )}
+                </button>
 
-              {isExpanded && (
-                <div className="ml-6 mb-2 space-y-0.5">
-                  {kart.top5.map((result, idx) => (
-                    <div key={`${result.pilot}-${idx}`} className="flex items-center justify-between px-3 py-1 text-xs">
-                      <span>
-                        <span className={`font-mono font-bold mr-2 ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : 'text-dark-500'}`}>
-                          {idx + 1}
+                {isExpanded && (
+                  <div className="ml-6 mb-2 space-y-0.5">
+                    {kart.top5.map((result, idx) => (
+                      <div key={`${result.pilot}-${idx}`} className="flex items-center justify-between px-3 py-1 text-xs">
+                        <span>
+                          <span className={`font-mono font-bold mr-2 ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : 'text-dark-500'}`}>
+                            {idx + 1}
+                          </span>
+                          <Link to={`/pilots/${encodeURIComponent(result.pilot)}`} className="text-dark-300 hover:text-primary-400 transition-colors">
+                            {result.pilot}
+                          </Link>
                         </span>
-                        <Link to={`/pilots/${encodeURIComponent(result.pilot)}`} className="text-dark-300 hover:text-primary-400 transition-colors">
-                          {result.pilot}
-                        </Link>
-                      </span>
-                      <span className="font-mono text-green-400">{result.bestLap}</span>
-                    </div>
-                  ))}
-                  <Link to={`/info/karts/${kart.number}`} className="text-primary-400 hover:text-primary-300 text-xs px-3 py-1 inline-block">
-                    Детальніше →
-                  </Link>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                        <span className="font-mono text-green-400">{result.bestLap}</span>
+                      </div>
+                    ))}
+                    <Link to={`/info/karts/${kart.number}`} className="text-primary-400 hover:text-primary-300 text-xs px-3 py-1 inline-block">
+                      Детальніше →
+                    </Link>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
