@@ -34,8 +34,6 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
 
   // Get entries at a given time point using actual per-lap durations
   const getEntriesAtTime = useCallback((timeSec: number): TimingEntry[] => {
-    if (timeSec <= 0) return [];
-
     const result: TimingEntry[] = [];
 
     for (let idx = 0; idx < pilots.length; idx++) {
@@ -45,7 +43,19 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
 
       // Stagger: each pilot crosses start/finish 2s apart
       const enterTime = idx * 2;
-      if (timeSec < enterTime) continue;
+      const onTrack = timeSec >= enterTime && timeSec > 0;
+
+      if (!onTrack) {
+        // Pilot known but not yet on track — show name only
+        result.push({
+          position: idx + 1, pilot,
+          kart: 0, lastLap: null, s1: null, s2: null, bestLap: null,
+          lapNumber: -1, // -1 = not started
+          bestS1: null, bestS2: null, progress: null,
+          currentLapSec: null, previousLapSec: null,
+        });
+        continue;
+      }
 
       const elapsed = timeSec - enterTime;
 
@@ -120,6 +130,11 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
 
     return result
       .sort((a, b) => {
+        // Not started at the bottom
+        if (a.lapNumber < 0 && b.lapNumber < 0) return 0;
+        if (a.lapNumber < 0) return 1;
+        if (b.lapNumber < 0) return -1;
+        // Then by completed laps (more = higher), then by best time
         if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
         if (a.lapNumber === 0) return 1;
         if (b.lapNumber === 0) return -1;
@@ -203,20 +218,22 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
               <th className="table-cell text-center w-8">#</th>
               <th className="table-cell text-left">Пілот</th>
               <th className="table-cell text-center">Карт</th>
-              <th className="table-cell text-right">Коло</th>
+              <th className="table-cell text-right">Час</th>
               <th className="table-cell text-right">S1</th>
               <th className="table-cell text-right">S2</th>
               <th className="table-cell text-right">Найкраще</th>
-              <th className="table-cell text-center">Л</th>
+              <th className="table-cell text-center">К</th>
             </tr>
           </thead>
           <tbody>
-            {entries.map((e) => (
+            {entries.map((e) => {
+              const notStarted = e.lapNumber < 0;
+              return (
               <tr key={e.pilot} className="table-row">
-                <td className={`table-cell text-center font-mono font-bold ${e.position <= 3 ? `position-${e.position}` : 'text-dark-400'}`}>{e.position}</td>
+                <td className={`table-cell text-center font-mono font-bold ${notStarted ? 'text-dark-600' : e.position <= 3 ? `position-${e.position}` : 'text-dark-400'}`}>{notStarted ? '—' : e.position}</td>
                 <td className="table-cell text-left py-2">
-                  <div className="font-medium text-sm leading-tight text-white">{e.pilot}</div>
-                  {e.progress !== null && (
+                  <div className={`font-medium text-sm leading-tight ${notStarted ? 'text-dark-500' : 'text-white'}`}>{e.pilot}</div>
+                  {!notStarted && e.progress !== null && (
                     <div className="mt-1 h-[3px] w-full bg-dark-800 rounded-full overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all duration-700 ease-linear ${
@@ -228,14 +245,15 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
                     </div>
                   )}
                 </td>
-                <td className="table-cell text-center font-mono text-dark-300">{e.kart || '—'}</td>
-                <td className="table-cell text-right font-mono text-dark-200">{e.lastLap || '—'}</td>
-                <td className="table-cell text-right font-mono text-dark-400">{e.s1 || '—'}</td>
-                <td className="table-cell text-right font-mono text-dark-400">{e.s2 || '—'}</td>
-                <td className="table-cell text-right font-mono text-green-400 font-semibold">{e.bestLap || '—'}</td>
-                <td className="table-cell text-center font-mono text-dark-500">{e.lapNumber}</td>
+                <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
+                <td className="table-cell text-right font-mono text-dark-200">{notStarted ? '' : (e.lastLap || '—')}</td>
+                <td className="table-cell text-right font-mono text-dark-400">{notStarted ? '' : (e.s1 || '—')}</td>
+                <td className="table-cell text-right font-mono text-dark-400">{notStarted ? '' : (e.s2 || '—')}</td>
+                <td className="table-cell text-right font-mono text-green-400 font-semibold">{notStarted ? '' : (e.bestLap || '—')}</td>
+                <td className="table-cell text-center font-mono text-dark-500">{notStarted ? '' : e.lapNumber}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
