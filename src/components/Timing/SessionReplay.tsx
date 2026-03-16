@@ -359,12 +359,6 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
         </table>
         </div>
 
-        {/* Color legend */}
-        <div className="px-4 py-2 border-t border-dark-800 flex items-center gap-3 text-[10px]">
-          <span className="text-purple-400">■ Абсолют</span>
-          <span className="text-green-400">■ Особистий</span>
-          <span className="text-yellow-400">■ Повільніше</span>
-        </div>
       </div>
     </div>
   );
