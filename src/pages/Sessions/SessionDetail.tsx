@@ -7,7 +7,11 @@ export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   // Try to find as competition event
   const event = getEventById(sessionId || '');
-  const [activePhaseId, setActivePhaseId] = useState<string | null>(null);
+  const [activePhaseId, setActivePhaseId] = useState<string | null>(() => {
+    // Auto-select first phase if only one (prokat)
+    if (event && event.phases.length === 1) return event.phases[0].id;
+    return null;
+  });
 
   if (!event) {
     return (

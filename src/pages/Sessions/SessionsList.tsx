@@ -207,8 +207,10 @@ export default function SessionsList() {
             {events.map((ev) => {
               const urlType = FORMAT_MAP[ev.format] || ev.format;
               const dateFormatted = fmtDate(ev.date);
+              const isProkat = ev.name === 'Прокат' || !['gonzales', 'light_league', 'champions_league'].includes(ev.format);
+              const href = isProkat ? `/sessions/${ev.id}` : `/results/${urlType}/${ev.id}`;
               return (
-                <Link key={ev.id} to={`/results/${urlType}/${ev.id}`}
+                <Link key={ev.id} to={href}
                   className="card flex items-center justify-between hover:border-dark-600 transition-colors group">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-dark-800 rounded-xl flex items-center justify-center text-xl group-hover:bg-primary-600 transition-colors">
