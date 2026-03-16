@@ -64,10 +64,13 @@ function fmtLap(sec: number): string {
   return sec.toFixed(3);
 }
 
+// S1 ratio from track 1: 18.2s / 42s = 0.4333
+const S1_RATIO = 0.4333;
+
 function genLaps(count: number, base: number): PhaseLap[] {
   return Array.from({ length: count }, (_, i) => {
     const sec = base + (Math.random() - 0.3) * 2;
-    const s1 = sec * (0.32 + Math.random() * 0.02);
+    const s1 = sec * (S1_RATIO + (Math.random() - 0.5) * 0.02);
     return { lapNumber: i + 1, lapTime: fmtLap(sec), lapTimeSec: sec, s1: s1.toFixed(3), s2: (sec - s1).toFixed(3) };
   });
 }
