@@ -140,6 +140,27 @@ export let ALL_COMPETITION_EVENTS: CompetitionEvent[] = [
   generateGonzalesEvent('gonz-3', 'Гонзалес Раунд 3', '2025-03-10', 1),
   generateLightLeagueEvent('ll-2026-1', 'Лайт Ліга 2026 Етап 1', '2026-01-20', 1),
   generateLightLeagueEvent('ll-2026-2', 'Лайт Ліга 2026 Етап 2', '2026-02-17', 5),
+  // Test: прокат сьогодні і вчора
+  {
+    id: 'prokat-today-1', format: 'sprint' as CompetitionFormat, name: 'Прокат',
+    date: new Date().toISOString().split('T')[0], trackConfigId: 1,
+    phases: [{ id: 'pt1', type: 'race' as const, name: 'Заїзд 1', results: genPhaseResults(PILOTS.slice(0, 6), 42) }],
+  },
+  {
+    id: 'prokat-today-2', format: 'sprint' as CompetitionFormat, name: 'Прокат',
+    date: new Date().toISOString().split('T')[0], trackConfigId: 1,
+    phases: [{ id: 'pt2', type: 'race' as const, name: 'Заїзд 2', results: genPhaseResults(PILOTS.slice(0, 8), 41.5) }],
+  },
+  {
+    id: 'prokat-yest-1', format: 'sprint' as CompetitionFormat, name: 'Прокат',
+    date: new Date(Date.now() - 86400000).toISOString().split('T')[0], trackConfigId: 1,
+    phases: [{ id: 'py1', type: 'race' as const, name: 'Заїзд 1', results: genPhaseResults(PILOTS.slice(0, 5), 43) }],
+  },
+  {
+    id: 'prokat-yest-2', format: 'sprint' as CompetitionFormat, name: 'Прокат',
+    date: new Date(Date.now() - 86400000).toISOString().split('T')[0], trackConfigId: 1,
+    phases: [{ id: 'py2', type: 'race' as const, name: 'Заїзд 2', results: genPhaseResults(PILOTS.slice(0, 10), 42) }],
+  },
   // CL 2026 (mock)
   generateChampionsLeagueEvent('cl-2026-1', 'Ліга Чемпіонів 2026 Етап 1', '2026-02-01', 3),
   generateChampionsLeagueEvent('cl-2026-2', 'Ліга Чемпіонів 2026 Етап 2', '2026-03-08', 1),
