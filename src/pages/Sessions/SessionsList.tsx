@@ -5,9 +5,6 @@ import { ALL_COMPETITION_EVENTS } from '../../mock/competitionEvents';
 const FORMAT_MAP: Record<string, string> = {
   gonzales: 'gonzales', light_league: 'light-league', champions_league: 'champions-league',
 };
-const FORMAT_ICON: Record<string, string> = {
-  gonzales: '🏆', light_league: '⭐', champions_league: '👑',
-};
 const MONTH_NAMES = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
 const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
@@ -17,11 +14,12 @@ function getMonday(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), diff);
 }
 
-function fmtDate(d: string): string {
-  return new Date(d).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' });
+function fmtDateShort(d: string): string {
+  const dt = new Date(d);
+  return `${String(dt.getDate()).padStart(2, '0')}.${String(dt.getMonth() + 1).padStart(2, '0')}.${dt.getFullYear()}`;
 }
 
-function fmtShort(d: string): string {
+function fmtDayBtn(d: string): string {
   const dt = new Date(d);
   return `${DAY_NAMES[dt.getDay()]} ${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}`;
 }
@@ -30,7 +28,6 @@ export default function SessionsList() {
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
 
-  // All unique dates with events
   const allDates = useMemo(() => {
     const set = new Set(ALL_COMPETITION_EVENTS.map(e => e.date));
     return [...set].sort().reverse();
@@ -38,15 +35,14 @@ export default function SessionsList() {
 
   const [selectedDate, setSelectedDate] = useState(allDates[0] || todayStr);
 
-  // Week boundaries
+  // Week boundaries (Monday start)
   const thisMonday = getMonday(today);
   const prevMonday = new Date(thisMonday);
   prevMonday.setDate(prevMonday.getDate() - 7);
 
-  // Categorize dates
   const thisWeekDates: string[] = [];
   const prevWeekDates: string[] = [];
-  const olderByYearMonth = new Map<string, Map<string, string[]>>(); // year → month → dates
+  const olderByYearMonth = new Map<string, Map<string, string[]>>();
 
   for (const d of allDates) {
     const dt = new Date(d);
@@ -64,29 +60,14 @@ export default function SessionsList() {
     }
   }
 
-  // Tree expand state — current year expanded by default
-  const currentYear = String(new Date().getFullYear());
-  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set([currentYear]));
-  const currentYearMonths = olderByYearMonth.get(currentYear);
-  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(() => {
-    const set = new Set<string>();
-    if (currentYearMonths) {
-      for (const monthIdx of currentYearMonths.keys()) {
-        set.add(`${currentYear}-${monthIdx}`);
-      }
-    }
-    return set;
-  });
+  // Expand state: previous week collapsed, current year collapsed (months expanded when opened)
+  const [prevWeekOpen, setPrevWeekOpen] = useState(false);
+  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
 
   const toggleYear = (y: string) => {
     const next = new Set(expandedYears);
     next.has(y) ? next.delete(y) : next.add(y);
     setExpandedYears(next);
-  };
-  const toggleMonth = (key: string) => {
-    const next = new Set(expandedMonths);
-    next.has(key) ? next.delete(key) : next.add(key);
-    setExpandedMonths(next);
   };
 
   const events = ALL_COMPETITION_EVENTS.filter(e => e.date === selectedDate);
@@ -104,13 +85,13 @@ export default function SessionsList() {
           'bg-dark-900 text-dark-700 cursor-default'
         }`}
       >
-        {label || fmtShort(d)}
+        {label || fmtDayBtn(d)}
         {isToday && d !== selectedDate && <span className="ml-1 text-[9px]">•</span>}
       </button>
     );
   };
 
-  // Generate days for a week (only up to today)
+  // Generate week days Mon-Sun (only up to today)
   const weekDays = (monday: Date) => {
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(monday);
@@ -121,10 +102,7 @@ export default function SessionsList() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white mb-1">📅 Заїзди</h1>
-        <p className="text-dark-400 text-sm">Історія змагань</p>
-      </div>
+      <h1 className="text-2xl font-bold text-white">📅 Заїзди</h1>
 
       {/* Date navigation */}
       <div className="card p-3 space-y-3">
@@ -136,17 +114,25 @@ export default function SessionsList() {
           </div>
         </div>
 
-        {/* Previous week */}
+        {/* Previous week — collapsed by default */}
         {prevWeekDates.length > 0 && (
           <div>
-            <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5">Попередній тиждень</div>
-            <div className="flex flex-wrap gap-1.5">
-              {weekDays(prevMonday).map(d => <DateBtn key={d} d={d} />)}
-            </div>
+            <button
+              onClick={() => setPrevWeekOpen(v => !v)}
+              className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors"
+            >
+              <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>▶</span>
+              Попередній тиждень
+            </button>
+            {prevWeekOpen && (
+              <div className="flex flex-wrap gap-1.5">
+                {weekDays(prevMonday).map(d => <DateBtn key={d} d={d} />)}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Older — tree */}
+        {/* Older — tree (years collapsed by default, months always expanded) */}
         {olderByYearMonth.size > 0 && (
           <div>
             <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5">Архів</div>
@@ -163,28 +149,17 @@ export default function SessionsList() {
                   </button>
 
                   {expandedYears.has(year) && (
-                    <div className="ml-4 mt-1 space-y-1">
-                      {[...months.entries()].sort((a, b) => parseInt(b[0]) - parseInt(a[0])).map(([monthIdx, dates]) => {
-                        const monthKey = `${year}-${monthIdx}`;
-                        return (
-                          <div key={monthKey}>
-                            <button
-                              onClick={() => toggleMonth(monthKey)}
-                              className="flex items-center gap-1.5 text-dark-400 hover:text-white text-xs transition-colors"
-                            >
-                              <span className={`text-[10px] transition-transform ${expandedMonths.has(monthKey) ? 'rotate-90' : ''}`}>▶</span>
-                              {MONTH_NAMES[parseInt(monthIdx)]}
-                              <span className="text-dark-600 text-[10px]">({dates.length})</span>
-                            </button>
-
-                            {expandedMonths.has(monthKey) && (
-                              <div className="ml-4 mt-1 flex flex-wrap gap-1.5">
-                                {dates.sort().reverse().map(d => <DateBtn key={d} d={d} />)}
-                              </div>
-                            )}
+                    <div className="ml-4 mt-1 space-y-2">
+                      {[...months.entries()].sort((a, b) => parseInt(b[0]) - parseInt(a[0])).map(([monthIdx, dates]) => (
+                        <div key={monthIdx}>
+                          <div className="text-dark-400 text-[10px] font-medium mb-1">
+                            {MONTH_NAMES[parseInt(monthIdx)]}
                           </div>
-                        );
-                      })}
+                          <div className="flex flex-wrap gap-1.5">
+                            {dates.sort().reverse().map(d => <DateBtn key={d} d={d} />)}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -196,36 +171,33 @@ export default function SessionsList() {
 
       {/* Events for selected date */}
       <div>
-        <h2 className="text-dark-300 text-sm font-semibold mb-3">
-          {selectedDate === todayStr ? 'Сьогодні' : fmtDate(selectedDate)}
+        <h2 className="text-dark-300 text-sm font-semibold mb-2">
+          {selectedDate === todayStr ? 'Сьогодні' : fmtDateShort(selectedDate)}
         </h2>
 
         {events.length === 0 ? (
-          <div className="card text-center py-8 text-dark-500 text-sm">Немає змагань за цей день</div>
+          <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів</div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-1">
             {events.map((ev) => {
               const urlType = FORMAT_MAP[ev.format] || ev.format;
-              const dateFormatted = fmtDate(ev.date);
               const isProkat = ev.name === 'Прокат' || !['gonzales', 'light_league', 'champions_league'].includes(ev.format);
               const href = isProkat ? `/sessions/${ev.id}` : `/results/${urlType}/${ev.id}`;
+              const bestPilot = ev.phases[0]?.results?.[0];
+              const bestLap = bestPilot?.bestLap || '';
+
               return (
                 <Link key={ev.id} to={href}
-                  className="card flex items-center justify-between hover:border-dark-600 transition-colors group">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-dark-800 rounded-xl flex items-center justify-center text-xl group-hover:bg-primary-600 transition-colors">
-                      {FORMAT_ICON[ev.format] || '📊'}
-                    </div>
-                    <div>
-                      <div className="text-white font-semibold group-hover:text-primary-400 transition-colors">
-                        {ev.name.replace(/(\d{2}\.\d{2})/, dateFormatted)}
-                        {!ev.name.includes('20') && ` ${dateFormatted}`}
-                      </div>
-                      <div className="text-dark-500 text-xs">
-                        Траса {ev.trackConfigId} • {ev.phases.length} фаз • {ev.phases[0]?.results?.length || 0} пілотів
-                      </div>
-                    </div>
-                  </div>
+                  className="flex items-center justify-between px-3 py-2 rounded-lg bg-dark-800/50 hover:bg-dark-700/50 transition-colors group"
+                >
+                  <span className="text-dark-300 text-sm group-hover:text-white transition-colors">
+                    {ev.name}, траса {ev.trackConfigId}, {fmtDateShort(ev.date)}, 19:00
+                  </span>
+                  {bestPilot && (
+                    <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
+                      {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestLap}</span>
+                    </span>
+                  )}
                 </Link>
               );
             })}

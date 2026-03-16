@@ -15,10 +15,6 @@ export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const event = getEventById(sessionId || '');
   const { allTracks } = useTrack();
-  const [activePhaseId, setActivePhaseId] = useState<string | null>(() => {
-    if (event && event.phases.length === 1) return event.phases[0].id;
-    return null;
-  });
 
   if (!event) {
     return (
@@ -30,7 +26,7 @@ export default function SessionDetail() {
     );
   }
 
-  const activePhase = activePhaseId ? event.phases.find(p => p.id === activePhaseId) : null;
+  const phase = event.phases[0];
   const track = allTracks.find(t => t.id === event.trackConfigId) || allTracks[0];
 
   return (
@@ -54,26 +50,11 @@ export default function SessionDetail() {
         </div>
       </div>
 
-      {/* Phase tabs */}
-      <div className="flex flex-wrap gap-1.5">
-        {event.phases.map((phase) => (
-          <button
-            key={phase.id}
-            onClick={() => setActivePhaseId(activePhaseId === phase.id ? null : phase.id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              activePhaseId === phase.id ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'
-            }`}
-          >
-            {phase.type === 'qualifying' ? '⏱️' : '🏁'} {phase.name}
-          </button>
-        ))}
-      </div>
-
-      {activePhase ? (
-        <PhaseView phase={activePhase} track={track} eventFormat={event.format} />
+      {phase ? (
+        <PhaseView phase={phase} track={track} eventFormat={event.format} />
       ) : (
         <div className="card text-center py-8 text-dark-500 text-sm">
-          Виберіть фазу для перегляду
+          Немає даних
         </div>
       )}
     </div>
