@@ -64,9 +64,19 @@ export default function SessionsList() {
     }
   }
 
-  // Tree expand state
-  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
-  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+  // Tree expand state — current year expanded by default
+  const currentYear = String(new Date().getFullYear());
+  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set([currentYear]));
+  const currentYearMonths = olderByYearMonth.get(currentYear);
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(() => {
+    const set = new Set<string>();
+    if (currentYearMonths) {
+      for (const monthIdx of currentYearMonths.keys()) {
+        set.add(`${currentYear}-${monthIdx}`);
+      }
+    }
+    return set;
+  });
 
   const toggleYear = (y: string) => {
     const next = new Set(expandedYears);
