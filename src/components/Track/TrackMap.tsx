@@ -6,6 +6,9 @@ import { TRACK_SVG_VIEWBOX } from '../../data/tracks';
 interface TrackMapProps {
   track: TrackConfig;
   entries: TimingEntry[];
+  /** Статичний режим: карти позиціонуються по entry.progress без власної анімації.
+   *  Використовується для replay. */
+  static?: boolean;
 }
 
 const POSITION_COLORS = [
@@ -38,9 +41,6 @@ function getKartColor(kart: number): string {
 /**
  * Конвертує час (секунди від старту кола) в позицію на трасі (0..1)
  * через speed profile.
- *
- * speedProfile визначений для referenceLapTime.
- * Якщо пілот їде за інший час (pilotLapTime) — пропорційно масштабуємо.
  */
 function timeToProgress(
   elapsedSec: number,
@@ -49,24 +49,18 @@ function timeToProgress(
   pilotLapTime: number,
 ): number {
   if (pilotLapTime <= 0) return 0;
-
-  // Масштабуємо elapsed до reference: якщо пілот їде за 44с а reference 42с,
-  // то за 22с реальних він на позиції як 22 * 42/44 = 21с reference
   const scaledTime = elapsedSec * referenceLapTime / pilotLapTime;
 
   if (profile.length < 2) {
-    // Без профілю — рівномірний рух
     return Math.min(scaledTime / referenceLapTime, 1);
   }
 
-  // Повний профіль з початком і кінцем
   const full: SpeedProfilePoint[] = [
     { progress: 0, time: 0 },
     ...profile,
     { progress: 1, time: referenceLapTime },
   ];
 
-  // Знаходимо сегмент за часом
   for (let i = 0; i < full.length - 1; i++) {
     const a = full[i], b = full[i + 1];
     if (scaledTime >= a.time && scaledTime <= b.time) {
@@ -79,26 +73,21 @@ function timeToProgress(
 }
 
 // ============================================================
-// Стан карту на карті
+// Стан карту на карті (для live режиму)
 // ============================================================
 
 interface KartState {
   kart: number;
   pilot: string;
   position: number;
-  /** Час початку поточного кола (performance.now() / 1000) */
   lapStartWallTime: number;
-  /** Час кола для розрахунку руху: previousLapSec або referenceLapTime */
   movementLapTime: number;
-  /** Номер кола (для відстеження зміни) */
   lapNumber: number;
-  /** Чи заморожений на фініші (їде повільніше за попереднє коло) */
   frozenAtFinish: boolean;
-  /** Поточний відрендерений progress */
   currentProgress: number;
 }
 
-export default function TrackMap({ track, entries }: TrackMapProps) {
+export default function TrackMap({ track, entries, static: isStatic }: TrackMapProps) {
   const pathRef = useRef<SVGPathElement>(null);
   const kartsGroupRef = useRef<SVGGElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
@@ -122,20 +111,53 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
       }));
   }, [entries]);
 
-  // Оновити стани при нових даних
+  // ============================================================
+  // STATIC MODE — positions from entries directly, no animation
+  // ============================================================
+
   useEffect(() => {
+    if (!isStatic) return;
+
+    // Build states directly from entries progress
+    statesRef.current = targets.map((t) => ({
+      kart: t.kart,
+      pilot: t.pilot,
+      position: t.position,
+      lapStartWallTime: 0,
+      movementLapTime: 0,
+      lapNumber: t.lapNumber,
+      frozenAtFinish: false,
+      currentProgress: t.progress,
+    }));
+
+    updateLegend();
+
+    // Render once after a short delay for path to be ready
+    const timer = setTimeout(() => {
+      if (!pathRef.current) return;
+      ensureKartElements();
+      updateKartPositions();
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [isStatic, targets]);
+
+  // ============================================================
+  // LIVE MODE — wall-clock animation
+  // ============================================================
+
+  // Update states from entries (live mode only)
+  useEffect(() => {
+    if (isStatic) return;
     const now = performance.now() / 1000;
     const prev = statesRef.current;
     const refLap = track.referenceLapTime || 42;
 
     statesRef.current = targets.map((t) => {
       const existing = prev.find((p) => p.kart === t.kart);
-
-      // Час для руху: попереднє коло або reference (для першого кола)
       const movementLapTime = t.previousLapSec || refLap;
 
       if (!existing) {
-        // Новий карт
         return {
           kart: t.kart,
           pilot: t.pilot,
@@ -148,26 +170,20 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
         };
       }
 
-      // Перевірити чи змінилось коло
       if (t.lapNumber !== existing.lapNumber) {
-        // Нове коло! 
         const wasFaster = existing.frozenAtFinish === false && existing.currentProgress < 0.95;
-
         return {
           ...existing,
           pilot: t.pilot,
           position: t.position,
-          // Нове коло починається зараз
           lapStartWallTime: now,
           movementLapTime,
           lapNumber: t.lapNumber,
           frozenAtFinish: false,
-          // Якщо їхав швидше — snap до реальної позиції
           currentProgress: wasFaster ? t.progress : 0,
         };
       }
 
-      // Те ж коло — оновити metadata
       return {
         ...existing,
         pilot: t.pilot,
@@ -177,27 +193,11 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
     });
 
     updateLegend();
-  }, [targets, track.referenceLapTime]);
+  }, [isStatic, targets, track.referenceLapTime]);
 
-  // Legend
-  function updateLegend() {
-    const el = legendRef.current;
-    if (!el) return;
-    const sorted = [...statesRef.current].sort((a, b) => a.position - b.position);
-    el.innerHTML = sorted.map((kp) => {
-      const color = getKartColor(kp.kart);
-      return `<div style="display:flex;align-items:center;gap:4px;font-size:10px;line-height:1.2">
-        <span style="width:14px;text-align:right;font-family:monospace;font-weight:700;color:${color}">${kp.position}</span>
-        <span style="width:8px;height:8px;border-radius:2px;background:${color};flex-shrink:0"></span>
-        <span style="font-family:monospace;color:#b0b0b0;width:18px">${kp.kart}</span>
-        <span style="color:#fff;font-weight:500">${kp.pilot.split(' ')[0]}</span>
-      </div>`;
-    }).join('');
-  }
-
-  // 60fps animation
+  // 60fps animation (live mode only)
   useEffect(() => {
-    if (!hasPath) return;
+    if (!hasPath || isStatic) return;
 
     const initTimer = setTimeout(() => {
       if (!pathRef.current) return;
@@ -221,13 +221,11 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
         const elapsed = now - s.lapStartWallTime;
 
         if (elapsed >= s.movementLapTime && !s.frozenAtFinish) {
-          // Пілот їде довше за попереднє коло → заморозити на фініші
           s.frozenAtFinish = true;
           s.currentProgress = 0.999;
         }
 
         if (!s.frozenAtFinish) {
-          // Нормальний рух: час → позиція через speed profile
           s.currentProgress = timeToProgress(elapsed, profile, refLap, s.movementLapTime);
         }
       }
@@ -241,7 +239,7 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
       clearTimeout(initTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [hasPath, track.id, track.speedProfile, track.referenceLapTime]);
+  }, [hasPath, isStatic, track.id, track.speedProfile, track.referenceLapTime]);
 
   // Path ready
   useEffect(() => {
@@ -250,6 +248,25 @@ export default function TrackMap({ track, entries }: TrackMapProps) {
     const t = setTimeout(() => { if (pathRef.current) pathReadyRef.current = true; }, 50);
     return () => clearTimeout(t);
   }, [track.id, hasPath]);
+
+  // ============================================================
+  // Shared rendering functions
+  // ============================================================
+
+  function updateLegend() {
+    const el = legendRef.current;
+    if (!el) return;
+    const sorted = [...statesRef.current].sort((a, b) => a.position - b.position);
+    el.innerHTML = sorted.map((kp) => {
+      const color = getKartColor(kp.kart);
+      return `<div style="display:flex;align-items:center;gap:4px;font-size:10px;line-height:1.2">
+        <span style="width:14px;text-align:right;font-family:monospace;font-weight:700;color:${color}">${kp.position}</span>
+        <span style="width:8px;height:8px;border-radius:2px;background:${color};flex-shrink:0"></span>
+        <span style="font-family:monospace;color:#b0b0b0;width:18px">${kp.kart}</span>
+        <span style="color:#fff;font-weight:500">${kp.pilot.split(' ')[0]}</span>
+      </div>`;
+    }).join('');
+  }
 
   function ensureKartElements() {
     const g = kartsGroupRef.current;

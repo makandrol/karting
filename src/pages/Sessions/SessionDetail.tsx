@@ -119,7 +119,7 @@ function PhaseView({ phase, track, eventFormat, eventDate }: { phase: Competitio
             <span className="transition-transform" style={{ display: 'inline-block', transform: showTrack ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
             Трек
           </button>
-          {showTrack && <TrackMap track={track} entries={trackEntries} />}
+          {showTrack && <TrackMap track={track} entries={trackEntries} static />}
         </div>
       )}
 

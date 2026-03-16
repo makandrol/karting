@@ -1,53 +1,40 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import type { TimingEntry } from '../../types';
 
-interface ReplayEvent {
-  type: string;
-  ts: number;
-  data: any;
-}
-
 interface SessionReplayProps {
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number }[];
   durationSec: number;
   title: string;
-  /** Базова дата/час заїзду для відображення "Симуляція: DD.MM.YYYY, HH:MM:SS" */
   baseDate?: string;
-  /** Частка кола до S1 (0..1). Наприклад 0.33 = S1 на 33% кола. За замовчуванням обчислюється з даних */
   s1Ratio?: number;
   onTimeUpdate?: (timeSec: number) => void;
-  /** Entries callback — passes current entries to parent (for track map sync) */
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
 }
 
 export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ratio, onTimeUpdate, onEntriesUpdate }: SessionReplayProps) {
   const [playing, setPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0); // seconds
+  const [currentTime, setCurrentTime] = useState(0);
   const [speed, setSpeed] = useState(1);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
 
-  // Build timeline entries from laps
   const pilots = [...new Set(laps.map(l => l.pilot))];
 
   // Compute s1Ratio from actual data if not provided
   const effectiveS1Ratio = useMemo(() => {
     if (s1Ratio) return s1Ratio;
-    // Try to derive from first lap's s1 / lapTime
     const firstLap = laps[0];
     if (firstLap?.s1 && firstLap?.lapTime) {
       const s1Sec = parseFloat(firstLap.s1);
       const lapSec = parseFloat(firstLap.lapTime);
       if (s1Sec > 0 && lapSec > 0) return s1Sec / lapSec;
     }
-    return 0.33; // default
+    return 0.33;
   }, [s1Ratio, laps]);
 
-  // Get entries at a given time point
-  // S1 appears when pilot crosses S1 marker (at s1Ratio of the lap)
-  // S2 = lapTime - S1, updates together with lap time on start/finish crossing
+  // Get entries at a given time point using actual per-lap durations
   const getEntriesAtTime = useCallback((timeSec: number): TimingEntry[] => {
-    if (timeSec <= 0) return []; // Board is empty at start
+    if (timeSec <= 0) return [];
 
     const result: TimingEntry[] = [];
 
@@ -56,46 +43,57 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
       const pilotLaps = laps.filter(l => l.pilot === pilot);
       if (pilotLaps.length === 0) continue;
 
-      // Each pilot crosses start/finish with a small stagger (2s apart)
+      // Stagger: each pilot crosses start/finish 2s apart
       const enterTime = idx * 2;
-      if (timeSec < enterTime) continue; // Not on track yet
+      if (timeSec < enterTime) continue;
 
       const elapsed = timeSec - enterTime;
-      const avgLapTime = (durationSec - 15) / Math.max(pilotLaps.length, 1);
 
-      // completedLaps = how many full laps finished
-      const completedLaps = Math.min(Math.floor(elapsed / avgLapTime), pilotLaps.length);
-      const progress = completedLaps < pilotLaps.length ? (elapsed % avgLapTime) / avgLapTime : 1;
+      // Walk through actual lap durations
+      let timeAccum = 0;
+      let completedLaps = 0;
+      for (let i = 0; i < pilotLaps.length; i++) {
+        const lapSec = parseFloat(pilotLaps[i].lapTime) || 42;
+        if (elapsed >= timeAccum + lapSec) {
+          timeAccum += lapSec;
+          completedLaps++;
+        } else {
+          break;
+        }
+      }
 
-      // Current lap being driven
+      // Progress within current lap
+      let progress: number;
+      if (completedLaps >= pilotLaps.length) {
+        progress = 1;
+      } else {
+        const currentLapSec = parseFloat(pilotLaps[completedLaps]?.lapTime) || 42;
+        const lapElapsed = elapsed - timeAccum;
+        progress = Math.min(lapElapsed / currentLapSec, 0.999);
+      }
+
       const currentLapData = completedLaps < pilotLaps.length ? pilotLaps[completedLaps] : null;
-      // Last completed lap
       const prevLapData = completedLaps > 0 ? pilotLaps[completedLaps - 1] : null;
 
-      // S1: appears when progress >= s1Ratio (pilot crosses S1 marker mid-lap)
-      // S2: appears together with lap time (on start/finish = new completed lap)
+      // S1: appears at s1Ratio of the lap; S2: appears with lap time on finish
       let displayS1: string | null;
       let displayS2: string | null;
       let displayLap: string | null;
 
       if (completedLaps >= pilotLaps.length) {
-        // All laps done — show last lap data
         displayLap = prevLapData?.lapTime || null;
         displayS1 = prevLapData?.s1 || null;
         displayS2 = prevLapData?.s2 || null;
       } else if (progress >= effectiveS1Ratio && currentLapData) {
-        // Crossed S1 on current lap — show current S1, previous lap's S2 and time
         displayS1 = currentLapData.s1 || null;
         displayS2 = prevLapData?.s2 || null;
         displayLap = prevLapData?.lapTime || null;
       } else {
-        // Before S1 — show all from previous completed lap
         displayS1 = prevLapData?.s1 || null;
         displayS2 = prevLapData?.s2 || null;
         displayLap = prevLapData?.lapTime || null;
       }
 
-      // Find best lap among completed laps
       let bestLap = '';
       let bestLapSec = Infinity;
       for (let i = 0; i < completedLaps; i++) {
@@ -122,7 +120,6 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
 
     return result
       .sort((a, b) => {
-        // Pilots with completed laps first, then by best time
         if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
         if (a.lapNumber === 0) return 1;
         if (b.lapNumber === 0) return -1;
@@ -131,7 +128,7 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
-  }, [laps, pilots, durationSec, effectiveS1Ratio]);
+  }, [laps, pilots, effectiveS1Ratio]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
@@ -160,13 +157,13 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
     return () => cancelAnimationFrame(rafRef.current);
   }, [playing, speed, durationSec]);
 
-  // Update entries when time changes
+  // Update entries when time changes (more granular: every 0.2s)
   useEffect(() => {
     const e = getEntriesAtTime(currentTime);
     setEntries(e);
     onTimeUpdate?.(currentTime);
     onEntriesUpdate?.(e);
-  }, [Math.floor(currentTime), getEntriesAtTime, onTimeUpdate, onEntriesUpdate]);
+  }, [Math.floor(currentTime * 5), getEntriesAtTime, onTimeUpdate, onEntriesUpdate]);
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -174,12 +171,9 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
     return `${m}:${String(s).padStart(2, '0')}`;
   };
 
-  // Simulation datetime display
   const simDateTime = useMemo(() => {
     if (!baseDate) return null;
-    // Parse date string (YYYY-MM-DD or full ISO)
     const base = new Date(baseDate);
-    // If date-only (no time component), add default start time 19:00
     if (baseDate.length <= 10) base.setHours(19, 0, 0, 0);
     const sim = new Date(base.getTime() + currentTime * 1000);
     const dd = String(sim.getDate()).padStart(2, '0');
@@ -191,69 +185,23 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
     return `${dd}.${mm}.${yyyy}, ${hh}:${min}:${ss}`;
   }, [baseDate, Math.floor(currentTime)]);
 
+  const handleScrub = (val: number) => {
+    setCurrentTime(val);
+    const ent = getEntriesAtTime(val);
+    setEntries(ent);
+    onTimeUpdate?.(val);
+    onEntriesUpdate?.(ent);
+  };
+
   return (
     <div className="card p-0 overflow-hidden">
-      {/* Player header */}
+      {/* Header with title */}
       <div className="px-4 py-3 border-b border-dark-800">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between">
           <h3 className="text-white font-semibold text-sm">
-            {simDateTime ? `Симуляція: ${simDateTime}` : `▶ Симуляція: ${title}`}
+            {simDateTime ? `Симуляція: ${simDateTime}` : `Симуляція: ${title}`}
           </h3>
           <span className="text-dark-500 text-xs font-mono">{formatTime(currentTime)} / {formatTime(durationSec)}</span>
-        </div>
-
-        {/* Timeline scrubber */}
-        <div className="flex items-center gap-3">
-          {/* Play/Pause */}
-          <button
-            onClick={() => {
-              if (currentTime >= durationSec) setCurrentTime(0);
-              setPlaying(!playing);
-            }}
-            className="w-8 h-8 bg-dark-800 hover:bg-dark-700 rounded-lg flex items-center justify-center text-white transition-colors shrink-0"
-          >
-            {playing ? '⏸' : '▶'}
-          </button>
-
-          {/* Scrubber */}
-          <div className="flex-1 relative">
-            <input
-              type="range"
-              min={0}
-              max={durationSec}
-              step={0.1}
-              value={currentTime}
-              onChange={(e) => {
-                const t = parseFloat(e.target.value);
-                setCurrentTime(t);
-                const ent = getEntriesAtTime(t);
-                setEntries(ent);
-                onTimeUpdate?.(t);
-                onEntriesUpdate?.(ent);
-              }}
-              className="w-full h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
-                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
-                [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
-            />
-            {/* Progress fill */}
-            <div
-              className="absolute top-0 left-0 h-2 bg-primary-500/30 rounded-full pointer-events-none"
-              style={{ width: `${(currentTime / durationSec) * 100}%` }}
-            />
-          </div>
-
-          {/* Speed control */}
-          <select
-            value={speed}
-            onChange={(e) => setSpeed(parseFloat(e.target.value))}
-            className="bg-dark-800 border border-dark-700 text-white text-xs rounded-md px-2 py-1 outline-none shrink-0"
-          >
-            <option value={0.5}>0.5x</option>
-            <option value={1}>1x</option>
-            <option value={2}>2x</option>
-            <option value={5}>5x</option>
-            <option value={10}>10x</option>
-          </select>
         </div>
       </div>
 
@@ -300,6 +248,51 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, s1Ra
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Scrubber — at the bottom, between timing and track */}
+      <div className="px-4 py-3 border-t border-dark-800">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (currentTime >= durationSec) setCurrentTime(0);
+              setPlaying(!playing);
+            }}
+            className="w-8 h-8 bg-dark-800 hover:bg-dark-700 rounded-lg flex items-center justify-center text-white transition-colors shrink-0"
+          >
+            {playing ? '⏸' : '▶'}
+          </button>
+
+          <div className="flex-1 relative">
+            <input
+              type="range"
+              min={0}
+              max={durationSec}
+              step={0.1}
+              value={currentTime}
+              onChange={(e) => handleScrub(parseFloat(e.target.value))}
+              className="w-full h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
+                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
+                [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
+            />
+            <div
+              className="absolute top-0 left-0 h-2 bg-primary-500/30 rounded-full pointer-events-none"
+              style={{ width: `${(currentTime / durationSec) * 100}%` }}
+            />
+          </div>
+
+          <select
+            value={speed}
+            onChange={(e) => setSpeed(parseFloat(e.target.value))}
+            className="bg-dark-800 border border-dark-700 text-white text-xs rounded-md px-2 py-1 outline-none shrink-0"
+          >
+            <option value={0.5}>0.5x</option>
+            <option value={1}>1x</option>
+            <option value={2}>2x</option>
+            <option value={5}>5x</option>
+            <option value={10}>10x</option>
+          </select>
+        </div>
       </div>
     </div>
   );
