@@ -3,7 +3,7 @@ import { getEventById, type CompetitionPhase } from '../../mock/competitionEvent
 import SessionReplay from '../../components/Timing/SessionReplay';
 import { TrackMap } from '../../components/Track';
 import { useTrack } from '../../services/trackContext';
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import type { TimingEntry } from '../../types';
 
 function pts(v: number): string {
@@ -82,8 +82,8 @@ export default function SessionDetail() {
 
 function PhaseView({ phase, track, eventFormat, eventDate }: { phase: CompetitionPhase; track: any; eventFormat: string; eventDate: string }) {
   const isLeagueRace = phase.type === 'race' && ['light_league', 'champions_league'].includes(eventFormat);
-  const [replayTime, setReplayTime] = useState(0);
   const [showTrack, setShowTrack] = useState(true);
+  const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
 
   // Replay data
   const replayLaps = phase.results.flatMap(r =>
@@ -92,21 +92,6 @@ function PhaseView({ phase, track, eventFormat, eventDate }: { phase: Competitio
   const maxLaps = Math.max(...phase.results.map(r => r.laps.length), 1);
   const avgLapSec = phase.results[0]?.laps[0]?.lapTimeSec || 42;
   const durationSec = maxLaps * avgLapSec + 30;
-  const replayProgress = durationSec > 0 ? replayTime / durationSec : 0;
-
-  // Track entries — empty until replay starts, so karts don't animate
-  const trackEntries: TimingEntry[] = useMemo(() => {
-    if (replayTime <= 0) return []; // No karts on track until play
-    const pilots = [...new Set(phase.results.map(r => r.pilot))];
-    return pilots.map((pilot, idx) => ({
-      position: idx + 1, pilot,
-      kart: replayLaps.find(l => l.pilot === pilot)?.kart || 0,
-      lastLap: null, s1: null, s2: null, bestLap: null,
-      lapNumber: 1, bestS1: null, bestS2: null,
-      progress: ((replayProgress * maxLaps + idx * 0.05) % 1),
-      currentLapSec: null, previousLapSec: null,
-    }));
-  }, [replayTime, replayProgress, phase.results, replayLaps, maxLaps]);
 
   return (
     <div className="space-y-6">
@@ -120,7 +105,7 @@ function PhaseView({ phase, track, eventFormat, eventDate }: { phase: Competitio
           durationSec={durationSec}
           title={phase.name}
           baseDate={eventDate}
-          onTimeUpdate={setReplayTime}
+          onEntriesUpdate={setTrackEntries}
         />
       )}
 

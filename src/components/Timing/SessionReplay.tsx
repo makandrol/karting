@@ -14,9 +14,11 @@ interface SessionReplayProps {
   /** Базова дата/час заїзду для відображення "Симуляція: DD.MM.YYYY, HH:MM:SS" */
   baseDate?: string;
   onTimeUpdate?: (timeSec: number) => void;
+  /** Entries callback — passes current entries to parent (for track map sync) */
+  onEntriesUpdate?: (entries: TimingEntry[]) => void;
 }
 
-export default function SessionReplay({ laps, durationSec, title, baseDate, onTimeUpdate }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, title, baseDate, onTimeUpdate, onEntriesUpdate }: SessionReplayProps) {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0); // seconds
   const [speed, setSpeed] = useState(1);
@@ -120,9 +122,11 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
 
   // Update entries when time changes
   useEffect(() => {
-    setEntries(getEntriesAtTime(currentTime));
+    const e = getEntriesAtTime(currentTime);
+    setEntries(e);
     onTimeUpdate?.(currentTime);
-  }, [Math.floor(currentTime), getEntriesAtTime, onTimeUpdate]);
+    onEntriesUpdate?.(e);
+  }, [Math.floor(currentTime), getEntriesAtTime, onTimeUpdate, onEntriesUpdate]);
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -182,8 +186,10 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
               onChange={(e) => {
                 const t = parseFloat(e.target.value);
                 setCurrentTime(t);
-                setEntries(getEntriesAtTime(t));
+                const ent = getEntriesAtTime(t);
+                setEntries(ent);
                 onTimeUpdate?.(t);
+                onEntriesUpdate?.(ent);
               }}
               className="w-full h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
                 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
@@ -230,7 +236,20 @@ export default function SessionReplay({ laps, durationSec, title, baseDate, onTi
             {entries.map((e) => (
               <tr key={e.pilot} className="table-row">
                 <td className={`table-cell text-center font-mono font-bold ${e.position <= 3 ? `position-${e.position}` : 'text-dark-400'}`}>{e.position}</td>
-                <td className="table-cell text-left text-white text-sm">{e.pilot}</td>
+                <td className="table-cell text-left py-2">
+                  <div className="font-medium text-sm leading-tight text-white">{e.pilot}</div>
+                  {e.progress !== null && (
+                    <div className="mt-1 h-[3px] w-full bg-dark-800 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ease-linear ${
+                          e.position === 1 ? 'bg-yellow-500/70' :
+                          e.position <= 3 ? 'bg-primary-500/50' : 'bg-dark-500/50'
+                        }`}
+                        style={{ width: `${Math.round(e.progress * 100)}%` }}
+                      />
+                    </div>
+                  )}
+                </td>
                 <td className="table-cell text-center font-mono text-dark-300">{e.kart || '—'}</td>
                 <td className="table-cell text-right font-mono text-dark-200">{e.lastLap || '—'}</td>
                 <td className="table-cell text-right font-mono text-dark-400">{e.s1 || '—'}</td>
