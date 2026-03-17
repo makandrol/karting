@@ -1,15 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
-
-const COLLECTOR_URL = import.meta.env.VITE_COLLECTOR_URL || 'http://150.230.157.143:3001';
-
-function fmtBytes(b: number): string {
-  if (b < 1024) return b + ' B';
-  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
-  if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
-  return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
-}
+import { COLLECTOR_URL } from '../../services/config';
+import { fmtBytes } from '../../utils/timing';
 
 function fmtUptime(sec: number): string {
   const d = Math.floor(sec / 86400);
@@ -34,9 +27,11 @@ export default function Monitoring() {
 
     async function load() {
       try {
+        const token = import.meta.env.VITE_ADMIN_TOKEN || '';
+        const authHeaders: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
         const [sysRes, anaRes, statRes] = await Promise.all([
-          fetch(`${COLLECTOR_URL}/system`).then(r => r.json()),
-          fetch(`${COLLECTOR_URL}/analytics?days=30`).then(r => r.json()),
+          fetch(`${COLLECTOR_URL}/system`, { headers: authHeaders }).then(r => r.json()),
+          fetch(`${COLLECTOR_URL}/analytics?days=30`, { headers: authHeaders }).then(r => r.json()),
           fetch(`${COLLECTOR_URL}/status`).then(r => r.json()),
         ]);
         if (active) {

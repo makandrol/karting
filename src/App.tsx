@@ -1,69 +1,80 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { AuthProvider } from './services/auth';
 import { TrackProvider } from './services/trackContext';
-import HomePage from './pages/Home';
-import CurrentRace from './pages/Results/CurrentRace';
-import CompetitionPage from './pages/Results/CompetitionPage';
-import Timing from './pages/Info/Timing';
-import Tracks from './pages/Info/Tracks';
-import Karts from './pages/Info/Karts';
-import KartDetail from './pages/Info/KartDetail';
-import Videos from './pages/Info/Videos';
-import Login from './pages/Auth/Login';
-import AdminPanel from './pages/Auth/AdminPanel';
-import DatabaseStats from './pages/Auth/DatabaseStats';
-import Monitoring from './pages/Auth/Monitoring';
-import Changelog from './pages/Changelog';
-import SessionsList from './pages/Sessions/SessionsList';
-import SessionDetail from './pages/Sessions/SessionDetail';
-import PilotProfile from './pages/Pilots/PilotProfile';
+import ErrorBoundary from './components/ErrorBoundary';
+
+const HomePage = lazy(() => import('./pages/Home'));
+const CurrentRace = lazy(() => import('./pages/Results/CurrentRace'));
+const CompetitionPage = lazy(() => import('./pages/Results/CompetitionPage'));
+const Timing = lazy(() => import('./pages/Info/Timing'));
+const Tracks = lazy(() => import('./pages/Info/Tracks'));
+const Karts = lazy(() => import('./pages/Info/Karts'));
+const KartDetail = lazy(() => import('./pages/Info/KartDetail'));
+const Videos = lazy(() => import('./pages/Info/Videos'));
+const Login = lazy(() => import('./pages/Auth/Login'));
+const AdminPanel = lazy(() => import('./pages/Auth/AdminPanel'));
+const DatabaseStats = lazy(() => import('./pages/Auth/DatabaseStats'));
+const Monitoring = lazy(() => import('./pages/Auth/Monitoring'));
+const Changelog = lazy(() => import('./pages/Changelog'));
+const SessionsList = lazy(() => import('./pages/Sessions/SessionsList'));
+const SessionDetail = lazy(() => import('./pages/Sessions/SessionDetail'));
+const PilotProfile = lazy(() => import('./pages/Pilots/PilotProfile'));
+
+function PageLoader() {
+  return <div className="text-center py-20 text-dark-500">Завантаження...</div>;
+}
 
 export default function App() {
   return (
     <AuthProvider>
       <TrackProvider>
         <BrowserRouter>
-          <Routes>
-            <Route element={<Layout />}>
-              <Route path="/" element={<Timing />} />
-              <Route path="/home" element={<HomePage />} />
+          <ErrorBoundary>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                <Route element={<Layout />}>
+                  <Route path="/" element={<Timing />} />
+                  <Route path="/home" element={<HomePage />} />
 
-              {/* Results */}
-              <Route path="/results" element={<Navigate to="/results/current" replace />} />
-              <Route path="/results/current" element={<CurrentRace />} />
-              <Route path="/results/:type" element={<CompetitionPage />} />
-              <Route path="/results/:type/:eventId" element={<CompetitionPage />} />
-              <Route path="/results/:type/:eventId/:phaseId" element={<CompetitionPage />} />
+                  {/* Results */}
+                  <Route path="/results" element={<Navigate to="/results/current" replace />} />
+                  <Route path="/results/current" element={<CurrentRace />} />
+                  <Route path="/results/:type" element={<CompetitionPage />} />
+                  <Route path="/results/:type/:eventId" element={<CompetitionPage />} />
+                  <Route path="/results/:type/:eventId/:phaseId" element={<CompetitionPage />} />
 
-              {/* Info / Analytics */}
-              <Route path="/info" element={<Navigate to="/info/timing" replace />} />
-              <Route path="/info/timing" element={<Timing />} />
-              <Route path="/info/tracks" element={<Tracks />} />
-              <Route path="/info/karts" element={<Karts />} />
-              <Route path="/info/karts/:kartId" element={<KartDetail />} />
-              <Route path="/info/videos" element={<Videos />} />
+                  {/* Info / Analytics */}
+                  <Route path="/info" element={<Navigate to="/info/timing" replace />} />
+                  <Route path="/info/timing" element={<Timing />} />
+                  <Route path="/info/tracks" element={<Tracks />} />
+                  <Route path="/info/karts" element={<Karts />} />
+                  <Route path="/info/karts/:kartId" element={<KartDetail />} />
+                  <Route path="/info/videos" element={<Videos />} />
 
-              {/* Auth */}
-              <Route path="/login" element={<Login />} />
-              <Route path="/admin" element={<AdminPanel />} />
-              <Route path="/admin/db" element={<DatabaseStats />} />
-              <Route path="/admin/monitoring" element={<Monitoring />} />
+                  {/* Auth */}
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/admin" element={<AdminPanel />} />
+                  <Route path="/admin/db" element={<DatabaseStats />} />
+                  <Route path="/admin/monitoring" element={<Monitoring />} />
 
-              {/* Sessions */}
-              <Route path="/sessions" element={<SessionsList />} />
-              <Route path="/sessions/:sessionId" element={<SessionDetail />} />
+                  {/* Sessions */}
+                  <Route path="/sessions" element={<SessionsList />} />
+                  <Route path="/sessions/:sessionId" element={<SessionDetail />} />
 
-              {/* Pilots */}
-              <Route path="/pilots/:pilotName" element={<PilotProfile />} />
+                  {/* Pilots */}
+                  <Route path="/pilots/:pilotName" element={<PilotProfile />} />
 
-              {/* Changelog */}
-              <Route path="/changelog" element={<Changelog />} />
+                  {/* Changelog */}
+                  <Route path="/changelog" element={<Changelog />} />
 
-              {/* 404 */}
-              <Route path="*" element={<NotFound />} />
-            </Route>
-          </Routes>
+                  {/* 404 */}
+                  <Route path="*" element={<NotFound />} />
+                </Route>
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
         </BrowserRouter>
       </TrackProvider>
     </AuthProvider>

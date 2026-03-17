@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../services/auth';
-
-const COLLECTOR_URL = import.meta.env.VITE_COLLECTOR_URL || 'http://150.230.157.143:3001';
+import { COLLECTOR_URL } from '../../services/config';
 
 interface CompetitionState {
   state: string;
@@ -56,9 +55,12 @@ export default function CompetitionControl() {
   const apiCall = async (endpoint: string, body?: object) => {
     setLoading(true);
     try {
+      const token = import.meta.env.VITE_ADMIN_TOKEN || '';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       await fetch(`${COLLECTOR_URL}${endpoint}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: body ? JSON.stringify(body) : undefined,
       });
       await fetchState();

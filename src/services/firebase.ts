@@ -23,11 +23,10 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
 };
 
-// Ініціалізація тільки якщо є конфіг
 const hasConfig = !!firebaseConfig.apiKey;
 const app = hasConfig ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
-const googleProvider = new GoogleAuthProvider();
+const googleProvider = hasConfig ? new GoogleAuthProvider() : null;
 
 export { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, hasConfig };
 export type { FirebaseUser };

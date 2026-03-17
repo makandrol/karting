@@ -5,7 +5,7 @@
  * Якщо collector недоступний — показує офлайн стан.
  */
 
-const COLLECTOR_URL = import.meta.env.VITE_COLLECTOR_URL || 'http://localhost:3001';
+import { COLLECTOR_URL } from './config';
 
 export interface CollectorStatus {
   online: boolean;

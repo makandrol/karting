@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { TimingEntry, TimingSnapshot } from '../types';
+import { COLLECTOR_URL } from './config';
 
 const DEFAULT_POLL_INTERVAL = 1000;
-const COLLECTOR_URL = import.meta.env.VITE_COLLECTOR_URL || 'http://150.230.157.143:3001';
 
 export type TimingMode = 'idle' | 'live' | 'connecting';
 
@@ -103,11 +103,12 @@ export function useTimingPoller(options: UseTimingPollerOptions = {}): UseTiming
   useEffect(() => {
     clearPolling();
     pollCollector();
-    intervalRef.current = setInterval(pollCollector, mode === 'live' ? interval : 5000);
+    const pollInterval = mode === 'live' ? interval : 5000;
+    intervalRef.current = setInterval(pollCollector, pollInterval);
     return () => clearPolling();
-  }, [mode, interval, pollCollector, clearPolling]);
-
-  useEffect(() => { pollCollector(); }, [pollCollector]);
+    // Only re-run when mode or interval changes, not pollCollector
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, interval]);
 
   return { entries, snapshots, mode, lastUpdate, error, collectorStatus };
 }

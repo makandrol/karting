@@ -154,7 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   } : null;
 
   const loginWithGoogle = useCallback(async () => {
-    if (!auth) return;
+    if (!auth || !googleProvider) return;
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err) {

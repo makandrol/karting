@@ -1,5 +1,6 @@
 import type { TimingEntry } from '../types';
 import { MIN_VALID_LAP_SECONDS } from '../types';
+import { parseTime } from '../utils/timing';
 
 /**
  * Парсер табло timing.karting.ua/board.html
@@ -17,16 +18,10 @@ const TIMING_URL = 'https://timing.karting.ua/board.html';
 
 /**
  * Парсить час кола: "39.800" → 39.8, "1:02.222" → 62.222, "00:42.123" → 42.123
+ * @deprecated Use parseTime from utils/timing instead
  */
 export function parseLapTimeToSeconds(lapTime: string | null): number | null {
-  if (!lapTime) return null;
-  // "1:02.222" або "00:42.123"
-  const match = lapTime.match(/^(\d+):(\d+\.\d+)$/);
-  if (match) return parseInt(match[1], 10) * 60 + parseFloat(match[2]);
-  // "39.800"
-  const secMatch = lapTime.match(/^\d+\.\d+$/);
-  if (secMatch) return parseFloat(lapTime);
-  return null;
+  return parseTime(lapTime);
 }
 
 /**
@@ -34,7 +29,7 @@ export function parseLapTimeToSeconds(lapTime: string | null): number | null {
  * Якщо час < 38.5s — хтось скоротив трасу, не враховуємо.
  */
 export function isValidLap(lapTime: string | null): boolean {
-  const seconds = parseLapTimeToSeconds(lapTime);
+  const seconds = parseTime(lapTime);
   if (seconds === null) return false;
   return seconds >= MIN_VALID_LAP_SECONDS;
 }

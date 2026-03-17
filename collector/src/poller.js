@@ -31,7 +31,9 @@ export class TimingPoller {
   #sessionId = null;
   #sessions = [];
   #events = [];
+  #eventsBySession = new Map();
   #timer = null;
+  #cleanupTimer = null;
 
   /** Callback: викликається при старті сесії */
   onSessionStart = null;
@@ -41,15 +43,31 @@ export class TimingPoller {
   start() {
     console.log('🔄 Poller started');
     this.#poll();
+    this.#scheduleCleanup();
   }
 
   stop() {
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;
+    if (this.#cleanupTimer) clearInterval(this.#cleanupTimer);
+    this.#cleanupTimer = null;
     console.log('⏹ Poller stopped');
   }
 
   isOnline() { return this.#online; }
+
+  #scheduleCleanup() {
+    const doCleanup = () => {
+      try {
+        const deleted = storage.cleanupPolls(10);
+        if (deleted > 0) console.log(`🧹 Cleaned up ${deleted} old poll_ok events`);
+      } catch (err) {
+        console.error('Cleanup error:', err.message);
+      }
+    };
+    doCleanup();
+    this.#cleanupTimer = setInterval(doCleanup, 6 * 60 * 60 * 1000); // every 6 hours
+  }
   getCurrentEntries() { return this.#entries; }
   getLastUpdateTime() { return this.#lastUpdate; }
   getCurrentSessionId() { return this.#sessionId; }
@@ -70,9 +88,11 @@ export class TimingPoller {
   }
 
   getEvents(sessionId, since = 0) {
-    return this.#events.filter(e =>
-      (!sessionId || e.sessionId === sessionId) && e.ts >= since
-    );
+    if (sessionId) {
+      const sessionEvents = this.#eventsBySession.get(sessionId) || [];
+      return since > 0 ? sessionEvents.filter(e => e.ts >= since) : sessionEvents;
+    }
+    return this.#events.filter(e => e.ts >= since);
   }
 
   async #poll() {
@@ -229,18 +249,25 @@ export class TimingPoller {
   }
 
   #addEvent(type, data, ts) {
-    this.#events.push({
+    const event = {
       sessionId: this.#sessionId,
       type,
       ts,
       data,
-    });
+    };
+    this.#events.push(event);
+
+    if (this.#sessionId) {
+      if (!this.#eventsBySession.has(this.#sessionId)) {
+        this.#eventsBySession.set(this.#sessionId, []);
+      }
+      this.#eventsBySession.get(this.#sessionId).push(event);
+    }
 
     // Write to SQLite
     if (this.#sessionId) {
       storage.addEvent(this.#sessionId, type, ts, data);
 
-      // Also save laps to laps table for quick access
       if (type === 'lap' && data) {
         storage.addLap(this.#sessionId, { ...data, ts });
       }
@@ -249,6 +276,16 @@ export class TimingPoller {
     // Keep max 100K events in memory
     if (this.#events.length > 100_000) {
       this.#events = this.#events.slice(-80_000);
+      // Rebuild index from remaining events
+      this.#eventsBySession.clear();
+      for (const e of this.#events) {
+        if (e.sessionId) {
+          if (!this.#eventsBySession.has(e.sessionId)) {
+            this.#eventsBySession.set(e.sessionId, []);
+          }
+          this.#eventsBySession.get(e.sessionId).push(e);
+        }
+      }
     }
   }
 }

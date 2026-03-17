@@ -3,11 +3,13 @@
  * Sends heartbeat every 30s to measure real time on site.
  */
 
-const COLLECTOR_URL = import.meta.env.VITE_COLLECTOR_URL || 'http://150.230.157.143:3001';
+import { COLLECTOR_URL } from './config';
+
 const HEARTBEAT_INTERVAL = 30_000; // 30 seconds
 
 let sessionId: string | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let visibilityListenerAdded = false;
 
 function getSessionId(): string {
   if (!sessionId) {
@@ -26,6 +28,15 @@ function send(type: string, data: Record<string, unknown>) {
   } catch {}
 }
 
+function startHeartbeat() {
+  if (heartbeatTimer) return;
+  heartbeatTimer = setInterval(() => send('heartbeat', {}), HEARTBEAT_INTERVAL);
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
 export function trackPageView(path: string, user?: { email: string; name: string } | null) {
   send('pageview', {
     path,
@@ -34,21 +45,16 @@ export function trackPageView(path: string, user?: { email: string; name: string
     userAgent: navigator.userAgent,
   });
 
-  // Start heartbeat if not running
-  if (!heartbeatTimer) {
-    heartbeatTimer = setInterval(() => {
-      send('heartbeat', {});
-    }, HEARTBEAT_INTERVAL);
+  startHeartbeat();
 
-    // Stop heartbeat when tab becomes hidden
+  if (!visibilityListenerAdded) {
+    visibilityListenerAdded = true;
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
-        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+        stopHeartbeat();
       } else {
-        if (!heartbeatTimer) {
-          send('heartbeat', {});
-          heartbeatTimer = setInterval(() => send('heartbeat', {}), HEARTBEAT_INTERVAL);
-        }
+        send('heartbeat', {});
+        startHeartbeat();
       }
     });
   }

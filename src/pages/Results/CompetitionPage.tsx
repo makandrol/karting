@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getEventsByFormat, getEventById, type CompetitionEvent, type CompetitionPhase } from '../../mock/competitionEvents';
 import type { CompetitionFormat } from '../../data/competitions';
 import { COMPETITION_CONFIGS } from '../../data/competitions';
@@ -20,6 +20,7 @@ function pts(v: number): string {
 
 export default function CompetitionPage() {
   const { type, eventId, phaseId } = useParams<{ type: string; eventId?: string; phaseId?: string }>();
+  const navigate = useNavigate();
   const format = FORMAT_MAP[type || ''];
   const config = format ? COMPETITION_CONFIGS[format] : null;
   const events = format ? getEventsByFormat(format) : [];
@@ -44,7 +45,7 @@ export default function CompetitionPage() {
       </div>
       <div className="flex-1 space-y-6">
         <div className="lg:hidden">
-          <select value={selectedEvent?.id || ''} onChange={(e) => { if (e.target.value) window.location.href = `/results/${type}/${e.target.value}`; }}
+          <select value={selectedEvent?.id || ''} onChange={(e) => { if (e.target.value) navigate(`/results/${type}/${e.target.value}`); }}
             className="w-full bg-dark-800 border border-dark-700 text-white rounded-lg px-3 py-2 text-sm">
             {events.map((ev) => <option key={ev.id} value={ev.id}>{new Date(ev.date).toLocaleDateString('uk-UA')}</option>)}
           </select>
@@ -156,7 +157,6 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
         <h3 className="text-white font-semibold">Результати ({sorted.length} пілотів)</h3>
       </div>
       <div className="overflow-x-auto">
-        <style>{`.rh { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; min-height: 60px; display: inline-block; font-size: 10px; }`}</style>
         <table className="w-full text-[11px]">
           <thead>
             {/* Row 1: race names */}
@@ -178,24 +178,24 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
             {/* Row 2: main + Бали */}
             <tr className="table-header">
               {raceRounds.map((_, ri) => (
-                <>
-                  {hasGroups && <th key={`g${ri}`} className="table-cell text-center border-l border-dark-700 px-0" rowSpan={2}><span className="rh">група</span></th>}
-                  <th key={`s${ri}`} className={`table-cell text-center px-0 ${!hasGroups ? 'border-l border-dark-700' : ''}`} rowSpan={2}><span className="rh">старт</span></th>
-                  <th key={`f${ri}`} className="table-cell text-center px-0" rowSpan={2}><span className="rh">фініш</span></th>
-                  <th key={`b${ri}`} className="table-cell text-center border-l border-dark-700 text-primary-400 font-bold text-[10px] py-0.5" colSpan={pointsCols}>Бали</th>
-                </>
+                <React.Fragment key={`row2-${ri}`}>
+                  {hasGroups && <th className="table-cell text-center border-l border-dark-700 px-0" rowSpan={2}><span className="rh">група</span></th>}
+                  <th className={`table-cell text-center px-0 ${!hasGroups ? 'border-l border-dark-700' : ''}`} rowSpan={2}><span className="rh">старт</span></th>
+                  <th className="table-cell text-center px-0" rowSpan={2}><span className="rh">фініш</span></th>
+                  <th className="table-cell text-center border-l border-dark-700 text-primary-400 font-bold text-[10px] py-0.5" colSpan={pointsCols}>Бали</th>
+                </React.Fragment>
               ))}
             </tr>
             {/* Row 3: points sub-columns */}
             <tr className="table-header">
               {raceRounds.map((_, ri) => (
-                <>
-                  <th key={`ts${ri}`} className="table-cell text-center px-0 border-l border-dark-700"><span className="rh">сума</span></th>
-                  <th key={`p${ri}`} className="table-cell text-center px-0"><span className="rh">позиція</span></th>
-                  <th key={`o${ri}`} className="table-cell text-center px-0"><span className="rh">обгони</span></th>
-                  <th key={`c${ri}`} className="table-cell text-center px-0"><span className="rh">час</span></th>
-                  <th key={`x${ri}`} className="table-cell text-center px-0"><span className="rh">штрафи</span></th>
-                </>
+                <React.Fragment key={`row3-${ri}`}>
+                  <th className="table-cell text-center px-0 border-l border-dark-700"><span className="rh">сума</span></th>
+                  <th className="table-cell text-center px-0"><span className="rh">позиція</span></th>
+                  <th className="table-cell text-center px-0"><span className="rh">обгони</span></th>
+                  <th className="table-cell text-center px-0"><span className="rh">час</span></th>
+                  <th className="table-cell text-center px-0"><span className="rh">штрафи</span></th>
+                </React.Fragment>
               ))}
             </tr>
           </thead>
@@ -219,14 +219,14 @@ function OverallResults({ event }: { event: CompetitionEvent }) {
                     ));
                   }
                   return (
-                    <>{hasGroups && <td key={`g${ri}`} className="table-cell text-center font-mono text-dark-500 border-l border-dark-800/50">{rd.group}</td>}
-                    <td key={`s${ri}`} className={`table-cell text-center font-mono text-dark-400 ${!hasGroups ? 'border-l border-dark-800/50' : ''}`}>{rd.start}</td>
-                    <td key={`f${ri}`} className="table-cell text-center font-mono text-dark-200 font-semibold">{rd.finish}</td>
-                    <td key={`ts${ri}`} className="table-cell text-center font-mono text-primary-400 font-bold border-l border-dark-800/50">{pts(rd.totalPts)}</td>
-                    <td key={`p${ri}`} className="table-cell text-center font-mono text-dark-300">{rd.posPts > 0 ? pts(rd.posPts) : '—'}</td>
-                    <td key={`o${ri}`} className="table-cell text-center font-mono text-dark-400">{rd.overtakePts > 0 ? pts(rd.overtakePts) : '—'}</td>
-                    <td key={`c${ri}`} className="table-cell text-center font-mono text-dark-400">{rd.speedPts > 0 ? pts(rd.speedPts) : '—'}</td>
-                    <td key={`x${ri}`} className={`table-cell text-center font-mono ${rd.penalty ? 'text-red-400' : 'text-dark-700'}`}>{rd.penalty ? pts(rd.penalty) : '—'}</td></>
+                    <React.Fragment key={`rd-${ri}`}>{hasGroups && <td className="table-cell text-center font-mono text-dark-500 border-l border-dark-800/50">{rd.group}</td>}
+                    <td className={`table-cell text-center font-mono text-dark-400 ${!hasGroups ? 'border-l border-dark-800/50' : ''}`}>{rd.start}</td>
+                    <td className="table-cell text-center font-mono text-dark-200 font-semibold">{rd.finish}</td>
+                    <td className="table-cell text-center font-mono text-primary-400 font-bold border-l border-dark-800/50">{pts(rd.totalPts)}</td>
+                    <td className="table-cell text-center font-mono text-dark-300">{rd.posPts > 0 ? pts(rd.posPts) : '—'}</td>
+                    <td className="table-cell text-center font-mono text-dark-400">{rd.overtakePts > 0 ? pts(rd.overtakePts) : '—'}</td>
+                    <td className="table-cell text-center font-mono text-dark-400">{rd.speedPts > 0 ? pts(rd.speedPts) : '—'}</td>
+                    <td className={`table-cell text-center font-mono ${rd.penalty ? 'text-red-400' : 'text-dark-700'}`}>{rd.penalty ? pts(rd.penalty) : '—'}</td></React.Fragment>
                   );
                 })}
                 <td className="table-cell text-center font-mono text-primary-400 font-bold border-l border-dark-800/50">{pts(row.grandTotal)}</td>

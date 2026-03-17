@@ -82,4 +82,13 @@
   .position-3 {
     @apply text-amber-600 font-bold;
   }
+
+  .rh {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    white-space: nowrap;
+    min-height: 60px;
+    display: inline-block;
+    font-size: 10px;
+  }
 }
