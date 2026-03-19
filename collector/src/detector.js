@@ -18,14 +18,22 @@ export class CompetitionDetector {
   #todayOverride = false; // true = ручний режим на сьогодні
 
   constructor() {
-    // Load persisted state
     const saved = storage.getSystemState('active_competition');
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        this.#activeCompetition = data.competition;
-        this.#state = data.state;
-        this.#todayOverride = data.todayOverride || false;
+        const savedDate = data.competition?.startTime
+          ? new Date(data.competition.startTime).toISOString().split('T')[0]
+          : null;
+        const today = new Date().toISOString().split('T')[0];
+
+        if (savedDate === today) {
+          this.#activeCompetition = data.competition;
+          this.#state = data.state;
+          this.#todayOverride = data.todayOverride || false;
+        } else {
+          storage.setSystemState('active_competition', '');
+        }
       } catch {}
     }
   }

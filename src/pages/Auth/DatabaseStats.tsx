@@ -3,16 +3,11 @@ import { Navigate, Link } from 'react-router-dom';
 import { ALL_COMPETITION_EVENTS } from '../../mock/competitionEvents';
 import { ALL_SESSIONS } from '../../mock/sessionData';
 import { MOCK_KARTS } from '../../mock/timingData';
+import { fmtBytes } from '../../utils/timing';
 
 /** Приблизний розмір JSON в байтах */
 function estimateSize(obj: unknown): number {
   return new Blob([JSON.stringify(obj)]).size;
-}
-
-function fmtBytes(bytes: number): string {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / 1024 / 1024).toFixed(2) + ' MB';
 }
 
 export default function DatabaseStats() {

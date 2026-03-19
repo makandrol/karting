@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
 import type { TimingMode } from '../../services/timingPoller';
+import { parseTime, getTimeColor, COLOR_CLASSES, type TimeColor } from '../../utils/timing';
 
 interface TimingBoardProps {
   entries: TimingEntry[];
@@ -11,36 +12,6 @@ interface TimingBoardProps {
 }
 
 export type SortMode = 'race' | 'qualifying';
-
-/** Парсить час "39.800", "1:02.222", "00:42.123" або "14.500" в секунди */
-function parseTime(t: string | null): number | null {
-  if (!t) return null;
-  const lapMatch = t.match(/^(\d+):(\d+\.\d+)$/);
-  if (lapMatch) return parseInt(lapMatch[1]) * 60 + parseFloat(lapMatch[2]);
-  const secMatch = t.match(/^\d+\.\d+$/);
-  if (secMatch) return parseFloat(t);
-  return null;
-}
-
-type TimeColor = 'purple' | 'green' | 'yellow' | 'none';
-
-function getTimeColor(value: string | null, personalBest: string | null, overallBest: number | null): TimeColor {
-  const val = parseTime(value);
-  if (val === null) return 'none';
-  if (overallBest !== null && Math.abs(val - overallBest) < 0.002) return 'purple';
-  const pb = parseTime(personalBest);
-  if (pb !== null && Math.abs(val - pb) < 0.002) return 'green';
-  if (pb !== null && val > pb) return 'yellow';
-  if (overallBest !== null && val <= overallBest + 0.002) return 'purple';
-  return 'green';
-}
-
-const COLOR_CLASSES: Record<TimeColor, string> = {
-  purple: 'text-purple-400',
-  green: 'text-green-400',
-  yellow: 'text-yellow-400',
-  none: 'text-dark-500',
-};
 
 /**
  * Сортування в режимі гонки:

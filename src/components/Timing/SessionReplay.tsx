@@ -1,46 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
-
-// ============================================================
-// Time parsing & color logic (shared with TimingBoard)
-// ============================================================
-
-function parseTime(t: string | null): number | null {
-  if (!t) return null;
-  const lapMatch = t.match(/^(\d+):(\d+\.\d+)$/);
-  if (lapMatch) return parseInt(lapMatch[1]) * 60 + parseFloat(lapMatch[2]);
-  const secMatch = t.match(/^\d+\.\d+$/);
-  if (secMatch) return parseFloat(t);
-  return null;
-}
-
-type TimeColor = 'purple' | 'green' | 'yellow' | 'none';
-
-function getTimeColor(value: string | null, personalBest: string | null, overallBest: number | null): TimeColor {
-  const val = parseTime(value);
-  if (val === null) return 'none';
-  if (overallBest !== null && Math.abs(val - overallBest) < 0.002) return 'purple';
-  const pb = parseTime(personalBest);
-  if (pb !== null && Math.abs(val - pb) < 0.002) return 'green';
-  if (pb !== null && val > pb) return 'yellow';
-  if (overallBest !== null && val <= overallBest + 0.002) return 'purple';
-  return 'green';
-}
-
-const COLOR_CLASSES: Record<TimeColor, string> = {
-  purple: 'text-purple-400',
-  green: 'text-green-400',
-  yellow: 'text-yellow-400',
-  none: 'text-dark-500',
-};
-
-/** "Апанасенко Олексій" → "Апанасенко О." */
-function shortName(name: string): string {
-  const parts = name.split(' ');
-  if (parts.length < 2) return name;
-  return `${parts[0]} ${parts[1][0]}.`;
-}
+import { parseTime, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
 
 // ============================================================
 // SessionReplay component
@@ -63,7 +24,7 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
 
-  const pilots = [...new Set(laps.map(l => l.pilot))];
+  const pilots = useMemo(() => [...new Set(laps.map(l => l.pilot))], [laps]);
 
   const effectiveS1Ratio = useMemo(() => {
     if (s1Ratio) return s1Ratio;
