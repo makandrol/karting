@@ -8,19 +8,13 @@ import {
   type User as FirebaseUser,
 } from 'firebase/auth';
 
-// ============================================================
-// Firebase config
-// Потрібно створити проєкт на https://console.firebase.google.com
-// і включити Google Sign-In в Authentication → Sign-in method
-// ============================================================
-
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyAvAJNn-KUfMC10Msa5ChJ9aJBsMIlVSQc',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'ekarting-92ce9.firebaseapp.com',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'ekarting-92ce9',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'ekarting-92ce9.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '153855892524',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:153855892524:web:3e1e65f23e371b83068589',
 };
 
 const hasConfig = !!firebaseConfig.apiKey;
