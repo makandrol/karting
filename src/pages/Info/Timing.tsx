@@ -115,23 +115,20 @@ export default function Timing() {
       {/* Competition control (admin) */}
       {isModerator && <CompetitionControl />}
 
-      {/* Offline / Connecting state */}
-      {(isOffline || isConnecting) && !hasData && (
+      {/* Offline / Connecting state (only when site not reachable) */}
+      {(isOffline || isConnecting) && !hasData && !siteReachable && (
         <div className="card text-center py-12 space-y-4">
-          <div className="text-4xl">{isConnecting ? '🔄' : siteReachable ? '⏳' : '🏎️'}</div>
+          <div className="text-4xl">{isConnecting ? '🔄' : '🏎️'}</div>
           <div>
             <h2 className="text-lg font-bold text-white mb-1">
               {isConnecting ? 'Підключення до сервера...' :
-               siteReachable ? 'Таймінг увімкнений, очікування заїзду' :
                collectorConnected ? 'Картодром зараз не працює' :
                'Сервер збору даних недоступний'}
             </h2>
             <p className="text-dark-400 text-sm max-w-md mx-auto">
-              {siteReachable
-                ? 'Табло порожнє — як тільки почнеться заїзд, дані з\'являться автоматично.'
-                : collectorConnected
-                  ? 'Дані з\'являться автоматично, як тільки картодром запрацює.'
-                  : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
+              {collectorConnected
+                ? 'Дані з\'являться автоматично, як тільки картодром запрацює.'
+                : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
             </p>
           </div>
           <Link
@@ -143,18 +140,20 @@ export default function Timing() {
         </div>
       )}
 
-      {/* Timing board */}
-      {hasData && (
+      {/* Timing board + track — show when live OR site reachable (even if empty) */}
+      {(hasData || siteReachable) && (
         <>
-          <TimingBoard entries={entries} mode={mode} lastUpdate={lastUpdate} />
+          <TimingBoard entries={entries} mode={siteReachable && !isLive ? 'live' : mode} lastUpdate={lastUpdate} />
           <TrackMap track={currentTrack} entries={entries} />
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Пілотів" value={entries.length.toString()} />
-            <StatCard label="Лідер" value={entries.length > 0 ? entries[0].pilot.split(' ')[0] : '—'} />
-            <StatCard label="Найкращий час" value={entries.length > 0 ? (entries[0].bestLap || '—') : '—'} />
-            <StatCard label="Снепшотів" value={snapshots.length.toString()} />
-          </div>
+          {hasData && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <StatCard label="Пілотів" value={entries.length.toString()} />
+              <StatCard label="Лідер" value={entries.length > 0 ? entries[0].pilot.split(' ')[0] : '—'} />
+              <StatCard label="Найкращий час" value={entries.length > 0 ? (entries[0].bestLap || '—') : '—'} />
+              <StatCard label="Снепшотів" value={snapshots.length.toString()} />
+            </div>
+          )}
         </>
       )}
 

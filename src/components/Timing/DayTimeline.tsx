@@ -89,14 +89,6 @@ export default function DayTimeline({ sessions, isTimingOnline, isTimingIdle = f
           />
         ))}
 
-        {/* Idle zone: yellow from current time marker back a bit to show "waiting" */}
-        {isTimingIdle && currentPct > 0 && (
-          <div
-            className="absolute top-0 h-full bg-yellow-500/20 border-r border-yellow-500/40"
-            style={{ left: `${Math.max(lastEnd, 0)}%`, width: `${Math.max(currentPct - Math.max(lastEnd, 0), 0.5)}%` }}
-          />
-        )}
-
         {parsedSessions.map((s) => (
           <Link
             key={s.id}
