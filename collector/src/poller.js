@@ -17,11 +17,13 @@ import { storage } from './storage.js';
 
 const TIMING_URL = 'https://timing.karting.ua/board.html';
 const POLL_INTERVAL_OFFLINE = 60_000;  // 1 хвилина
+const POLL_INTERVAL_IDLE = 10_000;     // 10 секунд (сайт доступний, порожнє табло)
 const POLL_INTERVAL_ONLINE = 1_000;    // 1 секунда
 const SNAPSHOT_INTERVAL = 60_000;       // зберігати повний стан кожні 60 сек
 
 export class TimingPoller {
   #online = false;
+  #siteReachable = false;
   #entries = [];
   #previousEntries = [];
   #lastUpdate = null;
@@ -76,6 +78,7 @@ export class TimingPoller {
   getStatus() {
     return {
       online: this.#online,
+      siteReachable: this.#siteReachable,
       pollCount: this.#pollCount,
       errorCount: this.#errorCount,
       entriesCount: this.#entries.length,
@@ -83,7 +86,7 @@ export class TimingPoller {
       sessionId: this.#sessionId,
       sessionsCount: this.#sessions.length,
       lastUpdate: this.#lastUpdate,
-      pollInterval: this.#online ? POLL_INTERVAL_ONLINE : POLL_INTERVAL_OFFLINE,
+      pollInterval: this.#online ? POLL_INTERVAL_ONLINE : this.#siteReachable ? POLL_INTERVAL_IDLE : POLL_INTERVAL_OFFLINE,
     };
   }
 
@@ -112,9 +115,10 @@ export class TimingPoller {
       const entries = parseTimingHtml(html);
 
       if (!entries || entries.length === 0) {
-        // Таймінг доступний але порожній (немає сесії)
+        this.#siteReachable = true;
         this.#goOffline(now);
       } else {
+        this.#siteReachable = true;
         // Таймінг працює!
         this.#goOnline(entries, now);
       }
@@ -122,6 +126,7 @@ export class TimingPoller {
       this.#errorCount = 0;
     } catch (err) {
       this.#errorCount++;
+      this.#siteReachable = false;
       this.#goOffline(now);
 
       if (this.#errorCount <= 3 || this.#errorCount % 60 === 0) {
@@ -130,7 +135,7 @@ export class TimingPoller {
     }
 
     // Schedule next poll
-    const interval = this.#online ? POLL_INTERVAL_ONLINE : POLL_INTERVAL_OFFLINE;
+    const interval = this.#online ? POLL_INTERVAL_ONLINE : this.#siteReachable ? POLL_INTERVAL_IDLE : POLL_INTERVAL_OFFLINE;
     this.#timer = setTimeout(() => this.#poll(), interval);
   }
 

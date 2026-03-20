@@ -31,6 +31,7 @@ export default function Timing() {
   const isOffline = mode === 'idle';
   const hasData = entries.length > 0;
   const collectorConnected = collectorStatus !== null;
+  const siteReachable = collectorStatus?.siteReachable ?? false;
 
   return (
     <div className="space-y-4">
@@ -42,17 +43,20 @@ export default function Timing() {
             isLive && hasData ? 'bg-green-500/10 text-green-400' :
             isLive ? 'bg-green-500/10 text-green-400/60' :
             isConnecting ? 'bg-blue-500/10 text-blue-400' :
+            siteReachable ? 'bg-yellow-500/10 text-yellow-400' :
             'bg-dark-800 text-dark-400'
           }`}>
             <span className={`w-2 h-2 rounded-full ${
               isLive && hasData ? 'bg-green-400 animate-pulse' :
               isLive ? 'bg-green-400/50 animate-pulse' :
               isConnecting ? 'bg-blue-400 animate-pulse' :
+              siteReachable ? 'bg-yellow-400 animate-pulse' :
               'bg-dark-500'
             }`} />
             {isLive && hasData ? 'LIVE' :
              isLive ? 'Таймінг Online (порожнє табло)' :
              isConnecting ? 'Підключення...' :
+             siteReachable ? 'Очікування заїзду' :
              'Офлайн'}
           </div>
 
@@ -113,17 +117,20 @@ export default function Timing() {
       {/* Offline / Connecting state */}
       {(isOffline || isConnecting) && !hasData && (
         <div className="card text-center py-12 space-y-4">
-          <div className="text-4xl">{isConnecting ? '🔄' : '🏎️'}</div>
+          <div className="text-4xl">{isConnecting ? '🔄' : siteReachable ? '⏳' : '🏎️'}</div>
           <div>
             <h2 className="text-lg font-bold text-white mb-1">
               {isConnecting ? 'Підключення до сервера...' :
+               siteReachable ? 'Таймінг увімкнений, очікування заїзду' :
                collectorConnected ? 'Картодром зараз не працює' :
                'Сервер збору даних недоступний'}
             </h2>
             <p className="text-dark-400 text-sm max-w-md mx-auto">
-              {collectorConnected
-                ? 'Дані з\'являться автоматично, як тільки картодром запрацює.'
-                : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
+              {siteReachable
+                ? 'Табло порожнє — як тільки почнеться заїзд, дані з\'являться автоматично.'
+                : collectorConnected
+                  ? 'Дані з\'являться автоматично, як тільки картодром запрацює.'
+                  : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
             </p>
           </div>
           <Link
