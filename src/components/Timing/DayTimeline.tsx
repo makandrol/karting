@@ -74,11 +74,6 @@ export default function DayTimeline({ sessions, isTimingOnline, isTimingIdle = f
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> live
             </span>
           )}
-          {isTimingIdle && (
-            <span className="flex items-center gap-1 text-yellow-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" /> idle
-            </span>
-          )}
         </div>
       </div>
 
