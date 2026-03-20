@@ -48,13 +48,13 @@ export default function Timing() {
              'Офлайн'}
           </div>
 
-          {/* Collector status */}
-          {collectorConnected && (
+          {/* Collector status (admin only) */}
+          {isModerator && collectorConnected && (
             <span className="text-dark-600 text-[10px] font-mono">
               сервер: ✓ {collectorStatus.online ? 'таймінг online' : 'таймінг offline'} • poll #{collectorStatus.pollCount}
             </span>
           )}
-          {!collectorConnected && !isConnecting && (
+          {isModerator && !collectorConnected && !isConnecting && (
             <span className="text-red-400/50 text-[10px]">сервер недоступний</span>
           )}
 

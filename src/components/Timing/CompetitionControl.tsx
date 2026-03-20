@@ -16,7 +16,6 @@ interface CompetitionState {
 }
 
 const FORMAT_LABELS: Record<string, string> = {
-  gonzales: '🏆 Гонзалес',
   light_league: '⭐ Лайт Ліга',
   champions_league: '👑 Ліга Чемпіонів',
 };
@@ -29,7 +28,7 @@ const STATE_LABELS: Record<string, { label: string; color: string }> = {
   pause: { label: 'Перерва', color: 'text-dark-300' },
   race: { label: 'Гонка', color: 'text-green-400' },
   finished: { label: 'Завершено', color: 'text-dark-500' },
-  manual: { label: 'Ручний режим', color: 'text-primary-400' },
+  manual: { label: 'Змагання', color: 'text-primary-400' },
 };
 
 interface PhaseOption {
@@ -72,18 +71,6 @@ const COMPETITION_TREE: CompetitionTree[] = [
       { type: 'race', name: 'Гонка 2, Група 1' },
       { type: 'race', name: 'Гонка 3, Група 2' },
       { type: 'race', name: 'Гонка 3, Група 1' },
-    ],
-  },
-  {
-    format: 'gonzales',
-    label: '🏆 Гонзалес',
-    phases: [
-      { type: 'qualifying', name: 'Квала 1' },
-      { type: 'qualifying', name: 'Квала 2' },
-      ...Array.from({ length: 24 }, (_, i) => ({
-        type: 'gonzales_round' as string,
-        name: `Раунд ${i + 1}`,
-      })),
     ],
   },
 ];
@@ -194,22 +181,23 @@ export default function CompetitionControl() {
       {/* Admin controls */}
       {canManage && (
         <div className="flex items-center gap-2 pt-1 border-t border-dark-800">
-          {/* Start / pick phase button */}
           <div className="relative" ref={pickerRef}>
             <button
               onClick={() => { setPickerOpen(!pickerOpen); setExpandedFormat(null); }}
               disabled={loading}
-              className="text-xs px-3 py-1.5 bg-primary-600 hover:bg-primary-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 ${
+                isActive
+                  ? 'bg-dark-800 hover:bg-dark-700 text-dark-300'
+                  : 'bg-primary-600 hover:bg-primary-500 text-white'
+              }`}
             >
-              {isActive ? 'Наступний заїзд' : 'Почати змагання'}
+              {isActive ? 'Редагувати змагання' : 'Почати змагання'}
             </button>
 
             {pickerOpen && (
               <div className="absolute top-full left-0 mt-1 w-64 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50">
                 <div className="px-3 py-1.5 text-[10px] text-dark-500">
-                  {isActive
-                    ? 'Оберіть заїзд — він стане поточним або наступним'
-                    : 'Оберіть змагання та заїзд для старту'}
+                  Оберіть заїзд — поточний або наступний активний заїзд стане обраною фазою
                 </div>
                 {COMPETITION_TREE.map((tree) => (
                   <div key={tree.format}>
@@ -242,13 +230,11 @@ export default function CompetitionControl() {
                                   ? 'text-dark-600 cursor-default'
                                   : phase.type === 'qualifying'
                                     ? 'text-purple-400 hover:bg-purple-500/10'
-                                    : phase.type === 'race'
-                                      ? 'text-green-400 hover:bg-green-500/10'
-                                      : 'text-dark-300 hover:bg-dark-700'
+                                    : 'text-green-400 hover:bg-green-500/10'
                               }`}
                             >
                               {alreadyDone && <span className="text-dark-600 mr-1">✓</span>}
-                              {phase.type === 'qualifying' ? '⏱️ ' : phase.type === 'race' ? '🏁 ' : '🔄 '}
+                              {phase.type === 'qualifying' ? '⏱️ ' : '🏁 '}
                               {phase.name}
                             </button>
                           );
@@ -261,7 +247,6 @@ export default function CompetitionControl() {
             )}
           </div>
 
-          {/* Stop / Reset */}
           {isActive && (
             <div className="ml-auto flex gap-2">
               <button
