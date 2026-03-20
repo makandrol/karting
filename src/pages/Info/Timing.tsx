@@ -114,16 +114,16 @@ export default function Timing() {
             </h2>
             <p className="text-dark-400 text-sm max-w-md mx-auto">
               {collectorConnected
-                ? 'Сервер перевіряє таймінг кожну хвилину. Як тільки картодром запрацює — дані з\'являться автоматично.'
+                ? 'Дані з\'являться автоматично, як тільки картодром запрацює.'
                 : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
             </p>
           </div>
-          {collectorConnected && (
-            <div className="flex items-center justify-center gap-2 text-dark-500 text-xs">
-              <span className="w-1.5 h-1.5 bg-dark-500 rounded-full animate-pulse" />
-              Очікування • запит #{collectorStatus?.pollCount || 0} • кожні {(collectorStatus?.pollInterval || 60000) / 1000}с
-            </div>
-          )}
+          <Link
+            to="/sessions"
+            className="inline-block text-primary-400 hover:text-primary-300 text-sm font-medium transition-colors"
+          >
+            📅 Переглянути попередні заїзди →
+          </Link>
         </div>
       )}
 
