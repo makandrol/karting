@@ -24,6 +24,7 @@ const SNAPSHOT_INTERVAL = 60_000;       // зберігати повний ст�
 export class TimingPoller {
   #online = false;
   #siteReachable = false;
+  #siteReachableSince = null;
   #entries = [];
   #previousEntries = [];
   #lastUpdate = null;
@@ -79,6 +80,7 @@ export class TimingPoller {
     return {
       online: this.#online,
       siteReachable: this.#siteReachable,
+      siteReachableSince: this.#siteReachableSince,
       pollCount: this.#pollCount,
       errorCount: this.#errorCount,
       entriesCount: this.#entries.length,
@@ -115,9 +117,11 @@ export class TimingPoller {
       const entries = parseTimingHtml(html);
 
       if (!entries || entries.length === 0) {
+        if (!this.#siteReachable) this.#siteReachableSince = Date.now();
         this.#siteReachable = true;
         this.#goOffline(now);
       } else {
+        if (!this.#siteReachable) this.#siteReachableSince = Date.now();
         this.#siteReachable = true;
         // Таймінг працює!
         this.#goOnline(entries, now);
@@ -127,6 +131,7 @@ export class TimingPoller {
     } catch (err) {
       this.#errorCount++;
       this.#siteReachable = false;
+      this.#siteReachableSince = null;
       this.#goOffline(now);
 
       if (this.#errorCount <= 3 || this.#errorCount % 60 === 0) {

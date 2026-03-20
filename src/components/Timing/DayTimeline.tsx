@@ -13,11 +13,12 @@ interface DayTimelineProps {
   sessions: TimelineSession[];
   isTimingOnline: boolean;
   isTimingIdle?: boolean;
+  idleSince?: number | null;
   dayStart?: number;
   dayEnd?: number;
 }
 
-export default function DayTimeline({ sessions, isTimingOnline, isTimingIdle = false, dayStart = 10, dayEnd = 23 }: DayTimelineProps) {
+export default function DayTimeline({ sessions, isTimingOnline, isTimingIdle = false, idleSince = null, dayStart = 10, dayEnd = 23 }: DayTimelineProps) {
   const totalHours = dayEnd - dayStart;
   const now = new Date();
   const currentHour = now.getHours() + now.getMinutes() / 60;
@@ -55,6 +56,14 @@ export default function DayTimeline({ sessions, isTimingOnline, isTimingIdle = f
     hours.push({ hour: h, pct: ((h - dayStart) / totalHours) * 100 });
   }
 
+  // Idle zone: from when timing site became reachable to now
+  let idleStartPct: number | null = null;
+  if (isTimingIdle && idleSince) {
+    const idleDate = new Date(idleSince);
+    const idleHour = idleDate.getHours() + idleDate.getMinutes() / 60;
+    idleStartPct = Math.max(0, ((idleHour - dayStart) / totalHours) * 100);
+  }
+
   return (
     <div className="card p-3">
       <div className="flex items-center justify-between mb-2">
@@ -88,6 +97,14 @@ export default function DayTimeline({ sessions, isTimingOnline, isTimingIdle = f
             style={{ left: `${seg.startPct}%`, width: `${Math.max(seg.endPct - seg.startPct, 0.3)}%` }}
           />
         ))}
+
+        {/* Idle zone */}
+        {idleStartPct !== null && currentPct > idleStartPct && (
+          <div
+            className="absolute top-0 h-full bg-yellow-500/20"
+            style={{ left: `${idleStartPct}%`, width: `${currentPct - idleStartPct}%` }}
+          />
+        )}
 
         {parsedSessions.map((s) => (
           <Link

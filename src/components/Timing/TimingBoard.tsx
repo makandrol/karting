@@ -99,15 +99,8 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
 
         <div className="flex items-center gap-3">
           {/* Sort mode toggle */}
+          <span className="text-dark-500 text-[10px]">Режим:</span>
           <div className="flex bg-dark-800 rounded-md p-0.5">
-            <button
-              onClick={() => setSortMode('race')}
-              className={`px-2.5 py-1 text-[10px] font-semibold rounded transition-colors ${
-                sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
-              }`}
-            >
-              🏁 Гонка
-            </button>
             <button
               onClick={() => setSortMode('qualifying')}
               className={`px-2.5 py-1 text-[10px] font-semibold rounded transition-colors ${
@@ -115,6 +108,14 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
               }`}
             >
               ⏱️ Квала
+            </button>
+            <button
+              onClick={() => setSortMode('race')}
+              className={`px-2.5 py-1 text-[10px] font-semibold rounded transition-colors ${
+                sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+              }`}
+            >
+              🏁 Гонка
             </button>
           </div>
 
@@ -127,26 +128,25 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
         </div>
       </div>
 
-      {/* Table */}
-      {sortedEntries.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="table-header">
-                <th className="table-cell text-center w-10">#</th>
-                <th className="table-cell text-left min-w-[160px]">Пілот</th>
-                <th className="table-cell text-center w-12">Карт</th>
-                <th className="table-cell text-right">Коло</th>
-                {!compact && <th className="table-cell text-right">S1</th>}
-                {!compact && <th className="table-cell text-right">S2</th>}
-                <th className="table-cell text-right">Найкраще</th>
-                {!compact && <th className="table-cell text-right">B.S1</th>}
-                {!compact && <th className="table-cell text-right">B.S2</th>}
-                <th className="table-cell text-center w-10">Л</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedEntries.map((entry) => {
+      {/* Table — always show headers */}
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="table-header">
+              <th className="table-cell text-center w-10">#</th>
+              <th className="table-cell text-left min-w-[160px]">Пілот</th>
+              <th className="table-cell text-center w-12">Карт</th>
+              <th className="table-cell text-right">Коло</th>
+              {!compact && <th className="table-cell text-right">S1</th>}
+              {!compact && <th className="table-cell text-right">S2</th>}
+              <th className="table-cell text-right">Найкраще</th>
+              {!compact && <th className="table-cell text-right">B.S1</th>}
+              {!compact && <th className="table-cell text-right">B.S2</th>}
+              <th className="table-cell text-center w-10">Л</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedEntries.length > 0 ? sortedEntries.map((entry) => {
                 const lastLapColor = getTimeColor(entry.lastLap, entry.bestLap, overallBestLap);
                 const s1Color = getTimeColor(entry.s1, entry.bestS1, overallBestS1);
                 const s2Color = getTimeColor(entry.s2, entry.bestS2, overallBestS2);
@@ -228,18 +228,16 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
                     </td>
                   </tr>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {entries.length === 0 && (mode === 'idle' || mode === 'connecting') && (
-        <div className="px-4 py-12 text-center text-dark-500">Таймінг не активний</div>
-      )}
-      {entries.length === 0 && mode !== 'idle' && (
-        <div className="px-4 py-12 text-center text-dark-500">Завантаження даних...</div>
-      )}
+              }) : (
+                <tr>
+                  <td colSpan={compact ? 5 : 10} className="table-cell text-center text-dark-500 py-8">
+                    Очікування пілотів на трасі...
+                  </td>
+                </tr>
+              )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

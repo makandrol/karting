@@ -110,6 +110,7 @@ export default function Timing() {
         }))}
         isTimingOnline={isLive}
         isTimingIdle={siteReachable && !isLive}
+        idleSince={collectorStatus?.siteReachableSince ?? null}
       />
 
       {/* Competition control (admin) */}
