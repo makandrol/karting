@@ -1,7 +1,10 @@
+import { useMemo } from 'react';
 import { TimingBoard } from '../../components/Timing';
 import { TrackMap } from '../../components/Track';
 import DayTimeline from '../../components/Timing/DayTimeline';
 import CompetitionControl from '../../components/Timing/CompetitionControl';
+import { SessionRows } from '../../components/Sessions/SessionRows';
+import { ALL_COMPETITION_EVENTS } from '../../mock/competitionEvents';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
@@ -14,6 +17,11 @@ export default function Timing() {
   const { currentTrack, setCurrentTrack, allTracks } = useTrack();
   const { hasPermission, isModerator } = useAuth();
   const canChangeTrack = hasPermission('change_track');
+
+  const today = new Date().toISOString().split('T')[0];
+  const todayEvents = useMemo(() =>
+    ALL_COMPETITION_EVENTS.filter(e => e.date === today).slice(-3),
+  [today]);
 
   const todaySessions: any[] = [];
   const currentSessionNum = todaySessions.length;
@@ -144,6 +152,21 @@ export default function Timing() {
 
       {error && (
         <div className="text-dark-500 text-xs text-center">{error}</div>
+      )}
+
+      {/* Today's recent sessions */}
+      {todayEvents.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-dark-400 text-xs font-semibold">Останні заїзди сьогодні</span>
+            <Link to="/sessions" className="text-dark-500 hover:text-primary-400 text-xs transition-colors">
+              Всі заїзди →
+            </Link>
+          </div>
+          <div className="card p-2 space-y-0.5">
+            <SessionRows events={todayEvents} />
+          </div>
+        </div>
       )}
     </div>
   );
