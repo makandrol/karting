@@ -63,7 +63,7 @@ export default function Timing() {
           {/* Collector status (admin only) */}
           {isModerator && collectorConnected && (
             <span className="text-dark-600 text-[10px] font-mono">
-              сервер: ✓ {collectorStatus.online ? 'таймінг online' : 'таймінг offline'} • poll #{collectorStatus.pollCount}
+              сервер: ✓ {collectorStatus.online ? 'таймінг online' : collectorStatus.siteReachable ? 'таймінг idle' : 'таймінг offline'} • poll #{collectorStatus.pollCount}
             </span>
           )}
           {isModerator && !collectorConnected && !isConnecting && (
@@ -109,6 +109,7 @@ export default function Timing() {
           competitionName: s.competitionName,
         }))}
         isTimingOnline={isLive}
+        isTimingIdle={siteReachable && !isLive}
       />
 
       {/* Competition control (admin) */}
