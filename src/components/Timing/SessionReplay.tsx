@@ -15,12 +15,13 @@ interface SessionReplayProps {
   isLive?: boolean;
   raceNumber?: number | null;
   autoPlay?: boolean;
+  liveEntries?: TimingEntry[];
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, s1Ratio, isLive, raceNumber, autoPlay, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, s1Ratio, isLive, raceNumber, autoPlay, liveEntries, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
@@ -142,7 +143,14 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
       let displayS2: string | null;
       let displayLap: string | null;
 
-      if (completedLaps >= pilotLaps.length) {
+      const liveEntry = liveEntries?.find(le => le.pilot === pilot);
+      const onCurrentUnrecordedLap = completedLaps >= pilotLaps.length;
+
+      if (onCurrentUnrecordedLap && liveEntry?.s1) {
+        displayS1 = liveEntry.s1;
+        displayS2 = prevLapData?.s2 || null;
+        displayLap = prevLapData?.lapTime || null;
+      } else if (onCurrentUnrecordedLap) {
         displayLap = prevLapData?.lapTime || null;
         displayS1 = prevLapData?.s1 || null;
         displayS2 = prevLapData?.s2 || null;
@@ -200,7 +208,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
-  }, [laps, pilots, effectiveS1Ratio, sessionStartTime, pilotTimelines]);
+  }, [laps, pilots, effectiveS1Ratio, sessionStartTime, pilotTimelines, liveEntries]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
