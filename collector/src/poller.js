@@ -1,47 +1,52 @@
 /**
  * TimingPoller — ядро collector'а
  *
- * Адаптивний polling:
- * - Офлайн: 1 запит / 60 сек
- * - Онлайн: 1 запит / 1 сек
+ * Отримує дані напряму з JSON API таймінгу (nfs.playwar.com:3333).
  *
- * Зберігає event log:
- * - SNAPSHOT: повний стан (при першому запиті і кожні 60 сек)
- * - LAP: пілот завершив коло
- * - S1: пілот пройшов S1
- * - POLL_OK: запит без змін (тільки timestamp)
+ * Розбивка на заїзди по raceNumber з API (а не по наявності пілотів).
+ *
+ * Адаптивний polling:
+ * - Офлайн (API недоступний): 1 запит / 60 сек
+ * - Idle (API доступний, немає пілотів): 1 запит / 10 сек
+ * - Онлайн (є пілоти на трасі): 1 запит / 1 сек
  */
 
-import { parseTimingHtml } from './parser.js';
+import { parseTimingJson, VOLATILE_TEAM_FIELDS, VOLATILE_META_FIELDS } from './parser.js';
 import { storage } from './storage.js';
 
-const TIMING_URL = 'https://timing.karting.ua/board.html';
-const POLL_INTERVAL_OFFLINE = 60_000;  // 1 хвилина
-const POLL_INTERVAL_ONLINE = 1_000;    // 1 секунда
-const SNAPSHOT_INTERVAL = 60_000;       // зберігати повний стан кожні 60 сек
+const TIMING_API_URL = 'http://nfs.playwar.com:3333/getmaininfo.json';
+const POLL_INTERVAL_OFFLINE = 60_000;
+const POLL_INTERVAL_IDLE = 10_000;
+const POLL_INTERVAL_ONLINE = 1_000;
+const SNAPSHOT_INTERVAL = 60_000;
 
 export class TimingPoller {
   #online = false;
+  #siteReachable = false;
+  #siteReachableSince = null;
   #entries = [];
+  #teams = [];
   #previousEntries = [];
+  #previousTeams = [];
+  #meta = null;
   #lastUpdate = null;
   #lastSnapshot = 0;
   #pollCount = 0;
   #errorCount = 0;
   #sessionId = null;
+  #currentRaceNumber = null;
   #sessions = [];
   #events = [];
   #eventsBySession = new Map();
   #timer = null;
   #cleanupTimer = null;
 
-  /** Callback: викликається при старті сесії */
   onSessionStart = null;
-  /** Callback: викликається при завершенні сесії */
   onSessionEnd = null;
 
   start() {
     console.log('🔄 Poller started');
+    console.log(`   API: ${TIMING_API_URL}`);
     this.#poll();
     this.#scheduleCleanup();
   }
@@ -55,35 +60,40 @@ export class TimingPoller {
   }
 
   isOnline() { return this.#online; }
+  getCurrentEntries() { return this.#entries; }
+  getCurrentTeams() { return this.#teams; }
+  getMeta() { return this.#meta; }
+  getLastUpdateTime() { return this.#lastUpdate; }
+  getCurrentSessionId() { return this.#sessionId; }
+  getSessions() { return this.#sessions; }
 
   #scheduleCleanup() {
     const doCleanup = () => {
       try {
-        const deleted = storage.cleanupPolls(10);
+        const deleted = storage.cleanupPolls(5);
         if (deleted > 0) console.log(`🧹 Cleaned up ${deleted} old poll_ok events`);
       } catch (err) {
         console.error('Cleanup error:', err.message);
       }
     };
     doCleanup();
-    this.#cleanupTimer = setInterval(doCleanup, 6 * 60 * 60 * 1000); // every 6 hours
+    this.#cleanupTimer = setInterval(doCleanup, 6 * 60 * 60 * 1000);
   }
-  getCurrentEntries() { return this.#entries; }
-  getLastUpdateTime() { return this.#lastUpdate; }
-  getCurrentSessionId() { return this.#sessionId; }
-  getSessions() { return this.#sessions; }
 
   getStatus() {
     return {
       online: this.#online,
+      siteReachable: this.#siteReachable,
+      siteReachableSince: this.#siteReachableSince,
       pollCount: this.#pollCount,
       errorCount: this.#errorCount,
       entriesCount: this.#entries.length,
       eventsCount: this.#events.length,
       sessionId: this.#sessionId,
+      raceNumber: this.#currentRaceNumber,
       sessionsCount: this.#sessions.length,
       lastUpdate: this.#lastUpdate,
-      pollInterval: this.#online ? POLL_INTERVAL_ONLINE : POLL_INTERVAL_OFFLINE,
+      pollInterval: this.#online ? POLL_INTERVAL_ONLINE : this.#siteReachable ? POLL_INTERVAL_IDLE : POLL_INTERVAL_OFFLINE,
     };
   }
 
@@ -100,7 +110,7 @@ export class TimingPoller {
     const now = Date.now();
 
     try {
-      const response = await fetch(TIMING_URL, {
+      const response = await fetch(TIMING_API_URL, {
         signal: AbortSignal.timeout(10_000),
       });
 
@@ -108,20 +118,40 @@ export class TimingPoller {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const html = await response.text();
-      const entries = parseTimingHtml(html);
+      const json = await response.json();
+      const result = parseTimingJson(json);
 
-      if (!entries || entries.length === 0) {
-        // Таймінг доступний але порожній (немає сесії)
-        this.#goOffline(now);
-      } else {
-        // Таймінг працює!
-        this.#goOnline(entries, now);
+      if (!result) {
+        throw new Error('Invalid JSON structure');
       }
 
+      if (!this.#siteReachable) this.#siteReachableSince = Date.now();
+      this.#siteReachable = true;
       this.#errorCount = 0;
+
+      this.#meta = result.meta;
+      this.#teams = result.teams;
+
+      const newRaceNumber = result.meta.raceNumber;
+      const raceChanged = newRaceNumber !== null
+        && this.#currentRaceNumber !== null
+        && newRaceNumber !== this.#currentRaceNumber;
+
+      if (raceChanged) {
+        this.#endCurrentSession(now);
+      }
+
+      this.#currentRaceNumber = newRaceNumber;
+
+      if (result.entries.length > 0) {
+        this.#goOnline(result.entries, result.teams, result.meta, now, result.raw);
+      } else {
+        this.#goOffline(now);
+      }
     } catch (err) {
       this.#errorCount++;
+      this.#siteReachable = false;
+      this.#siteReachableSince = null;
       this.#goOffline(now);
 
       if (this.#errorCount <= 3 || this.#errorCount % 60 === 0) {
@@ -129,16 +159,15 @@ export class TimingPoller {
       }
     }
 
-    // Schedule next poll
-    const interval = this.#online ? POLL_INTERVAL_ONLINE : POLL_INTERVAL_OFFLINE;
+    const interval = this.#online ? POLL_INTERVAL_ONLINE : this.#siteReachable ? POLL_INTERVAL_IDLE : POLL_INTERVAL_OFFLINE;
     this.#timer = setTimeout(() => this.#poll(), interval);
   }
 
-  #goOnline(entries, now) {
+  #goOnline(entries, teams, meta, now, raw) {
     const wasOffline = !this.#online;
 
     if (wasOffline) {
-      console.log(`✅ Timing ONLINE — ${entries.length} pilots`);
+      console.log(`✅ Timing ONLINE — ${entries.length} pilots, race #${meta.raceNumber ?? '?'}`);
       this.#online = true;
       this.#sessionId = `session-${Date.now()}`;
       this.#sessions.push({
@@ -146,17 +175,21 @@ export class TimingPoller {
         startTime: now,
         endTime: null,
         entryCount: entries.length,
+        raceNumber: meta.raceNumber,
+        isRace: meta.isRace,
+        totalRaceTime: meta.totalRaceTime,
       });
-      // Save to DB
-      storage.createSession(this.#sessionId, now, entries.length);
-      this.#addEvent('snapshot', { entries }, now);
+      storage.createSession(this.#sessionId, now, entries.length, {
+        trackId: storage.getCurrentTrackId(),
+        raceNumber: meta.raceNumber,
+        isRace: meta.isRace,
+      });
+      this.#addEvent('snapshot', { entries, teams, meta, raw }, now);
       this.#lastSnapshot = now;
-      // Notify detector
       if (this.onSessionStart) this.onSessionStart(this.#sessionId, entries.length);
     }
 
-    // Diff with previous
-    const changes = this.#diff(this.#previousEntries, entries);
+    const changes = this.#diff(this.#previousTeams, teams, this.#previousEntries, entries, meta);
 
     if (changes.length > 0) {
       for (const change of changes) {
@@ -164,18 +197,32 @@ export class TimingPoller {
       }
       this.#lastUpdate = now;
     } else {
-      // No changes — just record poll
       this.#addEvent('poll_ok', null, now);
     }
 
-    // Periodic snapshot
     if (now - this.#lastSnapshot >= SNAPSHOT_INTERVAL) {
-      this.#addEvent('snapshot', { entries }, now);
+      this.#addEvent('snapshot', { entries, teams, meta, raw }, now);
       this.#lastSnapshot = now;
     }
 
     this.#previousEntries = entries;
+    this.#previousTeams = teams;
     this.#entries = entries;
+  }
+
+  #endCurrentSession(now) {
+    if (this.#online && this.#sessionId) {
+      console.log(`🔄 Race number changed → closing session ${this.#sessionId}`);
+      const session = this.#sessions.find(s => s.id === this.#sessionId);
+      if (session) session.endTime = now;
+      storage.endSession(this.#sessionId, now);
+      if (this.onSessionEnd) this.onSessionEnd(this.#sessionId);
+      this.#online = false;
+      this.#sessionId = null;
+      this.#entries = [];
+      this.#previousEntries = [];
+      this.#previousTeams = [];
+    }
   }
 
   #goOffline(now) {
@@ -190,58 +237,73 @@ export class TimingPoller {
       }
       this.#entries = [];
       this.#previousEntries = [];
+      this.#previousTeams = [];
     }
   }
 
-  /**
-   * Порівнює попередній і поточний стан, повертає список змін.
-   */
-  #diff(prev, current) {
+  #diff(prevTeams, currentTeams, prevEntries, currentEntries, meta) {
     const changes = [];
 
-    for (const entry of current) {
-      const prevEntry = prev.find(p => p.pilot === entry.pilot);
+    for (let i = 0; i < currentTeams.length; i++) {
+      const team = currentTeams[i];
+      const entry = currentEntries[i];
+      const pilotKey = team.pilotName || team.teamName || `Карт ${team.number}`;
+      const prevTeam = prevTeams.find(p => (p.pilotName || p.teamName || `Карт ${p.number}`) === pilotKey);
 
-      if (!prevEntry) {
-        // Новий пілот
-        changes.push({ type: 'pilot_join', data: { pilot: entry.pilot, kart: entry.kart } });
+      if (!prevTeam) {
+        changes.push({ type: 'pilot_join', data: { pilot: pilotKey, kart: team.number || team.kart, team } });
         continue;
       }
 
-      // Нове коло (lapNumber збільшився)
-      if (entry.lapNumber > prevEntry.lapNumber) {
+      if (team.lapCount > prevTeam.lapCount) {
         changes.push({
           type: 'lap',
           data: {
-            pilot: entry.pilot,
-            kart: entry.kart,
-            lapNumber: entry.lapNumber,
+            pilot: pilotKey,
+            kart: team.number || team.kart,
+            lapNumber: team.lapCount,
             lastLap: entry.lastLap,
             s1: entry.s1,
             s2: entry.s2,
             bestLap: entry.bestLap,
             position: entry.position,
+            team,
+            meta: { bestLapRace: meta.bestLapRace, bestS1Race: meta.bestS1Race, bestS2Race: meta.bestS2Race },
           },
         });
+        continue;
       }
 
-      // S1 змінився (пілот пройшов S1 на поточному колі)
-      if (entry.s1 !== prevEntry.s1 && entry.lapNumber === prevEntry.lapNumber) {
+      if (entry.s1 !== prevEntries.find(p => p.pilot === pilotKey)?.s1 && team.lapCount === prevTeam.lapCount) {
         changes.push({
           type: 's1',
-          data: {
-            pilot: entry.pilot,
-            kart: entry.kart,
-            s1: entry.s1,
-          },
+          data: { pilot: pilotKey, kart: team.number || team.kart, s1: entry.s1, team },
+        });
+        continue;
+      }
+
+      // Check for non-volatile field changes (pit status, position, etc.)
+      let hasRealChange = false;
+      for (const key of Object.keys(team)) {
+        if (VOLATILE_TEAM_FIELDS.has(key)) continue;
+        if (team[key] !== prevTeam[key]) {
+          hasRealChange = true;
+          break;
+        }
+      }
+      if (hasRealChange) {
+        changes.push({
+          type: 'update',
+          data: { pilot: pilotKey, kart: team.number || team.kart, team },
         });
       }
     }
 
-    // Пілот покинув трасу
-    for (const prevEntry of prev) {
-      if (!current.find(c => c.pilot === prevEntry.pilot)) {
-        changes.push({ type: 'pilot_leave', data: { pilot: prevEntry.pilot } });
+    for (const prevTeam of prevTeams) {
+      const pilotKey = prevTeam.pilotName || prevTeam.teamName || `Карт ${prevTeam.number}`;
+      const found = currentTeams.find(t => (t.pilotName || t.teamName || `Карт ${t.number}`) === pilotKey);
+      if (!found) {
+        changes.push({ type: 'pilot_leave', data: { pilot: pilotKey } });
       }
     }
 
@@ -249,12 +311,7 @@ export class TimingPoller {
   }
 
   #addEvent(type, data, ts) {
-    const event = {
-      sessionId: this.#sessionId,
-      type,
-      ts,
-      data,
-    };
+    const event = { sessionId: this.#sessionId, type, ts, data };
     this.#events.push(event);
 
     if (this.#sessionId) {
@@ -264,19 +321,15 @@ export class TimingPoller {
       this.#eventsBySession.get(this.#sessionId).push(event);
     }
 
-    // Write to SQLite
     if (this.#sessionId) {
       storage.addEvent(this.#sessionId, type, ts, data);
-
       if (type === 'lap' && data) {
         storage.addLap(this.#sessionId, { ...data, ts });
       }
     }
 
-    // Keep max 100K events in memory
     if (this.#events.length > 100_000) {
       this.#events = this.#events.slice(-80_000);
-      // Rebuild index from remaining events
       this.#eventsBySession.clear();
       for (const e of this.#events) {
         if (e.sessionId) {

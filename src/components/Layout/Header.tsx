@@ -1,246 +1,160 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import type { NavItem } from '../../types';
 import { useAuth, ROLE_ICONS } from '../../services/auth';
+import { usePageVisibility } from '../../services/pageVisibility';
 
-const NAV_ITEMS: NavItem[] = [
-  {
-    label: 'Результати',
-    path: '/results',
-    children: [
-      { label: 'Поточне змагання', path: '/results/current' },
-      { label: 'Гонзалес', path: '/results/gonzales' },
-      { label: 'Лайт Ліга', path: '/results/light-league' },
-      { label: 'Ліга Чемпіонів', path: '/results/champions-league' },
-      { label: 'Спринти', path: '/results/sprints' },
-      { label: 'Марафони', path: '/results/marathons' },
-    ],
-  },
-  {
-    label: 'Аналітика',
-    path: '/info',
-    children: [
-      { label: 'Таймінг', path: '/info/timing' },
-      { label: 'Заїзди', path: '/sessions' },
-      { label: 'Траси', path: '/info/tracks' },
-      { label: 'Карти', path: '/info/karts' },
-      { label: 'Відео', path: '/info/videos' },
-    ],
-  },
-];
+const ChevronDown = () => (
+  <svg className="w-3 h-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+  </svg>
+);
 
 export default function Header() {
   const location = useLocation();
   const { user, isOwner, isModerator, logout } = useAuth();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const { getVisiblePages } = usePageVisibility();
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const dropdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isActive = (path: string) => location.pathname.startsWith(path);
+  const role = user?.role ?? 'user';
+  const mainPages = getVisiblePages('main', role);
+  const competitionPages = getVisiblePages('competitions', role);
+  const otherPages = getVisiblePages('other', role);
+  const adminPages = (isOwner || isModerator) ? getVisiblePages('admin', role) : [];
+
+  const isActive = (path: string) => {
+    if (path === '/') return location.pathname === '/';
+    return location.pathname.startsWith(path);
+  };
+  const isGroupActive = (paths: string[]) => paths.some(p => isActive(p));
+
+  const openDd = useCallback((id: string) => {
+    if (dropdownTimerRef.current) { clearTimeout(dropdownTimerRef.current); dropdownTimerRef.current = null; }
+    setOpenDropdown(id);
+  }, []);
+  const closeDd = useCallback(() => {
+    dropdownTimerRef.current = setTimeout(() => setOpenDropdown(null), 200);
+  }, []);
+  const toggleDd = useCallback((id: string) => {
+    setOpenDropdown(prev => prev === id ? null : id);
+  }, []);
+
+  useEffect(() => {
+    if (!openDropdown) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-dropdown]')) setOpenDropdown(null);
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler); };
+  }, [openDropdown]);
+
+  useEffect(() => { setOpenDropdown(null); }, [location.pathname]);
+
+  function Dropdown({ id, label, items, align = 'left' }: {
+    id: string; label: string; items: { label: string; path: string }[]; align?: 'left' | 'right';
+  }) {
+    if (items.length === 0) return null;
+    const active = isGroupActive(items.map(i => i.path));
+    return (
+      <div data-dropdown className="relative" onMouseEnter={() => openDd(id)} onMouseLeave={closeDd}>
+        <button
+          onClick={() => toggleDd(id)}
+          className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+            active ? 'text-white bg-primary-600' : 'text-dark-300 hover:text-white hover:bg-dark-800'
+          }`}
+        >
+          {label}
+          <ChevronDown />
+        </button>
+        {openDropdown === id && (
+          <div className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} mt-1 w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50`}>
+            {items.map(item => (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`block px-4 py-2 text-sm transition-colors ${
+                  isActive(item.path) ? 'text-primary-400 bg-primary-500/10' : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <header className="bg-dark-900/80 backdrop-blur-md border-b border-dark-800">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
-          <Link to="/" className="flex items-center gap-3 group">
-            <div className="w-9 h-9 bg-primary-600 rounded-lg flex items-center justify-center text-white font-black text-lg group-hover:bg-primary-500 transition-colors">
-              Ж
-            </div>
-            <div className="hidden sm:block">
-              <div className="text-white font-bold text-sm leading-tight">Картинг</div>
-              <div className="text-dark-400 text-xs leading-tight">Картинг</div>
-            </div>
-          </Link>
-
-          {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center gap-1">
-            {NAV_ITEMS.map((item) => (
-              <div
-                key={item.path}
-                className="relative"
-                onMouseEnter={() => setOpenDropdown(item.path)}
-                onMouseLeave={() => setOpenDropdown(null)}
+    <header className="bg-dark-900/80 backdrop-blur-md border-b border-dark-800 relative z-50">
+      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
+        <div className="flex items-center h-12 gap-1 overflow-x-auto scrollbar-none">
+          {/* Nav items — always visible, scrollable on small screens */}
+          <nav className="flex items-center gap-0.5 flex-shrink-0">
+            {mainPages.map(page => (
+              <Link
+                key={page.id}
+                to={page.path}
+                className={`px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                  isActive(page.path) ? 'text-white bg-primary-600' : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                }`}
               >
-                <Link
-                  to={item.children?.[0]?.path || item.path}
-                  className={isActive(item.path) ? 'nav-link-active' : 'nav-link'}
-                >
-                  {item.label}
-                  {item.children && (
-                    <svg className="w-4 h-4 ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  )}
-                </Link>
+                {page.label}
+              </Link>
+            ))}
 
-                {/* Dropdown */}
-                {item.children && openDropdown === item.path && (
-                  <div className="absolute top-full left-0 mt-1 w-56 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-2 z-50">
-                    {item.children.map((child) => (
-                      <Link
-                        key={child.path}
-                        to={child.path}
-                        className={`block px-4 py-2.5 text-sm transition-colors ${
-                          location.pathname === child.path
-                            ? 'text-primary-400 bg-primary-500/10'
-                            : 'text-dark-300 hover:text-white hover:bg-dark-800'
-                        }`}
-                      >
-                        {child.label}
-                      </Link>
-                    ))}
+            {competitionPages.length > 0 && (
+              <Dropdown id="comp" label="Змагання" items={competitionPages.map(p => ({ label: p.label, path: p.path }))} />
+            )}
+            {otherPages.length > 0 && (
+              <Dropdown id="other" label="Інше" items={otherPages.map(p => ({ label: p.label, path: p.path }))} />
+            )}
+            {adminPages.length > 0 && (
+              <Dropdown id="admin" label="Адмін" items={adminPages.map(p => ({ label: p.label, path: p.path }))} />
+            )}
+          </nav>
+
+          <div className="flex-1" />
+
+          {/* Auth — always visible */}
+          <div className="flex items-center flex-shrink-0">
+            {user ? (
+              <div data-dropdown className="relative" onMouseEnter={() => openDd('user')} onMouseLeave={closeDd}>
+                <button
+                  onClick={() => toggleDd('user')}
+                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-dark-300 hover:text-white hover:bg-dark-800 transition-colors whitespace-nowrap"
+                >
+                  {user.photo ? (
+                    <img src={user.photo} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
+                  ) : (
+                    <span>{ROLE_ICONS[user.role]}</span>
+                  )}
+                  <span className="max-w-[80px] truncate hidden sm:inline">{user.name}</span>
+                </button>
+                {openDropdown === 'user' && (
+                  <div className="absolute top-full right-0 mt-1 w-44 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50">
+                    <Link to="/login" className="block px-4 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
+                      Профіль
+                    </Link>
+                    <button
+                      onClick={logout}
+                      className="block w-full text-left px-4 py-2 text-sm text-dark-300 hover:text-red-400 hover:bg-dark-800 transition-colors"
+                    >
+                      Вийти
+                    </button>
                   </div>
                 )}
               </div>
-            ))}
-
-            {/* Auth section */}
-            <div className="ml-2 pl-2 border-l border-dark-800">
-              {user ? (
-                <div
-                  className="relative"
-                  onMouseEnter={() => setOpenDropdown('user')}
-                  onMouseLeave={() => setOpenDropdown(null)}
-                >
-                  <button className="nav-link flex items-center gap-2">
-                    {user.photo ? (
-                      <img src={user.photo} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
-                    ) : (
-                      <span className="text-xs">{ROLE_ICONS[user.role]}</span>
-                    )}
-                    {user.name}
-                  </button>
-                  {openDropdown === 'user' && (
-                    <div className="absolute top-full right-0 mt-1 w-48 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-2 z-50">
-                      <Link
-                        to="/login"
-                        className="block px-4 py-2.5 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
-                      >
-                        👤 Профіль
-                      </Link>
-                      {isOwner && (
-                        <Link
-                          to="/admin"
-                          className="block px-4 py-2.5 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
-                        >
-                          🔧 Модератори
-                        </Link>
-                      )}
-                      {isOwner && (
-                        <Link
-                          to="/admin/db"
-                          className="block px-4 py-2.5 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
-                        >
-                          💾 База даних
-                        </Link>
-                      )}
-                      {isOwner && (
-                        <Link
-                          to="/admin/monitoring"
-                          className="block px-4 py-2.5 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
-                        >
-                          📊 Моніторинг
-                        </Link>
-                      )}
-                      <button
-                        onClick={logout}
-                        className="block w-full text-left px-4 py-2.5 text-sm text-dark-300 hover:text-red-400 hover:bg-dark-800 transition-colors"
-                      >
-                        Вийти
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <Link to="/login" className="nav-link text-dark-400 hover:text-white">
-                  🔐 Вхід
-                </Link>
-              )}
-            </div>
-          </nav>
-
-          {/* Mobile menu button */}
-          <button
-            className="md:hidden p-2 text-dark-300 hover:text-white"
-            onClick={() => setMobileOpen(!mobileOpen)}
-          >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              {mobileOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Mobile menu */}
-      {mobileOpen && (
-        <div className="md:hidden border-t border-dark-800 bg-dark-900">
-          <div className="px-4 py-3 space-y-1">
-            {NAV_ITEMS.map((item) => (
-              <div key={item.path}>
-                <div className="text-dark-500 text-xs font-semibold uppercase tracking-wider px-3 py-2 mt-2">
-                  {item.label}
-                </div>
-                {item.children?.map((child) => (
-                  <Link
-                    key={child.path}
-                    to={child.path}
-                    onClick={() => setMobileOpen(false)}
-                    className={`block px-3 py-2 rounded-lg text-sm ${
-                      location.pathname === child.path
-                        ? 'text-primary-400 bg-primary-500/10'
-                        : 'text-dark-300 hover:text-white hover:bg-dark-800'
-                    }`}
-                  >
-                    {child.label}
-                  </Link>
-                ))}
-              </div>
-            ))}
-
-            {/* Mobile auth */}
-            <div className="pt-2 mt-2 border-t border-dark-800">
-              {user ? (
-                <>
-                  <Link
-                    to="/login"
-                    onClick={() => setMobileOpen(false)}
-                    className="block px-3 py-2 rounded-lg text-sm text-dark-300"
-                  >
-                    {ROLE_ICONS[user.role]} {user.name}
-                  </Link>
-                  {isOwner && (
-                    <Link
-                      to="/admin"
-                      onClick={() => setMobileOpen(false)}
-                      className="block px-3 py-2 rounded-lg text-sm text-dark-300 hover:text-white hover:bg-dark-800"
-                    >
-                      🔧 Модератори
-                    </Link>
-                  )}
-                  <button
-                    onClick={() => { logout(); setMobileOpen(false); }}
-                    className="block w-full text-left px-3 py-2 rounded-lg text-sm text-dark-400 hover:text-red-400"
-                  >
-                    Вийти
-                  </button>
-                </>
-              ) : (
-                <Link
-                  to="/login"
-                  onClick={() => setMobileOpen(false)}
-                  className="block px-3 py-2 rounded-lg text-sm text-dark-300 hover:text-white hover:bg-dark-800"
-                >
-                  🔐 Вхід
-                </Link>
-              )}
-            </div>
+            ) : (
+              <Link to="/login" className="px-2 py-1.5 rounded-lg text-xs text-dark-400 hover:text-white whitespace-nowrap">
+                Вхід
+              </Link>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </header>
   );
 }

@@ -1,48 +1,94 @@
 /**
- * Парсер HTML з timing.karting.ua/board.html
+ * Парсер JSON з NFS timing API (nfs.playwar.com:3333/getmaininfo.json)
  *
- * Повертає масив записів з табла.
- * TODO: оновити селектори коли побачимо реальну структуру HTML.
+ * Зберігає оригінальні назви полів з API.
  */
 
-import { parse } from 'node-html-parser';
+const EMPTY_TIME_SENTINEL = '8:20:00.000';
+
+function cleanTime(val) {
+  if (!val || val === '0' || val === '0.0' || val === EMPTY_TIME_SENTINEL) return null;
+  return val.replace(/(\.\d{3})\d*$/, '$1');
+}
 
 /**
- * @param {string} html
- * @returns {Array<{position: number, pilot: string, kart: number, lastLap: string|null, s1: string|null, s2: string|null, bestLap: string|null, lapNumber: number}>|null}
+ * Поля, які змінюються на кожному поллі (час на трасі і т.д.)
+ * При порівнянні даних ці поля ігноруються — якщо змінилися тільки вони, це poll_ok.
  */
-export function parseTimingHtml(html) {
+export const VOLATILE_TEAM_FIELDS = new Set([
+  'totalOnTrack',
+  'secondsFromPit',
+  'timeFromLassPassing',
+  'lastPitMainTime',
+]);
+
+export const VOLATILE_META_FIELDS = new Set([
+  'totalRaceTime',
+]);
+
+/**
+ * @param {object} json — raw JSON від nfs.playwar.com:3333/getmaininfo.json
+ * @returns {{ onTablo: object, teams: Array, entries: Array, raw: object } | null}
+ */
+export function parseTimingJson(json) {
   try {
-    const root = parse(html);
-    const rows = root.querySelectorAll('table tbody tr');
+    const { onTablo, onBoard } = json;
+    if (!onTablo) return null;
 
-    if (!rows.length) return null;
+    const meta = {
+      raceNumber: onTablo.raceNumber ?? null,
+      totalRaceTime: onTablo.totalRaceTime || null,
+      isRace: !!onTablo.isRace,
+      finish: !!onTablo.finish,
+      raceStartedButtonTimestamp: onTablo.raceStartedButtonTimestamp ?? null,
+      raceFinishedTimestamp: onTablo.raceFinishedTimestamp ?? null,
+      bestLapRace: cleanTime(onTablo.bestLapRace),
+      bestS1Race: cleanTime(onTablo.bestS1Race),
+      bestS2Race: cleanTime(onTablo.bestS2Race),
+      bestLapRaceNameTeam: onTablo.bestLapRaceNameTeam || null,
+      bestLapRaceNumberTeam: onTablo.bestLapRaceNumberTeam || null,
+      bestLapRaceNamePilot: onTablo.bestLapRaceNamePilot || null,
+      karts: onTablo.karts || [],
+    };
 
-    const entries = [];
+    const rawTeams = Array.isArray(onTablo.teams) ? onTablo.teams : [];
 
-    for (const row of rows) {
-      const cells = row.querySelectorAll('td');
-      if (cells.length < 8) continue;
+    const teams = rawTeams.map(t => ({
+      transponderId: t.transponderId,
+      position: t.position || 0,
+      number: t.number || 0,
+      kart: t.kart || 0,
+      teamName: t.teamName || '',
+      pilotName: t.pilotName || '',
+      lastLap: cleanTime(t.lastLap),
+      lastLapS1: cleanTime(t.lastLapS1),
+      lastLapS2: cleanTime(t.lastLapS2),
+      bestLap: cleanTime(t.bestLap),
+      bestLapOnSegment: cleanTime(t.bestLapOnSegment),
+      midLap: cleanTime(t.midLap),
+      lapCount: parseInt(t.lapCount) || 0,
+      lag: cleanTime(t.lag),
+      isOnPit: !!t.isOnPit,
+      isRaketa: !!t.isRaketa,
+      pitstops: t.pitstops || 0,
+      totalOnTrack: t.totalOnTrack || null,
+      secondsFromPit: t.secondsFromPit ?? null,
+      lastPitMainTime: t.lastPitMainTime || null,
+      timeFromLassPassing: t.timeFromLassPassing ?? null,
+    }));
 
-      const getText = (idx) => cells[idx]?.textContent?.trim() || '';
+    const entries = teams.map(t => ({
+      position: t.position,
+      pilot: t.pilotName || t.teamName || `Карт ${t.number}`,
+      kart: t.number || t.kart || 0,
+      lastLap: t.lastLap,
+      s1: t.lastLapS1,
+      s2: t.lastLapS2,
+      bestLap: t.bestLap,
+      lapNumber: t.lapCount,
+    }));
 
-      const position = parseInt(getText(0)) || 0;
-      const pilot = getText(1);
-      const kart = parseInt(getText(2)) || 0;
-      const lastLap = getText(3) || null;
-      const s1 = getText(4) || null;
-      const s2 = getText(5) || null;
-      const bestLap = getText(6) || null;
-      const lapNumber = parseInt(getText(7)) || 0;
-
-      if (!pilot) continue;
-
-      entries.push({
-        position, pilot, kart, lastLap, s1, s2, bestLap, lapNumber,
-      });
-    }
-
-    return entries.length > 0 ? entries : null;
+    return { meta, teams, entries, raw: { onTablo, onBoard } };
   } catch (err) {
     console.error('Parse error:', err.message);
     return null;

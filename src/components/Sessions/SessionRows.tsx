@@ -1,5 +1,13 @@
 import { Link } from 'react-router-dom';
-import type { CompetitionEvent } from '../../mock/competitionEvents';
+
+interface CompetitionEvent {
+  id: string;
+  format: string;
+  name: string;
+  date: string;
+  trackConfigId: number;
+  phases: any[];
+}
 
 const FORMAT_MAP: Record<string, string> = {
   gonzales: 'gonzales', light_league: 'light-league', champions_league: 'champions-league',

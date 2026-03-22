@@ -8,18 +8,21 @@ import { parseTime, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } fro
 // ============================================================
 
 interface SessionReplayProps {
-  laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number }[];
+  laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number; ts?: number }[];
   durationSec: number;
+  sessionStartTime?: number;
   s1Ratio?: number;
+  isLive?: boolean;
+  raceNumber?: number | null;
+  autoPlay?: boolean;
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
-  /** Called with scrubber JSX so parent can position it (e.g. sticky) */
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
-  const [playing, setPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
+export default function SessionReplay({ laps, durationSec, sessionStartTime, s1Ratio, isLive, raceNumber, autoPlay, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+  const [playing, setPlaying] = useState(!!autoPlay);
+  const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
@@ -30,57 +33,105 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
     if (s1Ratio) return s1Ratio;
     const firstLap = laps[0];
     if (firstLap?.s1 && firstLap?.lapTime) {
-      const s1Sec = parseFloat(firstLap.s1);
-      const lapSec = parseFloat(firstLap.lapTime);
+      const s1Sec = parseTime(firstLap.s1) || 0;
+      const lapSec = parseTime(firstLap.lapTime) || 0;
       if (s1Sec > 0 && lapSec > 0) return s1Sec / lapSec;
     }
     return 0.43;
   }, [s1Ratio, laps]);
 
+  // Build per-pilot completion timelines using actual lap durations
+  // ts from DB is poll time (same for all pilots), so we reconstruct individual timelines
+  const pilotTimelines = useMemo(() => {
+    const timelines = new Map<string, number[]>();
+    if (!sessionStartTime) return timelines;
+    
+    for (const pilot of pilots) {
+      const pLaps = laps.filter(l => l.pilot === pilot);
+      if (pLaps.length === 0) continue;
+      
+      // First lap: find earliest ts for this pilot as anchor, then work backwards
+      const firstTs = pLaps[0].ts;
+      const firstLapSec = parseTime(pLaps[0].lapTime) || 42;
+      // The pilot started their first lap ~firstLapSec before it was completed
+      const pilotStartMs = firstTs ? (firstTs - firstLapSec * 1000) : sessionStartTime;
+      
+      const completionTimes: number[] = [];
+      let accum = pilotStartMs;
+      for (const lap of pLaps) {
+        const lapSec = parseTime(lap.lapTime) || 42;
+        accum += lapSec * 1000;
+        completionTimes.push(accum);
+      }
+      timelines.set(pilot, completionTimes);
+    }
+    return timelines;
+  }, [laps, pilots, sessionStartTime]);
+
   // Get entries at a given time point with best S1/S2 tracking
   const getEntriesAtTime = useCallback((timeSec: number): TimingEntry[] => {
     const result: TimingEntry[] = [];
+    const useTimelines = sessionStartTime != null && pilotTimelines.size > 0;
 
     for (let idx = 0; idx < pilots.length; idx++) {
       const pilot = pilots[idx];
       const pilotLaps = laps.filter(l => l.pilot === pilot);
       if (pilotLaps.length === 0) continue;
 
-      const enterTime = idx * 2;
-      const onTrack = timeSec >= enterTime && timeSec > 0;
-
-      if (!onTrack) {
-        result.push({
-          position: idx + 1, pilot,
-          kart: 0, lastLap: null, s1: null, s2: null, bestLap: null,
-          lapNumber: -1, bestS1: null, bestS2: null, progress: null,
-          currentLapSec: null, previousLapSec: null,
-        });
-        continue;
-      }
-
-      const elapsed = timeSec - enterTime;
-
-      // Walk through actual lap durations
-      let timeAccum = 0;
       let completedLaps = 0;
-      for (let i = 0; i < pilotLaps.length; i++) {
-        const lapSec = parseFloat(pilotLaps[i].lapTime) || 42;
-        if (elapsed >= timeAccum + lapSec) {
-          timeAccum += lapSec;
-          completedLaps++;
-        } else {
-          break;
-        }
-      }
-
       let progress: number;
-      if (completedLaps >= pilotLaps.length) {
-        progress = 1;
+
+      if (useTimelines) {
+        const currentMs = sessionStartTime! + timeSec * 1000;
+        const timeline = pilotTimelines.get(pilot) || [];
+        
+        for (let i = 0; i < timeline.length; i++) {
+          if (currentMs >= timeline[i]) completedLaps++;
+          else break;
+        }
+
+        if (completedLaps >= pilotLaps.length) {
+          // All recorded laps done — estimate position on current unfinished lap
+          if (pilotLaps.length > 0) {
+            const lastCompletionMs = timeline[timeline.length - 1] || currentMs;
+            const avgLapMs = pilotLaps.length >= 2
+              ? (timeline[timeline.length - 1] - timeline[0]) / (pilotLaps.length - 1)
+              : (parseTime(pilotLaps[0].lapTime) || 42) * 1000;
+            const elapsed = currentMs - lastCompletionMs;
+            progress = avgLapMs > 0 ? Math.max(0, Math.min(elapsed / avgLapMs, 0.999)) : 0;
+          } else {
+            progress = 0;
+          }
+        } else {
+          const lapStartMs = completedLaps > 0 ? timeline[completedLaps - 1] : (timeline[0] ? timeline[0] - (parseTime(pilotLaps[0].lapTime) || 42) * 1000 : sessionStartTime!);
+          const lapEndMs = timeline[completedLaps] || (lapStartMs + 42000);
+          const lapDuration = lapEndMs - lapStartMs;
+          const lapElapsed = currentMs - lapStartMs;
+          progress = lapDuration > 0 ? Math.max(0, Math.min(lapElapsed / lapDuration, 0.999)) : 0;
+        }
       } else {
-        const currentLapSec = parseFloat(pilotLaps[completedLaps]?.lapTime) || 42;
-        const lapElapsed = elapsed - timeAccum;
-        progress = Math.min(lapElapsed / currentLapSec, 0.999);
+        const enterTime = idx * 2;
+        if (timeSec < enterTime || timeSec <= 0) {
+          result.push({
+            position: idx + 1, pilot,
+            kart: 0, lastLap: null, s1: null, s2: null, bestLap: null,
+            lapNumber: -1, bestS1: null, bestS2: null, progress: null,
+            currentLapSec: null, previousLapSec: null,
+          });
+          continue;
+        }
+        const elapsed = timeSec - enterTime;
+        let timeAccum = 0;
+        for (let i = 0; i < pilotLaps.length; i++) {
+          const lapSec = parseTime(pilotLaps[i].lapTime) || 42;
+          if (elapsed >= timeAccum + lapSec) { timeAccum += lapSec; completedLaps++; } else break;
+        }
+        if (completedLaps >= pilotLaps.length) {
+          progress = 1;
+        } else {
+          const currentLapSec = parseTime(pilotLaps[completedLaps]?.lapTime) || 42;
+          progress = Math.min((elapsed - timeAccum) / currentLapSec, 0.999);
+        }
       }
 
       const currentLapData = completedLaps < pilotLaps.length ? pilotLaps[completedLaps] : null;
@@ -112,11 +163,11 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
 
       for (let i = 0; i < completedLaps; i++) {
         const l = pilotLaps[i];
-        const lt = parseFloat(l?.lapTime || '999');
+        const lt = parseTime(l?.lapTime || '') ?? 999;
         if (lt < bestLapSec) { bestLapSec = lt; bestLap = l?.lapTime || ''; }
-        const s1v = parseFloat(l?.s1 || '999');
+        const s1v = parseTime(l?.s1 || '') ?? 999;
         if (s1v < bestS1Sec) { bestS1Sec = s1v; bestS1 = l?.s1 || ''; }
-        const s2v = parseFloat(l?.s2 || '999');
+        const s2v = parseTime(l?.s2 || '') ?? 999;
         if (s2v < bestS2Sec) { bestS2Sec = s2v; bestS2 = l?.s2 || ''; }
       }
 
@@ -144,12 +195,12 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
         if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
         if (a.lapNumber === 0) return 1;
         if (b.lapNumber === 0) return -1;
-        const aT = parseFloat(a.bestLap || '999');
-        const bT = parseFloat(b.bestLap || '999');
+        const aT = parseTime(a.bestLap || '') ?? 999;
+        const bT = parseTime(b.bestLap || '') ?? 999;
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
-  }, [laps, pilots, effectiveS1Ratio]);
+  }, [laps, pilots, effectiveS1Ratio, sessionStartTime, pilotTimelines]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
@@ -162,8 +213,8 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
       lastTickRef.current = now;
       setCurrentTime(prev => {
         const next = prev + dt;
-        if (next >= durationSec) { setPlaying(false); return durationSec; }
-        return next;
+        if (!isLive && next >= durationSec) { setPlaying(false); return durationSec; }
+        return Math.min(next, durationSec);
       });
       rafRef.current = requestAnimationFrame(tick);
     }
@@ -228,6 +279,19 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
           [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
       />
 
+      {isLive && (
+        <button
+          onClick={() => { handleScrub(durationSec); setPlaying(true); }}
+          className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors shrink-0 ${
+            currentTime >= durationSec - 5
+              ? 'bg-green-500/20 text-green-400'
+              : 'bg-dark-800 text-dark-400 hover:text-green-400 hover:bg-green-500/10'
+          }`}
+        >
+          LIVE
+        </button>
+      )}
+
       <select
         value={speed}
         onChange={(e) => setSpeed(parseFloat(e.target.value))}
@@ -241,8 +305,14 @@ export default function SessionReplay({ laps, durationSec, s1Ratio, onTimeUpdate
       </select>
 
       <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
-        {formatTimeSec(currentTime)} / {formatTimeSec(durationSec)}
+        {isLive ? formatTimeSec(currentTime) : `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
       </span>
+
+      {isLive && raceNumber != null && (
+        <span className="text-green-400 text-xs font-semibold whitespace-nowrap shrink-0">
+          Заїзд №{raceNumber}
+        </span>
+      )}
     </div>
   );
 

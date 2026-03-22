@@ -32,11 +32,21 @@ export default function AdminPanel() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white mb-1">👑 Управління модераторами</h1>
-        <p className="text-dark-400 text-sm">
-          Додайте Google email модераторів.
-          <Link to="/admin/db" className="text-primary-400 hover:underline ml-2">💾 База даних →</Link>
-        </p>
+        <h1 className="text-2xl font-bold text-white mb-1">👑 Адмін-панель</h1>
+        <div className="flex flex-wrap gap-3 mt-2">
+          <Link to="/admin/pages" className="px-3 py-1.5 rounded-lg text-xs font-medium bg-dark-800 text-dark-300 hover:text-white border border-dark-700 hover:border-dark-600 transition-colors">
+            Сторінки
+          </Link>
+          <Link to="/admin/db" className="px-3 py-1.5 rounded-lg text-xs font-medium bg-dark-800 text-dark-300 hover:text-white border border-dark-700 hover:border-dark-600 transition-colors">
+            База даних
+          </Link>
+          <Link to="/admin/monitoring" className="px-3 py-1.5 rounded-lg text-xs font-medium bg-dark-800 text-dark-300 hover:text-white border border-dark-700 hover:border-dark-600 transition-colors">
+            Моніторинг
+          </Link>
+          <Link to="/admin/collector-log" className="px-3 py-1.5 rounded-lg text-xs font-medium bg-dark-800 text-dark-300 hover:text-white border border-dark-700 hover:border-dark-600 transition-colors">
+            Лог колектора
+          </Link>
+        </div>
       </div>
 
       {/* Add */}

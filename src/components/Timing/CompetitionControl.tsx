@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
 
@@ -16,7 +16,6 @@ interface CompetitionState {
 }
 
 const FORMAT_LABELS: Record<string, string> = {
-  gonzales: '🏆 Гонзалес',
   light_league: '⭐ Лайт Ліга',
   champions_league: '👑 Ліга Чемпіонів',
 };
@@ -29,13 +28,60 @@ const STATE_LABELS: Record<string, { label: string; color: string }> = {
   pause: { label: 'Перерва', color: 'text-dark-300' },
   race: { label: 'Гонка', color: 'text-green-400' },
   finished: { label: 'Завершено', color: 'text-dark-500' },
-  manual: { label: 'Ручний режим', color: 'text-primary-400' },
+  manual: { label: 'Змагання', color: 'text-primary-400' },
 };
 
-export default function CompetitionControl() {
-  const { isModerator, hasPermission } = useAuth();
+interface PhaseOption {
+  type: string;
+  name: string;
+}
+
+interface CompetitionTree {
+  format: string;
+  label: string;
+  phases: PhaseOption[];
+}
+
+const COMPETITION_TREE: CompetitionTree[] = [
+  {
+    format: 'light_league',
+    label: '⭐ Лайт Ліга',
+    phases: [
+      { type: 'qualifying', name: 'Квала 1' },
+      { type: 'qualifying', name: 'Квала 2' },
+      { type: 'qualifying', name: 'Квала 3' },
+      { type: 'qualifying', name: 'Квала 4' },
+      { type: 'race', name: 'Гонка 1, Група 3' },
+      { type: 'race', name: 'Гонка 1, Група 2' },
+      { type: 'race', name: 'Гонка 1, Група 1' },
+      { type: 'race', name: 'Гонка 2, Група 3' },
+      { type: 'race', name: 'Гонка 2, Група 2' },
+      { type: 'race', name: 'Гонка 2, Група 1' },
+    ],
+  },
+  {
+    format: 'champions_league',
+    label: '👑 Ліга Чемпіонів',
+    phases: [
+      { type: 'qualifying', name: 'Квала 1' },
+      { type: 'qualifying', name: 'Квала 2' },
+      { type: 'race', name: 'Гонка 1, Група 2' },
+      { type: 'race', name: 'Гонка 1, Група 1' },
+      { type: 'race', name: 'Гонка 2, Група 2' },
+      { type: 'race', name: 'Гонка 2, Група 1' },
+      { type: 'race', name: 'Гонка 3, Група 2' },
+      { type: 'race', name: 'Гонка 3, Група 1' },
+    ],
+  },
+];
+
+export default function CompetitionControl({ inline = false }: { inline?: boolean }) {
+  const { hasPermission } = useAuth();
   const [comp, setComp] = useState<CompetitionState | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [expandedFormat, setExpandedFormat] = useState<string | null>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
   const canManage = hasPermission('manage_results');
 
@@ -52,6 +98,18 @@ export default function CompetitionControl() {
     return () => clearInterval(timer);
   }, [fetchState]);
 
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+        setExpandedFormat(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [pickerOpen]);
+
   const apiCall = async (endpoint: string, body?: object) => {
     setLoading(true);
     try {
@@ -67,13 +125,113 @@ export default function CompetitionControl() {
     } catch {} finally { setLoading(false); }
   };
 
+  const handlePickPhase = async (tree: CompetitionTree, phase: PhaseOption) => {
+    if (!comp?.competition || comp.competition.format !== tree.format) {
+      await apiCall('/competition/start', { format: tree.format, name: tree.label.replace(/^[^\s]+\s/, '') });
+    }
+    await apiCall('/competition/phase', { type: phase.type, name: phase.name });
+    setPickerOpen(false);
+    setExpandedFormat(null);
+  };
+
   if (!comp) return null;
 
   const stateInfo = STATE_LABELS[comp.state] || STATE_LABELS.none;
   const isActive = !['none', 'finished'].includes(comp.state);
+  const currentPhaseName = comp.competition?.phases?.[comp.competition.phases.length - 1]?.name;
+
+  if (inline) {
+    return (
+      <div className="relative" ref={pickerRef}>
+        <button
+          onClick={() => { setPickerOpen(!pickerOpen); setExpandedFormat(null); }}
+          disabled={loading}
+          className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 ${
+            isActive
+              ? 'bg-dark-800 hover:bg-dark-700 text-dark-300'
+              : 'bg-primary-600/80 hover:bg-primary-500 text-white'
+          }`}
+        >
+          {isActive ? '✏️ Редагувати змагання' : '🏆 Почати змагання'}
+        </button>
+
+        {pickerOpen && (
+          <div className="absolute top-full left-0 mt-1 w-64 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50">
+            <div className="px-3 py-1.5 text-[10px] text-dark-500">
+              Оберіть заїзд — поточний або наступний активний заїзд стане обраною фазою
+            </div>
+            {COMPETITION_TREE.map((tree) => (
+              <div key={tree.format}>
+                <button
+                  onClick={() => setExpandedFormat(expandedFormat === tree.format ? null : tree.format)}
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between ${
+                    expandedFormat === tree.format
+                      ? 'text-white bg-dark-800'
+                      : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                  }`}
+                >
+                  <span>{tree.label}</span>
+                  <svg className={`w-3.5 h-3.5 transition-transform ${expandedFormat === tree.format ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+
+                {expandedFormat === tree.format && (
+                  <div className="bg-dark-800/50 py-1">
+                    {tree.phases.map((phase) => {
+                      const alreadyDone = comp.competition?.format === tree.format &&
+                        comp.competition.phases.some(p => p.name === phase.name);
+                      return (
+                        <button
+                          key={phase.name}
+                          onClick={() => !alreadyDone && handlePickPhase(tree, phase)}
+                          disabled={loading || alreadyDone}
+                          className={`w-full text-left px-6 py-1.5 text-xs transition-colors ${
+                            alreadyDone
+                              ? 'text-dark-600 cursor-default'
+                              : phase.type === 'qualifying'
+                                ? 'text-purple-400 hover:bg-purple-500/10'
+                                : 'text-green-400 hover:bg-green-500/10'
+                          }`}
+                        >
+                          {alreadyDone && <span className="text-dark-600 mr-1">✓</span>}
+                          {phase.type === 'qualifying' ? '⏱️ ' : '🏁 '}
+                          {phase.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {isActive && (
+              <div className="border-t border-dark-700 mt-1 pt-1 px-2 flex gap-1">
+                <button
+                  onClick={() => { apiCall('/competition/stop'); setPickerOpen(false); }}
+                  disabled={loading}
+                  className="flex-1 text-[10px] px-2 py-1.5 bg-dark-800 hover:bg-dark-700 text-dark-400 rounded-md transition-colors"
+                >
+                  ⏹ Завершити
+                </button>
+                <button
+                  onClick={() => { apiCall('/competition/reset'); setPickerOpen(false); }}
+                  disabled={loading}
+                  className="flex-1 text-[10px] px-2 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-md transition-colors"
+                >
+                  🔄 Скинути
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="card p-3 space-y-3">
+      {/* Status row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className={`text-sm font-semibold ${stateInfo.color}`}>
@@ -82,12 +240,11 @@ export default function CompetitionControl() {
           {comp.competition && (
             <span className="text-dark-400 text-xs">
               {FORMAT_LABELS[comp.competition.format] || comp.competition.name}
-              {comp.competition.manualMode && ' (ручний)'}
+              {currentPhaseName && <span className="text-dark-500"> — {currentPhaseName}</span>}
             </span>
           )}
         </div>
 
-        {/* Schedule info */}
         {!isActive && comp.scheduled && (
           <span className="text-dark-500 text-xs">
             Сьогодні: {FORMAT_LABELS[comp.scheduled.format] || comp.scheduled.name} о {comp.scheduled.startTime}
@@ -95,7 +252,7 @@ export default function CompetitionControl() {
         )}
       </div>
 
-      {/* Active competition phases */}
+      {/* Completed phases */}
       {comp.competition?.phases && comp.competition.phases.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {comp.competition.phases.map((phase, i) => (
@@ -112,123 +269,93 @@ export default function CompetitionControl() {
 
       {/* Admin controls */}
       {canManage && (
-        <div className="flex flex-wrap gap-2 pt-1 border-t border-dark-800">
-          {!isActive ? (
-            <>
-              {/* Start buttons */}
-              <button
-                onClick={() => apiCall('/competition/start', { format: 'gonzales', name: 'Гонзалес' })}
-                disabled={loading}
-                className="text-[10px] px-2.5 py-1 bg-dark-800 hover:bg-dark-700 text-dark-300 rounded-md transition-colors"
-              >
-                🏆 Старт Гонзалес
-              </button>
-              <button
-                onClick={() => apiCall('/competition/start', { format: 'light_league', name: 'Лайт Ліга' })}
-                disabled={loading}
-                className="text-[10px] px-2.5 py-1 bg-dark-800 hover:bg-dark-700 text-dark-300 rounded-md transition-colors"
-              >
-                ⭐ Старт ЛЛ
-              </button>
-              <button
-                onClick={() => apiCall('/competition/start', { format: 'champions_league', name: 'Ліга Чемпіонів' })}
-                disabled={loading}
-                className="text-[10px] px-2.5 py-1 bg-dark-800 hover:bg-dark-700 text-dark-300 rounded-md transition-colors"
-              >
-                👑 Старт ЛЧ
-              </button>
-            </>
-          ) : (
-            <>
-              {/* Phase buttons — format specific */}
-              <PhaseButtons format={comp.competition?.format || comp.scheduled?.format || ''} onMark={(type, name) => apiCall('/competition/phase', { type, name })} disabled={loading} />
-              <div className="ml-auto flex gap-2">
-                <button
-                  onClick={() => apiCall('/competition/stop')}
-                  disabled={loading}
-                  className="text-[10px] px-2.5 py-1 bg-dark-800 hover:bg-dark-700 text-dark-400 rounded-md transition-colors"
-                >
-                  ⏹ Завершити
-                </button>
-                <button
-                  onClick={() => apiCall('/competition/reset')}
-                  disabled={loading}
-                  className="text-[10px] px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-md transition-colors"
-                >
-                  🔄 Скинути
-                </button>
+        <div className="flex items-center gap-2 pt-1 border-t border-dark-800">
+          <div className="relative" ref={pickerRef}>
+            <button
+              onClick={() => { setPickerOpen(!pickerOpen); setExpandedFormat(null); }}
+              disabled={loading}
+              className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 ${
+                isActive
+                  ? 'bg-dark-800 hover:bg-dark-700 text-dark-300'
+                  : 'bg-primary-600 hover:bg-primary-500 text-white'
+              }`}
+            >
+              {isActive ? 'Редагувати змагання' : 'Почати змагання'}
+            </button>
+
+            {pickerOpen && (
+              <div className="absolute top-full left-0 mt-1 w-64 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50">
+                <div className="px-3 py-1.5 text-[10px] text-dark-500">
+                  Оберіть заїзд — поточний або наступний активний заїзд стане обраною фазою
+                </div>
+                {COMPETITION_TREE.map((tree) => (
+                  <div key={tree.format}>
+                    <button
+                      onClick={() => setExpandedFormat(expandedFormat === tree.format ? null : tree.format)}
+                      className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between ${
+                        expandedFormat === tree.format
+                          ? 'text-white bg-dark-800'
+                          : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                      }`}
+                    >
+                      <span>{tree.label}</span>
+                      <svg className={`w-3.5 h-3.5 transition-transform ${expandedFormat === tree.format ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+
+                    {expandedFormat === tree.format && (
+                      <div className="bg-dark-800/50 py-1">
+                        {tree.phases.map((phase) => {
+                          const alreadyDone = comp.competition?.format === tree.format &&
+                            comp.competition.phases.some(p => p.name === phase.name);
+                          return (
+                            <button
+                              key={phase.name}
+                              onClick={() => !alreadyDone && handlePickPhase(tree, phase)}
+                              disabled={loading || alreadyDone}
+                              className={`w-full text-left px-6 py-1.5 text-xs transition-colors ${
+                                alreadyDone
+                                  ? 'text-dark-600 cursor-default'
+                                  : phase.type === 'qualifying'
+                                    ? 'text-purple-400 hover:bg-purple-500/10'
+                                    : 'text-green-400 hover:bg-green-500/10'
+                              }`}
+                            >
+                              {alreadyDone && <span className="text-dark-600 mr-1">✓</span>}
+                              {phase.type === 'qualifying' ? '⏱️ ' : '🏁 '}
+                              {phase.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-            </>
+            )}
+          </div>
+
+          {isActive && (
+            <div className="ml-auto flex gap-2">
+              <button
+                onClick={() => apiCall('/competition/stop')}
+                disabled={loading}
+                className="text-[10px] px-2.5 py-1 bg-dark-800 hover:bg-dark-700 text-dark-400 rounded-md transition-colors"
+              >
+                ⏹ Завершити
+              </button>
+              <button
+                onClick={() => apiCall('/competition/reset')}
+                disabled={loading}
+                className="text-[10px] px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-md transition-colors"
+              >
+                🔄 Скинути
+              </button>
+            </div>
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/** Кнопки фаз — залежать від формату змагання */
-function PhaseButtons({ format, onMark, disabled }: { format: string; onMark: (type: string, name: string) => void; disabled: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const Btn = ({ type, name, icon, color }: { type: string; name: string; icon: string; color: string }) => (
-    <button onClick={() => onMark(type, name)} disabled={disabled}
-      className={`text-[10px] px-2 py-1 ${color} rounded-md transition-colors whitespace-nowrap`}>
-      {icon} {name}
-    </button>
-  );
-
-  const qualaBtn = (n: number) => <Btn key={`q${n}`} type="qualifying" name={`Квала ${n}`} icon="⏱️" color="bg-purple-500/20 hover:bg-purple-500/30 text-purple-400" />;
-  const raceBtn = (r: number, g?: number) => <Btn key={`r${r}g${g||0}`} type="race" name={g ? `Гонка ${r}, Група ${g}` : `Гонка ${r}`} icon="🏁" color="bg-green-500/20 hover:bg-green-500/30 text-green-400" />;
-
-  if (format === 'gonzales') {
-    return (
-      <div className="flex flex-wrap gap-1">
-        {[1, 2, 3, 4].map(n => qualaBtn(n))}
-        <span className="text-dark-600 text-[10px] px-1">|</span>
-        {expanded
-          ? Array.from({ length: 24 }, (_, i) => raceBtn(i + 1))
-          : <>
-              {[1, 2, 3, 4, 5].map(n => raceBtn(n))}
-              <button onClick={() => setExpanded(true)} className="text-[10px] px-2 py-1 bg-dark-800 text-dark-500 rounded-md">
-                +{19} більше
-              </button>
-            </>
-        }
-      </div>
-    );
-  }
-
-  if (format === 'light_league') {
-    return (
-      <div className="flex flex-wrap gap-1">
-        {[1, 2, 3, 4].map(n => qualaBtn(n))}
-        <span className="text-dark-600 text-[10px] px-1">|</span>
-        {[3, 2, 1].map(g => raceBtn(1, g))}
-        <span className="text-dark-600 text-[10px] px-1">|</span>
-        {[3, 2, 1].map(g => raceBtn(2, g))}
-      </div>
-    );
-  }
-
-  if (format === 'champions_league') {
-    return (
-      <div className="flex flex-wrap gap-1">
-        {[1, 2].map(n => qualaBtn(n))}
-        <span className="text-dark-600 text-[10px] px-1">|</span>
-        {[2, 1].map(g => raceBtn(1, g))}
-        <span className="text-dark-600 text-[10px] px-1">|</span>
-        {[2, 1].map(g => raceBtn(2, g))}
-        <span className="text-dark-600 text-[10px] px-1">|</span>
-        {[2, 1].map(g => raceBtn(3, g))}
-      </div>
-    );
-  }
-
-  // Fallback
-  return (
-    <div className="flex flex-wrap gap-1">
-      {[1, 2].map(n => qualaBtn(n))}
-      {[1, 2, 3].map(n => raceBtn(n))}
     </div>
   );
 }

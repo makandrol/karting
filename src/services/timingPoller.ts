@@ -21,6 +21,8 @@ interface UseTimingPollerResult {
 
 interface CollectorInfo {
   online: boolean;
+  siteReachable: boolean;
+  siteReachableSince: number | null;
   pollCount: number;
   errorCount: number;
   pollInterval: number;

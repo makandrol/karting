@@ -35,6 +35,9 @@ db.exec(`
     start_time INTEGER NOT NULL,
     end_time INTEGER,
     pilot_count INTEGER DEFAULT 0,
+    track_id INTEGER DEFAULT 1,
+    race_number INTEGER,
+    is_race INTEGER DEFAULT 0,
     date TEXT NOT NULL
   );
 
@@ -99,26 +102,106 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_pv_date ON page_views(date);
   CREATE INDEX IF NOT EXISTS idx_pv_email ON page_views(user_email);
   CREATE INDEX IF NOT EXISTS idx_vs_date ON visitor_sessions(date);
+
+  CREATE TABLE IF NOT EXISTS competitions (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    format TEXT,
+    date TEXT,
+    sessions TEXT NOT NULL DEFAULT '[]',
+    results TEXT,
+    uploaded_results TEXT
+  );
 `);
+
+// Migrations for existing databases
+try { db.exec('ALTER TABLE sessions ADD COLUMN track_id INTEGER DEFAULT 1'); } catch {}
+try { db.exec('ALTER TABLE sessions ADD COLUMN race_number INTEGER'); } catch {}
+try { db.exec('ALTER TABLE sessions ADD COLUMN is_race INTEGER DEFAULT 0'); } catch {}
+
+// ============================================================
+// Current track (persisted across restarts)
+// ============================================================
+
+let _currentTrackId = 1;
+try {
+  const row = db.prepare('SELECT value FROM db_stats WHERE key = ?').get('current_track_id');
+  if (row?.value) _currentTrackId = parseInt(row.value) || 1;
+} catch {}
 
 // ============================================================
 // Prepared statements
 // ============================================================
 
 const stmts = {
-  insertSession: db.prepare('INSERT OR IGNORE INTO sessions (id, start_time, pilot_count, date) VALUES (?, ?, ?, ?)'),
+  insertSession: db.prepare('INSERT OR IGNORE INTO sessions (id, start_time, pilot_count, track_id, race_number, is_race, date) VALUES (?, ?, ?, ?, ?, ?, ?)'),
   endSession: db.prepare('UPDATE sessions SET end_time = ? WHERE id = ?'),
   insertEvent: db.prepare('INSERT INTO events (session_id, event_type, ts, data) VALUES (?, ?, ?, ?)'),
   insertLap: db.prepare('INSERT INTO laps (session_id, pilot, kart, lap_number, lap_time, s1, s2, best_lap, position, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
   getSessions: db.prepare('SELECT * FROM sessions ORDER BY start_time DESC LIMIT ?'),
   getSessionsByDate: db.prepare('SELECT * FROM sessions WHERE date = ? ORDER BY start_time'),
+  getSessionsWithStats: db.prepare(`
+    SELECT s.*,
+      ls.real_pilot_count,
+      ls.best_lap_time
+    FROM sessions s
+    LEFT JOIN (
+      SELECT session_id,
+        COUNT(DISTINCT pilot) as real_pilot_count,
+        (SELECT l2.lap_time FROM laps l2 WHERE l2.session_id = laps.session_id AND l2.lap_time IS NOT NULL
+          ORDER BY CASE
+            WHEN l2.lap_time LIKE '%:%' THEN CAST(SUBSTR(l2.lap_time, 1, INSTR(l2.lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(l2.lap_time, INSTR(l2.lap_time, ':') + 1) AS REAL)
+            ELSE CAST(l2.lap_time AS REAL)
+          END ASC LIMIT 1
+        ) as best_lap_time
+      FROM laps
+      WHERE lap_time IS NOT NULL
+      GROUP BY session_id
+    ) ls ON ls.session_id = s.id
+    WHERE s.date = ?
+    ORDER BY s.start_time
+  `),
+  getBestLapPilot: db.prepare(`
+    SELECT pilot FROM laps
+    WHERE session_id = ? AND lap_time = ?
+    LIMIT 1
+  `),
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
+  getSessionCountsByDateRange: db.prepare('SELECT date, COUNT(*) as count FROM sessions WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date'),
+  getKartStats: db.prepare(`
+    SELECT l.kart, l.pilot, l.lap_time,
+      CASE
+        WHEN l.lap_time LIKE '%:%' THEN CAST(SUBSTR(l.lap_time, 1, INSTR(l.lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(l.lap_time, INSTR(l.lap_time, ':') + 1) AS REAL)
+        ELSE CAST(l.lap_time AS REAL)
+      END as lap_sec
+    FROM laps l
+    JOIN sessions s ON s.id = l.session_id
+    WHERE s.date >= ? AND s.date <= ? AND l.lap_time IS NOT NULL
+    ORDER BY l.kart, lap_sec
+  `),
+  getKartStatsBySessions: db.prepare(`
+    SELECT kart, pilot, lap_time,
+      CASE
+        WHEN lap_time LIKE '%:%' THEN CAST(SUBSTR(lap_time, 1, INSTR(lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(lap_time, INSTR(lap_time, ':') + 1) AS REAL)
+        ELSE CAST(lap_time AS REAL)
+      END as lap_sec
+    FROM laps
+    WHERE lap_time IS NOT NULL
+    ORDER BY kart, lap_sec
+  `),
   getAllEvents: db.prepare('SELECT * FROM events WHERE ts >= ? ORDER BY ts LIMIT 10000'),
   getLaps: db.prepare('SELECT * FROM laps WHERE session_id = ? ORDER BY ts'),
+  getLapsByKart: db.prepare(`
+    SELECT l.*, s.date, s.start_time as session_start
+    FROM laps l JOIN sessions s ON s.id = l.session_id
+    WHERE l.kart = ? AND s.date >= ? AND s.date <= ? AND l.lap_time IS NOT NULL
+    ORDER BY l.ts
+  `),
   getDbSize: db.prepare("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()"),
   countEvents: db.prepare('SELECT COUNT(*) as cnt FROM events'),
   countLaps: db.prepare('SELECT COUNT(*) as cnt FROM laps'),
   countSessions: db.prepare('SELECT COUNT(*) as cnt FROM sessions'),
+  getRecentSessions: db.prepare('SELECT * FROM sessions ORDER BY start_time DESC LIMIT ?'),
   // Cleanup: delete poll_ok events older than N days (keep laps/snapshots)
   cleanupOldPolls: db.prepare("DELETE FROM events WHERE event_type = 'poll_ok' AND ts < ?"),
   // Cleanup: delete all events older than N days for non-competition sessions
@@ -138,7 +221,119 @@ const stmts = {
   // System state
   getState: db.prepare('SELECT value FROM db_stats WHERE key = ?'),
   setState: db.prepare('INSERT OR REPLACE INTO db_stats (key, value, updated_at) VALUES (?, ?, ?)'),
+  // Competitions
+  insertCompetition: db.prepare('INSERT INTO competitions (id, name, format, date, sessions, results, uploaded_results) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+  updateCompetition: db.prepare('UPDATE competitions SET name = ?, format = ?, date = ?, sessions = ?, results = ?, uploaded_results = ? WHERE id = ?'),
+  getCompetition: db.prepare('SELECT * FROM competitions WHERE id = ?'),
+  getAllCompetitions: db.prepare('SELECT * FROM competitions ORDER BY date DESC'),
+  getCompetitionsByFormat: db.prepare('SELECT * FROM competitions WHERE format = ? ORDER BY date DESC'),
+  deleteCompetition: db.prepare('DELETE FROM competitions WHERE id = ?'),
 };
+
+// ============================================================
+// Helpers
+// ============================================================
+
+function parseCompetitionRow(row) {
+  return {
+    ...row,
+    sessions: row.sessions ? JSON.parse(row.sessions) : [],
+    results: row.results ? JSON.parse(row.results) : null,
+    uploaded_results: row.uploaded_results ? JSON.parse(row.uploaded_results) : null,
+  };
+}
+
+const MERGE_GAP_MS = 5 * 60 * 1000; // 5 minutes
+
+function mergeSessions(sessions) {
+  if (sessions.length <= 1) return sessions;
+  
+  // Group sessions by race_number, merging those within MERGE_GAP_MS
+  const result = [];
+  const used = new Set();
+  
+  for (let i = 0; i < sessions.length; i++) {
+    if (used.has(i)) continue;
+    const current = { ...sessions[i], _merged_ids: [sessions[i].id] };
+    used.add(i);
+    
+    if (current.race_number !== null) {
+      // Find all subsequent sessions with same race_number within gap
+      for (let j = i + 1; j < sessions.length; j++) {
+        if (used.has(j)) continue;
+        const s = sessions[j];
+        if (s.race_number !== current.race_number) continue;
+        const currentEnd = current.end_time || s.start_time; // if no end, assume it ended when next started
+        const gap = s.start_time - currentEnd;
+        if (gap < 0 || gap >= MERGE_GAP_MS) continue;
+        
+        // Merge
+        current.end_time = s.end_time || current.end_time;
+        current.pilot_count = Math.max(current.pilot_count || 0, s.pilot_count || 0);
+        if (s.real_pilot_count) {
+          current.real_pilot_count = Math.max(current.real_pilot_count || 0, s.real_pilot_count);
+          current.pilot_count = current.real_pilot_count;
+        }
+        if (s.best_lap_time && s.best_lap_pilot) {
+          const curSec = parseLapTimeSec(current.best_lap_time);
+          const newSec = parseLapTimeSec(s.best_lap_time);
+          if (newSec !== null && (curSec === null || newSec < curSec)) {
+            current.best_lap_time = s.best_lap_time;
+            current.best_lap_pilot = s.best_lap_pilot;
+          }
+        }
+        current._merged_ids.push(s.id);
+        used.add(j);
+      }
+    }
+    
+    // Fix stuck live: if no end_time but there's a next session after, close it
+    if (!current.end_time) {
+      const nextIdx = sessions.findIndex((s, idx) => idx > i && !used.has(idx));
+      if (nextIdx >= 0) {
+        current.end_time = current.start_time;
+      }
+    }
+    
+    result.push(current);
+  }
+  
+  // Sort by start_time (merging may have changed order)
+  result.sort((a, b) => a.start_time - b.start_time);
+
+  return result.map(s => {
+    const merged = s._merged_ids;
+    delete s._merged_ids;
+    if (merged.length > 1) s.merged_session_ids = merged;
+    return s;
+  });
+}
+
+function parseLapTimeSec(t) {
+  if (!t) return null;
+  const m = t.match(/^(\d+):(\d+\.\d+)$/);
+  if (m) return parseInt(m[1]) * 60 + parseFloat(m[2]);
+  const s = t.match(/^\d+\.\d+$/);
+  if (s) return parseFloat(t);
+  return null;
+}
+
+function buildKartStats(rows) {
+  const byKart = new Map();
+  for (const r of rows) {
+    if (!byKart.has(r.kart)) byKart.set(r.kart, new Map());
+    const pilots = byKart.get(r.kart);
+    if (!pilots.has(r.pilot) || r.lap_sec < pilots.get(r.pilot).lap_sec) {
+      pilots.set(r.pilot, { pilot: r.pilot, lap_time: r.lap_time, lap_sec: r.lap_sec });
+    }
+  }
+  const result = [];
+  for (const [kart, pilots] of byKart) {
+    const top5 = [...pilots.values()].sort((a, b) => a.lap_sec - b.lap_sec).slice(0, 5);
+    result.push({ kart, top5 });
+  }
+  return result.sort((a, b) => a.kart - b.kart);
+}
 
 // ============================================================
 // Public API
@@ -146,9 +341,9 @@ const stmts = {
 
 export const storage = {
   /** Створити нову сесію */
-  createSession(id, startTime, pilotCount) {
+  createSession(id, startTime, pilotCount, { trackId, raceNumber, isRace } = {}) {
     const date = new Date(startTime).toISOString().split('T')[0];
-    stmts.insertSession.run(id, startTime, pilotCount, date);
+    stmts.insertSession.run(id, startTime, pilotCount, trackId ?? _currentTrackId, raceNumber ?? null, isRace ? 1 : 0, date);
   },
 
   /** Завершити сесію */
@@ -174,9 +369,54 @@ export const storage = {
     return stmts.getSessions.all(limit);
   },
 
-  /** Отримати сесії за дату */
+  /** Отримати останні сесії (для collector log) */
+  getRecentSessions(limit = 200) {
+    return stmts.getRecentSessions.all(limit);
+  },
+
+  /** Отримати сесії за дату (з мержем дублікатів по race_number) */
   getSessionsByDate(date) {
-    return stmts.getSessionsByDate.all(date);
+    const rows = stmts.getSessionsWithStats.all(date);
+    const enriched = rows.map(r => {
+      let best_lap_pilot = null;
+      if (r.best_lap_time) {
+        const pilotRow = stmts.getBestLapPilot.get(r.id, r.best_lap_time);
+        if (pilotRow) best_lap_pilot = pilotRow.pilot;
+      }
+      return { ...r, best_lap_pilot, pilot_count: r.real_pilot_count || r.pilot_count };
+    });
+    return mergeSessions(enriched);
+  },
+
+  getSessionCounts(fromDate, toDate) {
+    const rawCounts = stmts.getSessionCountsByDateRange.all(fromDate, toDate);
+    return rawCounts.map(({ date }) => {
+      const raw = stmts.getSessionsByDate.all(date);
+      const merged = mergeSessions(raw);
+      const filtered = merged.filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000);
+      return { date, count: filtered.length };
+    });
+  },
+
+  getKartStats(fromDate, toDate) {
+    const rows = stmts.getKartStats.all(fromDate, toDate);
+    return buildKartStats(rows);
+  },
+
+  getKartStatsBySessions(sessionIds) {
+    if (!sessionIds || sessionIds.length === 0) return [];
+    const placeholders = sessionIds.map(() => '?').join(',');
+    const rows = db.prepare(`
+      SELECT kart, pilot, lap_time,
+        CASE
+          WHEN lap_time LIKE '%:%' THEN CAST(SUBSTR(lap_time, 1, INSTR(lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(lap_time, INSTR(lap_time, ':') + 1) AS REAL)
+          ELSE CAST(lap_time AS REAL)
+        END as lap_sec
+      FROM laps
+      WHERE session_id IN (${placeholders}) AND lap_time IS NOT NULL
+      ORDER BY kart, lap_sec
+    `).all(...sessionIds);
+    return buildKartStats(rows);
   },
 
   /** Отримати події */
@@ -196,6 +436,10 @@ export const storage = {
     return stmts.getLaps.all(sessionId);
   },
 
+  getLapsByKart(kartNumber, fromDate, toDate) {
+    return stmts.getLapsByKart.all(kartNumber, fromDate, toDate);
+  },
+
   /** Статистика БД */
   getStats() {
     const sizeRow = stmts.getDbSize.get();
@@ -210,7 +454,7 @@ export const storage = {
   },
 
   /** Очистити старі poll_ok події (залишити лише N днів) */
-  cleanupPolls(daysToKeep = 10) {
+  cleanupPolls(daysToKeep = 5) {
     const cutoff = Date.now() - daysToKeep * 24 * 60 * 60 * 1000;
     const result = stmts.cleanupOldPolls.run(cutoff);
     return result.changes;
@@ -253,6 +497,15 @@ export const storage = {
     };
   },
 
+  /** Поточний ID треку */
+  getCurrentTrackId() { return _currentTrackId; },
+
+  /** Змінити поточний трек */
+  setCurrentTrackId(trackId) {
+    _currentTrackId = trackId;
+    stmts.setState.run('current_track_id', String(trackId), Date.now());
+  },
+
   /** Закрити БД */
   close() {
     db.close();
@@ -267,6 +520,48 @@ export const storage = {
   /** Зберегти системний стан */
   setSystemState(key, value) {
     stmts.setState.run(key, value, Date.now());
+  },
+
+  // ============================================================
+  // Competitions CRUD
+  // ============================================================
+
+  createCompetition({ id, name, format, date, sessions, results, uploaded_results }) {
+    stmts.insertCompetition.run(
+      id, name, format || null, date || null,
+      JSON.stringify(sessions || []),
+      results ? JSON.stringify(results) : null,
+      uploaded_results ? JSON.stringify(uploaded_results) : null,
+    );
+  },
+
+  updateCompetition(id, fields) {
+    const existing = stmts.getCompetition.get(id);
+    if (!existing) return false;
+    stmts.updateCompetition.run(
+      fields.name ?? existing.name,
+      fields.format !== undefined ? fields.format : existing.format,
+      fields.date !== undefined ? fields.date : existing.date,
+      fields.sessions !== undefined ? JSON.stringify(fields.sessions) : existing.sessions,
+      fields.results !== undefined ? JSON.stringify(fields.results) : existing.results,
+      fields.uploaded_results !== undefined ? JSON.stringify(fields.uploaded_results) : existing.uploaded_results,
+      id,
+    );
+    return true;
+  },
+
+  getCompetition(id) {
+    const row = stmts.getCompetition.get(id);
+    return row ? parseCompetitionRow(row) : null;
+  },
+
+  getCompetitions(format) {
+    const rows = format ? stmts.getCompetitionsByFormat.all(format) : stmts.getAllCompetitions.all();
+    return rows.map(parseCompetitionRow);
+  },
+
+  deleteCompetition(id) {
+    return stmts.deleteCompetition.run(id).changes > 0;
   },
 };
 

@@ -1,200 +1,131 @@
-import React, { useState, useMemo } from 'react';
-import { ALL_COMPETITION_EVENTS } from '../../mock/competitionEvents';
-import { SessionRows } from '../../components/Sessions/SessionRows';
+import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import { COLLECTOR_URL } from '../../services/config';
+import { toSeconds } from '../../utils/timing';
+import DateNavigator from '../../components/Sessions/DateNavigator';
 
-const MONTH_NAMES = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
-const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-
-function getMonday(d: Date): Date {
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.getFullYear(), d.getMonth(), diff);
+interface DbSession {
+  id: string;
+  start_time: number;
+  end_time: number | null;
+  pilot_count: number;
+  real_pilot_count: number | null;
+  track_id: number;
+  race_number: number | null;
+  is_race: number;
+  date: string;
+  best_lap_time: string | null;
+  best_lap_pilot: string | null;
 }
 
-/** Parse YYYY-MM-DD as local date (not UTC) */
-function parseLocalDate(s: string): Date {
-  const [y, m, d] = s.split('-').map(Number);
-  return new Date(y, m - 1, d);
+function fmtTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function fmtDateShort(d: string): string {
-  const dt = parseLocalDate(d);
-  return `${String(dt.getDate()).padStart(2, '0')}.${String(dt.getMonth() + 1).padStart(2, '0')}.${dt.getFullYear()}`;
+function fmtDuration(startMs: number, endMs: number): string {
+  const sec = Math.round((endMs - startMs) / 1000);
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m === 0) return `${s}с`;
+  return `${m}хв ${s}с`;
 }
 
-function fmtDayBtn(d: string): string {
-  const dt = parseLocalDate(d);
-  return `${DAY_NAMES[dt.getDay()]} ${String(dt.getDate()).padStart(2, '0')}.${String(dt.getMonth() + 1).padStart(2, '0')}`;
+function fmtDateLabel(dateStr: string): string {
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  if (dateStr === todayStr) return 'Сьогодні';
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+  if (dateStr === yesterdayStr) return 'Вчора';
+  const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${DAY_NAMES[d.getDay()]} ${d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+}
+
+function shortPilotName(name: string): string {
+  const parts = name.split(' ');
+  if (parts.length < 2) return name;
+  return `${parts[0]} ${parts[1][0]}.`;
 }
 
 export default function SessionsList() {
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [sessions, setSessions] = useState<DbSession[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const allDates = useMemo(() => {
-    const set = new Set(ALL_COMPETITION_EVENTS.map(e => e.date));
-    return [...set].sort().reverse();
+  const fetchSessions = useCallback(async (date: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`, { signal: AbortSignal.timeout(5000) });
+      if (res.ok) {
+        const all: DbSession[] = await res.json();
+        setSessions(all.filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000));
+      } else setSessions([]);
+    } catch { setSessions([]); }
+    setLoading(false);
   }, []);
 
-  const [selectedDate, setSelectedDate] = useState(allDates[0] || todayStr);
-
-  // Week boundaries (Monday start)
-  const thisMonday = getMonday(today);
-  const prevMonday = new Date(thisMonday);
-  prevMonday.setDate(prevMonday.getDate() - 7);
-
-  const thisWeekDates: string[] = [];
-  const prevWeekDates: string[] = [];
-  const olderByYearMonth = new Map<string, Map<string, string[]>>();
-
-  for (const d of allDates) {
-    const dt = parseLocalDate(d);
-    if (dt >= thisMonday) {
-      thisWeekDates.push(d);
-    } else if (dt >= prevMonday) {
-      prevWeekDates.push(d);
-    } else {
-      const year = String(dt.getFullYear());
-      const month = String(dt.getMonth());
-      if (!olderByYearMonth.has(year)) olderByYearMonth.set(year, new Map());
-      const months = olderByYearMonth.get(year)!;
-      if (!months.has(month)) months.set(month, []);
-      months.get(month)!.push(d);
-    }
-  }
-
-  // Expand state: previous week collapsed, current year collapsed (months expanded when opened)
-  const [prevWeekOpen, setPrevWeekOpen] = useState(false);
-  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
-  const [hideProkat, setHideProkat] = useState(false);
-
-  const toggleYear = (y: string) => {
-    const next = new Set(expandedYears);
-    next.has(y) ? next.delete(y) : next.add(y);
-    setExpandedYears(next);
-  };
-
-  const events = ALL_COMPETITION_EVENTS.filter(e => e.date === selectedDate);
-
-  const DateBtn = ({ d, label }: { d: string; label?: string }) => {
-    const hasEvents = allDates.includes(d);
-    const isToday = d === todayStr;
-    return (
-      <button
-        onClick={() => hasEvents && setSelectedDate(d)}
-        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-          d === selectedDate ? 'bg-primary-600 text-white' :
-          isToday ? 'bg-primary-600/20 text-primary-400' :
-          hasEvents ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
-          'bg-dark-900 text-dark-700 cursor-default'
-        }`}
-      >
-        {label || fmtDayBtn(d)}
-        {isToday && d !== selectedDate && <span className="ml-1 text-[9px]">•</span>}
-      </button>
-    );
-  };
-
-  // Generate week days Mon-Sun (only up to today)
-  const weekDays = (monday: Date) => {
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday);
-      d.setDate(d.getDate() + i);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
-    }).filter(d => d <= todayStr);
-  };
+  useEffect(() => { fetchSessions(selectedDate); }, [selectedDate, fetchSessions]);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">📅 Заїзди</h1>
+      <h1 className="text-2xl font-bold text-white">Заїзди</h1>
 
-      {/* Date navigation */}
-      <div className="card p-3 space-y-3">
-        {/* This week */}
-        <div>
-          <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5">Цей тиждень</div>
-          <div className="flex flex-wrap gap-1.5">
-            {weekDays(thisMonday).map(d => <DateBtn key={d} d={d} />)}
-          </div>
-        </div>
+      <DateNavigator selectedDate={selectedDate} onSelectDate={setSelectedDate} />
 
-        {/* Previous week — collapsed by default */}
-        {prevWeekDates.length > 0 && (
-          <div>
-            <button
-              onClick={() => setPrevWeekOpen(v => !v)}
-              className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors"
-            >
-              <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>▶</span>
-              Попередній тиждень
-            </button>
-            {prevWeekOpen && (
-              <div className="flex flex-wrap gap-1.5">
-                {weekDays(prevMonday).map(d => <DateBtn key={d} d={d} />)}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Older — years collapsed by default, months always expanded */}
-        {[...olderByYearMonth.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => (
-                <div key={year}>
-                  <button
-                    onClick={() => toggleYear(year)}
-                    className="flex items-center gap-1.5 text-dark-300 hover:text-white text-xs font-medium transition-colors"
-                  >
-                    <span className={`text-[10px] transition-transform ${expandedYears.has(year) ? 'rotate-90' : ''}`}>▶</span>
-                    {year}
-                    <span className="text-dark-600 text-[10px]">({[...months.values()].flat().length})</span>
-                  </button>
-
-                  {expandedYears.has(year) && (
-                    <div className="ml-4 mt-1 space-y-2">
-                      {[...months.entries()].sort((a, b) => parseInt(b[0]) - parseInt(a[0])).map(([monthIdx, dates]) => (
-                        <div key={monthIdx}>
-                          <div className="text-dark-400 text-[10px] font-medium mb-1">
-                            {MONTH_NAMES[parseInt(monthIdx)]}
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {dates.sort().reverse().map(d => <DateBtn key={d} d={d} />)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-      </div>
-
-      {/* Events for selected date */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-dark-300 text-sm font-semibold">
-            {selectedDate === todayStr ? 'Сьогодні' : fmtDateShort(selectedDate)}
-          </h2>
-          <label className="flex items-center gap-1.5 text-dark-500 text-xs cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={hideProkat}
-              onChange={(e) => setHideProkat(e.target.checked)}
-              className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0"
-            />
-            сховати прокат
-          </label>
-        </div>
+        <h2 className="text-dark-300 text-sm font-semibold mb-2">
+          {fmtDateLabel(selectedDate)}
+          {!loading && sessions.length > 0 && (
+            <span className="text-dark-500 font-normal ml-2">({sessions.length} заїздів)</span>
+          )}
+        </h2>
 
-        {events.length === 0 ? (
-          <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів</div>
+        {loading ? (
+          <div className="card text-center py-6 text-dark-500 text-sm">Завантаження...</div>
+        ) : sessions.length === 0 ? (
+          <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів за цю дату</div>
         ) : (
-          <div className="space-y-0.5">
-            <SessionRows events={
-              hideProkat
-                ? events.filter(ev => ['gonzales', 'light_league', 'champions_league'].includes(ev.format))
-                : events
-            } />
+          <div className="card p-2 space-y-0.5">
+            {sessions.map(s => {
+              const isActive = !s.end_time;
+              const pilots = s.real_pilot_count ?? (s.end_time ? 0 : s.pilot_count);
+              return (
+                <Link
+                  key={s.id}
+                  to={`/sessions/${s.id}`}
+                  className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors group"
+                >
+                  <span className="flex items-center gap-2 text-sm min-w-0">
+                    {isActive && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />}
+                    <span className="text-dark-500 font-mono text-xs w-6 text-right flex-shrink-0">
+                      {s.race_number ?? '—'}
+                    </span>
+                    <span className="font-mono text-xs">
+                      <span className="text-white">{fmtTime(s.start_time)}</span>
+                      <span className="text-dark-600"> – </span>
+                      {s.end_time
+                        ? <span className="text-dark-400">{fmtTime(s.end_time)}</span>
+                        : <span className="text-green-400">live</span>
+                      }
+                    </span>
+                    <span className="text-dark-400 text-xs">Прокат</span>
+                    <span className="text-dark-600 text-xs">
+                      · {pilots} пілотів
+                      {s.end_time && ` · ${fmtDuration(s.start_time, s.end_time)}`}
+                    </span>
+                  </span>
+                  {s.best_lap_time && s.best_lap_pilot && (
+                    <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
+                      {shortPilotName(s.best_lap_pilot)} — <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { AuthProvider } from './services/auth';
 import { TrackProvider } from './services/trackContext';
+import { PageVisibilityProvider } from './services/pageVisibility';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const HomePage = lazy(() => import('./pages/Home'));
@@ -17,6 +18,9 @@ const Login = lazy(() => import('./pages/Auth/Login'));
 const AdminPanel = lazy(() => import('./pages/Auth/AdminPanel'));
 const DatabaseStats = lazy(() => import('./pages/Auth/DatabaseStats'));
 const Monitoring = lazy(() => import('./pages/Auth/Monitoring'));
+const CollectorLog = lazy(() => import('./pages/Auth/CollectorLog'));
+const PageSettings = lazy(() => import('./pages/Auth/PageSettings'));
+const CompetitionManager = lazy(() => import('./pages/Auth/CompetitionManager'));
 const Changelog = lazy(() => import('./pages/Changelog'));
 const SessionsList = lazy(() => import('./pages/Sessions/SessionsList'));
 const SessionDetail = lazy(() => import('./pages/Sessions/SessionDetail'));
@@ -29,6 +33,7 @@ function PageLoader() {
 export default function App() {
   return (
     <AuthProvider>
+      <PageVisibilityProvider>
       <TrackProvider>
         <BrowserRouter>
           <ErrorBoundary>
@@ -58,6 +63,9 @@ export default function App() {
                   <Route path="/admin" element={<AdminPanel />} />
                   <Route path="/admin/db" element={<DatabaseStats />} />
                   <Route path="/admin/monitoring" element={<Monitoring />} />
+                  <Route path="/admin/collector-log" element={<CollectorLog />} />
+                  <Route path="/admin/pages" element={<PageSettings />} />
+                  <Route path="/admin/competitions" element={<CompetitionManager />} />
 
                   {/* Sessions */}
                   <Route path="/sessions" element={<SessionsList />} />
@@ -77,6 +85,7 @@ export default function App() {
           </ErrorBoundary>
         </BrowserRouter>
       </TrackProvider>
+      </PageVisibilityProvider>
     </AuthProvider>
   );
 }
