@@ -47,3 +47,32 @@ export function fmtBytes(b: number): string {
   if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
   return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
 }
+
+/** Convert any lap time string to seconds display: "01:00.496" → "60.496", "42.574" → "42.574" */
+export function toSeconds(t: string | null): string {
+  if (!t) return '—';
+  const sec = parseTime(t);
+  if (sec === null) return t;
+  return sec.toFixed(3);
+}
+
+/**
+ * Merge laps where pilot name is "Карт X" with subsequent laps from a named pilot on the same kart.
+ * The timing system sometimes shows "Карт X" for the first few laps before the real name appears.
+ */
+export function mergePilotNames<T extends { pilot: string; kart: number }>(laps: T[]): T[] {
+  const kartToPilot = new Map<number, string>();
+
+  for (const l of laps) {
+    if (!l.pilot.startsWith('Карт ')) {
+      kartToPilot.set(l.kart, l.pilot);
+    }
+  }
+
+  return laps.map(l => {
+    if (l.pilot.startsWith('Карт ') && kartToPilot.has(l.kart)) {
+      return { ...l, pilot: kartToPilot.get(l.kart)! };
+    }
+    return l;
+  });
+}

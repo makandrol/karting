@@ -75,7 +75,7 @@ const COMPETITION_TREE: CompetitionTree[] = [
   },
 ];
 
-export default function CompetitionControl() {
+export default function CompetitionControl({ inline = false }: { inline?: boolean }) {
   const { hasPermission } = useAuth();
   const [comp, setComp] = useState<CompetitionState | null>(null);
   const [loading, setLoading] = useState(false);
@@ -139,6 +139,95 @@ export default function CompetitionControl() {
   const stateInfo = STATE_LABELS[comp.state] || STATE_LABELS.none;
   const isActive = !['none', 'finished'].includes(comp.state);
   const currentPhaseName = comp.competition?.phases?.[comp.competition.phases.length - 1]?.name;
+
+  if (inline) {
+    return (
+      <div className="relative" ref={pickerRef}>
+        <button
+          onClick={() => { setPickerOpen(!pickerOpen); setExpandedFormat(null); }}
+          disabled={loading}
+          className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 ${
+            isActive
+              ? 'bg-dark-800 hover:bg-dark-700 text-dark-300'
+              : 'bg-primary-600/80 hover:bg-primary-500 text-white'
+          }`}
+        >
+          {isActive ? '✏️ Редагувати змагання' : '🏆 Почати змагання'}
+        </button>
+
+        {pickerOpen && (
+          <div className="absolute top-full left-0 mt-1 w-64 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50">
+            <div className="px-3 py-1.5 text-[10px] text-dark-500">
+              Оберіть заїзд — поточний або наступний активний заїзд стане обраною фазою
+            </div>
+            {COMPETITION_TREE.map((tree) => (
+              <div key={tree.format}>
+                <button
+                  onClick={() => setExpandedFormat(expandedFormat === tree.format ? null : tree.format)}
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between ${
+                    expandedFormat === tree.format
+                      ? 'text-white bg-dark-800'
+                      : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                  }`}
+                >
+                  <span>{tree.label}</span>
+                  <svg className={`w-3.5 h-3.5 transition-transform ${expandedFormat === tree.format ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+
+                {expandedFormat === tree.format && (
+                  <div className="bg-dark-800/50 py-1">
+                    {tree.phases.map((phase) => {
+                      const alreadyDone = comp.competition?.format === tree.format &&
+                        comp.competition.phases.some(p => p.name === phase.name);
+                      return (
+                        <button
+                          key={phase.name}
+                          onClick={() => !alreadyDone && handlePickPhase(tree, phase)}
+                          disabled={loading || alreadyDone}
+                          className={`w-full text-left px-6 py-1.5 text-xs transition-colors ${
+                            alreadyDone
+                              ? 'text-dark-600 cursor-default'
+                              : phase.type === 'qualifying'
+                                ? 'text-purple-400 hover:bg-purple-500/10'
+                                : 'text-green-400 hover:bg-green-500/10'
+                          }`}
+                        >
+                          {alreadyDone && <span className="text-dark-600 mr-1">✓</span>}
+                          {phase.type === 'qualifying' ? '⏱️ ' : '🏁 '}
+                          {phase.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {isActive && (
+              <div className="border-t border-dark-700 mt-1 pt-1 px-2 flex gap-1">
+                <button
+                  onClick={() => { apiCall('/competition/stop'); setPickerOpen(false); }}
+                  disabled={loading}
+                  className="flex-1 text-[10px] px-2 py-1.5 bg-dark-800 hover:bg-dark-700 text-dark-400 rounded-md transition-colors"
+                >
+                  ⏹ Завершити
+                </button>
+                <button
+                  onClick={() => { apiCall('/competition/reset'); setPickerOpen(false); }}
+                  disabled={loading}
+                  className="flex-1 text-[10px] px-2 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-md transition-colors"
+                >
+                  🔄 Скинути
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="card p-3 space-y-3">

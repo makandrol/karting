@@ -39,6 +39,14 @@
     @apply px-3 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg;
   }
 
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   .card {
     @apply bg-dark-900 border border-dark-800 rounded-xl p-6;
   }

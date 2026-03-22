@@ -2,9 +2,10 @@
  * Karting Collector — сервер для збору даних з таймінгу
  *
  * Архітектура:
- * - Постійно опитує timing.karting.ua
- * - Коли таймінг офлайн: 1 запит / 60 секунд
- * - Коли таймінг онлайн: 1 запит / 1 секунда
+ * - Отримує дані з JSON API таймінгу (nfs.playwar.com:3333)
+ * - Коли API недоступний: 1 запит / 60 секунд
+ * - Коли API доступний, немає пілотів: 1 запит / 10 секунд
+ * - Коли є пілоти на трасі: 1 запит / 1 секунда
  * - Зберігає тільки зміни (event log)
  * - Роздає дані через HTTP API для фронтенда
  *
@@ -23,7 +24,7 @@ const execFileAsync = promisify(execFile);
 
 const PORT = process.env.PORT || 3001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
-const MAX_BODY_SIZE = 16 * 1024; // 16 KB
+const MAX_BODY_SIZE = 512 * 1024; // 512 KB (competitions can have large JSON results)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 
 const poller = new TimingPoller();
@@ -77,7 +78,7 @@ function sendUnauthorized(res) {
 const server = http.createServer(async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
@@ -99,13 +100,39 @@ const server = http.createServer(async (req, res) => {
 
     // GET /timing — поточні дані таймінгу
     if (url.pathname === '/timing') {
+      const meta = poller.getMeta();
       sendJson(res, 200, {
         isOnline: poller.isOnline(),
         entries: poller.getCurrentEntries(),
+        teams: poller.getCurrentTeams(),
+        meta: meta,
+        trackId: storage.getCurrentTrackId(),
         lastUpdate: poller.getLastUpdateTime(),
         sessionId: poller.getCurrentSessionId(),
         competition: detector.getState(),
       });
+      return;
+    }
+
+    // GET /track — поточний трек
+    if (req.method === 'GET' && url.pathname === '/track') {
+      sendJson(res, 200, { trackId: storage.getCurrentTrackId() });
+      return;
+    }
+
+    // POST /track — змінити трек (admin only)
+    if (req.method === 'POST' && url.pathname === '/track') {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      try {
+        const body = await readBody(req);
+        const { trackId } = JSON.parse(body);
+        if (typeof trackId !== 'number' || trackId < 1 || trackId > 20) {
+          sendJson(res, 400, { error: 'Invalid trackId' });
+          return;
+        }
+        storage.setCurrentTrackId(trackId);
+        sendJson(res, 200, { ok: true, trackId });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
       return;
     }
 
@@ -131,10 +158,55 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /db/collector-log?limit=200 — останні результати collector'а (admin only)
+    if (url.pathname === '/db/collector-log') {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      const limit = Math.min(parseInt(url.searchParams.get('limit') || '200'), 1000);
+      const sessions = storage.getRecentSessions(limit);
+      sendJson(res, 200, sessions);
+      return;
+    }
+
+    // GET /db/session-counts?from=2026-03-15&to=2026-03-21
+    if (url.pathname === '/db/session-counts') {
+      const from = url.searchParams.get('from');
+      const to = url.searchParams.get('to');
+      if (!from || !to) { sendJson(res, 400, { error: 'from and to required' }); return; }
+      sendJson(res, 200, storage.getSessionCounts(from, to));
+      return;
+    }
+
+    // GET /db/kart-stats?from=2026-03-15&to=2026-03-21
+    if (req.method === 'GET' && url.pathname === '/db/kart-stats') {
+      const from = url.searchParams.get('from');
+      const to = url.searchParams.get('to');
+      if (!from || !to) { sendJson(res, 400, { error: 'from and to required' }); return; }
+      sendJson(res, 200, storage.getKartStats(from, to));
+      return;
+    }
+
+    // POST /db/kart-stats — stats for specific sessions
+    if (req.method === 'POST' && url.pathname === '/db/kart-stats') {
+      try {
+        const body = await readBody(req);
+        const { sessionIds } = JSON.parse(body);
+        if (!Array.isArray(sessionIds)) { sendJson(res, 400, { error: 'sessionIds array required' }); return; }
+        sendJson(res, 200, storage.getKartStatsBySessions(sessionIds));
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
     // GET /db/laps?session=xxx — кола з БД
-    if (url.pathname === '/db/laps') {
+    if (req.method === 'GET' && url.pathname === '/db/laps') {
       const sessionId = url.searchParams.get('session');
-      if (!sessionId) { sendJson(res, 400, { error: 'session required' }); return; }
+      const kart = url.searchParams.get('kart');
+      if (kart) {
+        const from = url.searchParams.get('from') || '2020-01-01';
+        const to = url.searchParams.get('to') || '2099-12-31';
+        sendJson(res, 200, storage.getLapsByKart(parseInt(kart), from, to));
+        return;
+      }
+      if (!sessionId) { sendJson(res, 400, { error: 'session or kart required' }); return; }
       sendJson(res, 200, storage.getLaps(sessionId));
       return;
     }
@@ -263,6 +335,62 @@ const server = http.createServer(async (req, res) => {
       if (!isAuthorized(req)) { sendUnauthorized(res); return; }
       detector.resetToday();
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // ============================================================
+    // Competitions CRUD
+    // ============================================================
+
+    // GET /competitions — список змагань
+    if (req.method === 'GET' && url.pathname === '/competitions') {
+      const format = url.searchParams.get('format');
+      sendJson(res, 200, storage.getCompetitions(format || undefined));
+      return;
+    }
+
+    // GET /competitions/:id
+    if (req.method === 'GET' && url.pathname.match(/^\/competitions\/[^/]+$/)) {
+      const id = decodeURIComponent(url.pathname.split('/')[2]);
+      const comp = storage.getCompetition(id);
+      if (!comp) { sendJson(res, 404, { error: 'Not found' }); return; }
+      sendJson(res, 200, comp);
+      return;
+    }
+
+    // POST /competitions — створити змагання (admin only)
+    if (req.method === 'POST' && url.pathname === '/competitions') {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      try {
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        if (!data.id || !data.name) { sendJson(res, 400, { error: 'id and name required' }); return; }
+        storage.createCompetition(data);
+        sendJson(res, 201, storage.getCompetition(data.id));
+      } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
+      return;
+    }
+
+    // PATCH /competitions/:id — оновити змагання (admin only)
+    if (req.method === 'PATCH' && url.pathname.match(/^\/competitions\/[^/]+$/)) {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      const id = decodeURIComponent(url.pathname.split('/')[2]);
+      try {
+        const body = await readBody(req);
+        const fields = JSON.parse(body);
+        const ok = storage.updateCompetition(id, fields);
+        if (!ok) { sendJson(res, 404, { error: 'Not found' }); return; }
+        sendJson(res, 200, storage.getCompetition(id));
+      } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
+      return;
+    }
+
+    // DELETE /competitions/:id — видалити змагання (admin only)
+    if (req.method === 'DELETE' && url.pathname.match(/^\/competitions\/[^/]+$/)) {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      const id = decodeURIComponent(url.pathname.split('/')[2]);
+      const ok = storage.deleteCompetition(id);
+      sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'Not found' });
       return;
     }
 

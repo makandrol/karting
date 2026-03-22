@@ -2,7 +2,7 @@
 
 Сервер для збору даних з таймінгу картодрому "Жага швидкості".
 
-**Base URL:** `http://150.230.157.143:3001`
+**Base URL:** `https://ekarting.duckdns.org`
 
 CORS увімкнений — можна запитувати з будь-якого домену, браузера чи програми. Авторизація не потрібна.
 
@@ -10,10 +10,11 @@ CORS увімкнений — можна запитувати з будь-яко
 
 ## Як працює
 
-Collector сервер постійно опитує табло [timing.karting.ua](https://timing.karting.ua/board.html):
-- Коли таймінг **офлайн** → запит кожні 60 секунд
-- Коли таймінг **онлайн** → запит кожну 1 секунду
-- Зберігає поточний стан і лог змін в пам'яті
+Collector сервер отримує дані напряму з JSON API таймінгу картодрому (`nfs.playwar.com:3333/getmaininfo.json`):
+- Коли API **недоступний** → запит кожні 60 секунд
+- Коли API доступний, але **немає пілотів** → запит кожні 10 секунд
+- Коли **є пілоти на трасі** → запит кожну 1 секунду
+- Зберігає поточний стан і лог змін в пам'яті + SQLite
 - Віддає кешовані дані через HTTP API
 
 ---
@@ -26,7 +27,7 @@ Collector сервер постійно опитує табло [timing.karting.
 
 **Запит:**
 ```
-GET http://150.230.157.143:3001/status
+GET https://ekarting.duckdns.org/status
 ```
 
 **Відповідь:**
@@ -64,7 +65,7 @@ GET http://150.230.157.143:3001/status
 
 **Запит:**
 ```
-GET http://150.230.157.143:3001/timing
+GET https://ekarting.duckdns.org/timing
 ```
 
 **Відповідь коли таймінг працює:**
@@ -129,10 +130,10 @@ GET http://150.230.157.143:3001/timing
 
 **Запити:**
 ```
-GET http://150.230.157.143:3001/events
-GET http://150.230.157.143:3001/events?session=session-1710520000000
-GET http://150.230.157.143:3001/events?since=1710523400000
-GET http://150.230.157.143:3001/events?session=session-123&since=1710523400000
+GET https://ekarting.duckdns.org/events
+GET https://ekarting.duckdns.org/events?session=session-1710520000000
+GET https://ekarting.duckdns.org/events?since=1710523400000
+GET https://ekarting.duckdns.org/events?session=session-123&since=1710523400000
 ```
 
 | Параметр | Тип | Обов'язковий | Опис |
@@ -206,7 +207,7 @@ GET http://150.230.157.143:3001/events?session=session-123&since=1710523400000
 
 **Запит:**
 ```
-GET http://150.230.157.143:3001/sessions
+GET https://ekarting.duckdns.org/sessions
 ```
 
 **Відповідь:**
@@ -244,7 +245,7 @@ GET http://150.230.157.143:3001/sessions
 import requests
 import time
 
-BASE_URL = "http://150.230.157.143:3001"
+BASE_URL = "https://ekarting.duckdns.org"
 
 # Перевірити стан
 status = requests.get(f"{BASE_URL}/status").json()
@@ -271,7 +272,7 @@ while True:
 ### JavaScript / Node.js
 
 ```javascript
-const BASE_URL = "http://150.230.157.143:3001";
+const BASE_URL = "https://ekarting.duckdns.org";
 
 // Одноразовий запит
 const res = await fetch(`${BASE_URL}/timing`);
@@ -298,16 +299,16 @@ setInterval(async () => {
 
 ```bash
 # Стан сервера
-curl http://150.230.157.143:3001/status
+curl https://ekarting.duckdns.org/status
 
 # Поточний таймінг
-curl http://150.230.157.143:3001/timing
+curl https://ekarting.duckdns.org/timing
 
 # Список заїздів
-curl http://150.230.157.143:3001/sessions
+curl https://ekarting.duckdns.org/sessions
 
 # Події конкретного заїзду
-curl "http://150.230.157.143:3001/events?session=session-123456"
+curl "https://ekarting.duckdns.org/events?session=session-123456"
 ```
 
 ---
