@@ -30,6 +30,7 @@ interface DbSession {
   date: string;
   best_lap_time: string | null;
   best_lap_pilot: string | null;
+  merged_session_ids?: string[];
 }
 
 function fmtTime(ms: number): string {
@@ -88,17 +89,11 @@ export default function KartDetail() {
   // Fetch all-time session counts for this kart
   const [kartDateCounts, setKartDateCounts] = useState<Record<string, number> | undefined>(undefined);
   useEffect(() => {
-    fetch(`${COLLECTOR_URL}/db/laps?kart=${kartNumber}&from=2020-01-01&to=${todayStr}`)
+    fetch(`${COLLECTOR_URL}/db/kart-session-counts?kart=${kartNumber}`)
       .then(r => r.json())
-      .then((allLaps: KartLap[]) => {
-        const sessionDates = new Map<string, string>();
-        for (const l of allLaps) {
-          if (!sessionDates.has(l.session_id)) sessionDates.set(l.session_id, l.date);
-        }
+      .then((data: { date: string; count: number }[]) => {
         const counts: Record<string, number> = {};
-        for (const date of sessionDates.values()) {
-          counts[date] = (counts[date] || 0) + 1;
-        }
+        for (const d of data) counts[d.date] = d.count;
         setKartDateCounts(counts);
       })
       .catch(() => setKartDateCounts(undefined));
@@ -145,8 +140,18 @@ export default function KartDetail() {
       } catch {}
       if (cancelled) return;
 
-      // 3. Filter to sessions where this kart has laps
-      const allIds = new Set(allSessions.map(s => s.id));
+      // 3. Filter to sessions where this kart has laps (include merged sub-session IDs)
+      const allIds = new Set<string>();
+      const subIdToMerged = new Map<string, string>();
+      for (const s of allSessions) {
+        allIds.add(s.id);
+        if (s.merged_session_ids) {
+          for (const subId of s.merged_session_ids) {
+            allIds.add(subId);
+            subIdToMerged.set(subId, s.id);
+          }
+        }
+      }
       const filtered = kartLaps.filter(l => allIds.has(l.session_id));
       const bySession = new Map<string, KartLap[]>();
       for (const l of filtered) {
@@ -157,7 +162,11 @@ export default function KartDetail() {
       for (const sessionLaps of bySession.values()) {
         merged.push(...mergePilotNames(sessionLaps));
       }
-      const kartSessionIds = new Set(filtered.map(l => l.session_id));
+      const kartSessionIds = new Set<string>();
+      for (const l of filtered) {
+        const mergedId = subIdToMerged.get(l.session_id) || l.session_id;
+        kartSessionIds.add(mergedId);
+      }
 
       setLaps(merged);
       setStatSessionIds(kartSessionIds);

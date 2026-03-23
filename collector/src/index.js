@@ -196,6 +196,14 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /db/kart-session-counts?kart=11 — session counts per date for a specific kart
+    if (req.method === 'GET' && url.pathname === '/db/kart-session-counts') {
+      const kart = url.searchParams.get('kart');
+      if (!kart) { sendJson(res, 400, { error: 'kart required' }); return; }
+      sendJson(res, 200, storage.getKartSessionCounts(parseInt(kart)));
+      return;
+    }
+
     // GET /db/laps?session=xxx — кола з БД
     if (req.method === 'GET' && url.pathname === '/db/laps') {
       const sessionId = url.searchParams.get('session');

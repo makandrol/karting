@@ -438,6 +438,24 @@ export const storage = {
     return stmts.getLapsByKart.all(kartNumber, fromDate, toDate);
   },
 
+  getKartSessionCounts(kartNumber) {
+    const dates = db.prepare('SELECT DISTINCT date FROM sessions ORDER BY date').all().map(r => r.date);
+    const result = [];
+    for (const date of dates) {
+      const sessions = this.getSessionsByDate(date);
+      let count = 0;
+      for (const s of sessions) {
+        if (!s.end_time || (s.end_time - s.start_time) < 60000) continue;
+        const ids = s.merged_session_ids || [s.id];
+        const placeholders = ids.map(() => '?').join(',');
+        const hasKart = db.prepare(`SELECT 1 FROM laps WHERE kart = ? AND session_id IN (${placeholders}) AND ${VALID_LAP} LIMIT 1`).get(kartNumber, ...ids);
+        if (hasKart) count++;
+      }
+      if (count > 0) result.push({ date, count });
+    }
+    return result;
+  },
+
   /** Статистика БД */
   getStats() {
     const sizeRow = stmts.getDbSize.get();
