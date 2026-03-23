@@ -25,6 +25,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
+  const [atLive, setAtLive] = useState(!!isLive && !!autoPlay);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
   const durationRef = useRef(durationSec);
@@ -253,6 +254,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   };
 
   const handleScrub = (val: number) => {
+    setAtLive(false);
     setCurrentTime(val);
     const ent = getEntriesAtTime(val);
     setEntries(ent);
@@ -288,7 +290,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         min={0}
         max={durationSec}
         step={0.1}
-        value={isLive ? durationSec : currentTime}
+        value={isLive && atLive ? durationSec : currentTime}
         onChange={(e) => handleScrub(parseFloat(e.target.value))}
         className="flex-1 h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
@@ -297,9 +299,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
 
       {isLive && (
         <button
-          onClick={() => { handleScrub(durationSec); setPlaying(true); }}
+          onClick={() => { setAtLive(true); handleScrub(durationSec); setPlaying(true); }}
           className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors shrink-0 ${
-            currentTime >= durationSec - 5
+            atLive
               ? 'bg-green-500/20 text-green-400'
               : 'bg-dark-800 text-dark-400 hover:text-green-400 hover:bg-green-500/10'
           }`}
