@@ -23,7 +23,7 @@ interface DbSession {
 
 const LS_DISABLED_KARTS = 'karting_disabled_karts';
 const LS_KARTS_FILTERS = 'karting_karts_filters';
-const LS_KARTS_STATS = 'karting_karts_stat_ids';
+const LS_KARTS_SELECTED_DATES = 'karting_karts_selected_dates';
 
 function loadDisabledKarts(): Set<number> {
   try { const s = localStorage.getItem(LS_DISABLED_KARTS); if (s) return new Set(JSON.parse(s)); } catch {} return new Set();
@@ -31,8 +31,8 @@ function loadDisabledKarts(): Set<number> {
 function loadFilters() {
   try { const s = localStorage.getItem(LS_KARTS_FILTERS); if (s) return JSON.parse(s); } catch {} return null;
 }
-function loadStatIds(): Set<string> {
-  try { const s = localStorage.getItem(LS_KARTS_STATS); if (s) return new Set(JSON.parse(s)); } catch {} return new Set();
+function loadSelectedDates(): Set<string> {
+  try { const s = localStorage.getItem(LS_KARTS_SELECTED_DATES); if (s) return new Set(JSON.parse(s)); } catch {} return new Set();
 }
 
 function fmtTime(ms: number): string {
@@ -50,122 +50,69 @@ export default function Karts() {
   const [topNInput, setTopNInput] = useState('1');
   const [topNPrev, setTopNPrev] = useState('1');
   const [topN, setTopN] = useState(1);
-  const [pickerDate, setPickerDate] = useState(todayStr);
 
   useEffect(() => {
     localStorage.setItem(LS_KARTS_FILTERS, JSON.stringify({ viewMode, sortByRank }));
   }, [viewMode, sortByRank]);
 
-  // Sessions for the selected date (to add to stats)
-  const [pickerSessions, setPickerSessions] = useState<DbSession[]>([]);
-  const [selectedForAdd, setSelectedForAdd] = useState<Set<string>>(new Set());
-
-  // Stat session IDs (persisted)
-  const [statSessionIds, setStatSessionIds] = useState<Set<string>>(loadStatIds);
-  const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set());
+  // Selected dates for stats (multi-select)
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
+    const saved = loadSelectedDates();
+    return saved.size > 0 ? saved : new Set([todayStr]);
+  });
 
   useEffect(() => {
-    localStorage.setItem(LS_KARTS_STATS, JSON.stringify([...statSessionIds]));
-  }, [statSessionIds]);
+    localStorage.setItem(LS_KARTS_SELECTED_DATES, JSON.stringify([...selectedDates]));
+  }, [selectedDates]);
 
-  // Stat sessions details (for display)
-  const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
-
-  // Fetch sessions when picker date changes — auto-select all, auto-add if first interaction
-  const [userInteracted, setUserInteracted] = useState(false);
-  
-  useEffect(() => {
-    fetch(`${COLLECTOR_URL}/db/sessions?date=${pickerDate}`)
-      .then(r => r.json())
-      .then((data: DbSession[]) => {
-        const filtered = data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000);
-        setPickerSessions(filtered);
-        // Pre-select all that aren't already in stats
-        const newIds = filtered.filter(s => !statSessionIds.has(s.id)).map(s => s.id);
-        setSelectedForAdd(new Set(newIds));
-        // Auto-add if user hasn't manually interacted yet
-        if (!userInteracted && newIds.length > 0) {
-          const next = new Set(statSessionIds);
-          for (const id of filtered.map(s => s.id)) next.add(id);
-          setStatSessionIds(next);
-        }
-      })
-      .catch(() => setPickerSessions([]));
-  }, [pickerDate]);
-
-  // Auto-add today's sessions on first load
-  useEffect(() => {
-    if (statSessionIds.size > 0) return;
-    fetch(`${COLLECTOR_URL}/db/sessions?date=${todayStr}`)
-      .then(r => r.json())
-      .then((data: DbSession[]) => {
-        const ids = data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000).map(s => s.id);
-        if (ids.length > 0) setStatSessionIds(new Set(ids));
-      })
-      .catch(() => {});
+  const handleToggleDate = useCallback((date: string) => {
+    setSelectedDates(prev => {
+      const next = new Set(prev);
+      next.has(date) ? next.delete(date) : next.add(date);
+      return next;
+    });
   }, []);
 
-  // Fetch stat session details
+  const handleSelectDates = useCallback((dates: string[]) => {
+    setSelectedDates(prev => {
+      const next = new Set(prev);
+      for (const d of dates) next.add(d);
+      return next;
+    });
+  }, []);
+
+  const clearAllDates = useCallback(() => {
+    setSelectedDates(new Set());
+  }, []);
+
+  // Fetch session IDs for all selected dates
+  const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
+  const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
+
   useEffect(() => {
-    if (statSessionIds.size === 0) { setStatSessionDetails([]); return; }
-    const dates = new Set<string>();
-    for (const id of statSessionIds) {
-      const m = id.match(/session-(\d+)/);
-      if (m) {
-        const d = new Date(parseInt(m[1]));
-        dates.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
-      }
+    if (selectedDates.size === 0) {
+      setStatSessionIds(new Set());
+      setStatSessionDetails([]);
+      return;
     }
+    let cancelled = false;
     (async () => {
-      const all: DbSession[] = [];
-      for (const date of dates) {
+      const allSessions: DbSession[] = [];
+      for (const date of selectedDates) {
         try {
           const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
-          if (res.ok) all.push(...(await res.json()));
+          if (res.ok) {
+            const data: DbSession[] = await res.json();
+            allSessions.push(...data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000));
+          }
         } catch {}
       }
-      setStatSessionDetails(all.filter(s => statSessionIds.has(s.id)));
+      if (cancelled) return;
+      setStatSessionIds(new Set(allSessions.map(s => s.id)));
+      setStatSessionDetails(allSessions);
     })();
-  }, [statSessionIds]);
-
-  const addToStats = () => {
-    setUserInteracted(true);
-    const next = new Set(statSessionIds);
-    for (const id of selectedForAdd) next.add(id);
-    setStatSessionIds(next);
-    setSelectedForAdd(new Set());
-  };
-  const removeFromStats = () => {
-    setUserInteracted(true);
-    const next = new Set(statSessionIds);
-    for (const id of selectedToRemove) next.delete(id);
-    setStatSessionIds(next);
-    setSelectedToRemove(new Set());
-  };
-  const clearAllStats = () => { setUserInteracted(true); setStatSessionIds(new Set()); setSelectedToRemove(new Set()); };
-  const addAllForDate = () => {
-    setUserInteracted(true);
-    const next = new Set(statSessionIds);
-    for (const s of pickerSessions) next.add(s.id);
-    setStatSessionIds(next);
-    setSelectedForAdd(new Set());
-  };
-
-  const addSessionsForDates = useCallback(async (dates: string[]) => {
-    setUserInteracted(true);
-    const next = new Set(statSessionIds);
-    for (const date of dates) {
-      try {
-        const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
-        if (!res.ok) continue;
-        const data: DbSession[] = await res.json();
-        for (const s of data) {
-          if (s.end_time && (s.end_time - s.start_time) >= 60000) next.add(s.id);
-        }
-      } catch {}
-    }
-    setStatSessionIds(next);
-  }, [statSessionIds]);
+    return () => { cancelled = true; };
+  }, [selectedDates]);
 
   // Kart stats from selected sessions
   const [kartStats, setKartStats] = useState<KartStat[]>([]);
@@ -216,118 +163,44 @@ export default function Karts() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-white">Карти</h1>
 
-      {/* Date picker + sessions for selected date */}
-      <DateNavigator selectedDate={pickerDate} onSelectDate={setPickerDate} statSessionIds={statSessionIds} onAddDateSessions={addSessionsForDates} />
+      {/* Date multi-select */}
+      <DateNavigator
+        selectedDate={todayStr}
+        onSelectDate={handleToggleDate}
+        selectedDates={selectedDates}
+        onToggleDate={handleToggleDate}
+        onSelectDates={handleSelectDates}
+      />
 
-      {/* Sessions for picked date — select to add to stats */}
-      {pickerSessions.length > 0 && (
-        <div className="card p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">
-              Заїзди за {pickerDate} ({pickerSessions.length})
-            </div>
-            <div className="flex items-center gap-2">
-              {pickerSessions.some(s => !statSessionIds.has(s.id)) && (
-                <button onClick={addAllForDate}
-                  className="text-primary-400 text-[10px] hover:text-primary-300 transition-colors font-medium">
-                  + додати всі в статистику
-                </button>
-              )}
-              <span className="text-dark-700">|</span>
-              <button onClick={() => setSelectedForAdd(new Set(pickerSessions.filter(s => !statSessionIds.has(s.id)).map(s => s.id)))}
-                className="text-dark-400 text-[10px] hover:text-white transition-colors">виділити всі</button>
-              <span className="text-dark-700">|</span>
-              <button onClick={() => setSelectedForAdd(new Set())}
-                className="text-dark-400 text-[10px] hover:text-white transition-colors">зняти всі</button>
-            </div>
-          </div>
-          <div className="max-h-48 overflow-y-auto space-y-0.5">
-            {pickerSessions.map(s => {
-              const alreadyInStats = statSessionIds.has(s.id);
-              return (
-                <label key={s.id} className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${
-                  alreadyInStats ? 'text-dark-600 cursor-default' : 'text-dark-300 hover:bg-dark-800/50 cursor-pointer'
-                }`}>
-                  <input type="checkbox" checked={selectedForAdd.has(s.id)} disabled={alreadyInStats}
-                    onChange={e => { const n = new Set(selectedForAdd); e.target.checked ? n.add(s.id) : n.delete(s.id); setSelectedForAdd(n); }}
-                    className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0 shrink-0" />
-                  <span className="flex-1 flex items-center justify-between">
-                    <span>
-                      <span className="text-white font-mono">{fmtTime(s.start_time)}</span>
-                      {s.race_number != null && <span className="text-dark-500 ml-1">#{s.race_number}</span>}
-                      <span className="text-dark-500 ml-1">· {s.real_pilot_count ?? s.pilot_count} пілотів</span>
-                      {alreadyInStats && <span className="text-dark-600 ml-1">(в статистиці)</span>}
-                    </span>
-                    {s.best_lap_time && s.best_lap_pilot && (
-                      <span className="text-dark-500 font-mono shrink-0 ml-2">
-                        {shortPilot(s.best_lap_pilot)} — <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
-                      </span>
-                    )}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-          {selectedForAdd.size > 0 && (
-            <button onClick={addToStats}
-              className="px-3 py-1.5 bg-primary-600 text-white text-xs rounded-lg hover:bg-primary-500 transition-colors">
-              Додати до статистики ({selectedForAdd.size})
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Stat sessions */}
+      {/* Stat summary */}
       <div className="card p-3 space-y-2">
         <div className="flex items-center justify-between">
           <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">
-            Заїзди для статистики ({statSessionIds.size})
+            Статистика: {selectedDates.size} {selectedDates.size === 1 ? 'день' : selectedDates.size < 5 ? 'дні' : 'днів'}, {statSessionIds.size} заїздів
+            {loading && <span className="text-dark-600 ml-2">завантаження...</span>}
           </div>
-          {statSessionIds.size > 0 && (
-            <div className="flex items-center gap-2">
-              <button onClick={() => setSelectedToRemove(new Set(statSessionIds))}
-                className="text-dark-400 text-[10px] hover:text-white transition-colors">виділити всі</button>
-              <span className="text-dark-700">|</span>
-              <button onClick={() => setSelectedToRemove(new Set())}
-                className="text-dark-400 text-[10px] hover:text-white transition-colors">зняти всі</button>
-              <span className="text-dark-700">|</span>
-              <button onClick={clearAllStats}
-                className="text-red-400/60 text-[10px] hover:text-red-400 transition-colors">очистити</button>
-            </div>
+          {selectedDates.size > 0 && (
+            <button onClick={clearAllDates}
+              className="text-red-400/60 text-[10px] hover:text-red-400 transition-colors">очистити</button>
           )}
         </div>
-
-        {statSessionDetails.length === 0 ? (
-          <div className="text-dark-600 text-xs py-2">Немає заїздів. Додайте через фільтр вище.</div>
-        ) : (
-          <div className="max-h-48 overflow-y-auto space-y-0.5">
+        {statSessionDetails.length > 0 && (
+          <div className="max-h-32 overflow-y-auto space-y-0.5">
             {statSessionDetails.map(s => (
-              <label key={s.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-dark-800/50 cursor-pointer text-xs text-dark-300">
-                <input type="checkbox" checked={selectedToRemove.has(s.id)}
-                  onChange={e => { const n = new Set(selectedToRemove); e.target.checked ? n.add(s.id) : n.delete(s.id); setSelectedToRemove(n); }}
-                  className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0 shrink-0" />
-                <span className="flex-1 flex items-center justify-between">
-                  <span>
-                    <span className="text-white font-mono">{s.date.slice(5)} {fmtTime(s.start_time)}</span>
-                    {s.race_number != null && <span className="text-dark-500 ml-1">#{s.race_number}</span>}
-                    <span className="text-dark-500 ml-1">· {s.real_pilot_count ?? s.pilot_count} пілотів</span>
-                  </span>
-                  {s.best_lap_time && s.best_lap_pilot && (
-                    <span className="text-dark-500 font-mono shrink-0 ml-2">
-                      {shortPilot(s.best_lap_pilot)} — <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
-                    </span>
-                  )}
+              <div key={s.id} className="flex items-center justify-between px-2 py-0.5 text-xs text-dark-400">
+                <span>
+                  <span className="text-dark-300 font-mono">{s.date.slice(5)} {fmtTime(s.start_time)}</span>
+                  {s.race_number != null && <span className="text-dark-600 ml-1">#{s.race_number}</span>}
+                  <span className="text-dark-600 ml-1">· {s.real_pilot_count ?? s.pilot_count} пілотів</span>
                 </span>
-              </label>
+                {s.best_lap_time && s.best_lap_pilot && (
+                  <span className="text-dark-500 font-mono shrink-0 ml-2">
+                    {shortPilot(s.best_lap_pilot)} — <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
+                  </span>
+                )}
+              </div>
             ))}
           </div>
-        )}
-
-        {selectedToRemove.size > 0 && (
-          <button onClick={removeFromStats}
-            className="px-3 py-1.5 bg-red-600/20 text-red-400 text-xs rounded-lg hover:bg-red-600/30 transition-colors">
-            Видалити ({selectedToRemove.size})
-          </button>
         )}
       </div>
 
@@ -336,7 +209,6 @@ export default function Karts() {
         <div className="flex items-center justify-between mb-2">
           <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">
             Карти ({activeKarts.length} активних{inactiveKarts.length > 0 ? `, ${inactiveKarts.length} прихованих` : ''})
-            {loading && <span className="text-dark-600 ml-2">завантаження...</span>}
           </div>
           <div className="flex items-center gap-2">
             <label className="text-dark-400 text-[10px] flex items-center gap-1">
