@@ -36,7 +36,7 @@ function fmtDateTime(ms: number): string {
   const d = new Date(ms);
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}.${mm} ${fmtTime(ms)}`;
+  return `${dd}.${mm}, ${fmtTime(ms)}`;
 }
 
 export default function SessionsTable({ sessions, maxHeight, showDate }: SessionsTableProps) {
