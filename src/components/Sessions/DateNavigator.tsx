@@ -58,7 +58,10 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
   prevMonday.setDate(prevMonday.getDate() - 7);
 
   const [dateCounts, setDateCounts] = useState<Record<string, number>>({});
-  const [prevWeekOpen, setPrevWeekOpen] = useState(false);
+  const prevWeekDaysSet = new Set(getWeekDays(prevMonday));
+  const [prevWeekOpen, setPrevWeekOpen] = useState(() =>
+    multiSelect && selectedDates ? [...selectedDates].some(d => prevWeekDaysSet.has(d)) : false
+  );
   const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
 

@@ -171,7 +171,20 @@ export default function KartDetail() {
 
       setLaps(merged);
       setStatSessionIds(kartSessionIds);
-      setStatSessionDetails(allSessions.filter(s => kartSessionIds.has(s.id)));
+      // Override best lap with kart-specific best lap per session
+      const kartBestBySession = new Map<string, { pilot: string; time: string; sec: number }>();
+      for (const l of merged) {
+        const sid = subIdToMerged.get(l.session_id) || l.session_id;
+        const sec = parseTime(l.lap_time);
+        if (sec === null) continue;
+        const cur = kartBestBySession.get(sid);
+        if (!cur || sec < cur.sec) kartBestBySession.set(sid, { pilot: l.pilot, time: l.lap_time, sec });
+      }
+      setStatSessionDetails(allSessions.filter(s => kartSessionIds.has(s.id)).map(s => {
+        const best = kartBestBySession.get(s.id);
+        if (best) return { ...s, best_lap_time: best.time, best_lap_pilot: best.pilot, best_lap_kart: kartNumber };
+        return s;
+      }));
       setLoading(false);
     })();
     return () => { cancelled = true; };
