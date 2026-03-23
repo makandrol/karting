@@ -50,7 +50,7 @@ export default function SessionsList() {
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [sessions, setSessions] = useState<DbSession[]>([]);
   const [loading, setLoading] = useState(false);
-  const [sortBy, setSortBy] = useState<'asc' | 'desc' | 'best'>('asc');
+  const [sortBy, setSortBy] = useState<'time_asc' | 'time_desc' | 'best_asc' | 'best_desc'>('time_asc');
 
   const fetchSessions = useCallback(async (date: string) => {
     setLoading(true);
@@ -68,11 +68,16 @@ export default function SessionsList() {
 
   const sortedSessions = useMemo(() => {
     const arr = [...sessions];
-    if (sortBy === 'desc') return arr.reverse();
-    if (sortBy === 'best') return arr.sort((a, b) => {
+    if (sortBy === 'time_desc') return arr.reverse();
+    if (sortBy === 'best_asc') return arr.sort((a, b) => {
       const at = parseTime(a.best_lap_time) ?? Infinity;
       const bt = parseTime(b.best_lap_time) ?? Infinity;
       return at - bt;
+    });
+    if (sortBy === 'best_desc') return arr.sort((a, b) => {
+      const at = parseTime(a.best_lap_time) ?? -Infinity;
+      const bt = parseTime(b.best_lap_time) ?? -Infinity;
+      return bt - at;
     });
     return arr;
   }, [sessions, sortBy]);
@@ -92,10 +97,15 @@ export default function SessionsList() {
             )}
           </span>
           {sessions.length > 1 && (
-            <div className="flex bg-dark-800 rounded-md p-0.5">
-              <button onClick={() => setSortBy('asc')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortBy === 'asc' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>від першого</button>
-              <button onClick={() => setSortBy('desc')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortBy === 'desc' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>від останнього</button>
-              <button onClick={() => setSortBy('best')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortBy === 'best' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по колу</button>
+            <div className="flex bg-dark-800 rounded-md p-0.5 gap-0.5">
+              <button onClick={() => setSortBy(sortBy === 'time_asc' ? 'time_desc' : 'time_asc')}
+                className={`px-2 py-0.5 text-[10px] rounded transition-colors flex items-center gap-1 ${sortBy.startsWith('time') ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
+                по часу {sortBy === 'time_asc' ? '↑' : sortBy === 'time_desc' ? '↓' : ''}
+              </button>
+              <button onClick={() => setSortBy(sortBy === 'best_asc' ? 'best_desc' : 'best_asc')}
+                className={`px-2 py-0.5 text-[10px] rounded transition-colors flex items-center gap-1 ${sortBy.startsWith('best') ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
+                по колу {sortBy === 'best_asc' ? '↑' : sortBy === 'best_desc' ? '↓' : ''}
+              </button>
             </div>
           )}
         </h2>
