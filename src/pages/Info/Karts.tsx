@@ -43,7 +43,8 @@ function fmtDate(ms: number): string {
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 function shortPilot(name: string): string {
-  const p = name.split(' '); return p.length < 2 ? name : `${p[0]} ${p[1][0]}.`;
+  const p = name.trim().split(' ').filter(Boolean);
+  return p.length < 2 ? p[0] || name : `${p[0]} ${p[1][0]}.`;
 }
 
 export default function Karts() {
