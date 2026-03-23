@@ -25,10 +25,18 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
+  const [liveStick, setLiveStick] = useState(!!isLive && !!autoPlay);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
   const durationRef = useRef(durationSec);
   durationRef.current = durationSec;
+
+  // In live stick mode, just follow durationSec without animation
+  useEffect(() => {
+    if (liveStick && isLive) {
+      setCurrentTime(durationSec);
+    }
+  }, [liveStick, isLive, durationSec]);
 
   const pilots = useMemo(() => [...new Set(laps.map(l => l.pilot))], [laps]);
 
@@ -219,9 +227,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
-  // Animation loop
+  // Animation loop (disabled in liveStick mode)
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || liveStick) return;
     lastTickRef.current = performance.now();
     function tick(now: number) {
       const dt = (now - lastTickRef.current) / 1000 * speed;
@@ -236,7 +244,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
     }
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [playing, speed, isLive]);
+  }, [playing, speed, isLive, liveStick]);
 
   // Update entries when time changes
   useEffect(() => {
@@ -253,6 +261,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   };
 
   const handleScrub = (val: number) => {
+    setLiveStick(false);
     setCurrentTime(val);
     const ent = getEntriesAtTime(val);
     setEntries(ent);
@@ -297,9 +306,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
 
       {isLive && (
         <button
-          onClick={() => { handleScrub(durationSec); setPlaying(true); }}
+          onClick={() => { setLiveStick(true); setPlaying(true); setCurrentTime(durationSec); }}
           className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors shrink-0 ${
-            currentTime >= durationSec - 5
+            liveStick
               ? 'bg-green-500/20 text-green-400'
               : 'bg-dark-800 text-dark-400 hover:text-green-400 hover:bg-green-500/10'
           }`}
