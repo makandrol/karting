@@ -129,24 +129,41 @@ export default function KartDetail() {
       .finally(() => setLoading(false));
   }, [statSessionIds, kartNumber]);
 
-  const pilotStats = useMemo(() => {
-    const map = new Map<string, { pilot: string; bestSec: number; bestTime: string; bestTs: number; lapCount: number; sessions: Set<string> }>();
+  // Per-session stats for this kart
+  const sessionStats = useMemo(() => {
+    const bySession = new Map<string, KartLap[]>();
     for (const l of laps) {
-      const sec = parseTime(l.lap_time);
-      if (sec === null) continue;
-      if (!map.has(l.pilot)) map.set(l.pilot, { pilot: l.pilot, bestSec: Infinity, bestTime: '', bestTs: 0, lapCount: 0, sessions: new Set() });
-      const p = map.get(l.pilot)!;
-      p.lapCount++; p.sessions.add(l.session_id);
-      if (sec < p.bestSec) { p.bestSec = sec; p.bestTime = l.lap_time; p.bestTs = l.ts; }
+      if (!bySession.has(l.session_id)) bySession.set(l.session_id, []);
+      bySession.get(l.session_id)!.push(l);
     }
-    return [...map.values()].sort((a, b) => a.bestSec - b.bestSec);
-  }, [laps]);
+    const result: { pilot: string; bestLap: string; bestLapSec: number; bestS1: string | null; bestS2: string | null; sessionId: string; date: string; sessionStart: number; raceNumber: number | null; lapCount: number }[] = [];
+    for (const [sessionId, sessionLaps] of bySession) {
+      let bestLap = '', bestLapSec = Infinity, bestS1: string | null = null, bestS1Sec = Infinity, bestS2: string | null = null, bestS2Sec = Infinity;
+      const pilots = new Set<string>();
+      for (const l of sessionLaps) {
+        pilots.add(l.pilot);
+        const sec = parseTime(l.lap_time);
+        if (sec !== null && sec < bestLapSec) { bestLapSec = sec; bestLap = l.lap_time; }
+        const s1sec = parseTime(l.s1);
+        if (s1sec !== null && s1sec < bestS1Sec) { bestS1Sec = s1sec; bestS1 = l.s1; }
+        const s2sec = parseTime(l.s2);
+        if (s2sec !== null && s2sec < bestS2Sec) { bestS2Sec = s2sec; bestS2 = l.s2; }
+      }
+      const detail = statSessionDetails.find(s => s.id === sessionId);
+      result.push({
+        pilot: [...pilots].join(', '),
+        bestLap, bestLapSec, bestS1, bestS2,
+        sessionId, date: sessionLaps[0].date, sessionStart: sessionLaps[0].session_start,
+        raceNumber: detail?.race_number ?? null,
+        lapCount: sessionLaps.length,
+      });
+    }
+    return result.sort((a, b) => a.bestLapSec - b.bestLapSec);
+  }, [laps, statSessionDetails]);
 
-  const sortedLaps = useMemo(() =>
-    laps.map(l => ({ ...l, sec: parseTime(l.lap_time) })).filter(l => l.sec !== null).sort((a, b) => a.sec! - b.sec!).slice(0, 50),
-  [laps]);
-
-  const overallBest = pilotStats.length > 0 ? pilotStats[0].bestSec : null;
+  const overallBestSec = sessionStats.length > 0 ? sessionStats[0].bestLapSec : null;
+  const overallBestS1 = sessionStats.reduce((best, s) => { const v = parseTime(s.bestS1); return v !== null && v < best ? v : best; }, Infinity);
+  const overallBestS2 = sessionStats.reduce((best, s) => { const v = parseTime(s.bestS2); return v !== null && v < best ? v : best; }, Infinity);
 
   return (
     <div className="space-y-6">
@@ -159,8 +176,8 @@ export default function KartDetail() {
         <div>
           <h1 className="text-2xl font-bold text-white">Карт {kartNumber}</h1>
           <p className="text-dark-400 text-sm">
-            {laps.length} кіл · {pilotStats.length} пілотів
-            {overallBest && <> · Рекорд: <span className="text-green-400 font-mono">{toSeconds(pilotStats[0].bestTime)}</span> ({pilotStats[0].pilot})</>}
+            {laps.length} кіл · {sessionStats.length} заїздів
+            {overallBestSec !== null && overallBestSec < Infinity && <> · Рекорд: <span className="text-green-400 font-mono">{toSeconds(sessionStats[0].bestLap)}</span> ({sessionStats[0].pilot})</>}
           </p>
         </div>
       </div>
@@ -212,54 +229,43 @@ export default function KartDetail() {
         <div className="card text-center py-12 text-dark-500">Немає даних. Оберіть дні в календарі.</div>
       ) : (
         <>
-          {/* Pilots leaderboard */}
+          {/* Sessions table */}
           <div className="card p-0 overflow-hidden">
-            <div className="px-4 py-3 border-b border-dark-800"><h3 className="text-white font-semibold">Пілоти ({pilotStats.length})</h3></div>
+            <div className="px-4 py-3 border-b border-dark-800"><h3 className="text-white font-semibold">Заїзди ({sessionStats.length})</h3></div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead><tr className="table-header">
-                  <th className="table-cell text-center w-10">#</th><th className="table-cell text-left">Пілот</th>
-                  <th className="table-cell text-right">Найкращий</th><th className="table-cell text-center">Дата</th><th className="table-cell text-center">Кіл</th><th className="table-cell text-center">Заїздів</th>
+                  <th className="table-cell text-center w-8">#</th>
+                  <th className="table-cell text-left">Pilot</th>
+                  <th className="table-cell text-right">Best</th>
+                  <th className="table-cell text-right">B.S1</th>
+                  <th className="table-cell text-right">B.S2</th>
+                  <th className="table-cell text-center">Кіл</th>
+                  <th className="table-cell text-left">Session</th>
                 </tr></thead>
                 <tbody>
-                  {pilotStats.map((p, i) => (
-                    <tr key={p.pilot} className="table-row">
-                      <td className={`table-cell text-center font-mono font-bold ${i < 3 ? `position-${i + 1}` : 'text-dark-400'}`}>{i + 1}</td>
-                      <td className="table-cell text-left"><Link to={`/pilots/${encodeURIComponent(p.pilot)}`} className="text-white hover:text-primary-400 transition-colors">{p.pilot}</Link></td>
-                      <td className={`table-cell text-right font-mono font-semibold ${overallBest && Math.abs(p.bestSec - overallBest) < 0.002 ? 'text-purple-400' : 'text-green-400'}`}>{toSeconds(p.bestTime)}</td>
-                      <td className="table-cell text-center text-dark-500 text-[11px]">{p.bestTs ? fmtDate(p.bestTs) : ''}</td>
-                      <td className="table-cell text-center font-mono text-dark-300">{p.lapCount}</td>
-                      <td className="table-cell text-center font-mono text-dark-300">{p.sessions.size}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Top 50 laps */}
-          <div className="card p-0 overflow-hidden">
-            <div className="px-4 py-3 border-b border-dark-800"><h3 className="text-white font-semibold">Топ 50 кіл</h3></div>
-            <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0"><tr className="table-header">
-                  <th className="table-cell text-center w-10">#</th><th className="table-cell text-left">Пілот</th>
-                  <th className="table-cell text-right">Час</th><th className="table-cell text-right">S1</th><th className="table-cell text-right">S2</th>
-                  <th className="table-cell text-left">Дата</th>
-                </tr></thead>
-                <tbody>
-                  {sortedLaps.map((l, i) => (
-                    <tr key={l.id} className="table-row">
-                      <td className={`table-cell text-center font-mono font-bold ${i < 3 ? `position-${i + 1}` : 'text-dark-400'}`}>{i + 1}</td>
-                      <td className="table-cell text-left text-white">{l.pilot}</td>
-                      <td className={`table-cell text-right font-mono font-semibold ${i === 0 ? 'text-purple-400' : 'text-green-400'}`}>{toSeconds(l.lap_time)}</td>
-                      <td className="table-cell text-right font-mono text-dark-400">{l.s1 ? toSeconds(l.s1) : '—'}</td>
-                      <td className="table-cell text-right font-mono text-dark-400">{l.s2 ? toSeconds(l.s2) : '—'}</td>
-                      <td className="table-cell text-left text-dark-500">
-                        <Link to={`/sessions/${l.session_id}`} className="hover:text-primary-400 transition-colors">{l.date} {fmtTime(l.session_start)}</Link>
-                      </td>
-                    </tr>
-                  ))}
+                  {sessionStats.map((s, i) => {
+                    const isBestLap = overallBestSec !== null && Math.abs(s.bestLapSec - overallBestSec) < 0.002;
+                    const s1sec = parseTime(s.bestS1);
+                    const isBestS1 = s1sec !== null && Math.abs(s1sec - overallBestS1) < 0.002;
+                    const s2sec = parseTime(s.bestS2);
+                    const isBestS2 = s2sec !== null && Math.abs(s2sec - overallBestS2) < 0.002;
+                    return (
+                      <tr key={s.sessionId} className="table-row">
+                        <td className={`table-cell text-center font-mono font-bold ${i < 3 ? `position-${i + 1}` : 'text-dark-400'}`}>{i + 1}</td>
+                        <td className="table-cell text-left text-white">{s.pilot}</td>
+                        <td className={`table-cell text-right font-mono font-semibold ${isBestLap ? 'text-purple-400' : 'text-green-400'}`}>{toSeconds(s.bestLap)}</td>
+                        <td className={`table-cell text-right font-mono text-[11px] ${isBestS1 ? 'text-purple-400' : 'text-dark-400'}`}>{s.bestS1 ? toSeconds(s.bestS1) : '—'}</td>
+                        <td className={`table-cell text-right font-mono text-[11px] ${isBestS2 ? 'text-purple-400' : 'text-dark-400'}`}>{s.bestS2 ? toSeconds(s.bestS2) : '—'}</td>
+                        <td className="table-cell text-center font-mono text-dark-300">{s.lapCount}</td>
+                        <td className="table-cell text-left text-dark-500">
+                          <Link to={`/sessions/${s.sessionId}`} className="hover:text-primary-400 transition-colors">
+                            {s.date.slice(5)} {fmtTime(s.sessionStart)}{s.raceNumber != null ? ` · Заїзд ${s.raceNumber}` : ''}
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
