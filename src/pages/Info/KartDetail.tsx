@@ -141,6 +141,8 @@ export default function KartDetail() {
       .finally(() => setLoading(false));
   }, [statSessionIds, kartNumber]);
 
+  const [sortBy, setSortBy] = useState<'best' | 'date'>('best');
+
   // Per-session stats for this kart
   const sessionStats = useMemo(() => {
     const bySession = new Map<string, KartLap[]>();
@@ -170,8 +172,10 @@ export default function KartDetail() {
         lapCount: sessionLaps.length,
       });
     }
-    return result.sort((a, b) => a.bestLapSec - b.bestLapSec);
-  }, [laps, statSessionDetails]);
+    return result.sort((a, b) =>
+      sortBy === 'date' ? b.sessionStart - a.sessionStart : a.bestLapSec - b.bestLapSec
+    );
+  }, [laps, statSessionDetails, sortBy]);
 
   const overallBestSec = sessionStats.length > 0 ? sessionStats[0].bestLapSec : null;
   const overallBestS1 = sessionStats.reduce((best, s) => { const v = parseTime(s.bestS1); return v !== null && v < best ? v : best; }, Infinity);
@@ -243,7 +247,13 @@ export default function KartDetail() {
         <>
           {/* Sessions table */}
           <div className="card p-0 overflow-hidden">
-            <div className="px-4 py-3 border-b border-dark-800"><h3 className="text-white font-semibold">Заїзди ({sessionStats.length})</h3></div>
+            <div className="px-4 py-3 border-b border-dark-800 flex items-center justify-between">
+              <h3 className="text-white font-semibold">Заїзди ({sessionStats.length})</h3>
+              <div className="flex bg-dark-800 rounded-md p-0.5">
+                <button onClick={() => setSortBy('best')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortBy === 'best' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по швидкості</button>
+                <button onClick={() => setSortBy('date')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortBy === 'date' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по даті</button>
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead><tr className="table-header">
