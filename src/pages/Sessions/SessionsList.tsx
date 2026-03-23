@@ -92,15 +92,16 @@ export default function SessionsList() {
               const isActive = !s.end_time;
               const pilots = s.real_pilot_count ?? s.pilot_count;
               return (
-                <div key={s.id} className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors text-xs">
+                <Link
+                  key={s.id}
+                  to={isActive ? '/' : `/sessions/${s.id}`}
+                  className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors text-xs"
+                >
                   <span className="flex items-center gap-4 min-w-0">
-                    <Link
-                      to={isActive ? '/' : `/sessions/${s.id}`}
-                      className="text-primary-400 hover:text-primary-300 transition-colors underline underline-offset-2 decoration-primary-400/30 shrink-0"
-                    >
+                    <span className="text-white shrink-0">
                       Прокат{s.race_number != null ? ` · №${s.race_number}` : ''} · {fmtTime(s.start_time)}
                       {isActive && <span className="text-green-400 ml-1.5">LIVE</span>}
-                    </Link>
+                    </span>
                     <span className="text-dark-400 font-mono shrink-0">
                       {s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}
                     </span>
@@ -113,7 +114,7 @@ export default function SessionsList() {
                       <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
                     </span>
                   )}
-                </div>
+                </Link>
               );
             })}
           </div>
