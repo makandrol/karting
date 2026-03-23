@@ -35,6 +35,10 @@ interface DbSession {
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
 }
+function fmtDate(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 function shortPilot(name: string): string {
   const p = name.split(' '); return p.length < 2 ? name : `${p[0]} ${p[1][0]}.`;
 }
@@ -134,14 +138,14 @@ export default function KartDetail() {
   };
 
   const pilotStats = useMemo(() => {
-    const map = new Map<string, { pilot: string; bestSec: number; bestTime: string; lapCount: number; sessions: Set<string> }>();
+    const map = new Map<string, { pilot: string; bestSec: number; bestTime: string; bestTs: number; lapCount: number; sessions: Set<string> }>();
     for (const l of laps) {
       const sec = parseTime(l.lap_time);
       if (sec === null) continue;
-      if (!map.has(l.pilot)) map.set(l.pilot, { pilot: l.pilot, bestSec: Infinity, bestTime: '', lapCount: 0, sessions: new Set() });
+      if (!map.has(l.pilot)) map.set(l.pilot, { pilot: l.pilot, bestSec: Infinity, bestTime: '', bestTs: 0, lapCount: 0, sessions: new Set() });
       const p = map.get(l.pilot)!;
       p.lapCount++; p.sessions.add(l.session_id);
-      if (sec < p.bestSec) { p.bestSec = sec; p.bestTime = l.lap_time; }
+      if (sec < p.bestSec) { p.bestSec = sec; p.bestTime = l.lap_time; p.bestTs = l.ts; }
     }
     return [...map.values()].sort((a, b) => a.bestSec - b.bestSec);
   }, [laps]);
@@ -258,7 +262,7 @@ export default function KartDetail() {
               <table className="w-full text-xs">
                 <thead><tr className="table-header">
                   <th className="table-cell text-center w-10">#</th><th className="table-cell text-left">Пілот</th>
-                  <th className="table-cell text-right">Найкращий</th><th className="table-cell text-center">Кіл</th><th className="table-cell text-center">Заїздів</th>
+                  <th className="table-cell text-right">Найкращий</th><th className="table-cell text-center">Дата</th><th className="table-cell text-center">Кіл</th><th className="table-cell text-center">Заїздів</th>
                 </tr></thead>
                 <tbody>
                   {pilotStats.map((p, i) => (
@@ -266,6 +270,7 @@ export default function KartDetail() {
                       <td className={`table-cell text-center font-mono font-bold ${i < 3 ? `position-${i + 1}` : 'text-dark-400'}`}>{i + 1}</td>
                       <td className="table-cell text-left"><Link to={`/pilots/${encodeURIComponent(p.pilot)}`} className="text-white hover:text-primary-400 transition-colors">{p.pilot}</Link></td>
                       <td className={`table-cell text-right font-mono font-semibold ${overallBest && Math.abs(p.bestSec - overallBest) < 0.002 ? 'text-purple-400' : 'text-green-400'}`}>{toSeconds(p.bestTime)}</td>
+                      <td className="table-cell text-center text-dark-500 text-[11px]">{p.bestTs ? fmtDate(p.bestTs) : ''}</td>
                       <td className="table-cell text-center font-mono text-dark-300">{p.lapCount}</td>
                       <td className="table-cell text-center font-mono text-dark-300">{p.sessions.size}</td>
                     </tr>
