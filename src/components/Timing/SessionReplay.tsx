@@ -179,6 +179,11 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         if (s2v < bestS2Sec) { bestS2Sec = s2v; bestS2 = l?.s2 || ''; }
       }
 
+      if (onCurrentUnrecordedLap && liveEntry?.s1) {
+        const liveS1v = parseTime(liveEntry.s1) ?? 999;
+        if (liveS1v < bestS1Sec) { bestS1Sec = liveS1v; bestS1 = liveEntry.s1; }
+      }
+
       result.push({
         position: idx + 1, pilot,
         kart: pilotLaps[0]?.kart || 0,
