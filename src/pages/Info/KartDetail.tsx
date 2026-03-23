@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { parseTime, toSeconds } from '../../utils/timing';
+import { parseTime, toSeconds, mergePilotNames } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 
 interface KartLap {
@@ -124,7 +124,10 @@ export default function KartDetail() {
     const to = sortedDates[sortedDates.length - 1] || todayStr;
     fetch(`${COLLECTOR_URL}/db/laps?kart=${kartNumber}&from=${from}&to=${to}`)
       .then(r => r.json())
-      .then((allLaps: KartLap[]) => setLaps(allLaps.filter(l => statSessionIds.has(l.session_id))))
+      .then((allLaps: KartLap[]) => {
+        const filtered = allLaps.filter(l => statSessionIds.has(l.session_id));
+        setLaps(mergePilotNames(filtered));
+      })
       .catch(() => setLaps([]))
       .finally(() => setLoading(false));
   }, [statSessionIds, kartNumber]);
