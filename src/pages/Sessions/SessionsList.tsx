@@ -87,36 +87,36 @@ export default function SessionsList() {
         ) : sessions.length === 0 ? (
           <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів за цю дату</div>
         ) : (
-          <div className="card p-2 space-y-0.5">
-            {sessions.map((s) => {
-              const isActive = !s.end_time;
-              const pilots = s.real_pilot_count ?? s.pilot_count;
-              return (
-                <Link
-                  key={s.id}
-                  to={isActive ? '/' : `/sessions/${s.id}`}
-                  className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors text-xs"
-                >
-                  <span className="flex items-center gap-4 min-w-0">
-                    <span className="text-white shrink-0">
-                      Прокат{s.race_number != null ? ` · №${s.race_number}` : ''} · {fmtTime(s.start_time)}
-                      {isActive && <span className="text-green-400 ml-1.5">LIVE</span>}
-                    </span>
-                    <span className="text-dark-400 font-mono shrink-0">
-                      {s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}
-                    </span>
-                    <span className="text-dark-500 shrink-0">{pilots} пілотів</span>
-                  </span>
-                  {s.best_lap_time && s.best_lap_pilot && (
-                    <span className="font-mono shrink-0 ml-4">
-                      <span className="text-dark-500">{shortName(s.best_lap_pilot)}</span>
-                      <span className="text-dark-600 mx-1">—</span>
-                      <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
+          <div className="card p-0 overflow-hidden">
+            <table className="w-full text-xs">
+              <tbody>
+                {sessions.map((s) => {
+                  const isActive = !s.end_time;
+                  const pilots = s.real_pilot_count ?? s.pilot_count;
+                  return (
+                    <tr key={s.id} className="hover:bg-dark-700/50 transition-colors">
+                      <td className="py-1.5 pl-3">
+                        <Link to={isActive ? '/' : `/sessions/${s.id}`} className="text-white hover:text-primary-400 transition-colors">
+                          Прокат{s.race_number != null ? ` · №${s.race_number}` : ''} · {fmtTime(s.start_time)}
+                          {isActive && <span className="text-green-400 ml-1.5">LIVE</span>}
+                        </Link>
+                      </td>
+                      <td className="py-1.5 text-dark-400 font-mono w-24">{s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}</td>
+                      <td className="py-1.5 text-dark-500 w-24">{pilots} пілотів</td>
+                      <td className="py-1.5 pr-3 text-right font-mono">
+                        {s.best_lap_time && s.best_lap_pilot ? (
+                          <>
+                            <span className="text-dark-500">{shortName(s.best_lap_pilot)}</span>
+                            <span className="text-dark-600 mx-1">—</span>
+                            <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
+                          </>
+                        ) : ''}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
