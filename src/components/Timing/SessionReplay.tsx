@@ -299,7 +299,15 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
 
       {isLive && (
         <button
-          onClick={() => { setAtLive(true); handleScrub(durationSec); setPlaying(true); }}
+          onClick={() => {
+            setAtLive(true);
+            setCurrentTime(durationSec);
+            setPlaying(true);
+            const ent = getEntriesAtTime(durationSec);
+            setEntries(ent);
+            onTimeUpdate?.(durationSec);
+            onEntriesUpdate?.(ent);
+          }}
           className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors shrink-0 ${
             atLive
               ? 'bg-green-500/20 text-green-400'
