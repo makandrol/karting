@@ -218,7 +218,7 @@ export default function Timing() {
                             <>
                               <span className="text-dark-500">
                                 {shortName(s.best_lap_pilot)}
-                                {s.best_lap_kart ? <span className="text-dark-600"> (карт {s.best_lap_kart})</span> : ''}
+                                {s.best_lap_kart && !s.best_lap_pilot?.startsWith('Карт ') ? <span className="text-dark-600"> (карт {s.best_lap_kart})</span> : ''}
                               </span>
                               <span className="text-dark-600 mx-1">—</span>
                               <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
