@@ -10,7 +10,6 @@ import { COLLECTOR_URL } from '../../services/config';
 import { Link, useNavigate } from 'react-router-dom';
 import { parseTime, mergePilotNames, shortName, toSeconds } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
-import { MIN_VALID_LAP_SECONDS } from '../../types';
 
 interface DbLap {
   pilot: string;
@@ -64,11 +63,7 @@ export default function Timing() {
     fetch(`${COLLECTOR_URL}/db/sessions?date=${todayStr}`)
       .then(r => r.json())
       .then((data: RecentSession[]) => {
-        setRecentSessions(data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000).slice(-3).map(s => {
-          const sec = parseTime(s.best_lap_time);
-          if (sec !== null && sec < MIN_VALID_LAP_SECONDS) return { ...s, best_lap_time: null, best_lap_pilot: null, best_lap_kart: null };
-          return s;
-        }));
+        setRecentSessions(data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000).slice(-3));
       })
       .catch(() => {});
   }, []);
