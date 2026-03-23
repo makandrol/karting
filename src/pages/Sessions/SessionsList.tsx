@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds, shortName } from '../../utils/timing';
+import { toSeconds, shortName, parseTime } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 
 interface DbSession {
@@ -50,6 +50,7 @@ export default function SessionsList() {
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [sessions, setSessions] = useState<DbSession[]>([]);
   const [loading, setLoading] = useState(false);
+  const [sortBy, setSortBy] = useState<'asc' | 'desc' | 'best'>('asc');
 
   const fetchSessions = useCallback(async (date: string) => {
     setLoading(true);
@@ -65,6 +66,17 @@ export default function SessionsList() {
 
   useEffect(() => { fetchSessions(selectedDate); }, [selectedDate, fetchSessions]);
 
+  const sortedSessions = useMemo(() => {
+    const arr = [...sessions];
+    if (sortBy === 'desc') return arr.reverse();
+    if (sortBy === 'best') return arr.sort((a, b) => {
+      const at = parseTime(a.best_lap_time) ?? Infinity;
+      const bt = parseTime(b.best_lap_time) ?? Infinity;
+      return at - bt;
+    });
+    return arr;
+  }, [sessions, sortBy]);
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-white">Заїзди</h1>
@@ -72,10 +84,19 @@ export default function SessionsList() {
       <DateNavigator selectedDate={selectedDate} onSelectDate={setSelectedDate} />
 
       <div>
-        <h2 className="text-dark-300 text-sm font-semibold mb-2">
-          {fmtDateLabel(selectedDate)}
-          {!loading && sessions.length > 0 && (
-            <span className="text-dark-500 font-normal ml-2">({sessions.length} заїздів)</span>
+        <h2 className="text-dark-300 text-sm font-semibold mb-2 flex items-center gap-3">
+          <span>
+            {fmtDateLabel(selectedDate)}
+            {!loading && sessions.length > 0 && (
+              <span className="text-dark-500 font-normal ml-2">({sessions.length} заїздів)</span>
+            )}
+          </span>
+          {sessions.length > 1 && (
+            <div className="flex bg-dark-800 rounded-md p-0.5">
+              <button onClick={() => setSortBy('asc')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortBy === 'asc' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>від першого</button>
+              <button onClick={() => setSortBy('desc')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortBy === 'desc' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>від останнього</button>
+              <button onClick={() => setSortBy('best')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortBy === 'best' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по колу</button>
+            </div>
           )}
         </h2>
 
@@ -87,7 +108,7 @@ export default function SessionsList() {
           <div className="card p-0 overflow-hidden">
             <table className="w-full text-xs">
               <tbody>
-                {sessions.map((s) => {
+                {sortedSessions.map((s) => {
                   const isActive = !s.end_time;
                   const pilots = s.real_pilot_count ?? s.pilot_count;
                   return (
