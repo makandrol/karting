@@ -288,7 +288,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         min={0}
         max={durationSec}
         step={0.1}
-        value={currentTime}
+        value={isLive ? durationSec : currentTime}
         onChange={(e) => handleScrub(parseFloat(e.target.value))}
         className="flex-1 h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
