@@ -44,17 +44,12 @@ function getWeeksInMonth(year: number, month: number): string[][] {
 interface DateNavigatorProps {
   selectedDate: string;
   onSelectDate: (date: string) => void;
-  /** Multi-select mode: set of selected dates */
   selectedDates?: Set<string>;
-  /** Multi-select mode: toggle a single date */
   onToggleDate?: (date: string) => void;
-  /** Multi-select mode: select multiple dates at once */
   onSelectDates?: (dates: string[]) => void;
-  /** Override displayed session counts per date (e.g. kart-specific) */
-  overrideCounts?: Record<string, number>;
 }
 
-export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates, overrideCounts }: DateNavigatorProps) {
+export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates }: DateNavigatorProps) {
   const multiSelect = !!(selectedDates && onToggleDate);
   const todayStr = localDateStr(new Date());
   const thisMonday = getMonday(new Date());
@@ -77,7 +72,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       .catch(() => {});
   }, []);
 
-  const displayCounts = overrideCounts ?? dateCounts;
+  const displayCounts = dateCounts;
 
   const toggleYear = (y: string) => {
     const next = new Set(expandedYears);
@@ -175,7 +170,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       {/* This week */}
       <div>
         <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 flex items-center">
-          Цей тиждень <span className="text-dark-600 normal-case">({thisWeekCount})</span>
+          Цей тиждень<span className="text-dark-600 normal-case ml-1">({thisWeekCount})</span>
           <SelectAllBtn dates={thisWeekDays} />
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -190,7 +185,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
           className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors"
         >
           <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>&#9654;</span>
-          Попередній тиждень <span className="text-dark-600 normal-case">({prevWeekCount})</span>
+          Попередній тиждень<span className="text-dark-600 normal-case ml-1">({prevWeekCount})</span>
           <SelectAllBtn dates={prevWeekDays} />
         </button>
         {prevWeekOpen && (
@@ -212,7 +207,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
             >
               <span className={`text-[10px] transition-transform ${expandedYears.has(year) ? 'rotate-90' : ''}`}>&#9654;</span>
               {year}
-              <span className="text-dark-600 text-[10px]"> ({yearCount})</span>
+              <span className="text-dark-600 text-[10px] ml-1">({yearCount})</span>
               <SelectAllBtn dates={yearDates} />
             </button>
 
@@ -232,7 +227,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
                       >
                         <span className={`text-[8px] transition-transform ${expandedMonths.has(monthKey) ? 'rotate-90' : ''}`}>&#9654;</span>
                         {MONTH_NAMES[month]}
-                        <span className="text-dark-600 text-[10px]"> ({monthCount})</span>
+                        <span className="text-dark-600 text-[10px] ml-1">({monthCount})</span>
                         <SelectAllBtn dates={monthDates} />
                       </button>
 
