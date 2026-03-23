@@ -133,6 +133,14 @@ try {
 // Prepared statements
 // ============================================================
 
+const MIN_LAP_SEC = 38;
+const LAP_SEC_EXPR = `CASE WHEN lap_time LIKE '%:%' THEN CAST(SUBSTR(lap_time, 1, INSTR(lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(lap_time, INSTR(lap_time, ':') + 1) AS REAL) ELSE CAST(lap_time AS REAL) END`;
+const LAP_SEC_EXPR_L2 = LAP_SEC_EXPR.replace(/lap_time/g, 'l2.lap_time');
+const LAP_SEC_EXPR_L = LAP_SEC_EXPR.replace(/lap_time/g, 'l.lap_time');
+const VALID_LAP = `lap_time IS NOT NULL AND (${LAP_SEC_EXPR}) >= ${MIN_LAP_SEC}`;
+const VALID_LAP_L2 = `l2.lap_time IS NOT NULL AND (${LAP_SEC_EXPR_L2}) >= ${MIN_LAP_SEC}`;
+const VALID_LAP_L = `l.lap_time IS NOT NULL AND (${LAP_SEC_EXPR_L}) >= ${MIN_LAP_SEC}`;
+
 const stmts = {
   insertSession: db.prepare('INSERT OR IGNORE INTO sessions (id, start_time, pilot_count, track_id, race_number, is_race, date) VALUES (?, ?, ?, ?, ?, ?, ?)'),
   endSession: db.prepare('UPDATE sessions SET end_time = ? WHERE id = ?'),
@@ -148,14 +156,11 @@ const stmts = {
     LEFT JOIN (
       SELECT session_id,
         COUNT(DISTINCT pilot) as real_pilot_count,
-        (SELECT l2.lap_time FROM laps l2 WHERE l2.session_id = laps.session_id AND l2.lap_time IS NOT NULL
-          ORDER BY CASE
-            WHEN l2.lap_time LIKE '%:%' THEN CAST(SUBSTR(l2.lap_time, 1, INSTR(l2.lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(l2.lap_time, INSTR(l2.lap_time, ':') + 1) AS REAL)
-            ELSE CAST(l2.lap_time AS REAL)
-          END ASC LIMIT 1
+        (SELECT l2.lap_time FROM laps l2 WHERE l2.session_id = laps.session_id AND ${VALID_LAP_L2}
+          ORDER BY (${LAP_SEC_EXPR_L2}) ASC LIMIT 1
         ) as best_lap_time
       FROM laps
-      WHERE lap_time IS NOT NULL
+      WHERE ${VALID_LAP}
       GROUP BY session_id
     ) ls ON ls.session_id = s.id
     WHERE s.date = ?
@@ -170,23 +175,17 @@ const stmts = {
   getSessionCountsByDateRange: db.prepare('SELECT date, COUNT(*) as count FROM sessions WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date'),
   getKartStats: db.prepare(`
     SELECT l.kart, l.pilot, l.lap_time, l.ts,
-      CASE
-        WHEN l.lap_time LIKE '%:%' THEN CAST(SUBSTR(l.lap_time, 1, INSTR(l.lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(l.lap_time, INSTR(l.lap_time, ':') + 1) AS REAL)
-        ELSE CAST(l.lap_time AS REAL)
-      END as lap_sec
+      (${LAP_SEC_EXPR_L}) as lap_sec
     FROM laps l
     JOIN sessions s ON s.id = l.session_id
-    WHERE s.date >= ? AND s.date <= ? AND l.lap_time IS NOT NULL
+    WHERE s.date >= ? AND s.date <= ? AND ${VALID_LAP_L}
     ORDER BY l.kart, lap_sec
   `),
   getKartStatsBySessions: db.prepare(`
     SELECT kart, pilot, lap_time, ts,
-      CASE
-        WHEN lap_time LIKE '%:%' THEN CAST(SUBSTR(lap_time, 1, INSTR(lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(lap_time, INSTR(lap_time, ':') + 1) AS REAL)
-        ELSE CAST(lap_time AS REAL)
-      END as lap_sec
+      (${LAP_SEC_EXPR}) as lap_sec
     FROM laps
-    WHERE lap_time IS NOT NULL
+    WHERE ${VALID_LAP}
     ORDER BY kart, lap_sec
   `),
   getAllEvents: db.prepare('SELECT * FROM events WHERE ts >= ? ORDER BY ts LIMIT 10000'),
@@ -194,7 +193,7 @@ const stmts = {
   getLapsByKart: db.prepare(`
     SELECT l.*, s.date, s.start_time as session_start
     FROM laps l JOIN sessions s ON s.id = l.session_id
-    WHERE l.kart = ? AND s.date >= ? AND s.date <= ? AND l.lap_time IS NOT NULL
+    WHERE l.kart = ? AND s.date >= ? AND s.date <= ? AND ${VALID_LAP_L}
     ORDER BY l.ts
   `),
   getDbSize: db.prepare("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()"),
@@ -410,12 +409,9 @@ export const storage = {
     const placeholders = sessionIds.map(() => '?').join(',');
     const rows = db.prepare(`
       SELECT kart, pilot, lap_time, ts,
-        CASE
-          WHEN lap_time LIKE '%:%' THEN CAST(SUBSTR(lap_time, 1, INSTR(lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(lap_time, INSTR(lap_time, ':') + 1) AS REAL)
-          ELSE CAST(lap_time AS REAL)
-        END as lap_sec
+        (${LAP_SEC_EXPR}) as lap_sec
       FROM laps
-      WHERE session_id IN (${placeholders}) AND lap_time IS NOT NULL
+      WHERE session_id IN (${placeholders}) AND ${VALID_LAP}
       ORDER BY kart, lap_sec
     `).all(...sessionIds);
     return buildKartStats(rows);
