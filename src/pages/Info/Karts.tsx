@@ -151,6 +151,22 @@ export default function Karts() {
     setSelectedForAdd(new Set());
   };
 
+  const addSessionsForDates = useCallback(async (dates: string[]) => {
+    setUserInteracted(true);
+    const next = new Set(statSessionIds);
+    for (const date of dates) {
+      try {
+        const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
+        if (!res.ok) continue;
+        const data: DbSession[] = await res.json();
+        for (const s of data) {
+          if (s.end_time && (s.end_time - s.start_time) >= 60000) next.add(s.id);
+        }
+      } catch {}
+    }
+    setStatSessionIds(next);
+  }, [statSessionIds]);
+
   // Kart stats from selected sessions
   const [kartStats, setKartStats] = useState<KartStat[]>([]);
   const [loading, setLoading] = useState(false);
@@ -201,7 +217,7 @@ export default function Karts() {
       <h1 className="text-2xl font-bold text-white">Карти</h1>
 
       {/* Date picker + sessions for selected date */}
-      <DateNavigator selectedDate={pickerDate} onSelectDate={setPickerDate} />
+      <DateNavigator selectedDate={pickerDate} onSelectDate={setPickerDate} statSessionIds={statSessionIds} onAddDateSessions={addSessionsForDates} />
 
       {/* Sessions for picked date — select to add to stats */}
       {pickerSessions.length > 0 && (

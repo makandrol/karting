@@ -347,8 +347,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
           <table className="w-full text-xs">
           <thead>
             <tr className="table-header">
-              <th className="table-cell text-center w-8">#</th>
-              <th className="table-cell text-left min-w-[170px]">Pilot</th>
+              <th className="table-cell text-center w-6">#</th>
+              <th className="table-cell text-left min-w-[140px]">Pilot</th>
               <th className="table-cell text-center">Kart</th>
               <th className="table-cell text-right">Last</th>
               <th className="table-cell text-right">S1</th>

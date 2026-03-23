@@ -44,9 +44,25 @@ function getWeeksInMonth(year: number, month: number): string[][] {
 interface DateNavigatorProps {
   selectedDate: string;
   onSelectDate: (date: string) => void;
+  statSessionIds?: Set<string>;
+  onAddDateSessions?: (dates: string[]) => void;
 }
 
-export default function DateNavigator({ selectedDate, onSelectDate }: DateNavigatorProps) {
+function countStatSessionsForDates(statSessionIds: Set<string>, dates: string[]): number {
+  const dateSet = new Set(dates);
+  let count = 0;
+  for (const id of statSessionIds) {
+    const m = id.match(/session-(\d+)/);
+    if (m) {
+      const d = new Date(parseInt(m[1]));
+      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (dateSet.has(ds)) count++;
+    }
+  }
+  return count;
+}
+
+export default function DateNavigator({ selectedDate, onSelectDate, statSessionIds, onAddDateSessions }: DateNavigatorProps) {
   const todayStr = localDateStr(new Date());
   const thisMonday = getMonday(new Date());
   const prevMonday = new Date(thisMonday);
@@ -101,19 +117,34 @@ export default function DateNavigator({ selectedDate, onSelectDate }: DateNaviga
     const hasData = count > 0 || isToday;
     const dayDate = new Date(d + 'T00:00:00');
     const label = `${DAY_NAMES[dayDate.getDay()]} ${String(dayDate.getDate()).padStart(2, '0')}.${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
+    const statCount = statSessionIds ? countStatSessionsForDates(statSessionIds, [d]) : null;
+    const canAdd = onAddDateSessions && count > 0 && statCount !== null && statCount < count;
     return (
-      <button
-        onClick={() => hasData && onSelectDate(d)}
-        className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
-          isSelected ? 'bg-primary-600 text-white' :
-          isToday ? 'bg-primary-600/20 text-primary-400' :
-          hasData ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
-          'bg-dark-900 text-dark-700 cursor-default'
-        }`}
-      >
-        <span>{label}</span>
-        {count > 0 && <span className={`text-[9px] font-mono ${isSelected ? 'text-white/70' : 'text-dark-500'}`}>{count}</span>}
-      </button>
+      <div className="flex items-center gap-0.5">
+        <button
+          onClick={() => hasData && onSelectDate(d)}
+          className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+            isSelected ? 'bg-primary-600 text-white' :
+            isToday ? 'bg-primary-600/20 text-primary-400' :
+            hasData ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
+            'bg-dark-900 text-dark-700 cursor-default'
+          }`}
+        >
+          <span>{label}</span>
+          {count > 0 && (
+            <span className={`text-[9px] font-mono ${isSelected ? 'text-white/70' : 'text-dark-500'}`}>
+              {statCount !== null ? `${statCount}/${count}` : count}
+            </span>
+          )}
+        </button>
+        {canAdd && (
+          <button
+            onClick={() => onAddDateSessions!([d])}
+            title="Додати всі заїзди в статистику"
+            className="text-primary-500/50 hover:text-primary-400 text-[10px] transition-colors px-0.5"
+          >+</button>
+        )}
+      </div>
     );
   };
 
@@ -121,13 +152,34 @@ export default function DateNavigator({ selectedDate, onSelectDate }: DateNaviga
   const prevWeekDays = getWeekDays(prevMonday);
   const thisWeekCount = thisWeekDays.reduce((s, d) => s + (dateCounts[d] || 0), 0);
   const prevWeekCount = prevWeekDays.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+  const thisWeekStatCount = statSessionIds ? countStatSessionsForDates(statSessionIds, thisWeekDays) : null;
+  const prevWeekStatCount = statSessionIds ? countStatSessionsForDates(statSessionIds, prevWeekDays) : null;
+
+  const PeriodCount = ({ stat, total }: { stat: number | null; total: number }) => (
+    <span className="text-dark-600 normal-case"> ({stat !== null ? `${stat}/${total}` : total})</span>
+  );
+
+  const AddBtn = ({ dates }: { dates: string[] }) => {
+    if (!onAddDateSessions || !statSessionIds) return null;
+    const total = dates.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+    const stat = countStatSessionsForDates(statSessionIds, dates);
+    if (total === 0 || stat >= total) return null;
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); onAddDateSessions(dates); }}
+        title="Додати всі заїзди в статистику"
+        className="text-primary-500/50 hover:text-primary-400 text-[10px] transition-colors ml-1"
+      >+</button>
+    );
+  };
 
   return (
     <div className="card p-3 space-y-3">
       {/* This week */}
       <div>
-        <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5">
-          Цей тиждень<span className="text-dark-600 normal-case"> ({thisWeekCount})</span>
+        <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 flex items-center">
+          Цей тиждень<PeriodCount stat={thisWeekStatCount} total={thisWeekCount} />
+          <AddBtn dates={thisWeekDays} />
         </div>
         <div className="flex flex-wrap gap-1.5">
           {thisWeekDays.map(d => <DateBtn key={d} d={d} />)}
@@ -141,7 +193,8 @@ export default function DateNavigator({ selectedDate, onSelectDate }: DateNaviga
           className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors"
         >
           <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>&#9654;</span>
-          Попередній тиждень<span className="text-dark-600 normal-case"> ({prevWeekCount})</span>
+          Попередній тиждень<PeriodCount stat={prevWeekStatCount} total={prevWeekCount} />
+          <AddBtn dates={prevWeekDays} />
         </button>
         {prevWeekOpen && (
           <div className="flex flex-wrap gap-1.5">
@@ -152,7 +205,9 @@ export default function DateNavigator({ selectedDate, onSelectDate }: DateNaviga
 
       {/* Older — by year > month > weeks */}
       {[...yearMonths.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => {
-        const yearCount = allDatesWithData.filter(d => d.startsWith(year)).reduce((s, d) => s + (dateCounts[d] || 0), 0);
+        const yearDates = allDatesWithData.filter(d => d.startsWith(year));
+        const yearCount = yearDates.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+        const yearStatCount = statSessionIds ? countStatSessionsForDates(statSessionIds, yearDates) : null;
         return (
           <div key={year}>
             <button
@@ -161,7 +216,10 @@ export default function DateNavigator({ selectedDate, onSelectDate }: DateNaviga
             >
               <span className={`text-[10px] transition-transform ${expandedYears.has(year) ? 'rotate-90' : ''}`}>&#9654;</span>
               {year}
-              <span className="text-dark-600 text-[10px]">({yearCount})</span>
+              <span className="text-dark-600 text-[10px]">
+                ({yearStatCount !== null ? `${yearStatCount}/${yearCount}` : yearCount})
+              </span>
+              <AddBtn dates={yearDates} />
             </button>
 
             {expandedYears.has(year) && (
@@ -169,9 +227,9 @@ export default function DateNavigator({ selectedDate, onSelectDate }: DateNaviga
                 {[...months].sort((a, b) => b - a).map(month => {
                   const monthKey = `${year}-${month}`;
                   const weeks = getWeeksInMonth(parseInt(year), month);
-                  const monthCount = allDatesWithData
-                    .filter(d => d.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`))
-                    .reduce((s, d) => s + (dateCounts[d] || 0), 0);
+                  const monthDates = allDatesWithData.filter(d => d.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`));
+                  const monthCount = monthDates.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+                  const monthStatCount = statSessionIds ? countStatSessionsForDates(statSessionIds, monthDates) : null;
 
                   return (
                     <div key={monthKey}>
@@ -181,7 +239,10 @@ export default function DateNavigator({ selectedDate, onSelectDate }: DateNaviga
                       >
                         <span className={`text-[8px] transition-transform ${expandedMonths.has(monthKey) ? 'rotate-90' : ''}`}>&#9654;</span>
                         {MONTH_NAMES[month]}
-                        <span className="text-dark-600 text-[10px]">({monthCount})</span>
+                        <span className="text-dark-600 text-[10px]">
+                          ({monthStatCount !== null ? `${monthStatCount}/${monthCount}` : monthCount})
+                        </span>
+                        <AddBtn dates={monthDates} />
                       </button>
 
                       {expandedMonths.has(monthKey) && (
