@@ -33,10 +33,11 @@ export const COLOR_CLASSES: Record<TimeColor, string> = {
   none: 'text-dark-500',
 };
 
-/** "Апанасенко Олексій" → "Апанасенко О." */
+/** "Апанасенко Олексій" → "Апанасенко О.", but keep short names and "Карт X" as-is */
 export function shortName(name: string): string {
-  const parts = name.split(' ');
-  if (parts.length < 2) return name;
+  if (!name || name.length <= 10 || /^Карт\s/i.test(name)) return name;
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length < 2 || !parts[1]) return name;
   return `${parts[0]} ${parts[1][0]}.`;
 }
 

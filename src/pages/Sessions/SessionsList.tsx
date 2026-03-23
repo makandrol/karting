@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds } from '../../utils/timing';
+import { toSeconds, shortName } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 
 interface DbSession {
@@ -19,7 +19,7 @@ interface DbSession {
 }
 
 function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
 }
 
 function fmtDuration(startMs: number, endMs: number): string {
@@ -41,12 +41,6 @@ function fmtDateLabel(dateStr: string): string {
   const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
   const d = new Date(dateStr + 'T00:00:00');
   return `${DAY_NAMES[d.getDay()]} ${d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
-}
-
-function shortPilotName(name: string): string {
-  const parts = name.split(' ');
-  if (parts.length < 2) return name;
-  return `${parts[0]} ${parts[1][0]}.`;
 }
 
 export default function SessionsList() {
@@ -89,43 +83,53 @@ export default function SessionsList() {
         ) : sessions.length === 0 ? (
           <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів за цю дату</div>
         ) : (
-          <div className="card p-2 space-y-0.5">
-            {sessions.map(s => {
-              const isActive = !s.end_time;
-              const pilots = s.real_pilot_count ?? (s.end_time ? 0 : s.pilot_count);
-              return (
-                <Link
-                  key={s.id}
-                  to={`/sessions/${s.id}`}
-                  className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors group"
-                >
-                  <span className="flex items-center gap-2 text-sm min-w-0">
-                    {isActive && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />}
-                    <span className="text-dark-500 font-mono text-xs w-6 text-right flex-shrink-0">
-                      {s.race_number ?? '—'}
-                    </span>
-                    <span className="font-mono text-xs">
-                      <span className="text-white">{fmtTime(s.start_time)}</span>
-                      <span className="text-dark-600"> – </span>
-                      {s.end_time
-                        ? <span className="text-dark-400">{fmtTime(s.end_time)}</span>
-                        : <span className="text-green-400">live</span>
-                      }
-                    </span>
-                    <span className="text-dark-400 text-xs">Прокат</span>
-                    <span className="text-dark-600 text-xs">
-                      · {pilots} пілотів
-                      {s.end_time && ` · ${fmtDuration(s.start_time, s.end_time)}`}
-                    </span>
-                  </span>
-                  {s.best_lap_time && s.best_lap_pilot && (
-                    <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-                      {shortPilotName(s.best_lap_pilot)} — <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
+          <div className="card p-0 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="table-header">
+                  <th className="table-cell text-center w-8">#</th>
+                  <th className="table-cell text-left">Час</th>
+                  <th className="table-cell text-left">Тривалість</th>
+                  <th className="table-cell text-center">Пілотів</th>
+                  <th className="table-cell text-left">Тип</th>
+                  <th className="table-cell text-right">Найкраще коло</th>
+                </tr></thead>
+                <tbody>
+                  {sessions.map((s, i) => {
+                    const isActive = !s.end_time;
+                    const pilots = s.real_pilot_count ?? s.pilot_count;
+                    return (
+                      <tr key={s.id} className="table-row">
+                        <td className="table-cell text-center font-mono text-white font-bold">{s.race_number ?? i + 1}</td>
+                        <td className="table-cell text-left">
+                          <Link
+                            to={isActive ? '/' : `/sessions/${s.id}`}
+                            className="text-primary-400 hover:text-primary-300 transition-colors underline underline-offset-2 decoration-primary-400/30"
+                          >
+                            {fmtTime(s.start_time)}
+                            {isActive && <span className="text-green-400 ml-1.5 no-underline">LIVE</span>}
+                          </Link>
+                        </td>
+                        <td className="table-cell text-left font-mono text-dark-300">
+                          {s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}
+                        </td>
+                        <td className="table-cell text-center font-mono text-dark-300">{pilots}</td>
+                        <td className="table-cell text-left text-dark-400">Прокат</td>
+                        <td className="table-cell text-right font-mono">
+                          {s.best_lap_time && s.best_lap_pilot ? (
+                            <>
+                              <span className="text-dark-500">{shortName(s.best_lap_pilot)}</span>
+                              <span className="text-dark-600 mx-1">—</span>
+                              <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
+                            </>
+                          ) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
