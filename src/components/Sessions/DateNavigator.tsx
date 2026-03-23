@@ -150,6 +150,11 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
   const thisWeekCount = thisWeekDays.reduce((s, d) => s + (displayCounts[d] || 0), 0);
   const prevWeekCount = prevWeekDays.reduce((s, d) => s + (displayCounts[d] || 0), 0);
 
+  const selectedCount = (dates: string[]) =>
+    multiSelect ? dates.filter(d => selectedDates!.has(d)).reduce((s, d) => s + (displayCounts[d] || 0), 0) : null;
+  const fmtCount = (selected: number | null, total: number) =>
+    selected !== null ? `${selected}/${total}` : `${total}`;
+
   const datesWithSessions = (dates: string[]) => dates.filter(d => (displayCounts[d] ?? 0) > 0);
 
   const SelectAllBtn = ({ dates }: { dates: string[] }) => {
@@ -174,7 +179,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       {/* This week */}
       <div>
         <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 flex items-center">
-          Цей тиждень<span className="text-dark-600 normal-case ml-1">({thisWeekCount})</span>
+          Цей тиждень<span className="text-dark-600 normal-case ml-1">({fmtCount(selectedCount(thisWeekDays), thisWeekCount)})</span>
           <SelectAllBtn dates={thisWeekDays} />
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -189,7 +194,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
           className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors"
         >
           <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>&#9654;</span>
-          Попередній тиждень<span className="text-dark-600 normal-case ml-1">({prevWeekCount})</span>
+          Попередній тиждень<span className="text-dark-600 normal-case ml-1">({fmtCount(selectedCount(prevWeekDays), prevWeekCount)})</span>
           <SelectAllBtn dates={prevWeekDays} />
         </button>
         {prevWeekOpen && (
@@ -211,7 +216,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
             >
               <span className={`text-[10px] transition-transform ${expandedYears.has(year) ? 'rotate-90' : ''}`}>&#9654;</span>
               {year}
-              <span className="text-dark-600 text-[10px] ml-1">({yearCount})</span>
+              <span className="text-dark-600 text-[10px] ml-1">({fmtCount(selectedCount(yearDates), yearCount)})</span>
               <SelectAllBtn dates={yearDates} />
             </button>
 
@@ -231,7 +236,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
                       >
                         <span className={`text-[8px] transition-transform ${expandedMonths.has(monthKey) ? 'rotate-90' : ''}`}>&#9654;</span>
                         {MONTH_NAMES[month]}
-                        <span className="text-dark-600 text-[10px] ml-1">({monthCount})</span>
+                        <span className="text-dark-600 text-[10px] ml-1">({fmtCount(selectedCount(monthDates), monthCount)})</span>
                         <SelectAllBtn dates={monthDates} />
                       </button>
 
