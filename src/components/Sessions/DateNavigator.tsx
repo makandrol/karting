@@ -212,7 +212,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
             >
               <span className={`text-[10px] transition-transform ${expandedYears.has(year) ? 'rotate-90' : ''}`}>&#9654;</span>
               {year}
-              <span className="text-dark-600 text-[10px]">({yearCount})</span>
+              <span className="text-dark-600 text-[10px]"> ({yearCount})</span>
               <SelectAllBtn dates={yearDates} />
             </button>
 
@@ -232,7 +232,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
                       >
                         <span className={`text-[8px] transition-transform ${expandedMonths.has(monthKey) ? 'rotate-90' : ''}`}>&#9654;</span>
                         {MONTH_NAMES[month]}
-                        <span className="text-dark-600 text-[10px]">({monthCount})</span>
+                        <span className="text-dark-600 text-[10px]"> ({monthCount})</span>
                         <SelectAllBtn dates={monthDates} />
                       </button>
 
