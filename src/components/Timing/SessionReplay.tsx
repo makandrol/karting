@@ -25,13 +25,10 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
-  const [liveStick, setLiveStick] = useState(!!isLive && !!autoPlay);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
   const durationRef = useRef(durationSec);
   durationRef.current = durationSec;
-
-  const effectiveTime = liveStick ? durationSec : currentTime;
 
   const pilots = useMemo(() => [...new Set(laps.map(l => l.pilot))], [laps]);
 
@@ -222,9 +219,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
-  // Animation loop (disabled in liveStick mode)
+  // Animation loop
   useEffect(() => {
-    if (!playing || liveStick) return;
+    if (!playing) return;
     lastTickRef.current = performance.now();
     function tick(now: number) {
       const dt = (now - lastTickRef.current) / 1000 * speed;
@@ -239,16 +236,15 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
     }
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [playing, speed, isLive, liveStick]);
+  }, [playing, speed, isLive]);
 
-  // Update entries when time changes (in liveStick: only when laps change)
-  const entryKey = liveStick ? laps.length : Math.floor(effectiveTime * 5);
+  // Update entries when time changes
   useEffect(() => {
-    const e = getEntriesAtTime(effectiveTime);
+    const e = getEntriesAtTime(currentTime);
     setEntries(e);
-    onTimeUpdate?.(effectiveTime);
+    onTimeUpdate?.(currentTime);
     onEntriesUpdate?.(e);
-  }, [entryKey, getEntriesAtTime, onTimeUpdate, onEntriesUpdate]);
+  }, [Math.floor(currentTime * 5), getEntriesAtTime, onTimeUpdate, onEntriesUpdate]);
 
   const formatTimeSec = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -257,7 +253,6 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   };
 
   const handleScrub = (val: number) => {
-    setLiveStick(false);
     setCurrentTime(val);
     const ent = getEntriesAtTime(val);
     setEntries(ent);
@@ -280,8 +275,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
     <div className="flex items-center gap-3">
       <button
         onClick={() => {
-          if (effectiveTime >= durationSec) setCurrentTime(0);
-          setLiveStick(false);
+          if (currentTime >= durationSec) setCurrentTime(0);
           setPlaying(!playing);
         }}
         className="w-8 h-8 bg-dark-800 hover:bg-dark-700 rounded-lg flex items-center justify-center text-white transition-colors shrink-0"
@@ -294,7 +288,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         min={0}
         max={durationSec}
         step={0.1}
-        value={effectiveTime}
+        value={currentTime}
         onChange={(e) => handleScrub(parseFloat(e.target.value))}
         className="flex-1 h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
@@ -303,9 +297,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
 
       {isLive && (
         <button
-          onClick={() => { setLiveStick(true); setPlaying(true); setCurrentTime(durationSec); }}
+          onClick={() => { handleScrub(durationSec); setPlaying(true); }}
           className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors shrink-0 ${
-            liveStick
+            currentTime >= durationSec - 5
               ? 'bg-green-500/20 text-green-400'
               : 'bg-dark-800 text-dark-400 hover:text-green-400 hover:bg-green-500/10'
           }`}
@@ -327,7 +321,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
       </select>
 
       <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
-        {isLive ? formatTimeSec(effectiveTime) : `${formatTimeSec(effectiveTime)} / ${formatTimeSec(durationSec)}`}
+        {isLive ? formatTimeSec(currentTime) : `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
       </span>
 
       {isLive && raceNumber != null && (
