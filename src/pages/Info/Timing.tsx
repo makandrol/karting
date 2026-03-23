@@ -64,7 +64,7 @@ export default function Timing() {
     fetch(`${COLLECTOR_URL}/db/sessions?date=${todayStr}`)
       .then(r => r.json())
       .then((data: RecentSession[]) => {
-        setRecentSessions(data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000).slice(-3));
+        setRecentSessions(data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000).slice(-5).reverse());
       })
       .catch(() => {});
   }, []);

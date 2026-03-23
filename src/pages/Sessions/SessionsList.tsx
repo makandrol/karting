@@ -23,7 +23,7 @@ export default function SessionsList() {
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [sessions, setSessions] = useState<SessionTableRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [sortBy, setSortBy] = useState<'time_asc' | 'time_desc' | 'best_asc' | 'best_desc'>('time_asc');
+  const [sortBy, setSortBy] = useState<'time_asc' | 'time_desc' | 'best_asc' | 'best_desc'>('time_desc');
 
   const fetchSessions = useCallback(async (date: string) => {
     setLoading(true);
