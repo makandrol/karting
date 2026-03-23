@@ -85,6 +85,25 @@ export default function KartDetail() {
     setSelectedDates(new Set());
   }, []);
 
+  // Fetch all-time session counts for this kart
+  const [kartDateCounts, setKartDateCounts] = useState<Record<string, number> | undefined>(undefined);
+  useEffect(() => {
+    fetch(`${COLLECTOR_URL}/db/laps?kart=${kartNumber}&from=2020-01-01&to=${todayStr}`)
+      .then(r => r.json())
+      .then((allLaps: KartLap[]) => {
+        const sessionDates = new Map<string, string>();
+        for (const l of allLaps) {
+          if (!sessionDates.has(l.session_id)) sessionDates.set(l.session_id, l.date);
+        }
+        const counts: Record<string, number> = {};
+        for (const date of sessionDates.values()) {
+          counts[date] = (counts[date] || 0) + 1;
+        }
+        setKartDateCounts(counts);
+      })
+      .catch(() => setKartDateCounts(undefined));
+  }, [kartNumber]);
+
   // Fetch session IDs and details for selected dates
   const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
   const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
@@ -212,6 +231,7 @@ export default function KartDetail() {
         selectedDates={selectedDates}
         onToggleDate={handleToggleDate}
         onSelectDates={handleSelectDates}
+        overrideCounts={kartDateCounts}
       />
 
       {/* Stat summary */}

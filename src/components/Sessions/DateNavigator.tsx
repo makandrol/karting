@@ -47,9 +47,10 @@ interface DateNavigatorProps {
   selectedDates?: Set<string>;
   onToggleDate?: (date: string) => void;
   onSelectDates?: (dates: string[]) => void;
+  overrideCounts?: Record<string, number>;
 }
 
-export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates }: DateNavigatorProps) {
+export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates, overrideCounts }: DateNavigatorProps) {
   const multiSelect = !!(selectedDates && onToggleDate);
   const todayStr = localDateStr(new Date());
   const thisMonday = getMonday(new Date());
@@ -72,7 +73,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       .catch(() => {});
   }, []);
 
-  const displayCounts = dateCounts;
+  const displayCounts = overrideCounts ?? dateCounts;
 
   const toggleYear = (y: string) => {
     const next = new Set(expandedYears);
