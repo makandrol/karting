@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds, shortName, parseTime } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
@@ -51,6 +51,7 @@ export default function SessionsList() {
   const [sessions, setSessions] = useState<DbSession[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState<'time_asc' | 'time_desc' | 'best_asc' | 'best_desc'>('time_asc');
+  const navigate = useNavigate();
 
   const fetchSessions = useCallback(async (date: string) => {
     setLoading(true);
@@ -122,12 +123,10 @@ export default function SessionsList() {
                   const isActive = !s.end_time;
                   const pilots = s.real_pilot_count ?? s.pilot_count;
                   return (
-                    <tr key={s.id} className="border-b border-dark-800/50 last:border-0">
-                      <td className="py-1.5 pl-3 pr-1">
-                        <Link to={isActive ? '/' : `/sessions/${s.id}`} className="text-dark-500 hover:text-primary-400 transition-colors whitespace-nowrap font-mono">
-                          №{s.race_number ?? '—'}
-                        </Link>
-                      </td>
+                    <tr key={s.id}
+                      onClick={() => navigate(isActive ? '/' : `/sessions/${s.id}`)}
+                      className="border-b border-dark-800/50 last:border-0 hover:bg-dark-700/50 transition-colors cursor-pointer">
+                      <td className="py-1.5 pl-3 pr-1 text-dark-500 font-mono whitespace-nowrap">№{s.race_number ?? '—'}</td>
                       <td className="py-1.5 font-mono text-white whitespace-nowrap">{fmtTime(s.start_time)}</td>
                       <td className="py-1.5 font-mono whitespace-nowrap">
                         {isActive

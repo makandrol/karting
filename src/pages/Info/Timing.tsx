@@ -7,8 +7,8 @@ import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
-import { Link } from 'react-router-dom';
-import { parseTime, mergePilotNames, shortName } from '../../utils/timing';
+import { Link, useNavigate } from 'react-router-dom';
+import { parseTime, mergePilotNames, shortName, toSeconds } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 
 interface DbLap {
@@ -23,6 +23,7 @@ interface DbLap {
 }
 
 export default function Timing() {
+  const navigate = useNavigate();
   const { entries, mode, lastUpdate, error, collectorStatus } = useTimingPoller({
     interval: 1000,
   });
@@ -48,6 +49,24 @@ export default function Timing() {
   const [replayLaps, setReplayLaps] = useState<DbLap[]>([]);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
+
+  interface RecentSession {
+    id: string; start_time: number; end_time: number | null; pilot_count: number;
+    real_pilot_count: number | null; race_number: number | null; track_id: number;
+    best_lap_time: string | null; best_lap_pilot: string | null; best_lap_kart: number | null;
+  }
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
+
+  useEffect(() => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    fetch(`${COLLECTOR_URL}/db/sessions?date=${todayStr}`)
+      .then(r => r.json())
+      .then((data: RecentSession[]) => {
+        setRecentSessions(data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000).slice(-3));
+      })
+      .catch(() => {});
+  }, []);
 
   const fetchLaps = useCallback(async () => {
     if (!currentSessionId) { setReplayLaps([]); return; }
@@ -119,11 +138,13 @@ export default function Timing() {
            'Офлайн'}
         </div>
 
-        <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-          isCompetition ? 'bg-purple-500/15 text-purple-400' : 'bg-dark-800 text-dark-400'
-        }`}>
-          {sessionType}
-        </span>
+        {(isLive && hasData) && (
+          <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+            isCompetition ? 'bg-purple-500/15 text-purple-400' : 'bg-dark-800 text-dark-400'
+          }`}>
+            {sessionType}
+          </span>
+        )}
 
         {canManage && <CompetitionControl inline />}
 
@@ -150,27 +171,70 @@ export default function Timing() {
 
       {/* ===== OFFLINE / CONNECTING ===== */}
       {(isOffline || isConnecting) && !hasData && (
-        <div className="card text-center py-12 space-y-4">
-          <div className="text-4xl">{isConnecting ? '🔄' : siteReachable ? '⏳' : collectorConnected ? '🏎️' : '🔌'}</div>
-          <div>
-            <h2 className="text-lg font-bold text-white mb-1">
-              {isConnecting ? 'Підключення до сервера...' :
-               siteReachable ? 'Очікування заїзду' :
-               collectorConnected ? 'Таймінг картодрому недоступний' :
-               'Сервер збору даних недоступний'}
-            </h2>
-            <p className="text-dark-400 text-sm max-w-md mx-auto">
-              {isConnecting
-                ? 'Зачекайте, встановлюється з\'єднання з сервером...'
-                : siteReachable
-                ? 'Картодром працює, але зараз немає активних заїздів. Дані з\'являться автоматично.'
-                : collectorConnected
-                ? 'Система таймінгу картодрому зараз не відповідає. Дані з\'являться автоматично, як тільки вона стане доступною.'
-                : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
-            </p>
+        <div className="space-y-4">
+          <div className="card text-center py-8 space-y-3">
+            <div className="text-4xl">{isConnecting ? '🔄' : siteReachable ? '⏳' : collectorConnected ? '🏎️' : '🔌'}</div>
+            <div>
+              <h2 className="text-lg font-bold text-white mb-1">
+                {isConnecting ? 'Підключення до сервера...' :
+                 siteReachable ? 'Очікування заїзду' :
+                 collectorConnected ? 'Таймінг картодрому недоступний' :
+                 'Сервер збору даних недоступний'}
+              </h2>
+              <p className="text-dark-400 text-sm max-w-md mx-auto">
+                {isConnecting
+                  ? 'Зачекайте, встановлюється з\'єднання з сервером...'
+                  : siteReachable
+                  ? 'Картодром працює, але зараз немає активних заїздів. Дані з\'являться автоматично.'
+                  : collectorConnected
+                  ? 'Система таймінгу картодрому зараз не відповідає. Дані з\'являться автоматично, як тільки вона стане доступною.'
+                  : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
+              </p>
+            </div>
           </div>
-          <Link to="/sessions" className="inline-block text-primary-400 hover:text-primary-300 text-sm font-medium transition-colors">
-            Переглянути попередні заїзди
+
+          {recentSessions.length > 0 && (
+            <div className="card p-0 overflow-hidden">
+              <table className="w-full text-xs">
+                <tbody>
+                  {recentSessions.map(s => {
+                    const pilots = s.real_pilot_count ?? s.pilot_count;
+                    return (
+                      <tr key={s.id}
+                        onClick={() => navigate(`/sessions/${s.id}`)}
+                        className="border-b border-dark-800/50 last:border-0 hover:bg-dark-700/50 transition-colors cursor-pointer">
+                        <td className="py-1.5 pl-3 pr-1 text-dark-500 font-mono whitespace-nowrap">№{s.race_number ?? '—'}</td>
+                        <td className="py-1.5 font-mono text-white whitespace-nowrap">
+                          {new Date(s.start_time).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="py-1.5 font-mono text-dark-400 whitespace-nowrap">
+                          {s.end_time ? (() => { const sec = Math.round((s.end_time! - s.start_time) / 1000); const m = Math.floor(sec / 60); const ss = sec % 60; return m === 0 ? `${ss}с` : `${m}хв ${ss}с`; })() : '—'}
+                        </td>
+                        <td className="py-1.5 text-dark-500 whitespace-nowrap">{pilots} пілот{pilots === 1 ? '' : pilots < 5 ? 'и' : 'ів'}</td>
+                        <td className="py-1.5 text-dark-500 whitespace-nowrap">Прокат</td>
+                        <td className="py-1.5 text-dark-500 whitespace-nowrap">Траса {s.track_id || 1}</td>
+                        <td className="py-1.5 pr-3 text-right font-mono whitespace-nowrap">
+                          {s.best_lap_time && s.best_lap_pilot ? (
+                            <>
+                              <span className="text-dark-500">
+                                {shortName(s.best_lap_pilot)}
+                                {s.best_lap_kart ? <span className="text-dark-600"> (карт {s.best_lap_kart})</span> : ''}
+                              </span>
+                              <span className="text-dark-600 mx-1">—</span>
+                              <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
+                            </>
+                          ) : ''}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <Link to="/sessions" className="block text-center text-primary-400 hover:text-primary-300 text-sm font-medium transition-colors">
+            Всі заїзди →
           </Link>
         </div>
       )}
