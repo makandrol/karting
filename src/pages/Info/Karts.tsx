@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
+import SessionsTable from '../../components/Sessions/SessionsTable';
 
 interface KartStat {
   kart: number;
@@ -190,21 +191,8 @@ export default function Karts() {
           )}
         </div>
         {statSessionDetails.length > 0 && (
-          <div className="max-h-32 overflow-y-auto space-y-0.5">
-            {statSessionDetails.map(s => (
-              <div key={s.id} className="flex items-center justify-between px-2 py-0.5 text-xs text-dark-400">
-                <span>
-                  <span className="text-dark-300 font-mono">{s.date.slice(5)} {fmtTime(s.start_time)}</span>
-                  {s.race_number != null && <span className="text-dark-600 ml-1">#{s.race_number}</span>}
-                  <span className="text-dark-600 ml-1">· {s.real_pilot_count ?? s.pilot_count} пілотів</span>
-                </span>
-                {s.best_lap_time && s.best_lap_pilot && (
-                  <span className="text-dark-500 font-mono shrink-0 ml-2">
-                    {shortPilot(s.best_lap_pilot)} — <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
-                  </span>
-                )}
-              </div>
-            ))}
+          <div className="max-h-48 overflow-y-auto">
+            <SessionsTable sessions={statSessionDetails} />
           </div>
         )}
       </div>

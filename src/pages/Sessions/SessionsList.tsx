@@ -1,35 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
 import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds, shortName, parseTime } from '../../utils/timing';
+import { parseTime } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
-
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  real_pilot_count: number | null;
-  track_id: number;
-  race_number: number | null;
-  is_race: number;
-  date: string;
-  best_lap_time: string | null;
-  best_lap_pilot: string | null;
-  best_lap_kart: number | null;
-}
-
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function fmtDuration(startMs: number, endMs: number): string {
-  const sec = Math.round((endMs - startMs) / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m === 0) return `${s}с`;
-  return `${m}хв ${s}с`;
-}
+import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 
 function fmtDateLabel(dateStr: string): string {
   const now = new Date();
@@ -48,17 +21,16 @@ export default function SessionsList() {
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const [selectedDate, setSelectedDate] = useState(todayStr);
-  const [sessions, setSessions] = useState<DbSession[]>([]);
+  const [sessions, setSessions] = useState<SessionTableRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState<'time_asc' | 'time_desc' | 'best_asc' | 'best_desc'>('time_asc');
-  const navigate = useNavigate();
 
   const fetchSessions = useCallback(async (date: string) => {
     setLoading(true);
     try {
       const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`, { signal: AbortSignal.timeout(5000) });
       if (res.ok) {
-        const all: DbSession[] = await res.json();
+        const all: SessionTableRow[] = await res.json();
         setSessions(all.filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000));
       } else setSessions([]);
     } catch { setSessions([]); }
@@ -70,16 +42,8 @@ export default function SessionsList() {
   const sortedSessions = useMemo(() => {
     const arr = [...sessions];
     if (sortBy === 'time_desc') return arr.reverse();
-    if (sortBy === 'best_asc') return arr.sort((a, b) => {
-      const at = parseTime(a.best_lap_time) ?? Infinity;
-      const bt = parseTime(b.best_lap_time) ?? Infinity;
-      return at - bt;
-    });
-    if (sortBy === 'best_desc') return arr.sort((a, b) => {
-      const at = parseTime(a.best_lap_time) ?? -Infinity;
-      const bt = parseTime(b.best_lap_time) ?? -Infinity;
-      return bt - at;
-    });
+    if (sortBy === 'best_asc') return arr.sort((a, b) => (parseTime(a.best_lap_time) ?? Infinity) - (parseTime(b.best_lap_time) ?? Infinity));
+    if (sortBy === 'best_desc') return arr.sort((a, b) => (parseTime(b.best_lap_time) ?? -Infinity) - (parseTime(a.best_lap_time) ?? -Infinity));
     return arr;
   }, [sessions, sortBy]);
 
@@ -117,42 +81,7 @@ export default function SessionsList() {
           <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів за цю дату</div>
         ) : (
           <div className="card p-0 overflow-hidden">
-            <table className="w-full text-xs">
-              <tbody>
-                {sortedSessions.map((s) => {
-                  const isActive = !s.end_time;
-                  const pilots = s.real_pilot_count ?? s.pilot_count;
-                  return (
-                    <tr key={s.id}
-                      onClick={() => navigate(isActive ? '/' : `/sessions/${s.id}`)}
-                      className="border-b border-dark-800/50 last:border-0 hover:bg-dark-700/50 transition-colors cursor-pointer">
-                      <td className="py-1.5 pl-3 pr-1 text-dark-500 font-mono whitespace-nowrap">№{s.race_number ?? '—'}</td>
-                      <td className="py-1.5 font-mono text-white whitespace-nowrap">{fmtTime(s.start_time)}</td>
-                      <td className="py-1.5 font-mono whitespace-nowrap">
-                        {isActive
-                          ? <span className="text-green-400">LIVE</span>
-                          : <span className="text-dark-400">{s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}</span>}
-                      </td>
-                      <td className="py-1.5 text-dark-500 whitespace-nowrap">{pilots} пілот{pilots === 1 ? '' : pilots < 5 ? 'и' : 'ів'}</td>
-                      <td className="py-1.5 text-dark-500 whitespace-nowrap">Прокат</td>
-                      <td className="py-1.5 text-dark-500 whitespace-nowrap">Траса {s.track_id || 1}</td>
-                      <td className="py-1.5 pr-3 text-right font-mono whitespace-nowrap">
-                        {s.best_lap_time && s.best_lap_pilot ? (
-                          <>
-                            <span className="text-dark-500">
-                              {shortName(s.best_lap_pilot)}
-                              {s.best_lap_kart && !s.best_lap_pilot?.startsWith('Карт ') ? <span className="text-dark-600"> (карт {s.best_lap_kart})</span> : ''}
-                            </span>
-                            <span className="text-dark-600 mx-1">—</span>
-                            <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
-                          </>
-                        ) : ''}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <SessionsTable sessions={sortedSessions} />
           </div>
         )}
       </div>

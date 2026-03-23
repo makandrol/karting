@@ -10,6 +10,7 @@ import { COLLECTOR_URL } from '../../services/config';
 import { Link, useNavigate } from 'react-router-dom';
 import { parseTime, mergePilotNames, shortName, toSeconds } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
+import SessionsTable from '../../components/Sessions/SessionsTable';
 
 interface DbLap {
   pilot: string;
@@ -195,41 +196,7 @@ export default function Timing() {
 
           {recentSessions.length > 0 && (
             <div className="card p-0 overflow-hidden">
-              <table className="w-full text-xs">
-                <tbody>
-                  {recentSessions.map(s => {
-                    const pilots = s.real_pilot_count ?? s.pilot_count;
-                    return (
-                      <tr key={s.id}
-                        onClick={() => navigate(`/sessions/${s.id}`)}
-                        className="border-b border-dark-800/50 last:border-0 hover:bg-dark-700/50 transition-colors cursor-pointer">
-                        <td className="py-1.5 pl-3 pr-1 text-dark-500 font-mono whitespace-nowrap">№{s.race_number ?? '—'}</td>
-                        <td className="py-1.5 font-mono text-white whitespace-nowrap">
-                          {new Date(s.start_time).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}
-                        </td>
-                        <td className="py-1.5 font-mono text-dark-400 whitespace-nowrap">
-                          {s.end_time ? (() => { const sec = Math.round((s.end_time! - s.start_time) / 1000); const m = Math.floor(sec / 60); const ss = sec % 60; return m === 0 ? `${ss}с` : `${m}хв ${ss}с`; })() : '—'}
-                        </td>
-                        <td className="py-1.5 text-dark-500 whitespace-nowrap">{pilots} пілот{pilots === 1 ? '' : pilots < 5 ? 'и' : 'ів'}</td>
-                        <td className="py-1.5 text-dark-500 whitespace-nowrap">Прокат</td>
-                        <td className="py-1.5 text-dark-500 whitespace-nowrap">Траса {s.track_id || 1}</td>
-                        <td className="py-1.5 pr-3 text-right font-mono whitespace-nowrap">
-                          {s.best_lap_time && s.best_lap_pilot ? (
-                            <>
-                              <span className="text-dark-500">
-                                {shortName(s.best_lap_pilot)}
-                                {s.best_lap_kart && !s.best_lap_pilot?.startsWith('Карт ') ? <span className="text-dark-600"> (карт {s.best_lap_kart})</span> : ''}
-                              </span>
-                              <span className="text-dark-600 mx-1">—</span>
-                              <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
-                            </>
-                          ) : ''}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <SessionsTable sessions={recentSessions} />
             </div>
           )}
 
