@@ -86,6 +86,7 @@ export default function KartDetail() {
   }, []);
 
   // Fetch session IDs and details for selected dates
+  const [allDateSessions, setAllDateSessions] = useState<DbSession[]>([]);
   const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
   const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
   const [laps, setLaps] = useState<KartLap[]>([]);
@@ -93,6 +94,7 @@ export default function KartDetail() {
 
   useEffect(() => {
     if (selectedDates.size === 0) {
+      setAllDateSessions([]);
       setStatSessionIds(new Set());
       setStatSessionDetails([]);
       return;
@@ -110,23 +112,23 @@ export default function KartDetail() {
         } catch {}
       }
       if (cancelled) return;
-      setStatSessionIds(new Set(allSessions.map(s => s.id)));
-      setStatSessionDetails(allSessions);
+      setAllDateSessions(allSessions);
     })();
     return () => { cancelled = true; };
   }, [selectedDates]);
 
-  // Fetch kart laps for stat sessions
+  // Fetch kart laps, then filter sessions to only those with this kart
   useEffect(() => {
-    if (statSessionIds.size === 0) { setLaps([]); return; }
+    if (allDateSessions.length === 0) { setLaps([]); setStatSessionIds(new Set()); setStatSessionDetails([]); return; }
     setLoading(true);
     const sortedDates = [...selectedDates].sort();
     const from = sortedDates[0] || todayStr;
     const to = sortedDates[sortedDates.length - 1] || todayStr;
+    const allIds = new Set(allDateSessions.map(s => s.id));
     fetch(`${COLLECTOR_URL}/db/laps?kart=${kartNumber}&from=${from}&to=${to}`)
       .then(r => r.json())
       .then((allLaps: KartLap[]) => {
-        const filtered = allLaps.filter(l => statSessionIds.has(l.session_id));
+        const filtered = allLaps.filter(l => allIds.has(l.session_id));
         const bySession = new Map<string, KartLap[]>();
         for (const l of filtered) {
           if (!bySession.has(l.session_id)) bySession.set(l.session_id, []);
@@ -137,10 +139,13 @@ export default function KartDetail() {
           merged.push(...mergePilotNames(sessionLaps));
         }
         setLaps(merged);
+        const kartSessionIds = new Set(filtered.map(l => l.session_id));
+        setStatSessionIds(kartSessionIds);
+        setStatSessionDetails(allDateSessions.filter(s => kartSessionIds.has(s.id)));
       })
-      .catch(() => setLaps([]))
+      .catch(() => { setLaps([]); setStatSessionIds(new Set()); setStatSessionDetails([]); })
       .finally(() => setLoading(false));
-  }, [statSessionIds, kartNumber]);
+  }, [allDateSessions, kartNumber]);
 
   const [sortBy, setSortBy] = useState<'best' | 'date'>('best');
 
