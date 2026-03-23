@@ -126,7 +126,16 @@ export default function KartDetail() {
       .then(r => r.json())
       .then((allLaps: KartLap[]) => {
         const filtered = allLaps.filter(l => statSessionIds.has(l.session_id));
-        setLaps(mergePilotNames(filtered));
+        const bySession = new Map<string, KartLap[]>();
+        for (const l of filtered) {
+          if (!bySession.has(l.session_id)) bySession.set(l.session_id, []);
+          bySession.get(l.session_id)!.push(l);
+        }
+        const merged: KartLap[] = [];
+        for (const sessionLaps of bySession.values()) {
+          merged.push(...mergePilotNames(sessionLaps));
+        }
+        setLaps(merged);
       })
       .catch(() => setLaps([]))
       .finally(() => setLoading(false));
