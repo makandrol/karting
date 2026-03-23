@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
-import { parseTime, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
+import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
 
 // ============================================================
 // SessionReplay component
@@ -389,22 +389,22 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
                   </td>
                   <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
-                    {notStarted ? '' : (e.lastLap || '—')}
+                    {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
-                    {notStarted ? '' : (e.s1 || '—')}
+                    {notStarted ? '' : (e.s1 ? toSeconds(e.s1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
-                    {notStarted ? '' : (e.s2 || '—')}
+                    {notStarted ? '' : (e.s2 ? toSeconds(e.s2) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>
-                    {notStarted ? '' : (e.bestLap || '—')}
+                    {notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
-                    {notStarted ? '' : (e.bestS1 || '—')}
+                    {notStarted ? '' : (e.bestS1 ? toSeconds(e.bestS1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
-                    {notStarted ? '' : (e.bestS2 || '—')}
+                    {notStarted ? '' : (e.bestS2 ? toSeconds(e.bestS2) : '—')}
                   </td>
                   <td className="table-cell text-center font-mono text-dark-500">
                     {notStarted ? '' : e.lapNumber}
