@@ -156,12 +156,13 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
     const allSelected = withData.every(d => selectedDates!.has(d));
     if (allSelected) return null;
     const notSelected = withData.filter(d => !selectedDates!.has(d));
+    const sessionsToAdd = notSelected.reduce((s, d) => s + (dateCounts[d] || 0), 0);
     return (
       <button
         onClick={(e) => { e.stopPropagation(); onSelectDates(withData); }}
         title="Виділити всі дні в статистику"
         className="bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 hover:text-primary-300 text-[11px] font-bold rounded px-1.5 py-0.5 transition-colors ml-1.5 leading-none"
-      >+{notSelected.length}д</button>
+      >+{sessionsToAdd}</button>
     );
   };
 

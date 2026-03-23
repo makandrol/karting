@@ -169,7 +169,7 @@ const stmts = {
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
   getSessionCountsByDateRange: db.prepare('SELECT date, COUNT(*) as count FROM sessions WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date'),
   getKartStats: db.prepare(`
-    SELECT l.kart, l.pilot, l.lap_time,
+    SELECT l.kart, l.pilot, l.lap_time, l.ts,
       CASE
         WHEN l.lap_time LIKE '%:%' THEN CAST(SUBSTR(l.lap_time, 1, INSTR(l.lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(l.lap_time, INSTR(l.lap_time, ':') + 1) AS REAL)
         ELSE CAST(l.lap_time AS REAL)
@@ -180,7 +180,7 @@ const stmts = {
     ORDER BY l.kart, lap_sec
   `),
   getKartStatsBySessions: db.prepare(`
-    SELECT kart, pilot, lap_time,
+    SELECT kart, pilot, lap_time, ts,
       CASE
         WHEN lap_time LIKE '%:%' THEN CAST(SUBSTR(lap_time, 1, INSTR(lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(lap_time, INSTR(lap_time, ':') + 1) AS REAL)
         ELSE CAST(lap_time AS REAL)
@@ -324,7 +324,7 @@ function buildKartStats(rows) {
     if (!byKart.has(r.kart)) byKart.set(r.kart, new Map());
     const pilots = byKart.get(r.kart);
     if (!pilots.has(r.pilot) || r.lap_sec < pilots.get(r.pilot).lap_sec) {
-      pilots.set(r.pilot, { pilot: r.pilot, lap_time: r.lap_time, lap_sec: r.lap_sec });
+      pilots.set(r.pilot, { pilot: r.pilot, lap_time: r.lap_time, lap_sec: r.lap_sec, ts: r.ts || null });
     }
   }
   const result = [];
@@ -407,7 +407,7 @@ export const storage = {
     if (!sessionIds || sessionIds.length === 0) return [];
     const placeholders = sessionIds.map(() => '?').join(',');
     const rows = db.prepare(`
-      SELECT kart, pilot, lap_time,
+      SELECT kart, pilot, lap_time, ts,
         CASE
           WHEN lap_time LIKE '%:%' THEN CAST(SUBSTR(lap_time, 1, INSTR(lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(lap_time, INSTR(lap_time, ':') + 1) AS REAL)
           ELSE CAST(lap_time AS REAL)

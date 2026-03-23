@@ -6,7 +6,7 @@ import DateNavigator from '../../components/Sessions/DateNavigator';
 
 interface KartStat {
   kart: number;
-  top5: { pilot: string; lap_time: string; lap_sec: number }[];
+  top5: { pilot: string; lap_time: string; lap_sec: number; ts: number | null }[];
 }
 
 interface DbSession {
@@ -38,13 +38,17 @@ function loadSelectedDates(): Set<string> {
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
 }
+function fmtDate(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 function shortPilot(name: string): string {
   const p = name.split(' '); return p.length < 2 ? name : `${p[0]} ${p[1][0]}.`;
 }
 
 export default function Karts() {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => loadFilters()?.viewMode || 'list');
-  const [sortByRank, setSortByRank] = useState(() => loadFilters()?.sortByRank || false);
+  const [sortByRank, setSortByRank] = useState(() => loadFilters()?.sortByRank ?? true);
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const [topNInput, setTopNInput] = useState('1');
@@ -222,13 +226,13 @@ export default function Karts() {
             </label>
             <span className="text-dark-700">|</span>
             <div className="flex bg-dark-800 rounded-md p-0.5">
-              <button onClick={() => setSortByRank(false)} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${!sortByRank ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по номеру</button>
               <button onClick={() => setSortByRank(true)} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortByRank ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по швидкості</button>
+              <button onClick={() => setSortByRank(false)} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${!sortByRank ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по номеру</button>
             </div>
             <span className="text-dark-700">|</span>
             <div className="flex bg-dark-800 rounded-md p-0.5">
-              <button onClick={() => setViewMode('list')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'list' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>☰</button>
-              <button onClick={() => setViewMode('grid')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'grid' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>▦</button>
+              <button onClick={() => setViewMode('list')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'list' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>☰ список</button>
+              <button onClick={() => setViewMode('grid')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'grid' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>▦ таблиця</button>
             </div>
             <span className="text-dark-700">|</span>
             <button onClick={() => setDisabledKarts(new Set())} className="text-dark-400 text-[10px] hover:text-white transition-colors">показати всі</button>
@@ -259,7 +263,7 @@ export default function Karts() {
           </>
         ) : (
           <>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {activeKarts.map(kart => (
                 <KartCard key={kart.kart} kart={kart} disabled={false} rank={kartRanking.get(kart.kart)} onDisable={() => toggleKartDisabled(kart.kart)} />
               ))}
@@ -267,7 +271,7 @@ export default function Karts() {
             {showDisabled && inactiveKarts.length > 0 && (
               <div className="mt-3 opacity-50">
                 <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-2">Неактивні</div>
-                <div className="grid grid-cols-5 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   {inactiveKarts.map(kart => (
                     <KartCard key={kart.kart} kart={kart} disabled rank={undefined} onDisable={() => toggleKartDisabled(kart.kart)} />
                   ))}
@@ -294,6 +298,7 @@ function KartRow({ kart, onDisable, disabled, rank }: { kart: KartStat; onDisabl
             <div key={idx} className="text-xs">
               <span className="font-mono text-green-400">{toSeconds(r.lap_time)}</span>
               <span className="text-dark-500 ml-1.5">— {r.pilot}</span>
+              {r.ts && <span className="text-dark-600 ml-1">{fmtDate(r.ts)}</span>}
             </div>
           )) : <div className="text-dark-700 text-xs">—</div>}
         </div>
@@ -324,6 +329,7 @@ function KartCard({ kart, disabled, onDisable, rank }: { kart: KartStat; disable
           <div key={idx} className="text-[10px] text-center leading-snug">
             <span className="font-mono text-green-400">{toSeconds(r.lap_time)}</span>
             <span className="text-dark-500"> — {r.pilot}</span>
+            {r.ts && <span className="text-dark-600"> {fmtDate(r.ts)}</span>}
           </div>
         )) : <div className="text-dark-700 text-[10px] text-center">—</div>}
       </div>
