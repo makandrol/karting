@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds, shortName, parseTime } from '../../utils/timing';
+import { MIN_VALID_LAP_SECONDS } from '../../types';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 
 interface DbSession {
@@ -59,7 +60,12 @@ export default function SessionsList() {
       const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`, { signal: AbortSignal.timeout(5000) });
       if (res.ok) {
         const all: DbSession[] = await res.json();
-        setSessions(all.filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000));
+        const filtered = all.filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000);
+        setSessions(filtered.map(s => {
+          const sec = parseTime(s.best_lap_time);
+          if (sec !== null && sec < MIN_VALID_LAP_SECONDS) return { ...s, best_lap_time: null, best_lap_pilot: null, best_lap_kart: null };
+          return s;
+        }));
       } else setSessions([]);
     } catch { setSessions([]); }
     setLoading(false);
