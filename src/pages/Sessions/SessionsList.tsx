@@ -92,13 +92,13 @@ export default function SessionsList() {
                   const pilots = s.real_pilot_count ?? s.pilot_count;
                   return (
                     <tr key={s.id} className="border-b border-dark-800/50 last:border-0">
-                      <td className="py-1.5 pl-3">
-                        <Link to={isActive ? '/' : `/sessions/${s.id}`} className="text-white hover:text-primary-400 transition-colors whitespace-nowrap">
+                      <td className="py-1.5 pl-3 pr-1">
+                        <Link to={isActive ? '/' : `/sessions/${s.id}`} className="text-dark-500 hover:text-primary-400 transition-colors whitespace-nowrap font-mono">
                           №{s.race_number ?? '—'}
                           {isActive && <span className="text-green-400 ml-1.5">LIVE</span>}
                         </Link>
                       </td>
-                      <td className="py-1.5 font-mono text-dark-300 whitespace-nowrap">{fmtTime(s.start_time)}</td>
+                      <td className="py-1.5 font-mono text-white whitespace-nowrap">{fmtTime(s.start_time)}</td>
                       <td className="py-1.5 font-mono text-dark-400 whitespace-nowrap">{s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}</td>
                       <td className="py-1.5 text-dark-500 whitespace-nowrap">{pilots} пілот{pilots === 1 ? '' : pilots < 5 ? 'и' : 'ів'}</td>
                       <td className="py-1.5 text-dark-500 whitespace-nowrap">Прокат</td>
