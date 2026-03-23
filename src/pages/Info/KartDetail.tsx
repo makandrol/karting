@@ -221,7 +221,7 @@ export default function KartDetail() {
         selectedDates={selectedDates}
         onToggleDate={handleToggleDate}
         onSelectDates={handleSelectDates}
-        overrideCounts={loading ? undefined : kartDateCounts}
+        overrideCounts={Object.keys(kartDateCounts).length > 0 ? kartDateCounts : undefined}
       />
 
       {/* Stat summary */}

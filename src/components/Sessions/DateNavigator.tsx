@@ -175,7 +175,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       {/* This week */}
       <div>
         <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 flex items-center">
-          Цей тиждень<span className="text-dark-600 normal-case"> ({thisWeekCount})</span>
+          Цей тиждень <span className="text-dark-600 normal-case">({thisWeekCount})</span>
           <SelectAllBtn dates={thisWeekDays} />
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -190,7 +190,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
           className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors"
         >
           <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>&#9654;</span>
-          Попередній тиждень<span className="text-dark-600 normal-case"> ({prevWeekCount})</span>
+          Попередній тиждень <span className="text-dark-600 normal-case">({prevWeekCount})</span>
           <SelectAllBtn dates={prevWeekDays} />
         </button>
         {prevWeekOpen && (
