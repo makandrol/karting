@@ -322,7 +322,7 @@ function KartCard({ kart, disabled, onDisable, rank }: { kart: KartStat; disable
       </button>
       <div className="text-center mb-2">
         <span className={`font-mono font-bold text-2xl ${disabled ? 'text-dark-600' : 'text-white'}`}>{kart.kart}</span>
-        {rank && <div className="text-dark-500 text-[10px]">#{rank}</div>}
+        {rank && <span className="text-dark-500 text-sm ml-1">#{rank}</span>}
       </div>
       <div className="space-y-1">
         {top3.length > 0 ? top3.map((r, idx) => (
