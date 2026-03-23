@@ -162,7 +162,7 @@ const stmts = {
     ORDER BY s.start_time
   `),
   getBestLapPilot: db.prepare(`
-    SELECT pilot FROM laps
+    SELECT pilot, kart FROM laps
     WHERE session_id = ? AND lap_time = ?
     LIMIT 1
   `),
@@ -280,6 +280,7 @@ function mergeSessions(sessions) {
           if (newSec !== null && (curSec === null || newSec < curSec)) {
             current.best_lap_time = s.best_lap_time;
             current.best_lap_pilot = s.best_lap_pilot;
+            current.best_lap_kart = s.best_lap_kart;
           }
         }
         current._merged_ids.push(s.id);
@@ -379,11 +380,12 @@ export const storage = {
     const rows = stmts.getSessionsWithStats.all(date);
     const enriched = rows.map(r => {
       let best_lap_pilot = null;
+      let best_lap_kart = null;
       if (r.best_lap_time) {
         const pilotRow = stmts.getBestLapPilot.get(r.id, r.best_lap_time);
-        if (pilotRow) best_lap_pilot = pilotRow.pilot;
+        if (pilotRow) { best_lap_pilot = pilotRow.pilot; best_lap_kart = pilotRow.kart; }
       }
-      return { ...r, best_lap_pilot, pilot_count: r.real_pilot_count || r.pilot_count };
+      return { ...r, best_lap_pilot, best_lap_kart, pilot_count: r.real_pilot_count || r.pilot_count };
     });
     return mergeSessions(enriched);
   },

@@ -16,14 +16,11 @@ interface DbSession {
   date: string;
   best_lap_time: string | null;
   best_lap_pilot: string | null;
+  best_lap_kart: number | null;
 }
 
 function fmtTime(ms: number): string {
-  const d = new Date(ms);
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const time = d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  return `${mm}-${dd} ${time}`;
+  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function fmtDuration(startMs: number, endMs: number): string {
@@ -94,19 +91,25 @@ export default function SessionsList() {
                   const isActive = !s.end_time;
                   const pilots = s.real_pilot_count ?? s.pilot_count;
                   return (
-                    <tr key={s.id} className="hover:bg-dark-700/50 transition-colors">
+                    <tr key={s.id} className="border-b border-dark-800/50 last:border-0">
                       <td className="py-1.5 pl-3">
-                        <Link to={isActive ? '/' : `/sessions/${s.id}`} className="text-white hover:text-primary-400 transition-colors">
-                          Прокат{s.race_number != null ? ` · №${s.race_number}` : ''} · {fmtTime(s.start_time)}
+                        <Link to={isActive ? '/' : `/sessions/${s.id}`} className="text-white hover:text-primary-400 transition-colors whitespace-nowrap">
+                          №{s.race_number ?? '—'}
                           {isActive && <span className="text-green-400 ml-1.5">LIVE</span>}
                         </Link>
                       </td>
-                      <td className="py-1.5 text-dark-400 font-mono w-24">{s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}</td>
-                      <td className="py-1.5 text-dark-500 w-24">{pilots} пілотів</td>
-                      <td className="py-1.5 pr-3 text-right font-mono">
+                      <td className="py-1.5 font-mono text-dark-300 whitespace-nowrap">{fmtTime(s.start_time)}</td>
+                      <td className="py-1.5 font-mono text-dark-400 whitespace-nowrap">{s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}</td>
+                      <td className="py-1.5 text-dark-500 whitespace-nowrap">{pilots} пілот{pilots === 1 ? '' : pilots < 5 ? 'и' : 'ів'}</td>
+                      <td className="py-1.5 text-dark-500 whitespace-nowrap">Прокат</td>
+                      <td className="py-1.5 text-dark-500 whitespace-nowrap">Траса {s.track_id || 1}</td>
+                      <td className="py-1.5 pr-3 text-right font-mono whitespace-nowrap">
                         {s.best_lap_time && s.best_lap_pilot ? (
                           <>
-                            <span className="text-dark-500">{shortName(s.best_lap_pilot)}</span>
+                            <span className="text-dark-500">
+                              {shortName(s.best_lap_pilot)}
+                              {s.best_lap_kart ? <span className="text-dark-600"> (карт {s.best_lap_kart})</span> : ''}
+                            </span>
                             <span className="text-dark-600 mx-1">—</span>
                             <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
                           </>
