@@ -156,11 +156,7 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
 
                 return (
                   <tr key={`${entry.pilot}-${entry.kart}`} className="table-row">
-                    <td className={`table-cell text-center font-mono font-bold text-sm ${
-                      entry.position === 1 ? 'position-1' :
-                      entry.position === 2 ? 'position-2' :
-                      entry.position === 3 ? 'position-3' : 'text-dark-400'
-                    }`}>
+                    <td className="table-cell text-center font-mono font-bold text-sm text-white">
                       {entry.position}
                     </td>
                     <td className="table-cell text-left py-2">

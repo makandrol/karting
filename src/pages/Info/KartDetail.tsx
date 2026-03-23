@@ -259,11 +259,11 @@ export default function KartDetail() {
               <table className="w-full text-xs">
                 <thead><tr className="table-header">
                   <th className="table-cell text-center w-8">#</th>
-                  <th className="table-cell text-left">Session</th>
                   <th className="table-cell text-left">Pilot</th>
                   <th className="table-cell text-right">Best</th>
                   <th className="table-cell text-right">B.S1</th>
                   <th className="table-cell text-right">B.S2</th>
+                  <th className="table-cell text-left">Session</th>
                 </tr></thead>
                 <tbody>
                   {sessionStats.map((s, i) => {
@@ -274,16 +274,16 @@ export default function KartDetail() {
                     const isBestS2 = s2sec !== null && Math.abs(s2sec - overallBestS2) < 0.002;
                     return (
                       <tr key={s.sessionId} className="table-row">
-                        <td className={`table-cell text-center font-mono font-bold ${i < 3 ? `position-${i + 1}` : 'text-dark-400'}`}>{i + 1}</td>
-                        <td className="table-cell text-left">
-                          <Link to={`/sessions/${s.sessionId}`} className="text-primary-400 hover:text-primary-300 transition-colors underline underline-offset-2 decoration-primary-400/30">
-                            {s.date.slice(5)} {fmtTime(s.sessionStart)}{s.raceNumber != null ? ` · Заїзд ${s.raceNumber}` : ''}
-                          </Link>
-                        </td>
+                        <td className="table-cell text-center font-mono font-bold text-white">{i + 1}</td>
                         <td className="table-cell text-left text-white">{s.pilot}</td>
                         <td className={`table-cell text-right font-mono font-semibold ${isBestLap ? 'text-purple-400' : 'text-green-400'}`}>{toSeconds(s.bestLap)}</td>
                         <td className={`table-cell text-right font-mono text-[11px] ${isBestS1 ? 'text-purple-400' : 'text-dark-400'}`}>{s.bestS1 ? toSeconds(s.bestS1) : '—'}</td>
                         <td className={`table-cell text-right font-mono text-[11px] ${isBestS2 ? 'text-purple-400' : 'text-dark-400'}`}>{s.bestS2 ? toSeconds(s.bestS2) : '—'}</td>
+                        <td className="table-cell text-left">
+                          <Link to={`/sessions/${s.sessionId}`} className="text-primary-400 hover:text-primary-300 transition-colors underline underline-offset-2 decoration-primary-400/30">
+                            {s.date.slice(5)} {fmtTime(s.sessionStart)}{s.raceNumber != null ? ` · Заїзд ${s.raceNumber}` : ''} · Прокат
+                          </Link>
+                        </td>
                       </tr>
                     );
                   })}

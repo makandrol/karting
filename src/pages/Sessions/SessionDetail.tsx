@@ -235,7 +235,7 @@ export default function SessionDetail() {
                 <tbody>
                   {liveEntries.map((e: any, i: number) => (
                     <tr key={e.pilot} className="table-row">
-                      <td className={`table-cell text-center font-mono font-bold ${i < 3 ? `position-${i + 1}` : 'text-dark-400'}`}>{e.position || i + 1}</td>
+                      <td className="table-cell text-center font-mono font-bold text-white">{e.position || i + 1}</td>
                       <td className="table-cell text-left text-white">{e.pilot}</td>
                       <td className="table-cell text-center font-mono text-dark-300">{e.kart}</td>
                       <td className="table-cell text-center font-mono text-dark-300">{e.lapNumber || 0}</td>
