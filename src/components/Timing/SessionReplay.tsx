@@ -27,6 +27,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   const [speed, setSpeed] = useState(1);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
+  const durationRef = useRef(durationSec);
+  durationRef.current = durationSec;
 
   const pilots = useMemo(() => [...new Set(laps.map(l => l.pilot))], [laps]);
 
@@ -225,15 +227,16 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
       const dt = (now - lastTickRef.current) / 1000 * speed;
       lastTickRef.current = now;
       setCurrentTime(prev => {
+        const dur = durationRef.current;
         const next = prev + dt;
-        if (!isLive && next >= durationSec) { setPlaying(false); return durationSec; }
-        return Math.min(next, durationSec);
+        if (!isLive && next >= dur) { setPlaying(false); return dur; }
+        return Math.min(next, dur);
       });
       rafRef.current = requestAnimationFrame(tick);
     }
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [playing, speed, durationSec]);
+  }, [playing, speed, isLive]);
 
   // Update entries when time changes
   useEffect(() => {
