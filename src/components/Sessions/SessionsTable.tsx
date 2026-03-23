@@ -29,9 +29,17 @@ function fmtDuration(startMs: number, endMs: number): string {
 interface SessionsTableProps {
   sessions: SessionTableRow[];
   maxHeight?: string;
+  showDate?: boolean;
 }
 
-export default function SessionsTable({ sessions, maxHeight }: SessionsTableProps) {
+function fmtDateTime(ms: number): string {
+  const d = new Date(ms);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mm}-${dd} ${fmtTime(ms)}`;
+}
+
+export default function SessionsTable({ sessions, maxHeight, showDate }: SessionsTableProps) {
   const navigate = useNavigate();
 
   return (
@@ -46,7 +54,7 @@ export default function SessionsTable({ sessions, maxHeight }: SessionsTableProp
                 onClick={() => navigate(isActive ? '/' : `/sessions/${s.id}`)}
                 className="border-b border-dark-800/50 last:border-0 hover:bg-dark-700/50 transition-colors cursor-pointer">
                 <td className="py-1.5 pl-3 pr-1 text-dark-500 font-mono whitespace-nowrap">№{s.race_number ?? '—'}</td>
-                <td className="py-1.5 font-mono text-white whitespace-nowrap">{fmtTime(s.start_time)}</td>
+                <td className="py-1.5 font-mono text-white whitespace-nowrap">{showDate ? fmtDateTime(s.start_time) : fmtTime(s.start_time)}</td>
                 <td className="py-1.5 font-mono whitespace-nowrap">
                   {isActive
                     ? <span className="text-green-400">LIVE</span>

@@ -192,7 +192,7 @@ export default function Karts() {
         </div>
         {statSessionDetails.length > 0 && (
           <div className="max-h-48 overflow-y-auto">
-            <SessionsTable sessions={statSessionDetails} />
+            <SessionsTable sessions={statSessionDetails} showDate />
           </div>
         )}
       </div>
