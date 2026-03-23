@@ -8,7 +8,7 @@ import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
 import { Link } from 'react-router-dom';
-import { parseTime, mergePilotNames } from '../../utils/timing';
+import { parseTime, mergePilotNames, shortName } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 
 interface DbLap {
@@ -203,7 +203,7 @@ export default function Timing() {
               {hasData && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <StatCard label="Пілотів" value={entries.length.toString()} />
-                  <StatCard label="Лідер" value={entries.length > 0 ? entries[0].pilot.split(' ')[0] : '—'} />
+                  <StatCard label="Лідер" value={entries.length > 0 ? shortName(entries[0].pilot) : '—'} />
                   <StatCard label="Найкращий час" value={entries.length > 0 ? (entries[0].bestLap || '—') : '—'} />
                 </div>
               )}

@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds, mergePilotNames } from '../../utils/timing';
+import { toSeconds, mergePilotNames, shortName } from '../../utils/timing';
 import SessionReplay from '../../components/Timing/SessionReplay';
 import { TrackMap } from '../../components/Track';
 import { useTrack } from '../../services/trackContext';
@@ -350,7 +350,7 @@ function DbLapsGrid({ pilots, currentEntries = [] }: { pilots: { name: string; l
               {pilots.map(p => (
                 <th key={p.name} className="table-cell text-center min-w-[80px]">
                   <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors">
-                    {p.name.split(' ')[0]}
+                    {shortName(p.name)}
                   </Link>
                 </th>
               ))}

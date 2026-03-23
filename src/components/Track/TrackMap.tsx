@@ -2,6 +2,7 @@ import { useEffect, useRef, useMemo } from 'react';
 import type { TimingEntry } from '../../types';
 import type { TrackConfig, SpeedProfilePoint } from '../../data/tracks';
 import { TRACK_SVG_VIEWBOX } from '../../data/tracks';
+import { shortName } from '../../utils/timing';
 
 interface TrackMapProps {
   track: TrackConfig;
@@ -269,7 +270,7 @@ export default function TrackMap({ track, entries, static: isStatic }: TrackMapP
         <span style="width:14px;text-align:right;font-family:monospace;font-weight:700;color:${color}">${kp.position}</span>
         <span style="width:8px;height:8px;border-radius:2px;background:${color};flex-shrink:0"></span>
         <span style="font-family:monospace;color:#b0b0b0;width:18px">${kp.kart}</span>
-        <span style="color:#fff;font-weight:500">${kp.pilot.split(' ')[0]}</span>
+        <span style="color:#fff;font-weight:500">${shortName(kp.pilot)}</span>
       </div>`;
     }).join('');
   }
