@@ -150,6 +150,15 @@ export default function KartDetail() {
 
   const [sortBy, setSortBy] = useState<'best' | 'date'>('best');
 
+  // Per-date session counts for this kart only
+  const kartDateCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const s of statSessionDetails) {
+      counts[s.date] = (counts[s.date] || 0) + 1;
+    }
+    return counts;
+  }, [statSessionDetails]);
+
   // Per-session stats for this kart
   const sessionStats = useMemo(() => {
     const bySession = new Map<string, KartLap[]>();
@@ -212,6 +221,7 @@ export default function KartDetail() {
         selectedDates={selectedDates}
         onToggleDate={handleToggleDate}
         onSelectDates={handleSelectDates}
+        overrideCounts={kartDateCounts}
       />
 
       {/* Stat summary */}

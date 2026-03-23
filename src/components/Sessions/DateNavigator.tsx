@@ -50,9 +50,11 @@ interface DateNavigatorProps {
   onToggleDate?: (date: string) => void;
   /** Multi-select mode: select multiple dates at once */
   onSelectDates?: (dates: string[]) => void;
+  /** Override displayed session counts per date (e.g. kart-specific) */
+  overrideCounts?: Record<string, number>;
 }
 
-export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates }: DateNavigatorProps) {
+export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates, overrideCounts }: DateNavigatorProps) {
   const multiSelect = !!(selectedDates && onToggleDate);
   const todayStr = localDateStr(new Date());
   const thisMonday = getMonday(new Date());
@@ -74,6 +76,8 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       })
       .catch(() => {});
   }, []);
+
+  const displayCounts = overrideCounts ?? dateCounts;
 
   const toggleYear = (y: string) => {
     const next = new Set(expandedYears);
@@ -100,7 +104,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
 
   const DateBtn = ({ d }: { d: string }) => {
     const isToday = d === todayStr;
-    const count = dateCounts[d] ?? 0;
+    const count = displayCounts[d] ?? 0;
     const hasData = count > 0 || isToday;
     const dayDate = new Date(d + 'T00:00:00');
     const label = `${DAY_NAMES[dayDate.getDay()]} ${String(dayDate.getDate()).padStart(2, '0')}.${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
@@ -144,10 +148,10 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
 
   const thisWeekDays = getWeekDays(thisMonday);
   const prevWeekDays = getWeekDays(prevMonday);
-  const thisWeekCount = thisWeekDays.reduce((s, d) => s + (dateCounts[d] || 0), 0);
-  const prevWeekCount = prevWeekDays.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+  const thisWeekCount = thisWeekDays.reduce((s, d) => s + (displayCounts[d] || 0), 0);
+  const prevWeekCount = prevWeekDays.reduce((s, d) => s + (displayCounts[d] || 0), 0);
 
-  const datesWithSessions = (dates: string[]) => dates.filter(d => (dateCounts[d] ?? 0) > 0);
+  const datesWithSessions = (dates: string[]) => dates.filter(d => (displayCounts[d] ?? 0) > 0);
 
   const SelectAllBtn = ({ dates }: { dates: string[] }) => {
     if (!multiSelect || !onSelectDates) return null;
@@ -156,7 +160,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
     const allSelected = withData.every(d => selectedDates!.has(d));
     if (allSelected) return null;
     const notSelected = withData.filter(d => !selectedDates!.has(d));
-    const sessionsToAdd = notSelected.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+    const sessionsToAdd = notSelected.reduce((s, d) => s + (displayCounts[d] || 0), 0);
     return (
       <button
         onClick={(e) => { e.stopPropagation(); onSelectDates(withData); }}
@@ -199,7 +203,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       {/* Older — by year > month > weeks */}
       {[...yearMonths.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => {
         const yearDates = allDatesWithData.filter(d => d.startsWith(year));
-        const yearCount = yearDates.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+        const yearCount = yearDates.reduce((s, d) => s + (displayCounts[d] || 0), 0);
         return (
           <div key={year}>
             <button
@@ -218,7 +222,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
                   const monthKey = `${year}-${month}`;
                   const weeks = getWeeksInMonth(parseInt(year), month);
                   const monthDates = allDatesWithData.filter(d => d.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`));
-                  const monthCount = monthDates.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+                  const monthCount = monthDates.reduce((s, d) => s + (displayCounts[d] || 0), 0);
 
                   return (
                     <div key={monthKey}>
