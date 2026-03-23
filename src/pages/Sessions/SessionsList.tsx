@@ -19,7 +19,11 @@ interface DbSession {
 }
 
 function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+  const d = new Date(ms);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const time = d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return `${mm}-${dd} ${time}`;
 }
 
 function fmtDuration(startMs: number, endMs: number): string {
@@ -83,53 +87,35 @@ export default function SessionsList() {
         ) : sessions.length === 0 ? (
           <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів за цю дату</div>
         ) : (
-          <div className="card p-0 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead><tr className="table-header">
-                  <th className="table-cell text-center w-8">#</th>
-                  <th className="table-cell text-left">Час</th>
-                  <th className="table-cell text-left">Тривалість</th>
-                  <th className="table-cell text-center">Пілотів</th>
-                  <th className="table-cell text-left">Тип</th>
-                  <th className="table-cell text-right">Найкраще коло</th>
-                </tr></thead>
-                <tbody>
-                  {sessions.map((s, i) => {
-                    const isActive = !s.end_time;
-                    const pilots = s.real_pilot_count ?? s.pilot_count;
-                    return (
-                      <tr key={s.id} className="table-row">
-                        <td className="table-cell text-center font-mono text-white font-bold">{s.race_number ?? i + 1}</td>
-                        <td className="table-cell text-left">
-                          <Link
-                            to={isActive ? '/' : `/sessions/${s.id}`}
-                            className="text-primary-400 hover:text-primary-300 transition-colors underline underline-offset-2 decoration-primary-400/30"
-                          >
-                            {fmtTime(s.start_time)}
-                            {isActive && <span className="text-green-400 ml-1.5 no-underline">LIVE</span>}
-                          </Link>
-                        </td>
-                        <td className="table-cell text-left font-mono text-dark-300">
-                          {s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}
-                        </td>
-                        <td className="table-cell text-center font-mono text-dark-300">{pilots}</td>
-                        <td className="table-cell text-left text-dark-400">Прокат</td>
-                        <td className="table-cell text-right font-mono">
-                          {s.best_lap_time && s.best_lap_pilot ? (
-                            <>
-                              <span className="text-dark-500">{shortName(s.best_lap_pilot)}</span>
-                              <span className="text-dark-600 mx-1">—</span>
-                              <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
-                            </>
-                          ) : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+          <div className="card p-2 space-y-0.5">
+            {sessions.map((s) => {
+              const isActive = !s.end_time;
+              const pilots = s.real_pilot_count ?? s.pilot_count;
+              return (
+                <div key={s.id} className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-dark-700/50 transition-colors text-xs">
+                  <span className="flex items-center gap-4 min-w-0">
+                    <Link
+                      to={isActive ? '/' : `/sessions/${s.id}`}
+                      className="text-primary-400 hover:text-primary-300 transition-colors underline underline-offset-2 decoration-primary-400/30 shrink-0"
+                    >
+                      Прокат{s.race_number != null ? ` · №${s.race_number}` : ''} · {fmtTime(s.start_time)}
+                      {isActive && <span className="text-green-400 ml-1.5">LIVE</span>}
+                    </Link>
+                    <span className="text-dark-400 font-mono shrink-0">
+                      {s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}
+                    </span>
+                    <span className="text-dark-500 shrink-0">{pilots} пілотів</span>
+                  </span>
+                  {s.best_lap_time && s.best_lap_pilot && (
+                    <span className="font-mono shrink-0 ml-4">
+                      <span className="text-dark-500">{shortName(s.best_lap_pilot)}</span>
+                      <span className="text-dark-600 mx-1">—</span>
+                      <span className="text-green-400">{toSeconds(s.best_lap_time)}</span>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
