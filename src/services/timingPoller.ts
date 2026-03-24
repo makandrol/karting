@@ -100,7 +100,7 @@ export function useTimingPoller(options: UseTimingPollerOptions = {}): UseTiming
             return {
               position: e.position || i + 1,
               pilot,
-              kart: e.kart,
+              kart: Number(e.kart),
               lastLap: e.lastLap || null,
               s1: e.s1 || null,
               s2: e.s2 || null,

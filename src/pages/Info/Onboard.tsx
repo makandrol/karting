@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTimingPoller } from '../../services/timingPoller';
 import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
-import type { TimingEntry } from '../../types';
 
 export default function Onboard() {
   const { kartId } = useParams<{ kartId: string }>();
@@ -17,19 +16,14 @@ export default function Onboard() {
 
   const goToKart = useCallback((k: number) => navigate(`/onboard/${k}`, { replace: true }), [navigate]);
 
-  const prevKart = kart !== null && allKarts.length > 0
-    ? allKarts[allKarts.indexOf(kart) - 1] ?? allKarts[allKarts.length - 1]
-    : null;
-  const nextKart = kart !== null && allKarts.length > 0
-    ? allKarts[allKarts.indexOf(kart) + 1] ?? allKarts[0]
-    : null;
+  const kartIdx = kart !== null ? allKarts.indexOf(kart) : -1;
+  const prevKart = kartIdx > 0 ? allKarts[kartIdx - 1] : (allKarts.length > 0 ? allKarts[allKarts.length - 1] : null);
+  const nextKart = kartIdx >= 0 && kartIdx < allKarts.length - 1 ? allKarts[kartIdx + 1] : (allKarts.length > 0 ? allKarts[0] : null);
 
-  // Auto-select first kart if none selected
   useEffect(() => {
     if (!kartId && allKarts.length > 0) goToKart(allKarts[0]);
   }, [kartId, allKarts.length > 0]);
 
-  // Orientation lock
   useEffect(() => {
     if (!locked) return;
     try { (screen.orientation as any).lock?.('landscape').catch(() => {}); }
@@ -37,7 +31,6 @@ export default function Onboard() {
     return () => { try { screen.orientation.unlock(); } catch { /* */ } };
   }, [locked]);
 
-  // Overall bests for color coding
   const overallBestLap = entries.reduce((best, e) => {
     const v = parseTime(e.bestLap);
     return v !== null && (best === null || v < best) ? v : best;
@@ -63,38 +56,38 @@ export default function Onboard() {
   return (
     <div className="fixed inset-0 bg-dark-950 flex flex-col z-50 select-none">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-3 py-2 bg-dark-900/90 border-b border-dark-800 shrink-0">
-        <Link to="/" className="text-dark-400 hover:text-white text-xs font-medium px-2 py-1 rounded-lg hover:bg-dark-800 transition-colors">
+      <div className="flex items-center px-3 py-2 bg-dark-900/90 border-b border-dark-800 shrink-0 gap-2">
+        <Link to="/" className="text-dark-400 hover:text-white text-xs font-medium px-2 py-1 rounded-lg hover:bg-dark-800 transition-colors shrink-0">
           ← Таймінг
         </Link>
 
-        <div className="flex items-center gap-2">
-          {/* Kart selector dropdown */}
-          <select
-            value={kart ?? ''}
-            onChange={e => goToKart(parseInt(e.target.value))}
-            className="bg-dark-800 border border-dark-700 text-white text-sm font-bold rounded-lg px-3 py-1.5 outline-none focus:border-primary-500"
-          >
-            {allKarts.length === 0 && <option value="">—</option>}
-            {allKarts.map(k => {
-              const e = entries.find(en => en.kart === k);
-              return <option key={k} value={k}>Карт {k}{e ? ` · ${e.pilot}` : ''}</option>;
-            })}
-          </select>
+        {/* Kart selector — looks like a button, opens dropdown */}
+        <select
+          value={kart ?? ''}
+          onChange={e => goToKart(parseInt(e.target.value))}
+          className="bg-dark-800 border border-dark-700 text-white text-sm font-bold rounded-lg px-3 py-1.5 outline-none focus:border-primary-500 min-w-0"
+        >
+          {kart !== null && kartIdx === -1 && <option value={kart}>Карт {kart}</option>}
+          {allKarts.map(k => {
+            const en = entries.find(e => e.kart === k);
+            return <option key={k} value={k}>Карт {k}{en ? ` · ${en.pilot}` : ''}</option>;
+          })}
+        </select>
 
-          {/* Lock orientation */}
-          <button
-            onClick={() => setLocked(l => !l)}
-            className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              locked ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'
-            }`}
-            title="Залочити горизонтальний режим"
-          >
-            {locked ? '🔒' : '🔓'}
-          </button>
-        </div>
+        <div className="flex-1" />
 
-        <div className="flex items-center gap-1">
+        {/* Lock orientation */}
+        <button
+          onClick={() => setLocked(l => !l)}
+          className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 ${
+            locked ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'
+          }`}
+          title="Залочити горизонтальний режим"
+        >
+          {locked ? '🔒' : '🔓'}
+        </button>
+
+        <div className="flex items-center gap-1 shrink-0">
           <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-400 animate-pulse' : 'bg-dark-600'}`} />
           <span className={`text-xs ${isLive ? 'text-green-400' : 'text-dark-500'}`}>
             {isLive ? 'LIVE' : 'OFFLINE'}
@@ -104,26 +97,26 @@ export default function Onboard() {
 
       {/* Main content */}
       <div className="flex-1 flex items-center justify-center relative overflow-hidden">
-        {/* Prev kart button */}
+        {/* Prev kart */}
         {prevKart !== null && (
           <button
             onClick={() => goToKart(prevKart)}
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-20 flex items-center justify-center text-dark-600 hover:text-white active:text-primary-400 transition-colors z-10"
+            className="absolute left-1 top-1/2 -translate-y-1/2 w-12 h-24 flex items-center justify-center text-dark-600 hover:text-white active:text-primary-400 transition-colors z-10"
           >
             <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
         )}
 
-        {/* Next kart button */}
+        {/* Next kart */}
         {nextKart !== null && (
           <button
             onClick={() => goToKart(nextKart)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-20 flex items-center justify-center text-dark-600 hover:text-white active:text-primary-400 transition-colors z-10"
+            className="absolute right-1 top-1/2 -translate-y-1/2 w-12 h-24 flex items-center justify-center text-dark-600 hover:text-white active:text-primary-400 transition-colors z-10"
           >
             <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
             </svg>
           </button>
         )}
@@ -140,12 +133,12 @@ export default function Onboard() {
           </div>
         ) : (
           <div className="text-center px-16">
-            {/* Pilot name */}
+            {/* Pilot + info */}
             <div className="text-dark-400 text-sm mb-1 tracking-wide">
-              {entry.pilot} · Карт {entry.kart} · P{entry.position} · Коло {entry.lapNumber}
+              {entry.pilot} · P{entry.position} · Коло {entry.lapNumber}
             </div>
 
-            {/* Last lap — main display */}
+            {/* Last lap */}
             <div className={`font-mono font-bold leading-none mb-4 ${COLOR_CLASSES[lapColor]}`}
                  style={{ fontSize: 'clamp(4rem, 15vw, 10rem)' }}>
               {entry.lastLap ? toSeconds(entry.lastLap) : '—'}
