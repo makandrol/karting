@@ -216,6 +216,10 @@ function LiveResults({ competition }: { competition: Competition }) {
   if (loading) return <div className="card text-center py-6 text-dark-500">Завантаження даних...</div>;
   if (competition.sessions.length === 0) return <div className="card text-center py-12 text-dark-500">Немає прив'язаних заїздів</div>;
 
+  if (competition.format === 'gonzales') {
+    return <GonzalesLiveTable competition={competition} sessionLaps={sessionLaps} />;
+  }
+
   const phases = PHASE_CONFIGS[competition.format]?.phases || [];
 
   return (
@@ -270,6 +274,121 @@ function LiveResults({ competition }: { competition: Competition }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function parseLapSec(t: string | null): number | null {
+  if (!t) return null;
+  const m = t.match(/^(\d+):(\d+\.\d+)$/);
+  if (m) return parseInt(m[1]) * 60 + parseFloat(m[2]);
+  const s = t.match(/^\d+\.\d+$/);
+  if (s) return parseFloat(t);
+  return null;
+}
+
+function GonzalesLiveTable({ competition, sessionLaps }: { competition: Competition; sessionLaps: Map<string, SessionLap[]> }) {
+  const sessions = competition.sessions;
+  const kartNumbers: number[] = [];
+  for (const s of sessions) {
+    const laps = sessionLaps.get(s.sessionId) || [];
+    for (const l of laps) {
+      if (!kartNumbers.includes(l.kart)) kartNumbers.push(l.kart);
+    }
+  }
+  kartNumbers.sort((a, b) => a - b);
+
+  // For each round (session), get each pilot's best of 2 laps on their kart
+  // Build: pilot → kart → best lap time
+  const pilotKartBest = new Map<string, Map<number, number>>();
+
+  for (const s of sessions) {
+    const laps = sessionLaps.get(s.sessionId) || [];
+    // Group by pilot in this session
+    const pilotLaps = new Map<string, SessionLap[]>();
+    for (const l of laps) {
+      if (!pilotLaps.has(l.pilot)) pilotLaps.set(l.pilot, []);
+      pilotLaps.get(l.pilot)!.push(l);
+    }
+    for (const [pilot, pLaps] of pilotLaps) {
+      if (!pilotKartBest.has(pilot)) pilotKartBest.set(pilot, new Map());
+      const kartMap = pilotKartBest.get(pilot)!;
+      const kart = pLaps[0].kart;
+      let best = Infinity;
+      for (const l of pLaps) {
+        const sec = parseLapSec(l.lap_time);
+        if (sec !== null && sec >= 38 && sec < best) best = sec;
+      }
+      if (best < Infinity) {
+        const existing = kartMap.get(kart);
+        if (!existing || best < existing) kartMap.set(kart, best);
+      }
+    }
+  }
+
+  // Build rows
+  const rows: { pilot: string; kartTimes: (number | null)[]; average: number | null; completedKarts: number }[] = [];
+  for (const [pilot, kartMap] of pilotKartBest) {
+    const kartTimes = kartNumbers.map(k => kartMap.get(k) ?? null);
+    const validTimes = kartTimes.filter((t): t is number => t !== null);
+    const average = validTimes.length > 0 ? validTimes.reduce((a, b) => a + b, 0) / validTimes.length : null;
+    rows.push({ pilot, kartTimes, average, completedKarts: validTimes.length });
+  }
+
+  rows.sort((a, b) => {
+    if (a.average === null && b.average === null) return 0;
+    if (a.average === null) return 1;
+    if (b.average === null) return -1;
+    return a.average - b.average;
+  });
+
+  const overallBestPerKart = kartNumbers.map((_, ki) => {
+    let best = Infinity;
+    for (const r of rows) { const t = r.kartTimes[ki]; if (t !== null && t < best) best = t; }
+    return best < Infinity ? best : null;
+  });
+
+  if (rows.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
+
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-dark-800">
+        <h3 className="text-white font-semibold text-sm">Гонзалес — Зведена таблиця</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[10px]">
+          <thead>
+            <tr className="table-header">
+              <th className="table-cell text-center w-6">#</th>
+              <th className="table-cell text-left min-w-[100px]">Пілот</th>
+              {kartNumbers.map(k => (
+                <th key={k} className="table-cell text-center min-w-[60px]">Карт {k}</th>
+              ))}
+              <th className="table-cell text-center min-w-[70px] font-bold">Середнє</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.pilot} className="table-row">
+                <td className="table-cell text-center font-mono text-white font-bold">{i + 1}</td>
+                <td className="table-cell text-left text-white">{r.pilot}</td>
+                {r.kartTimes.map((t, ki) => {
+                  if (t === null) return <td key={ki} className="table-cell text-center text-dark-700">—</td>;
+                  const isBestOnKart = overallBestPerKart[ki] !== null && Math.abs(t - overallBestPerKart[ki]!) < 0.002;
+                  return (
+                    <td key={ki} className={`table-cell text-center font-mono ${isBestOnKart ? 'text-purple-400 font-bold' : 'text-dark-300'}`}>
+                      {t.toFixed(3)}
+                    </td>
+                  );
+                })}
+                <td className={`table-cell text-center font-mono font-bold ${i === 0 && r.average !== null ? 'text-purple-400' : 'text-green-400'}`}>
+                  {r.average !== null ? r.average.toFixed(3) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
