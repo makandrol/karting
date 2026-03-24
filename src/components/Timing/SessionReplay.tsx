@@ -483,8 +483,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
           <thead>
             <tr className="table-header">
               <th className="table-cell text-center w-5">#</th>
-              <th className="table-cell text-left min-w-[85px]">Pilot</th>
-              <th className="table-cell text-center text-dark-500 w-7">+/-</th>
+              <th className="table-cell text-left min-w-[70px]">Pilot</th>
+              <th className="table-cell text-center text-dark-500 w-5" style={{ paddingLeft: 0 }}>+/-</th>
               <th className="table-cell text-center">Kart</th>
               <th className="table-cell text-right">Last</th>
               <th className="table-cell text-right">S1</th>
@@ -511,7 +511,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                   <td className="table-cell text-center font-mono font-bold text-dark-400">
                     {notStarted ? '—' : e.position}
                   </td>
-                  <td className="table-cell text-left py-1.5 !pr-0">
+                  <td className="table-cell text-left py-1.5" style={{ paddingRight: 0 }}>
                     <div className={`font-medium text-[11px] leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
                       <Link to={`/pilots/${encodeURIComponent(e.pilot)}`} className={`${notStarted ? 'text-dark-500' : 'text-white hover:text-primary-400'} transition-colors`}>
                         {shortName(e.pilot)}
@@ -524,7 +524,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                       />
                     </div>
                   </td>
-                  <td className="table-cell text-center font-mono text-[10px] !pl-0">{(() => {
+                  <td className="table-cell text-center font-mono text-[10px]" style={{ paddingLeft: 0 }}>{(() => {
                     if (notStarted) return '';
                     const st = e.currentLapSec;
                     if (st == null) return '—';
