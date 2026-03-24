@@ -130,7 +130,9 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
     const qualiSorted = [...qualiData.entries()]
       .filter(([p]) => !excludedPilots.has(p))
       .sort((a, b) => a[1].bestTime - b[1].bestTime);
-    const qualifiedPilots = qualiSorted.map(([p]) => p);
+    const maxQualified = format === 'champions_league' ? 24 : 36;
+    const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
+    const disqualifiedPilots = new Set(qualiSorted.slice(maxQualified).map(([p]) => p));
     const totalPilots = qualifiedPilots.length;
 
     // Qualifying speed points (top 5 fastest)
@@ -158,7 +160,10 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
       const rSessions = getRaceSessions(r);
 
       // Determine start positions from previous race/quali times (reverse order per group)
-      const prevSorted = [...prevRaceTimes].filter(p => !excludedPilots.has(p.pilot)).sort((a, b) => a.time - b.time);
+      const prevSorted = [...prevRaceTimes]
+        .filter(p => !excludedPilots.has(p.pilot) && !disqualifiedPilots.has(p.pilot))
+        .sort((a, b) => a.time - b.time)
+        .slice(0, maxQualified);
       const rGroups = splitIntoGroups(prevSorted.map(p => p.pilot), maxGroups);
       const startPositions = new Map<string, { group: number; startPos: number }>();
       rGroups.forEach((g, gi) => {
@@ -190,12 +195,13 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
           const editKey = `${pilot}|${r}`;
           const edit = edits[editKey];
           const sp = startPositions.get(pilot);
-          const startPos = edit?.startPos ?? sp?.startPos ?? 0;
+          const isDisqualified = disqualifiedPilots.has(pilot);
+          const startPos = isDisqualified ? -1 : (edit?.startPos ?? sp?.startPos ?? 0);
           const finishPos = edit?.finishPos ?? (i + 1);
-          const group = sp?.group ?? groupNum;
+          const group = isDisqualified ? 0 : (sp?.group ?? groupNum);
           const penalties = edit?.penalties ?? 0;
 
-          const overtakes = Math.max(0, startPos - finishPos);
+          const overtakes = isDisqualified ? 0 : Math.max(0, startPos - finishPos);
           const overtakeRate = getOvertakeRate(scoring, group, startPos);
           const overtakePoints = Math.round(overtakes * overtakeRate * 10) / 10;
           const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
@@ -367,7 +373,7 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
                         <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">{race ? toSeconds(race.bestTimeStr) : '—'}</td>
                         <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{race?.group || '—'}</td>
                         <td className="px-1 py-1 text-center font-mono text-dark-400 border-r border-dark-700/30">
-                          {race ? <EditableCell value={race.startPos} onChange={v => setEdit(row.pilot, ri + 1, 'startPos', v)} /> : '—'}
+                          {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : <EditableCell value={race.startPos} onChange={v => setEdit(row.pilot, ri + 1, 'startPos', v)} />) : '—'}
                         </td>
                         <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">
                           {race ? <EditableCell value={race.finishPos} onChange={v => setEdit(row.pilot, ri + 1, 'finishPos', v)} /> : '—'}
