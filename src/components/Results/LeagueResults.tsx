@@ -132,7 +132,7 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
     const groups = splitIntoGroups(qualifiedPilots, maxGroups);
     const pilotGroup = new Map<string, { group: number; posInGroup: number }>();
     groups.forEach((g, gi) => {
-      const groupNum = groups.length - gi; // group 1 = best, last in iteration
+      const groupNum = gi + 1; // group 1 = best (fastest from qualifying)
       g.pilots.forEach((p, pi) => {
         pilotGroup.set(p, { group: groupNum, posInGroup: g.pilots.length - pi }); // reverse: best gets highest pos
       });
@@ -151,7 +151,7 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
       const rGroups = splitIntoGroups(prevSorted.map(p => p.pilot), maxGroups);
       const startPositions = new Map<string, { group: number; startPos: number }>();
       rGroups.forEach((g, gi) => {
-        const gNum = rGroups.length - gi;
+        const gNum = gi + 1;
         g.pilots.forEach((p, pi) => {
           startPositions.set(p, { group: gNum, startPos: g.pilots.length - pi });
         });
