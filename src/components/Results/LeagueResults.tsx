@@ -125,12 +125,20 @@ export default function LeagueResults({ format, competitionId, sessions, session
   }, [competitionId]);
 
   type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points`;
-  const [sortKey, setSortKey] = useState<SortKey>('total');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sortKey, setSortKey] = useState<SortKey>(() => {
+    try { const v = localStorage.getItem(`karting_league_sort_${competitionId}`); return v ? JSON.parse(v).key : 'total'; } catch { return 'total'; }
+  });
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => {
+    try { const v = localStorage.getItem(`karting_league_sort_${competitionId}`); return v ? JSON.parse(v).dir : 'desc'; } catch { return 'desc'; }
+  });
   const toggleSort = (key: SortKey, fixedDir?: 'asc' | 'desc') => {
-    if (fixedDir) { setSortKey(key); setSortDir(fixedDir); }
-    else if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(key); setSortDir('desc'); }
+    let newKey = key;
+    let newDir: 'asc' | 'desc';
+    if (fixedDir) { newDir = fixedDir; }
+    else if (sortKey === key) { newDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+    else { newDir = 'desc'; }
+    setSortKey(newKey); setSortDir(newDir);
+    try { localStorage.setItem(`karting_league_sort_${competitionId}`, JSON.stringify({ key: newKey, dir: newDir })); } catch {}
   };
 
   const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
@@ -197,24 +205,33 @@ export default function LeagueResults({ format, competitionId, sessions, session
         });
       });
 
-      // Get finish positions from timing data
+      // Get finish positions from timing data (race mode: most laps, then earliest last lap)
       const raceTimes: { pilot: string; time: number }[] = [];
       for (const rs of rSessions) {
         const groupMatch = rs.phase?.match(/group_(\d+)/);
         const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
         const laps = sessionLaps.get(rs.sessionId) || [];
-        const pilotBest = new Map<string, { bestTime: number; bestTimeStr: string; kart: number }>();
+        const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; kart: number; lapCount: number; lastTs: number }>();
         for (const l of laps) {
           const sec = parseLapSec(l.lap_time);
           if (sec === null || sec < 38) continue;
-          const ex = pilotBest.get(l.pilot);
-          if (!ex || sec < ex.bestTime) pilotBest.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart });
+          const ex = pilotStats.get(l.pilot);
+          if (!ex) {
+            pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart, lapCount: 1, lastTs: l.ts });
+          } else {
+            ex.lapCount++;
+            if (l.ts > ex.lastTs) ex.lastTs = l.ts;
+            if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
+          }
         }
-        const sorted = [...pilotBest.entries()]
+        // Race finish: most laps first, then earliest last lap timestamp
+        const sorted = [...pilotStats.entries()]
           .filter(([p]) => !excludedPilots.has(p))
-          .sort((a, b) => a[1].bestTime - b[1].bestTime);
-        // Also keep excluded pilots' data (without scoring)
-        const excludedEntries = [...pilotBest.entries()].filter(([p]) => excludedPilots.has(p));
+          .sort((a, b) => {
+            if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
+            return a[1].lastTs - b[1].lastTs;
+          });
+        const excludedEntries = [...pilotStats.entries()].filter(([p]) => excludedPilots.has(p));
         sorted.forEach(([pilot, pData], i) => {
           const editKey = `${pilot}|${r}`;
           const edit = edits[editKey];
