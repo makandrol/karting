@@ -8,7 +8,7 @@ import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
 import { Link, useNavigate } from 'react-router-dom';
-import { parseTime, mergePilotNames, shortName, toSeconds } from '../../utils/timing';
+import { parseTime, mergePilotNames, shortName, toSeconds, fetchRaceStartPositions } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
@@ -58,6 +58,16 @@ export default function Timing() {
       .catch(() => {});
   }, [currentSessionId]);
 
+  // Compute start positions from competition data (qualifying / previous race)
+  useEffect(() => {
+    if (!liveSessionComp.competitionId || !liveSessionComp.phase?.startsWith('race_') || !liveSessionComp.format) {
+      setStartPositions(new Map()); return;
+    }
+    fetchRaceStartPositions(COLLECTOR_URL, liveSessionComp.competitionId, liveSessionComp.phase, liveSessionComp.format)
+      .then(setStartPositions)
+      .catch(() => setStartPositions(new Map()));
+  }, [liveSessionComp.competitionId, liveSessionComp.phase, liveSessionComp.format]);
+
   // Fetch laps for active session (for replay)
   const [replayLaps, setReplayLaps] = useState<DbLap[]>([]);
   const [s1Events, setS1Events] = useState<S1Event[]>([]);
@@ -92,21 +102,13 @@ export default function Timing() {
       ]);
       setReplayLaps(lapsRes);
       const parsed: S1Event[] = [];
-      const startPosMap = new Map<string, number>();
       for (const ev of eventsRes) {
         if (ev.event_type === 's1' && ev.data) {
           const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
           if (d.pilot && d.s1) parsed.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
         }
-        if (ev.event_type === 'snapshot' && startPosMap.size === 0 && ev.data) {
-          const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-          for (const en of (d.entries || [])) {
-            if (en.pilot && en.position) startPosMap.set(en.pilot, Number(en.position));
-          }
-        }
       }
       setS1Events(parsed);
-      setStartPositions(startPosMap);
     } catch { /* ignore */ }
   }, [currentSessionId]);
 

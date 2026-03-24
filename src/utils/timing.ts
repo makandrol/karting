@@ -77,3 +77,83 @@ export function mergePilotNames<T extends { pilot: string; kart: number }>(laps:
     return l;
   });
 }
+
+/**
+ * Compute race start positions from qualifying or previous race results.
+ * Returns Map<pilot, position_within_group> (reverse order = last in quali starts first).
+ */
+export async function fetchRaceStartPositions(
+  collectorUrl: string,
+  competitionId: string,
+  currentPhase: string,
+  format: string,
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  const raceMatch = currentPhase.match(/^race_(\d+)_group_(\d+)$/);
+  if (!raceMatch) return result;
+
+  const raceNum = parseInt(raceMatch[1]);
+  const groupNum = parseInt(raceMatch[2]);
+
+  try {
+    const comp = await fetch(`${collectorUrl}/competitions/${encodeURIComponent(competitionId)}`).then(r => r.json());
+    const sessions: { sessionId: string; phase: string }[] =
+      typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : comp.sessions;
+    const excluded = new Set<string>(comp.results?.excludedPilots || []);
+
+    let sourcePhasePrefix: string;
+    if (raceNum === 1) {
+      sourcePhasePrefix = 'qualifying';
+    } else {
+      sourcePhasePrefix = `race_${raceNum - 1}_`;
+    }
+
+    const sourceSessions = sessions.filter(s => s.phase.startsWith(sourcePhasePrefix));
+    const pilotBest = new Map<string, number>();
+    for (const ss of sourceSessions) {
+      const laps: { pilot: string; lap_time: string | null }[] =
+        await fetch(`${collectorUrl}/db/laps?session=${ss.sessionId}`).then(r => r.json()).catch(() => []);
+      for (const l of laps) {
+        if (!l.lap_time || excluded.has(l.pilot)) continue;
+        const sec = parseTime(l.lap_time);
+        if (sec === null || sec < 38) continue;
+        const prev = pilotBest.get(l.pilot);
+        if (prev === undefined || sec < prev) pilotBest.set(l.pilot, sec);
+      }
+    }
+
+    const sorted = [...pilotBest.entries()].sort((a, b) => a[1] - b[1]);
+    const maxQualified = format === 'champions_league' ? 24 : 36;
+    const qualified = sorted.slice(0, maxQualified).map(([p]) => p);
+
+    const maxGroups = format === 'champions_league' ? 2 : 3;
+    const n = qualified.length;
+    let groupCount: number;
+    if (maxGroups >= 3) {
+      if (n <= 13) groupCount = 1;
+      else if (n <= 26) groupCount = 2;
+      else groupCount = 3;
+    } else {
+      if (n <= 13) groupCount = 1;
+      else groupCount = 2;
+    }
+
+    const baseSize = Math.floor(n / groupCount);
+    let remainder = n % groupCount;
+    let idx = 0;
+    for (let g = 0; g < groupCount; g++) {
+      const size = baseSize + (remainder > 0 ? 1 : 0);
+      if (remainder > 0) remainder--;
+      if (g + 1 === groupNum) {
+        const groupPilots = qualified.slice(idx, idx + size);
+        groupPilots.forEach((p, pi) => {
+          result.set(p, groupPilots.length - pi);
+        });
+        break;
+      }
+      idx += size;
+    }
+  } catch { /* ignore */ }
+
+  return result;
+}
