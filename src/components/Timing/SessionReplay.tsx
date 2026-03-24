@@ -451,7 +451,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       {/* Timing board */}
       <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-xs [&_th]:px-1 [&_th]:py-1 [&_td]:px-1 [&_td]:py-1">
+          <table className="w-full text-xs [&_th]:px-0.5 [&_th]:py-0.5 [&_td]:px-0.5 [&_td]:py-0.5">
           <thead>
             <tr className="table-header">
               <th className="table-cell text-center w-5">#</th>
@@ -488,7 +488,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                         {shortName(e.pilot)}
                       </Link>
                     </div>
-                    <div className="mt-1 h-[3px] w-full bg-dark-800 rounded-full overflow-hidden">
+                    <div className="mt-0.5 h-[1.5px] w-full bg-dark-800 rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all duration-[50ms] ease-linear bg-yellow-500/60"
                         style={{ width: `${!notStarted && e.progress !== null ? Math.round(e.progress * 100) : 0}%` }}
