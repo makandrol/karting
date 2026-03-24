@@ -4,9 +4,12 @@ import { useAuth } from './auth';
 interface ViewPrefs {
   showTrack: boolean;
   showLapsByPilots: boolean;
+  showLeaguePoints: boolean;
+  showLeagueSessions: boolean;
+  [key: string]: boolean;
 }
 
-const DEFAULTS: ViewPrefs = { showTrack: true, showLapsByPilots: true };
+const DEFAULTS: ViewPrefs = { showTrack: true, showLapsByPilots: true, showLeaguePoints: true, showLeagueSessions: true };
 
 function getStorageKey(email: string | null): string {
   return email ? `karting_view_prefs_${email}` : 'karting_view_prefs_anon';

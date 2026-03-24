@@ -5,6 +5,7 @@ import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel } from '../../data/co
 import { toSeconds } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
+import LeagueResults from '../../components/Results/LeagueResults';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -253,6 +254,10 @@ function LiveResults({ competition }: { competition: Competition }) {
 
   if (competition.format === 'gonzales') {
     return <GonzalesLiveTable competition={competition} sessionLaps={sessionLaps} />;
+  }
+
+  if (competition.format === 'light_league' || competition.format === 'champions_league') {
+    return <LeagueResults format={competition.format} sessions={competition.sessions} sessionLaps={sessionLaps} />;
   }
 
   const phases = PHASE_CONFIGS[competition.format]?.phases || [];
