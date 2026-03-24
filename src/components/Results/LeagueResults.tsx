@@ -192,14 +192,13 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
   return (
     <div className="space-y-4">
       {prefs.showLeaguePoints ? (
-        <div className="relative">
-          <button onClick={() => toggle('showLeaguePoints')}
-            className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
-            сховати
-          </button>
+        <div>
           <div className="card p-0 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-dark-800 flex items-center gap-3 flex-wrap">
-              <h3 className="text-white font-semibold text-sm">Таблиця балів</h3>
+              <button onClick={() => toggle('showLeaguePoints')}
+                className="text-white font-semibold text-sm hover:text-dark-300 transition-colors">
+                Таблиця балів ▾
+              </button>
               <div className="flex gap-1 flex-wrap">
                 <SortBtn k="total" label="Сума" />
                 <SortBtn k="quali_time" label="Квала" />
@@ -300,7 +299,7 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
       ) : (
         <button onClick={() => toggle('showLeaguePoints')}
           className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
-          Показати таблицю балів
+          Таблиця балів ▸
         </button>
       )}
     </div>
