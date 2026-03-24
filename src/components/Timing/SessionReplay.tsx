@@ -511,7 +511,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                   <td className="table-cell text-center font-mono font-bold text-dark-400">
                     {notStarted ? '—' : e.position}
                   </td>
-                  <td className="table-cell text-left py-1.5">
+                  <td className="table-cell text-left py-1.5 !pr-0">
                     <div className={`font-medium text-[11px] leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
                       <Link to={`/pilots/${encodeURIComponent(e.pilot)}`} className={`${notStarted ? 'text-dark-500' : 'text-white hover:text-primary-400'} transition-colors`}>
                         {shortName(e.pilot)}
@@ -524,7 +524,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                       />
                     </div>
                   </td>
-                  <td className="table-cell text-center font-mono text-[10px]">{(() => {
+                  <td className="table-cell text-center font-mono text-[10px] !pl-0">{(() => {
                     if (notStarted) return '';
                     const st = e.currentLapSec;
                     if (st == null) return '—';
