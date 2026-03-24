@@ -37,7 +37,11 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
   const durationRef = useRef(durationSec);
   durationRef.current = durationSec;
 
-  const pilots = useMemo(() => [...new Set(laps.map(l => l.pilot))], [laps]);
+  const pilots = useMemo(() => {
+    const set = new Set(laps.map(l => l.pilot));
+    if (liveEntries) for (const e of liveEntries) set.add(e.pilot);
+    return [...set];
+  }, [laps, liveEntries]);
 
   // Per-pilot S1 events sorted by timestamp for quick lookup during replay
   const pilotS1Events = useMemo(() => {
@@ -87,7 +91,28 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
     for (let idx = 0; idx < pilots.length; idx++) {
       const pilot = pilots[idx];
       const pilotLaps = laps.filter(l => l.pilot === pilot);
-      if (pilotLaps.length === 0) continue;
+
+      // Pilot has no recorded laps — show from live data if available
+      if (pilotLaps.length === 0) {
+        const liveEntry = liveEntries?.find(le => le.pilot === pilot);
+        if (liveEntry) {
+          result.push({
+            position: idx + 1, pilot,
+            kart: liveEntry.kart,
+            lastLap: liveEntry.lastLap || null,
+            s1: liveEntry.s1 || null,
+            s2: liveEntry.s2 || null,
+            bestLap: liveEntry.bestLap || null,
+            lapNumber: liveEntry.lapNumber || 0,
+            bestS1: liveEntry.bestS1 || null,
+            bestS2: liveEntry.bestS2 || null,
+            progress: liveEntry.progress ?? null,
+            currentLapSec: null,
+            previousLapSec: null,
+          });
+        }
+        continue;
+      }
 
       let completedLaps = 0;
       let progress: number;
