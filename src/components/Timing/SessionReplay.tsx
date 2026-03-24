@@ -13,6 +13,8 @@ export interface S1Event {
   ts: number;
 }
 
+export type ReplaySortMode = 'qualifying' | 'race';
+
 interface SessionReplayProps {
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number; ts?: number }[];
   durationSec: number;
@@ -22,16 +24,20 @@ interface SessionReplayProps {
   autoPlay?: boolean;
   liveEntries?: TimingEntry[];
   s1Events?: S1Event[];
+  defaultSortMode?: ReplaySortMode;
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
   const [atLive, setAtLive] = useState(!!isLive && !!autoPlay);
+  const [sortMode, setSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
+
+  useEffect(() => { if (defaultSortMode) setSortMode(defaultSortMode); }, [defaultSortMode]);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
   const durationRef = useRef(durationSec);
@@ -270,12 +276,16 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
         if (a.lapNumber === 0) return 1;
         if (b.lapNumber === 0) return -1;
+        if (sortMode === 'race') {
+          if (a.lapNumber !== b.lapNumber) return b.lapNumber - a.lapNumber;
+          return (a.progress ?? 0) > (b.progress ?? 0) ? -1 : 1;
+        }
         const aT = parseTime(a.bestLap || '') ?? 999;
         const bT = parseTime(b.bestLap || '') ?? 999;
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
-  }, [laps, pilots, sessionStartTime, pilotTimelines, pilotS1Events, liveEntries]);
+  }, [laps, pilots, sessionStartTime, pilotTimelines, pilotS1Events, liveEntries, sortMode]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
@@ -388,6 +398,25 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         <option value={5}>5x</option>
         <option value={10}>10x</option>
       </select>
+
+      <div className="flex bg-dark-800 rounded-md p-0.5 shrink-0">
+        <button
+          onClick={() => setSortMode('qualifying')}
+          className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+            sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+          }`}
+        >
+          Квала
+        </button>
+        <button
+          onClick={() => setSortMode('race')}
+          className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+            sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+          }`}
+        >
+          Гонка
+        </button>
+      </div>
 
       <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
         {isLive ? formatTimeSec(currentTime) : `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}

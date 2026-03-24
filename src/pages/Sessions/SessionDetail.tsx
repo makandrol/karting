@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds, mergePilotNames, shortName } from '../../utils/timing';
-import SessionReplay, { type S1Event } from '../../components/Timing/SessionReplay';
+import SessionReplay, { type S1Event, type ReplaySortMode } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
@@ -313,6 +313,7 @@ export default function SessionDetail() {
                   raceNumber={dbSession.race_number}
                   autoPlay={true}
                   s1Events={s1Events}
+                  defaultSortMode={(dbSession as any).competition_phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                   onEntriesUpdate={setTrackEntries}
                   renderScrubber={(scrubber) => (
                     <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">

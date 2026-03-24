@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { TrackMap } from '../../components/Track';
 import DayTimeline from '../../components/Timing/DayTimeline';
 import CompetitionControl from '../../components/Timing/CompetitionControl';
-import SessionReplay, { type S1Event } from '../../components/Timing/SessionReplay';
+import SessionReplay, { type S1Event, type ReplaySortMode } from '../../components/Timing/SessionReplay';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
@@ -259,6 +259,7 @@ export default function Timing() {
                 autoPlay={true}
                 liveEntries={entries}
                 s1Events={s1Events}
+                defaultSortMode={liveSessionComp.phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                 onEntriesUpdate={setTrackEntries}
                 renderScrubber={(scrubber) => (
                   <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
