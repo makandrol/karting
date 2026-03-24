@@ -99,7 +99,8 @@ export async function fetchRaceStartPositions(
     const comp = await fetch(`${collectorUrl}/competitions/${encodeURIComponent(competitionId)}`).then(r => r.json());
     const sessions: { sessionId: string; phase: string }[] =
       typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : comp.sessions;
-    const excluded = new Set<string>(comp.results?.excludedPilots || []);
+    const rawResults = typeof comp.results === 'string' ? JSON.parse(comp.results) : comp.results;
+    const excluded = new Set<string>(rawResults?.excludedPilots || []);
 
     let sourcePhasePrefix: string;
     if (raceNum === 1) {
