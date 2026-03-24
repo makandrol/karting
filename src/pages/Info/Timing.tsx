@@ -61,6 +61,7 @@ export default function Timing() {
   // Fetch laps for active session (for replay)
   const [replayLaps, setReplayLaps] = useState<DbLap[]>([]);
   const [s1Events, setS1Events] = useState<S1Event[]>([]);
+  const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
 
@@ -91,13 +92,21 @@ export default function Timing() {
       ]);
       setReplayLaps(lapsRes);
       const parsed: S1Event[] = [];
+      const startPosMap = new Map<string, number>();
       for (const ev of eventsRes) {
         if (ev.event_type === 's1' && ev.data) {
           const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
           if (d.pilot && d.s1) parsed.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
         }
+        if (ev.event_type === 'snapshot' && startPosMap.size === 0 && ev.data) {
+          const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+          for (const en of (d.entries || [])) {
+            if (en.pilot && en.position) startPosMap.set(en.pilot, Number(en.position));
+          }
+        }
       }
       setS1Events(parsed);
+      setStartPositions(startPosMap);
     } catch { /* ignore */ }
   }, [currentSessionId]);
 
@@ -259,6 +268,7 @@ export default function Timing() {
                 autoPlay={true}
                 liveEntries={entries}
                 s1Events={s1Events}
+                startPositions={startPositions}
                 defaultSortMode={liveSessionComp.phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                 onEntriesUpdate={setTrackEntries}
                 renderScrubber={(scrubber) => (

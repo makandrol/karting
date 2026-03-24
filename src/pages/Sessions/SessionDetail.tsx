@@ -59,6 +59,7 @@ export default function SessionDetail() {
   const [daySessions, setDaySessions] = useState<DbSession[]>([]);
   const [dbLaps, setDbLaps] = useState<DbLap[]>([]);
   const [s1Events, setS1Events] = useState<S1Event[]>([]);
+  const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
   const [liveEntries, setLiveEntries] = useState<any[]>([]);
   const [dbLoading, setDbLoading] = useState(true);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
@@ -87,6 +88,7 @@ export default function SessionDetail() {
         const sessionIds = found?.merged_session_ids || [sessionId];
         const allLaps: DbLap[] = [];
         const allS1Events: S1Event[] = [];
+        const startPosMap = new Map<string, number>();
         for (const sid of sessionIds) {
           const [sLaps, sEvents] = await Promise.all([
             fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()),
@@ -98,10 +100,17 @@ export default function SessionDetail() {
               const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
               if (d.pilot && d.s1) allS1Events.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
             }
+            if (ev.event_type === 'snapshot' && startPosMap.size === 0 && ev.data) {
+              const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+              for (const en of (d.entries || [])) {
+                if (en.pilot && en.position) startPosMap.set(en.pilot, Number(en.position));
+              }
+            }
           }
         }
         setDbLaps(allLaps);
         setS1Events(allS1Events);
+        setStartPositions(startPosMap);
 
         if (found && !found.end_time) {
           try {
@@ -313,6 +322,7 @@ export default function SessionDetail() {
                   raceNumber={dbSession.race_number}
                   autoPlay={true}
                   s1Events={s1Events}
+                  startPositions={startPositions}
                   defaultSortMode={(dbSession as any).competition_phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                   onEntriesUpdate={setTrackEntries}
                   renderScrubber={(scrubber) => (

@@ -24,13 +24,14 @@ interface SessionReplayProps {
   autoPlay?: boolean;
   liveEntries?: TimingEntry[];
   s1Events?: S1Event[];
+  startPositions?: Map<string, number>;
   defaultSortMode?: ReplaySortMode;
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, startPositions, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
@@ -258,8 +259,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         if (v < bestLapSec) { bestLapSec = v; bestLap = liveEntry.bestLap; }
       }
 
-      // Start position = position from pilot's first recorded lap
-      const startPosition = pilotLaps.length > 0 ? (pilotLaps[0].position ?? null) : null;
+      // Start position from first snapshot event (if available) or first lap
+      const startPosition = startPositions?.get(pilot) ?? (pilotLaps.length > 0 ? (pilotLaps[0].position ?? null) : null);
 
       result.push({
         position: idx + 1, pilot,
