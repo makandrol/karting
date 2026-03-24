@@ -22,8 +22,7 @@ export function getTimeColor(value: string | null, personalBest: string | null, 
   const pb = parseTime(personalBest);
   if (pb !== null && Math.abs(val - pb) < 0.002) return 'green';
   if (pb !== null && val > pb) return 'yellow';
-  if (overallBest !== null && val <= overallBest + 0.002) return 'purple';
-  return 'green';
+  return 'none';
 }
 
 export const COLOR_CLASSES: Record<TimeColor, string> = {
