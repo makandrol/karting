@@ -649,6 +649,20 @@ export const storage = {
     console.log(`🏁 Auto-linked session ${sessionId} → ${liveComp.name} · ${nextPhase}`);
     return { competitionId: liveComp.id, phase: nextPhase };
   },
+
+  autoUnlinkSession(sessionId) {
+    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    for (const comp of comps) {
+      const entry = comp.sessions.find(s => s.sessionId === sessionId);
+      if (entry) {
+        const sessions = comp.sessions.filter(s => s.sessionId !== sessionId);
+        this.updateCompetition(comp.id, { sessions });
+        console.log(`🗑️ Auto-unlinked short session ${sessionId} from ${comp.name} · ${entry.phase}`);
+        return true;
+      }
+    }
+    return false;
+  },
 };
 
 console.log(`💾 SQLite DB: ${DB_PATH}`);
