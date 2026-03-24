@@ -288,7 +288,10 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
           const aP = a.progress ?? 0;
           const bP = b.progress ?? 0;
           if (Math.abs(aP - bP) > 0.01) return bP - aP;
-          return (pilotLastPos.get(a.pilot) ?? 99) - (pilotLastPos.get(b.pilot) ?? 99);
+          const aLastPos = pilotLastPos.get(a.pilot) ?? 99;
+          const bLastPos = pilotLastPos.get(b.pilot) ?? 99;
+          if (aLastPos !== 99 || bLastPos !== 99) return aLastPos - bLastPos;
+          return (startPositions?.get(a.pilot) ?? 99) - (startPositions?.get(b.pilot) ?? 99);
         }
         if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
         if (a.lapNumber === 0) return 1;
