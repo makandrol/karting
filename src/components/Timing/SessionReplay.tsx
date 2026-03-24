@@ -35,11 +35,18 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
 
   const effectiveS1Ratio = useMemo(() => {
     if (s1Ratio) return s1Ratio;
-    const firstLap = laps[0];
-    if (firstLap?.s1 && firstLap?.lapTime) {
-      const s1Sec = parseTime(firstLap.s1) || 0;
-      const lapSec = parseTime(firstLap.lapTime) || 0;
-      if (s1Sec > 0 && lapSec > 0) return s1Sec / lapSec;
+    const ratios: number[] = [];
+    for (const lap of laps) {
+      if (!lap.s1 || !lap.lapTime) continue;
+      const s1Sec = parseTime(lap.s1) || 0;
+      const lapSec = parseTime(lap.lapTime) || 0;
+      if (s1Sec >= 10 && lapSec >= 38 && lapSec < 120) {
+        ratios.push(s1Sec / lapSec);
+      }
+    }
+    if (ratios.length > 0) {
+      ratios.sort((a, b) => a - b);
+      return ratios[Math.floor(ratios.length / 2)];
     }
     return 0.43;
   }, [s1Ratio, laps]);
