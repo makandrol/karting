@@ -39,7 +39,7 @@ async function apiPatch(path: string, body: object) {
   });
 }
 
-type Step = 'closed' | 'format' | 'competition' | 'phase';
+type Step = 'closed' | 'format' | 'competition' | 'phase' | 'change_phase';
 
 export default function SessionTypeChanger({ sessionId, currentFormat, currentPhase, currentCompetitionId, onChanged }: SessionTypeChangerProps) {
   const { hasPermission } = useAuth();
@@ -150,6 +150,42 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     } catch {}
   };
 
+  const handleUnlink = async () => {
+    if (!currentCompetitionId || !sessionId) return;
+    setLoading(true);
+    try {
+      await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/unlink-session`, { sessionId });
+    } catch {}
+    setLoading(false);
+    setStep('closed');
+    onChanged?.();
+  };
+
+  const handleDeleteCompetition = async () => {
+    if (!currentCompetitionId) return;
+    setLoading(true);
+    try {
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(currentCompetitionId)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+      });
+    } catch {}
+    setLoading(false);
+    setStep('closed');
+    onChanged?.();
+  };
+
+  const handleChangePhase = async (phaseId: string) => {
+    if (!currentCompetitionId || !sessionId) return;
+    setLoading(true);
+    try {
+      await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/link-session`, { sessionId, phase: phaseId });
+    } catch {}
+    setLoading(false);
+    setStep('closed');
+    onChanged?.();
+  };
+
   if (!canManage) return null;
 
   const isLinked = !!currentCompetitionId;
@@ -172,15 +208,9 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
 
       {step !== 'closed' && (
         <div className="absolute top-full left-0 mt-1 w-64 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50">
-          {step === 'format' && (
+          {step === 'format' && !isLinked && (
             <>
               <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Тип заїзду</div>
-              <button
-                onClick={() => { setStep('closed'); }}
-                className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
-              >
-                Прокат
-              </button>
               {Object.values(COMPETITION_CONFIGS).filter(c => c.format !== 'sprint' && c.format !== 'marathon').map(config => (
                 <button
                   key={config.format}
@@ -190,6 +220,54 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
                   {config.name}
                 </button>
               ))}
+            </>
+          )}
+
+          {step === 'format' && isLinked && (
+            <>
+              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">{label}</div>
+              <button
+                onClick={() => {
+                  setSelectedComp({ id: currentCompetitionId!, name: '', format: currentFormat!, date: '', status: 'live', sessions: [] });
+                  setStep('change_phase');
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
+              >
+                Змінити етап
+              </button>
+              <button
+                onClick={handleUnlink}
+                className="w-full text-left px-3 py-2 text-sm text-yellow-400/80 hover:text-yellow-400 hover:bg-dark-800 transition-colors"
+              >
+                Зробити прокатом
+              </button>
+              <button
+                onClick={handleDeleteCompetition}
+                className="w-full text-left px-3 py-2 text-sm text-red-400/60 hover:text-red-400 hover:bg-dark-800 transition-colors"
+              >
+                Видалити змагання
+              </button>
+            </>
+          )}
+
+          {step === 'change_phase' && selectedComp && (
+            <>
+              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Змінити етап</div>
+              {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => (
+                <button
+                  key={phase.id}
+                  onClick={() => handleChangePhase(phase.id)}
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                    phase.id === currentPhase ? 'text-primary-400 font-medium' : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                  }`}
+                >
+                  {phase.label}
+                  {phase.id === currentPhase && <span className="text-dark-600 text-[10px] ml-1">(поточний)</span>}
+                </button>
+              ))}
+              <button onClick={() => setStep('format')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">
+                ← Назад
+              </button>
             </>
           )}
 
