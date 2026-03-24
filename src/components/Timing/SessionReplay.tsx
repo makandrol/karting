@@ -484,7 +484,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
             <tr className="table-header">
               <th className="table-cell text-center w-5">#</th>
               <th className="table-cell text-left min-w-[85px]">Pilot</th>
-              <th className="table-cell text-center text-dark-500">St</th>
+              <th className="table-cell text-center text-dark-500 w-7">+/-</th>
               <th className="table-cell text-center">Kart</th>
               <th className="table-cell text-right">Last</th>
               <th className="table-cell text-right">S1</th>
@@ -524,7 +524,15 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                       />
                     </div>
                   </td>
-                  <td className="table-cell text-center font-mono text-dark-600 text-[10px]">{notStarted ? '' : (e.currentLapSec ?? '—')}</td>
+                  <td className="table-cell text-center font-mono text-[10px]">{(() => {
+                    if (notStarted) return '';
+                    const st = e.currentLapSec;
+                    if (st == null) return '—';
+                    const diff = st - e.position;
+                    if (diff > 0) return <span className="text-green-400">↑{diff}</span>;
+                    if (diff < 0) return <span className="text-red-400">↓{Math.abs(diff)}</span>;
+                    return <span className="text-dark-600">0</span>;
+                  })()}</td>
                   <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
                     {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
