@@ -79,6 +79,14 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
     return next;
   });
 
+  type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points`;
+  const [sortKey, setSortKey] = useState<SortKey>('total');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir(key === 'total' ? 'desc' : 'asc'); }
+  };
+
   const data = useMemo(() => {
     const qualiData = new Map<string, PilotQualiData>();
     for (const qs of qualiSessions) {
@@ -141,15 +149,40 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
       totalPoints: 0,
     }));
 
-    rows.sort((a, b) => {
-      if (a.totalPoints !== b.totalPoints) return b.totalPoints - a.totalPoints;
-      return (a.quali?.bestTime ?? Infinity) - (b.quali?.bestTime ?? Infinity);
-    });
+    rows.sort((a, b) => (a.quali?.bestTime ?? Infinity) - (b.quali?.bestTime ?? Infinity));
 
     return rows;
   }, [sessions, sessionLaps]);
 
-  if (data.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
+  const sortedData = useMemo(() => {
+    const arr = [...data];
+    const getValue = (row: PilotRow): number => {
+      if (sortKey === 'total') return row.totalPoints;
+      if (sortKey === 'quali_time') return row.quali?.bestTime ?? Infinity;
+      const rMatch = sortKey.match(/^race_(\d+)_(time|points)$/);
+      if (rMatch) {
+        const ri = parseInt(rMatch[1]) - 1;
+        const race = row.races[ri];
+        if (rMatch[2] === 'time') return race?.bestTime ?? Infinity;
+        return race?.totalRacePoints ?? 0;
+      }
+      return 0;
+    };
+    arr.sort((a, b) => {
+      const va = getValue(a), vb = getValue(b);
+      return sortDir === 'asc' ? va - vb : vb - va;
+    });
+    return arr;
+  }, [data, sortKey, sortDir]);
+
+  if (sortedData.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
+
+  const SortBtn = ({ k, label }: { k: SortKey; label: string }) => (
+    <button onClick={() => toggleSort(k)}
+      className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${sortKey === k ? 'bg-primary-600/30 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
+      {label} {sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+    </button>
+  );
 
   const showQuali = !hiddenGroups.has('quali');
   const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
@@ -165,8 +198,18 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
             сховати
           </button>
           <div className="card p-0 overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-dark-800 flex items-center gap-3">
+            <div className="px-4 py-2.5 border-b border-dark-800 flex items-center gap-3 flex-wrap">
               <h3 className="text-white font-semibold text-sm">Таблиця балів</h3>
+              <div className="flex gap-1 flex-wrap">
+                <SortBtn k="total" label="Сума" />
+                <SortBtn k="quali_time" label="Квала" />
+                {Array.from({ length: raceCount }, (_, i) => (
+                  <Fragment key={i}>
+                    <SortBtn k={`race_${i + 1}_time` as SortKey} label={`Г${i + 1} час`} />
+                    <SortBtn k={`race_${i + 1}_points` as SortKey} label={`Г${i + 1} бали`} />
+                  </Fragment>
+                ))}
+              </div>
               <div className="flex gap-1">
                 <button onClick={() => toggleGroup('quali')}
                   className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showQuali ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
@@ -219,7 +262,7 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
                   </tr>
                 </thead>
                 <tbody>
-                  {data.map((row, i) => (
+                  {sortedData.map((row, i) => (
                     <tr key={row.pilot} className="border-b border-dark-800/50 hover:bg-dark-700/30">
                       <td className="px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700">{i + 1}</td>
                       <td className="px-2 py-1 text-left text-white border-r border-dark-700">{row.pilot}</td>
