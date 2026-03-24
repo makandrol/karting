@@ -634,8 +634,14 @@ export const storage = {
     const liveComp = comps.find(c => c.status === 'live');
     if (!liveComp) return null;
     const phases = PHASE_ORDER[liveComp.format] || [];
-    const usedPhases = new Set(liveComp.sessions.map(s => s.phase));
-    const nextPhase = phases.find(p => !usedPhases.has(p));
+    const usedPhases = liveComp.sessions.map(s => s.phase);
+    // Find the last used phase index, then take the next one
+    let lastUsedIdx = -1;
+    for (const p of usedPhases) {
+      const idx = phases.indexOf(p);
+      if (idx > lastUsedIdx) lastUsedIdx = idx;
+    }
+    const nextPhase = lastUsedIdx < phases.length - 1 ? phases[lastUsedIdx + 1] : null;
     if (!nextPhase) return null;
     const sessions = [...liveComp.sessions, { sessionId, phase: nextPhase }];
     this.updateCompetition(liveComp.id, { sessions });
