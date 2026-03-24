@@ -2,6 +2,10 @@ import { useMemo, Fragment, useState, useEffect, useCallback } from 'react';
 import { toSeconds } from '../../utils/timing';
 import { PHASE_CONFIGS, splitIntoGroups } from '../../data/competitions';
 import { useViewPrefs } from '../../services/viewPrefs';
+import { useAuth } from '../../services/auth';
+import { COLLECTOR_URL } from '../../services/config';
+
+const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
 interface SessionLap {
   pilot: string;
@@ -19,8 +23,11 @@ interface CompSession {
 
 interface LeagueResultsProps {
   format: string;
+  competitionId: string;
   sessions: CompSession[];
   sessionLaps: Map<string, SessionLap[]>;
+  initialExcludedPilots?: string[];
+  initialEdits?: ManualEdits;
 }
 
 interface ScoringData {
@@ -71,8 +78,9 @@ function getPositionPoints(scoring: ScoringData, totalPilots: number, group: str
   return pts[finishPos - 1];
 }
 
-export default function LeagueResults({ format, sessions, sessionLaps }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, initialExcludedPilots, initialEdits }: LeagueResultsProps) {
   const { prefs, toggle } = useViewPrefs();
+  const { isOwner } = useAuth();
   const raceCount = format === 'champions_league' ? 3 : 2;
   const maxGroups = format === 'champions_league' ? 2 : 3;
 
@@ -82,23 +90,39 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
   const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(new Set());
   const toggleGroup = (g: string) => setHiddenGroups(prev => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n; });
 
-  // Manual edits: key = "pilot|raceNum" → { startPos, finishPos, penalties }
-  const [edits, setEdits] = useState<ManualEdits>({});
+  const [edits, setEdits] = useState<ManualEdits>(initialEdits || {});
   const setEdit = useCallback((pilot: string, raceNum: number, field: string, value: number) => {
     setEdits(prev => {
       const key = `${pilot}|${raceNum}`;
-      return { ...prev, [key]: { ...prev[key], [field]: value } };
+      const next = { ...prev, [key]: { ...prev[key], [field]: value } };
+      saveToServer({ edits: next });
+      return next;
     });
-  }, []);
+  }, [competitionId]);
 
-  const [excludedPilots, setExcludedPilots] = useState<Set<string>>(new Set());
+  const [excludedPilots, setExcludedPilots] = useState<Set<string>>(new Set(initialExcludedPilots || []));
   const toggleExclude = useCallback((pilot: string) => {
     setExcludedPilots(prev => {
       const next = new Set(prev);
       next.has(pilot) ? next.delete(pilot) : next.add(pilot);
+      saveToServer({ excludedPilots: [...next] });
       return next;
     });
-  }, []);
+  }, [competitionId]);
+
+  const saveToServer = useCallback(async (partial: { excludedPilots?: string[]; edits?: ManualEdits }) => {
+    try {
+      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competitionId)}`);
+      if (!res.ok) return;
+      const comp = await res.json();
+      const currentResults = comp.results || {};
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competitionId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+      });
+    } catch {}
+  }, [competitionId]);
 
   type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points`;
   const [sortKey, setSortKey] = useState<SortKey>('total');
@@ -356,10 +380,12 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
                       <td className="px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700">{isExcluded ? '—' : i + 1}</td>
                       <td className="px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap">
                         <span className="text-white">{row.pilot}</span>
-                        <button onClick={() => toggleExclude(row.pilot)}
-                          className={`ml-1 text-[9px] px-1 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-700 hover:text-red-400'}`}>
-                          {isExcluded ? '↩' : '✕'}
-                        </button>
+                        {isOwner && (
+                          <button onClick={() => toggleExclude(row.pilot)}
+                            className={`ml-1 text-[9px] px-1 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-700 hover:text-red-400'}`}>
+                            {isExcluded ? '↩' : '✕'}
+                          </button>
+                        )}
                       </td>
                     <td className="px-1 py-1 text-center font-mono text-green-400 font-bold border-r border-dark-700">{row.totalPoints || '—'}</td>
                     {showQuali && (<>
@@ -373,15 +399,15 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
                         <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">{race ? toSeconds(race.bestTimeStr) : '—'}</td>
                         <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{race?.group || '—'}</td>
                         <td className="px-1 py-1 text-center font-mono text-dark-400 border-r border-dark-700/30">
-                          {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : <EditableCell value={race.startPos} onChange={v => setEdit(row.pilot, ri + 1, 'startPos', v)} />) : '—'}
+                          {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : isOwner ? <EditableCell value={race.startPos} onChange={v => setEdit(row.pilot, ri + 1, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}
                         </td>
                         <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">
-                          {race ? <EditableCell value={race.finishPos} onChange={v => setEdit(row.pilot, ri + 1, 'finishPos', v)} /> : '—'}
+                          {race ? (isOwner ? <EditableCell value={race.finishPos} onChange={v => setEdit(row.pilot, ri + 1, 'finishPos', v)} /> : <span>{race.finishPos}</span>) : '—'}
                         </td>
                         <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{race?.positionPoints || '—'}</td>
                         <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{race?.overtakePoints || '—'}</td>
                         <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">
-                          {race ? <EditableCell value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} /> : '—'}
+                          {race ? (isOwner ? <EditableCell value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} /> : <span>{race.penalties || '—'}</span>) : '—'}
                         </td>
                         <td className="px-1 py-1 text-center font-mono text-dark-300 font-bold border-r border-dark-700">{race?.totalRacePoints || '—'}</td>
                       </Fragment>

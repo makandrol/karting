@@ -257,7 +257,14 @@ function LiveResults({ competition }: { competition: Competition }) {
   }
 
   if (competition.format === 'light_league' || competition.format === 'champions_league') {
-    return <LeagueResults format={competition.format} sessions={competition.sessions} sessionLaps={sessionLaps} />;
+    return <LeagueResults
+      format={competition.format}
+      competitionId={competition.id}
+      sessions={competition.sessions}
+      sessionLaps={sessionLaps}
+      initialExcludedPilots={competition.results?.excludedPilots}
+      initialEdits={competition.results?.edits}
+    />;
   }
 
   const phases = PHASE_CONFIGS[competition.format]?.phases || [];
