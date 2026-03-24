@@ -296,24 +296,40 @@ export default function SessionDetail() {
                     </div>
                   )}
                 />
-                {prefs.showTrack && track?.svgPath && <TrackMap track={track} entries={trackEntries} static />}
+                {prefs.showTrack && track?.svgPath ? (
+                  <div className="relative">
+                    <button onClick={() => toggle('showTrack')}
+                      className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
+                      сховати
+                    </button>
+                    <TrackMap track={track} entries={trackEntries} static />
+                  </div>
+                ) : null}
               </>
             ) : null;
           })()}
 
-          {/* Toggle buttons */}
-          <div className="flex items-center gap-2">
+          {!prefs.showTrack && (
             <button onClick={() => toggle('showTrack')}
-              className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${prefs.showTrack ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-500'}`}>
-              Трек
+              className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
+              Показати трек
             </button>
-            <button onClick={() => toggle('showLapsByPilots')}
-              className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${prefs.showLapsByPilots ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-500'}`}>
-              Кола по пілотах
-            </button>
-          </div>
+          )}
 
-          {prefs.showLapsByPilots && <LapsByPilots pilots={pilots} currentEntries={trackEntries} />}
+          {prefs.showLapsByPilots ? (
+            <div className="relative">
+              <button onClick={() => toggle('showLapsByPilots')}
+                className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
+                сховати
+              </button>
+              <LapsByPilots pilots={pilots} currentEntries={trackEntries} />
+            </div>
+          ) : (
+            <button onClick={() => toggle('showLapsByPilots')}
+              className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
+              Показати кола по пілотах
+            </button>
+          )}
         </>
       )}
     </div>
