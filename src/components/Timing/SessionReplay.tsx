@@ -108,7 +108,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
               ? (timeline[timeline.length - 1] - timeline[0]) / (pilotLaps.length - 1)
               : (parseTime(pilotLaps[0].lapTime) || 42) * 1000;
             const elapsed = currentMs - lastCompletionMs;
-            progress = avgLapMs > 0 ? (elapsed / avgLapMs) % 1 : 0;
+            progress = avgLapMs > 0 ? Math.max(0, Math.min(elapsed / avgLapMs, 0.999)) : 0;
           } else {
             progress = 0;
           }
