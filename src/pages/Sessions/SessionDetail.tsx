@@ -173,17 +173,11 @@ export default function SessionDetail() {
           </svg>
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold text-white">
-            Заїзд {dayOrder ?? ''}
-            <span className="text-dark-500 font-normal text-sm ml-2">Траса #{dbSession.track_id}</span>
-          </h1>
-          <div className="flex items-center gap-2">
-            <p className="text-dark-400 text-sm">
-              {dateStr}, {fmtTime(dbSession.start_time)}
-              {dbSession.end_time && ` – ${fmtTime(dbSession.end_time)}`}
-              {dbSession.end_time && ` · ${fmtDuration(dbSession.start_time, dbSession.end_time)}`}
-              {` · ${pilotCount} пілотів`}
-            </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-bold text-white">
+              Заїзд {dayOrder ?? ''}
+              <span className="text-dark-500 font-normal text-sm ml-2">Траса #{dbSession.track_id}</span>
+            </h1>
             <SessionTypeChanger
               sessionId={sessionId!}
               currentFormat={(dbSession as any).competition_format || null}
@@ -192,6 +186,12 @@ export default function SessionDetail() {
               onChanged={() => window.location.reload()}
             />
           </div>
+          <p className="text-dark-400 text-sm">
+            {dateStr}, {fmtTime(dbSession.start_time)}
+            {dbSession.end_time && ` – ${fmtTime(dbSession.end_time)}`}
+            {dbSession.end_time && ` · ${fmtDuration(dbSession.start_time, dbSession.end_time)}`}
+            {` · ${pilotCount} пілотів`}
+          </p>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {prevSession ? (
