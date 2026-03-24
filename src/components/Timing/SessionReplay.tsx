@@ -149,11 +149,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
       const liveEntry = liveEntries?.find(le => le.pilot === pilot);
       const onCurrentUnrecordedLap = completedLaps >= pilotLaps.length;
 
-      if (onCurrentUnrecordedLap && liveEntry?.s1) {
-        const prevS1 = prevLapData?.s1 || null;
-        const liveS1IsNew = prevS1 !== liveEntry.s1;
-        displayS1 = liveS1IsNew ? liveEntry.s1 : null;
-        displayS2 = prevLapData?.s2 || null;
+      if (onCurrentUnrecordedLap && liveEntry) {
+        displayS1 = liveEntry.s1 || null;
+        displayS2 = liveEntry.s2 || null;
         displayLap = prevLapData?.lapTime || null;
       } else if (onCurrentUnrecordedLap) {
         displayLap = prevLapData?.lapTime || null;
@@ -185,11 +183,20 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
       }
 
       if (onCurrentUnrecordedLap && liveEntry?.s1) {
-        const prevS1Str = prevLapData?.s1 || null;
-        if (prevS1Str !== liveEntry.s1) {
-          const liveS1v = parseTime(liveEntry.s1) ?? 999;
-          if (liveS1v >= 10 && liveS1v < bestS1Sec) { bestS1Sec = liveS1v; bestS1 = liveEntry.s1; }
-        }
+        const liveS1v = parseTime(liveEntry.s1) ?? 999;
+        if (liveS1v >= 10 && liveS1v < bestS1Sec) { bestS1Sec = liveS1v; bestS1 = liveEntry.s1; }
+      }
+      if (onCurrentUnrecordedLap && liveEntry?.s2) {
+        const liveS2v = parseTime(liveEntry.s2) ?? 999;
+        if (liveS2v >= 10 && liveS2v < bestS2Sec) { bestS2Sec = liveS2v; bestS2 = liveEntry.s2; }
+      }
+      if (onCurrentUnrecordedLap && liveEntry?.bestS1) {
+        const v = parseTime(liveEntry.bestS1) ?? 999;
+        if (v >= 10 && v < bestS1Sec) { bestS1Sec = v; bestS1 = liveEntry.bestS1; }
+      }
+      if (onCurrentUnrecordedLap && liveEntry?.bestS2) {
+        const v = parseTime(liveEntry.bestS2) ?? 999;
+        if (v >= 10 && v < bestS2Sec) { bestS2Sec = v; bestS2 = liveEntry.bestS2; }
       }
 
       result.push({

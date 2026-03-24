@@ -43,10 +43,23 @@ export function useTimingPoller(options: UseTimingPollerOptions = {}): UseTiming
   const [collectorStatus, setCollectorStatus] = useState<CollectorInfo | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bestS1Ref = useRef<Map<string, number>>(new Map());
+  const bestS2Ref = useRef<Map<string, number>>(new Map());
+  const lastSessionRef = useRef<string | null>(null);
 
   const clearPolling = useCallback(() => {
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
   }, []);
+
+  const parseTime = (str: string | null | undefined): number | null => {
+    if (!str) return null;
+    if (str.includes(':')) {
+      const [m, s] = str.split(':');
+      return parseFloat(m) * 60 + parseFloat(s);
+    }
+    const v = parseFloat(str);
+    return isNaN(v) ? null : v;
+  };
 
   const pollCollector = useCallback(async () => {
     try {
@@ -56,26 +69,50 @@ export function useTimingPoller(options: UseTimingPollerOptions = {}): UseTiming
       setCollectorStatus(status);
 
       if (status.online) {
+        if (lastSessionRef.current && status.sessionId !== lastSessionRef.current) {
+          bestS1Ref.current.clear();
+          bestS2Ref.current.clear();
+        }
+        lastSessionRef.current = status.sessionId;
+
         const timingRes = await fetch(`${COLLECTOR_URL}/timing`, { signal: AbortSignal.timeout(5000) });
         if (!timingRes.ok) throw new Error('Failed to fetch timing');
         const data = await timingRes.json();
 
         if (data.entries && data.entries.length > 0) {
-          const mapped: TimingEntry[] = data.entries.map((e: any, i: number) => ({
-            position: e.position || i + 1,
-            pilot: e.pilot,
-            kart: e.kart,
-            lastLap: e.lastLap || null,
-            s1: e.s1 || null,
-            s2: e.s2 || null,
-            bestLap: e.bestLap || null,
-            lapNumber: e.lapNumber || 0,
-            bestS1: null,
-            bestS2: null,
-            progress: null,
-            currentLapSec: null,
-            previousLapSec: null,
-          }));
+          const mapped: TimingEntry[] = data.entries.map((e: any, i: number) => {
+            const pilot = e.pilot;
+            const s1v = parseTime(e.s1);
+            const s2v = parseTime(e.s2);
+
+            if (s1v !== null && s1v >= 10) {
+              const prev = bestS1Ref.current.get(pilot);
+              if (prev === undefined || s1v < prev) bestS1Ref.current.set(pilot, s1v);
+            }
+            if (s2v !== null && s2v >= 10) {
+              const prev = bestS2Ref.current.get(pilot);
+              if (prev === undefined || s2v < prev) bestS2Ref.current.set(pilot, s2v);
+            }
+
+            const bS1 = bestS1Ref.current.get(pilot);
+            const bS2 = bestS2Ref.current.get(pilot);
+
+            return {
+              position: e.position || i + 1,
+              pilot,
+              kart: e.kart,
+              lastLap: e.lastLap || null,
+              s1: e.s1 || null,
+              s2: e.s2 || null,
+              bestLap: e.bestLap || null,
+              lapNumber: e.lapNumber || 0,
+              bestS1: bS1 !== undefined ? String(bS1.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')) : null,
+              bestS2: bS2 !== undefined ? String(bS2.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')) : null,
+              progress: null,
+              currentLapSec: null,
+              previousLapSec: null,
+            };
+          });
 
           setEntries(mapped);
           setLastUpdate(data.lastUpdate || Date.now());
