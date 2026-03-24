@@ -184,6 +184,7 @@ export class TimingPoller {
         raceNumber: meta.raceNumber,
         isRace: meta.isRace,
       });
+      storage.autoLinkSessionToActiveCompetition(this.#sessionId);
       this.#addEvent('snapshot', { entries, teams, meta, raw }, now);
       this.#lastSnapshot = now;
       if (this.onSessionStart) this.onSessionStart(this.#sessionId, entries.length);
@@ -216,6 +217,7 @@ export class TimingPoller {
       const session = this.#sessions.find(s => s.id === this.#sessionId);
       if (session) session.endTime = now;
       storage.endSession(this.#sessionId, now);
+      this.#tryAutoUnlinkShortSession(this.#sessionId, session?.startTime, now);
       if (this.onSessionEnd) this.onSessionEnd(this.#sessionId);
       this.#online = false;
       this.#sessionId = null;
@@ -233,12 +235,20 @@ export class TimingPoller {
         const session = this.#sessions.find(s => s.id === this.#sessionId);
         if (session) session.endTime = now;
         storage.endSession(this.#sessionId, now);
+        this.#tryAutoUnlinkShortSession(this.#sessionId, session?.startTime, now);
         if (this.onSessionEnd) this.onSessionEnd(this.#sessionId);
       }
       this.#entries = [];
       this.#previousEntries = [];
       this.#previousTeams = [];
     }
+  }
+
+  #tryAutoUnlinkShortSession(sessionId, startTime, endTime) {
+    if (!sessionId || !startTime || !endTime) return;
+    const durationMs = endTime - startTime;
+    if (durationMs >= 60000) return;
+    storage.autoUnlinkSession(sessionId);
   }
 
   #diff(prevTeams, currentTeams, prevEntries, currentEntries, meta) {

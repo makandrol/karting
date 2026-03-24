@@ -2,8 +2,9 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds, mergePilotNames, shortName } from '../../utils/timing';
-import SessionReplay from '../../components/Timing/SessionReplay';
+import SessionReplay, { type S1Event } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
+import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
 import { useTrack } from '../../services/trackContext';
 import { useViewPrefs } from '../../services/viewPrefs';
@@ -57,6 +58,7 @@ export default function SessionDetail() {
   const [dbSession, setDbSession] = useState<DbSession | null>(null);
   const [daySessions, setDaySessions] = useState<DbSession[]>([]);
   const [dbLaps, setDbLaps] = useState<DbLap[]>([]);
+  const [s1Events, setS1Events] = useState<S1Event[]>([]);
   const [liveEntries, setLiveEntries] = useState<any[]>([]);
   const [dbLoading, setDbLoading] = useState(true);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
@@ -84,11 +86,22 @@ export default function SessionDetail() {
         // Fetch laps from all merged session IDs
         const sessionIds = found?.merged_session_ids || [sessionId];
         const allLaps: DbLap[] = [];
+        const allS1Events: S1Event[] = [];
         for (const sid of sessionIds) {
-          const sLaps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json());
+          const [sLaps, sEvents] = await Promise.all([
+            fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()),
+            fetch(`${COLLECTOR_URL}/db/events?session=${sid}`).then(r => r.json()).catch(() => []),
+          ]);
           allLaps.push(...sLaps);
+          for (const ev of sEvents) {
+            if (ev.event_type === 's1' && ev.data) {
+              const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+              if (d.pilot && d.s1) allS1Events.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
+            }
+          }
         }
         setDbLaps(allLaps);
+        setS1Events(allS1Events);
 
         if (found && !found.end_time) {
           try {
@@ -159,6 +172,7 @@ export default function SessionDetail() {
   const raceNum = dbSession.race_number;
 
   const currentIdx = daySessions.findIndex(s => s.id === sessionId);
+  const dayOrder = (dbSession as any).day_order ?? (currentIdx >= 0 ? currentIdx + 1 : null);
   const prevSession = currentIdx > 0 ? daySessions[currentIdx - 1] : null;
   const nextSession = currentIdx >= 0 && currentIdx < daySessions.length - 1 ? daySessions[currentIdx + 1] : null;
 
@@ -171,10 +185,19 @@ export default function SessionDetail() {
           </svg>
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold text-white">
-            Заїзд {raceNum ?? ''}
-            <span className="text-dark-500 font-normal text-sm ml-2">Траса #{dbSession.track_id}</span>
-          </h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-bold text-white">
+              Заїзд {dayOrder ?? ''}
+              <span className="text-dark-500 font-normal text-sm ml-2">Траса #{dbSession.track_id}</span>
+            </h1>
+            <SessionTypeChanger
+              sessionId={sessionId!}
+              currentFormat={(dbSession as any).competition_format || null}
+              currentPhase={(dbSession as any).competition_phase || null}
+              currentCompetitionId={(dbSession as any).competition_id || null}
+              onChanged={() => window.location.reload()}
+            />
+          </div>
           <p className="text-dark-400 text-sm">
             {dateStr}, {fmtTime(dbSession.start_time)}
             {dbSession.end_time && ` – ${fmtTime(dbSession.end_time)}`}
@@ -289,6 +312,7 @@ export default function SessionDetail() {
                   sessionStartTime={dbSession.start_time}
                   raceNumber={dbSession.race_number}
                   autoPlay={true}
+                  s1Events={s1Events}
                   onEntriesUpdate={setTrackEntries}
                   renderScrubber={(scrubber) => (
                     <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">

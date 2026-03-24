@@ -19,16 +19,17 @@ export interface PageConfig {
 export const ALL_PAGES: PageConfig[] = [
   // Main (shown as top-level nav items)
   { id: 'timing', label: 'Таймінг', path: '/', group: 'main', always: true },
+  { id: 'onboard', label: 'Onboard', path: '/onboard', group: 'main' },
   { id: 'sessions', label: 'Заїзди', path: '/sessions', group: 'main' },
   { id: 'karts', label: 'Карти', path: '/info/karts', group: 'main' },
 
   // Competitions (shown in "Змагання" dropdown)
-  { id: 'results-current', label: 'Поточне змагання', path: '/results/current', group: 'competitions' },
+  { id: 'results-current', label: 'Live', path: '/results/current', group: 'competitions' },
   { id: 'results-gonzales', label: 'Гонзалес', path: '/results/gonzales', group: 'competitions' },
-  { id: 'results-light-league', label: 'Лайт Ліга', path: '/results/light-league', group: 'competitions' },
-  { id: 'results-champions-league', label: 'Ліга Чемпіонів', path: '/results/champions-league', group: 'competitions' },
-  { id: 'results-sprints', label: 'Спринти', path: '/results/sprints', group: 'competitions' },
-  { id: 'results-marathons', label: 'Марафони', path: '/results/marathons', group: 'competitions' },
+  { id: 'results-light-league', label: 'Лайт Ліга', path: '/results/light_league', group: 'competitions' },
+  { id: 'results-champions-league', label: 'Ліга Чемпіонів', path: '/results/champions_league', group: 'competitions' },
+  { id: 'results-sprints', label: 'Спринти', path: '/results/sprint', group: 'competitions' },
+  { id: 'results-marathons', label: 'Марафони', path: '/results/marathon', group: 'competitions' },
 
   // Other (shown in "Інше" dropdown)
   { id: 'tracks', label: 'Траси', path: '/info/tracks', group: 'other' },
@@ -43,6 +44,7 @@ export const ALL_PAGES: PageConfig[] = [
   { id: 'admin-monitoring', label: 'Моніторинг', path: '/admin/monitoring', group: 'admin', adminOnly: true },
   { id: 'admin-collector-log', label: 'Лог колектора', path: '/admin/collector-log', group: 'admin', adminOnly: true },
   { id: 'admin-competitions', label: 'Змагання', path: '/admin/competitions', group: 'admin', adminOnly: true },
+  { id: 'admin-scoring', label: 'Бали', path: '/admin/scoring', group: 'admin', adminOnly: true },
 ];
 
 const LS_KEY = 'karting_page_visibility_v1';

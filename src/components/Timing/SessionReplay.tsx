@@ -7,21 +7,27 @@ import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES, shortName, type Time
 // SessionReplay component
 // ============================================================
 
+export interface S1Event {
+  pilot: string;
+  s1: string;
+  ts: number;
+}
+
 interface SessionReplayProps {
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number; ts?: number }[];
   durationSec: number;
   sessionStartTime?: number;
-  s1Ratio?: number;
   isLive?: boolean;
   raceNumber?: number | null;
   autoPlay?: boolean;
   liveEntries?: TimingEntry[];
+  s1Events?: S1Event[];
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, s1Ratio, isLive, raceNumber, autoPlay, liveEntries, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
@@ -31,18 +37,23 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   const durationRef = useRef(durationSec);
   durationRef.current = durationSec;
 
-  const pilots = useMemo(() => [...new Set(laps.map(l => l.pilot))], [laps]);
+  const pilots = useMemo(() => {
+    const set = new Set(laps.map(l => l.pilot));
+    if (liveEntries) for (const e of liveEntries) set.add(e.pilot);
+    return [...set];
+  }, [laps, liveEntries]);
 
-  const effectiveS1Ratio = useMemo(() => {
-    if (s1Ratio) return s1Ratio;
-    const firstLap = laps[0];
-    if (firstLap?.s1 && firstLap?.lapTime) {
-      const s1Sec = parseTime(firstLap.s1) || 0;
-      const lapSec = parseTime(firstLap.lapTime) || 0;
-      if (s1Sec > 0 && lapSec > 0) return s1Sec / lapSec;
+  // Per-pilot S1 events sorted by timestamp for quick lookup during replay
+  const pilotS1Events = useMemo(() => {
+    const map = new Map<string, S1Event[]>();
+    if (!s1Events) return map;
+    for (const ev of s1Events) {
+      if (!map.has(ev.pilot)) map.set(ev.pilot, []);
+      map.get(ev.pilot)!.push(ev);
     }
-    return 0.43;
-  }, [s1Ratio, laps]);
+    for (const arr of map.values()) arr.sort((a, b) => a.ts - b.ts);
+    return map;
+  }, [s1Events]);
 
   // Build per-pilot completion timelines using actual lap durations
   // ts from DB is poll time (same for all pilots), so we reconstruct individual timelines
@@ -80,7 +91,28 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
     for (let idx = 0; idx < pilots.length; idx++) {
       const pilot = pilots[idx];
       const pilotLaps = laps.filter(l => l.pilot === pilot);
-      if (pilotLaps.length === 0) continue;
+
+      // Pilot has no recorded laps — show from live data if available
+      if (pilotLaps.length === 0) {
+        const liveEntry = liveEntries?.find(le => le.pilot === pilot);
+        if (liveEntry) {
+          result.push({
+            position: idx + 1, pilot,
+            kart: liveEntry.kart,
+            lastLap: liveEntry.lastLap || null,
+            s1: liveEntry.s1 || null,
+            s2: liveEntry.s2 || null,
+            bestLap: liveEntry.bestLap || null,
+            lapNumber: liveEntry.lapNumber || 0,
+            bestS1: liveEntry.bestS1 || null,
+            bestS2: liveEntry.bestS2 || null,
+            progress: liveEntry.progress ?? null,
+            currentLapSec: null,
+            previousLapSec: null,
+          });
+        }
+        continue;
+      }
 
       let completedLaps = 0;
       let progress: number;
@@ -95,7 +127,6 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         }
 
         if (completedLaps >= pilotLaps.length) {
-          // All recorded laps done — estimate position on current unfinished lap
           if (pilotLaps.length > 0) {
             const lastCompletionMs = timeline[timeline.length - 1] || currentMs;
             const avgLapMs = pilotLaps.length >= 2
@@ -138,10 +169,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         }
       }
 
-      const currentLapData = completedLaps < pilotLaps.length ? pilotLaps[completedLaps] : null;
       const prevLapData = completedLaps > 0 ? pilotLaps[completedLaps - 1] : null;
 
-      // S1/S2/Lap display logic
       let displayS1: string | null;
       let displayS2: string | null;
       let displayLap: string | null;
@@ -149,16 +178,20 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
       const liveEntry = liveEntries?.find(le => le.pilot === pilot);
       const onCurrentUnrecordedLap = completedLaps >= pilotLaps.length;
 
-      if (onCurrentUnrecordedLap && liveEntry?.s1) {
-        displayS1 = liveEntry.s1;
-        displayS2 = prevLapData?.s2 || null;
-        displayLap = prevLapData?.lapTime || null;
-      } else if (onCurrentUnrecordedLap) {
-        displayLap = prevLapData?.lapTime || null;
-        displayS1 = prevLapData?.s1 || null;
-        displayS2 = prevLapData?.s2 || null;
-      } else if (progress >= effectiveS1Ratio && currentLapData) {
-        displayS1 = currentLapData.s1 || null;
+      if (onCurrentUnrecordedLap && liveEntry) {
+        displayS1 = liveEntry.s1 || null;
+        displayS2 = liveEntry.s2 || null;
+        displayLap = liveEntry.lastLap || prevLapData?.lapTime || null;
+      } else if (sessionStartTime && pilotS1Events.size > 0) {
+        const currentMs = sessionStartTime + timeSec * 1000;
+        const events = pilotS1Events.get(pilot);
+        let latestS1: string | null = null;
+        if (events) {
+          for (let i = events.length - 1; i >= 0; i--) {
+            if (events[i].ts <= currentMs) { latestS1 = events[i].s1; break; }
+          }
+        }
+        displayS1 = latestS1;
         displayS2 = prevLapData?.s2 || null;
         displayLap = prevLapData?.lapTime || null;
       } else {
@@ -177,24 +210,50 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         const lt = parseTime(l?.lapTime || '') ?? 999;
         if (lt < bestLapSec) { bestLapSec = lt; bestLap = l?.lapTime || ''; }
         const s1v = parseTime(l?.s1 || '') ?? 999;
-        if (s1v < bestS1Sec) { bestS1Sec = s1v; bestS1 = l?.s1 || ''; }
+        if (s1v >= 10 && s1v < bestS1Sec) { bestS1Sec = s1v; bestS1 = l?.s1 || ''; }
         const s2v = parseTime(l?.s2 || '') ?? 999;
-        if (s2v < bestS2Sec) { bestS2Sec = s2v; bestS2 = l?.s2 || ''; }
+        if (s2v >= 10 && s2v < bestS2Sec) { bestS2Sec = s2v; bestS2 = l?.s2 || ''; }
+      }
+
+      // Include displayed S1 in best calculation (from s1Events, may be mid-lap)
+      if (displayS1) {
+        const ds1v = parseTime(displayS1) ?? 999;
+        if (ds1v >= 10 && ds1v < bestS1Sec) { bestS1Sec = ds1v; bestS1 = displayS1; }
       }
 
       if (onCurrentUnrecordedLap && liveEntry?.s1) {
         const liveS1v = parseTime(liveEntry.s1) ?? 999;
-        if (liveS1v < bestS1Sec) { bestS1Sec = liveS1v; bestS1 = liveEntry.s1; }
+        if (liveS1v >= 10 && liveS1v < bestS1Sec) { bestS1Sec = liveS1v; bestS1 = liveEntry.s1; }
+      }
+      if (onCurrentUnrecordedLap && liveEntry?.s2) {
+        const liveS2v = parseTime(liveEntry.s2) ?? 999;
+        if (liveS2v >= 10 && liveS2v < bestS2Sec) { bestS2Sec = liveS2v; bestS2 = liveEntry.s2; }
+      }
+      if (onCurrentUnrecordedLap && liveEntry?.bestS1) {
+        const v = parseTime(liveEntry.bestS1) ?? 999;
+        if (v >= 10 && v < bestS1Sec) { bestS1Sec = v; bestS1 = liveEntry.bestS1; }
+      }
+      if (onCurrentUnrecordedLap && liveEntry?.bestS2) {
+        const v = parseTime(liveEntry.bestS2) ?? 999;
+        if (v >= 10 && v < bestS2Sec) { bestS2Sec = v; bestS2 = liveEntry.bestS2; }
+      }
+
+      const liveLapNumber = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.lapNumber : completedLaps;
+      const liveKart = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.kart : (pilotLaps[0]?.kart || 0);
+
+      if (onCurrentUnrecordedLap && liveEntry?.bestLap) {
+        const v = parseTime(liveEntry.bestLap) ?? 999;
+        if (v < bestLapSec) { bestLapSec = v; bestLap = liveEntry.bestLap; }
       }
 
       result.push({
         position: idx + 1, pilot,
-        kart: pilotLaps[0]?.kart || 0,
+        kart: liveKart,
         lastLap: displayLap,
         s1: displayS1,
         s2: displayS2,
         bestLap: bestLap || null,
-        lapNumber: completedLaps,
+        lapNumber: liveLapNumber,
         bestS1: bestS1 || null,
         bestS2: bestS2 || null,
         progress,
@@ -216,7 +275,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
-  }, [laps, pilots, effectiveS1Ratio, sessionStartTime, pilotTimelines, liveEntries]);
+  }, [laps, pilots, sessionStartTime, pilotTimelines, pilotS1Events, liveEntries]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
@@ -267,8 +326,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
     let bLap: number | null = null, bS1: number | null = null, bS2: number | null = null;
     for (const e of entries) {
       const lap = parseTime(e.bestLap); if (lap !== null && (bLap === null || lap < bLap)) bLap = lap;
-      const s1 = parseTime(e.bestS1); if (s1 !== null && (bS1 === null || s1 < bS1)) bS1 = s1;
-      const s2 = parseTime(e.bestS2); if (s2 !== null && (bS2 === null || s2 < bS2)) bS2 = s2;
+      const s1 = parseTime(e.bestS1); if (s1 !== null && s1 >= 10 && (bS1 === null || s1 < bS1)) bS1 = s1;
+      const s2 = parseTime(e.bestS2); if (s2 !== null && s2 >= 10 && (bS2 === null || s2 < bS2)) bS2 = s2;
     }
     return { overallBestLap: bLap, overallBestS1: bS1, overallBestS2: bS2 };
   }, [entries]);
@@ -367,6 +426,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
               <th className="table-cell text-right">B.S1</th>
               <th className="table-cell text-right">B.S2</th>
               <th className="table-cell text-center">L</th>
+              <th className="table-cell w-6"></th>
             </tr>
           </thead>
           <tbody>
@@ -402,22 +462,31 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
                     {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
-                    {notStarted ? '' : (e.s1 ? toSeconds(e.s1) : '—')}
+                    {notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toSeconds(e.s1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
-                    {notStarted ? '' : (e.s2 ? toSeconds(e.s2) : '—')}
+                    {notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toSeconds(e.s2) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>
                     {notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
-                    {notStarted ? '' : (e.bestS1 ? toSeconds(e.bestS1) : '—')}
+                    {notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toSeconds(e.bestS1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
-                    {notStarted ? '' : (e.bestS2 ? toSeconds(e.bestS2) : '—')}
+                    {notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toSeconds(e.bestS2) : '—')}
                   </td>
                   <td className="table-cell text-center font-mono text-dark-500">
                     {notStarted ? '' : e.lapNumber}
+                  </td>
+                  <td className="table-cell text-center px-0.5">
+                    {!notStarted && e.kart ? (
+                      <Link to={`/onboard/${e.kart}`} className="text-dark-700 hover:text-primary-400 transition-colors">
+                        <svg className="w-3.5 h-3.5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </Link>
+                    ) : null}
                   </td>
                 </tr>
               );

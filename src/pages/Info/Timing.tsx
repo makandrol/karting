@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { TrackMap } from '../../components/Track';
 import DayTimeline from '../../components/Timing/DayTimeline';
 import CompetitionControl from '../../components/Timing/CompetitionControl';
-import SessionReplay from '../../components/Timing/SessionReplay';
+import SessionReplay, { type S1Event } from '../../components/Timing/SessionReplay';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
@@ -12,6 +12,7 @@ import { parseTime, mergePilotNames, shortName, toSeconds } from '../../utils/ti
 import type { TimingEntry } from '../../types';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
+import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { useViewPrefs } from '../../services/viewPrefs';
 
 interface DbLap {
@@ -48,8 +49,18 @@ export default function Timing() {
   const isCompetition = competition?.state && !['none', 'finished'].includes(competition.state);
   const sessionType = isCompetition ? (competition.competition?.name || 'Змагання') : 'Прокат';
 
+  const [liveSessionComp, setLiveSessionComp] = useState<{ competitionId: string | null; format: string | null; phase: string | null }>({ competitionId: null, format: null, phase: null });
+  useEffect(() => {
+    if (!currentSessionId) { setLiveSessionComp({ competitionId: null, format: null, phase: null }); return; }
+    fetch(`${COLLECTOR_URL}/db/session-competition?session=${currentSessionId}`)
+      .then(r => r.json())
+      .then(data => setLiveSessionComp({ competitionId: data.competitionId || null, format: data.format || null, phase: data.phase || null }))
+      .catch(() => {});
+  }, [currentSessionId]);
+
   // Fetch laps for active session (for replay)
   const [replayLaps, setReplayLaps] = useState<DbLap[]>([]);
+  const [s1Events, setS1Events] = useState<S1Event[]>([]);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
 
@@ -72,10 +83,21 @@ export default function Timing() {
   }, []);
 
   const fetchLaps = useCallback(async () => {
-    if (!currentSessionId) { setReplayLaps([]); return; }
+    if (!currentSessionId) { setReplayLaps([]); setS1Events([]); return; }
     try {
-      const res = await fetch(`${COLLECTOR_URL}/db/laps?session=${currentSessionId}`);
-      if (res.ok) setReplayLaps(await res.json());
+      const [lapsRes, eventsRes] = await Promise.all([
+        fetch(`${COLLECTOR_URL}/db/laps?session=${currentSessionId}`).then(r => r.json()),
+        fetch(`${COLLECTOR_URL}/db/events?session=${currentSessionId}`).then(r => r.json()).catch(() => []),
+      ]);
+      setReplayLaps(lapsRes);
+      const parsed: S1Event[] = [];
+      for (const ev of eventsRes) {
+        if (ev.event_type === 's1' && ev.data) {
+          const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+          if (d.pilot && d.s1) parsed.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
+        }
+      }
+      setS1Events(parsed);
     } catch { /* ignore */ }
   }, [currentSessionId]);
 
@@ -144,14 +166,23 @@ export default function Timing() {
         </div>
 
         {(isLive && hasData) && (
-          <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-            isCompetition ? 'bg-purple-500/15 text-purple-400' : 'bg-dark-800 text-dark-400'
-          }`}>
-            {sessionType}
-          </span>
+          <SessionTypeChanger
+            sessionId={currentSessionId}
+            currentFormat={liveSessionComp.format}
+            currentPhase={liveSessionComp.phase}
+            currentCompetitionId={liveSessionComp.competitionId}
+            onChanged={() => {
+              if (currentSessionId) {
+                fetch(`${COLLECTOR_URL}/db/session-competition?session=${currentSessionId}`)
+                  .then(r => r.json())
+                  .then(data => setLiveSessionComp({ competitionId: data.competitionId || null, format: data.format || null, phase: data.phase || null }))
+                  .catch(() => {});
+              }
+            }}
+          />
         )}
 
-        {canManage && <CompetitionControl inline />}
+        {canManage && !liveSessionComp.competitionId && <CompetitionControl inline />}
 
         <div className="flex-1" />
 
@@ -195,6 +226,10 @@ export default function Timing() {
                   ? 'Система таймінгу картодрому зараз не відповідає. Дані з\'являться автоматично, як тільки вона стане доступною.'
                   : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
               </p>
+              {siteReachable && recentSessions.length > 0 && (() => {
+                const lastFinished = recentSessions.find(s => s.end_time && s.end_time > s.start_time + 60000);
+                return lastFinished?.end_time ? <IdleTimer sinceMs={lastFinished.end_time} /> : null;
+              })()}
             </div>
           </div>
 
@@ -223,6 +258,7 @@ export default function Timing() {
                 raceNumber={currentRaceNumber}
                 autoPlay={true}
                 liveEntries={entries}
+                s1Events={s1Events}
                 onEntriesUpdate={setTrackEntries}
                 renderScrubber={(scrubber) => (
                   <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
@@ -311,4 +347,20 @@ function LiveTimer({ startTime }: { startTime: number }) {
     return () => clearInterval(timer);
   }, [startTime]);
   return <span className="font-normal text-dark-400 ml-1.5 font-mono">{elapsed}</span>;
+}
+
+function IdleTimer({ sinceMs }: { sinceMs: number }) {
+  const [text, setText] = useState('');
+  useEffect(() => {
+    const update = () => {
+      const sec = Math.floor((Date.now() - sinceMs) / 1000);
+      if (sec < 60) setText(`${sec}с тому`);
+      else if (sec < 3600) setText(`${Math.floor(sec / 60)}хв ${sec % 60}с тому`);
+      else { const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); setText(`${h}год ${m}хв тому`); }
+    };
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [sinceMs]);
+  return <p className="text-dark-500 text-xs font-mono mt-1">Останній заїзд закінчився {text}</p>;
 }

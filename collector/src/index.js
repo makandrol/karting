@@ -402,6 +402,50 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /competitions/:id/link-session — прив'язати заїзд до етапу (admin only)
+    if (req.method === 'POST' && url.pathname.match(/^\/competitions\/[^/]+\/link-session$/)) {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      const id = decodeURIComponent(url.pathname.split('/')[2]);
+      try {
+        const body = await readBody(req);
+        const { sessionId, phase } = JSON.parse(body);
+        if (!sessionId) { sendJson(res, 400, { error: 'sessionId required' }); return; }
+        const comp = storage.getCompetition(id);
+        if (!comp) { sendJson(res, 404, { error: 'Competition not found' }); return; }
+        const sessions = comp.sessions.filter(s => s.sessionId !== sessionId);
+        sessions.push({ sessionId, phase: phase || null });
+        storage.updateCompetition(id, { sessions });
+        sendJson(res, 200, storage.getCompetition(id));
+      } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
+      return;
+    }
+
+    // POST /competitions/:id/unlink-session — відв'язати заїзд (admin only)
+    if (req.method === 'POST' && url.pathname.match(/^\/competitions\/[^/]+\/unlink-session$/)) {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      const id = decodeURIComponent(url.pathname.split('/')[2]);
+      try {
+        const body = await readBody(req);
+        const { sessionId } = JSON.parse(body);
+        if (!sessionId) { sendJson(res, 400, { error: 'sessionId required' }); return; }
+        const comp = storage.getCompetition(id);
+        if (!comp) { sendJson(res, 404, { error: 'Competition not found' }); return; }
+        const sessions = comp.sessions.filter(s => s.sessionId !== sessionId);
+        storage.updateCompetition(id, { sessions });
+        sendJson(res, 200, storage.getCompetition(id));
+      } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
+      return;
+    }
+
+    // GET /db/session-competition?session=ID — отримати змагання для сесії
+    if (req.method === 'GET' && url.pathname === '/db/session-competition') {
+      const sessionId = url.searchParams.get('session');
+      if (!sessionId) { sendJson(res, 400, { error: 'session required' }); return; }
+      const comp = storage.getSessionCompetition(sessionId);
+      sendJson(res, 200, comp || { competitionId: null });
+      return;
+    }
+
     sendJson(res, 404, { error: 'Not found' });
   } catch (err) {
     console.error('Request error:', err);

@@ -13,6 +13,7 @@ export type SessionType = 'prokat' | 'qualifying' | 'race' | 'gonzales_round';
 export interface CompetitionConfig {
   format: CompetitionFormat;
   name: string;
+  shortName: string;
   maxPilots: number;
   maxKarts: number;
   /** К-сть гонок (не рахуючи квалу) */
@@ -25,6 +26,7 @@ export const COMPETITION_CONFIGS: Record<CompetitionFormat, CompetitionConfig> =
   gonzales: {
     format: 'gonzales',
     name: 'Гонзалес',
+    shortName: 'Гонз',
     maxPilots: 24,
     maxKarts: 12,
     raceCount: 12, // 12 заїздів (по 1 на карт)
@@ -33,6 +35,7 @@ export const COMPETITION_CONFIGS: Record<CompetitionFormat, CompetitionConfig> =
   light_league: {
     format: 'light_league',
     name: 'Лайт Ліга',
+    shortName: 'ЛЛ',
     maxPilots: 36,
     maxKarts: 12,
     raceCount: 2,
@@ -41,6 +44,7 @@ export const COMPETITION_CONFIGS: Record<CompetitionFormat, CompetitionConfig> =
   champions_league: {
     format: 'champions_league',
     name: 'Ліга Чемпіонів',
+    shortName: 'ЛЧ',
     maxPilots: 24,
     maxKarts: 12,
     raceCount: 3,
@@ -49,6 +53,7 @@ export const COMPETITION_CONFIGS: Record<CompetitionFormat, CompetitionConfig> =
   sprint: {
     format: 'sprint',
     name: 'Спринт',
+    shortName: 'Спр',
     maxPilots: 12,
     maxKarts: 12,
     raceCount: 1,
@@ -57,6 +62,7 @@ export const COMPETITION_CONFIGS: Record<CompetitionFormat, CompetitionConfig> =
   marathon: {
     format: 'marathon',
     name: 'Марафон',
+    shortName: 'Мар',
     maxPilots: 12,
     maxKarts: 12,
     raceCount: 1,
@@ -107,6 +113,68 @@ export interface LeagueStanding {
 // ============================================================
 
 export const SPEED_POINTS = [2.5, 2.0, 1.5, 1.0, 0.5];
+
+// ============================================================
+// Phase configs — етапи для кожного типу змагань
+// ============================================================
+
+export interface PhaseConfig {
+  id: string;
+  label: string;
+  shortLabel: string;
+}
+
+export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
+  gonzales: {
+    phases: Array.from({ length: 12 }, (_, i) => ({
+      id: `round_${i + 1}`,
+      label: `Раунд ${i + 1}`,
+      shortLabel: `Р${i + 1}`,
+    })),
+  },
+  light_league: {
+    phases: [
+      { id: 'qualifying_1', label: 'Кваліфікація 1', shortLabel: 'Квала 1' },
+      { id: 'qualifying_2', label: 'Кваліфікація 2', shortLabel: 'Квала 2' },
+      { id: 'qualifying_3', label: 'Кваліфікація 3', shortLabel: 'Квала 3' },
+      { id: 'qualifying_4', label: 'Кваліфікація 4', shortLabel: 'Квала 4' },
+      { id: 'race_1_group_3', label: 'Гонка 1 · Група 3', shortLabel: 'Гонка 1 · Група 3' },
+      { id: 'race_1_group_2', label: 'Гонка 1 · Група 2', shortLabel: 'Гонка 1 · Група 2' },
+      { id: 'race_1_group_1', label: 'Гонка 1 · Група 1', shortLabel: 'Гонка 1 · Група 1' },
+      { id: 'race_2_group_3', label: 'Гонка 2 · Група 3', shortLabel: 'Гонка 2 · Група 3' },
+      { id: 'race_2_group_2', label: 'Гонка 2 · Група 2', shortLabel: 'Гонка 2 · Група 2' },
+      { id: 'race_2_group_1', label: 'Гонка 2 · Група 1', shortLabel: 'Гонка 2 · Група 1' },
+    ],
+  },
+  champions_league: {
+    phases: [
+      { id: 'qualifying_1', label: 'Кваліфікація 1', shortLabel: 'Квала 1' },
+      { id: 'qualifying_2', label: 'Кваліфікація 2', shortLabel: 'Квала 2' },
+      { id: 'race_1_group_2', label: 'Гонка 1 · Група 2', shortLabel: 'Гонка 1 · Група 2' },
+      { id: 'race_1_group_1', label: 'Гонка 1 · Група 1', shortLabel: 'Гонка 1 · Група 1' },
+      { id: 'race_2_group_2', label: 'Гонка 2 · Група 2', shortLabel: 'Гонка 2 · Група 2' },
+      { id: 'race_2_group_1', label: 'Гонка 2 · Група 1', shortLabel: 'Гонка 2 · Група 1' },
+      { id: 'race_3_group_2', label: 'Гонка 3 · Група 2', shortLabel: 'Гонка 3 · Група 2' },
+      { id: 'race_3_group_1', label: 'Гонка 3 · Група 1', shortLabel: 'Гонка 3 · Група 1' },
+    ],
+  },
+  sprint: { phases: [{ id: 'race', label: 'Гонка', shortLabel: 'Гонка' }] },
+  marathon: { phases: [{ id: 'race', label: 'Гонка', shortLabel: 'Гонка' }] },
+};
+
+export function getPhaseLabel(format: string, phaseId: string): string {
+  const config = PHASE_CONFIGS[format];
+  if (!config) return phaseId;
+  const phase = config.phases.find(p => p.id === phaseId);
+  return phase?.label || phaseId;
+}
+
+export function getPhaseShortLabel(format: string, phaseId: string): string {
+  const config = PHASE_CONFIGS[format];
+  if (!config) return phaseId;
+  const phase = config.phases.find(p => p.id === phaseId);
+  return phase?.shortLabel || phaseId;
+}
 
 /**
  * Розбиває пілотів на групи за регламентом Лайт Ліги / Ліги Чемпіонів.

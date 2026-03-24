@@ -10,6 +10,7 @@ const HomePage = lazy(() => import('./pages/Home'));
 const CurrentRace = lazy(() => import('./pages/Results/CurrentRace'));
 const CompetitionPage = lazy(() => import('./pages/Results/CompetitionPage'));
 const Timing = lazy(() => import('./pages/Info/Timing'));
+const Onboard = lazy(() => import('./pages/Info/Onboard'));
 const Tracks = lazy(() => import('./pages/Info/Tracks'));
 const Karts = lazy(() => import('./pages/Info/Karts'));
 const KartDetail = lazy(() => import('./pages/Info/KartDetail'));
@@ -21,6 +22,7 @@ const Monitoring = lazy(() => import('./pages/Auth/Monitoring'));
 const CollectorLog = lazy(() => import('./pages/Auth/CollectorLog'));
 const PageSettings = lazy(() => import('./pages/Auth/PageSettings'));
 const CompetitionManager = lazy(() => import('./pages/Auth/CompetitionManager'));
+const ScoringSettings = lazy(() => import('./pages/Auth/ScoringSettings'));
 const Changelog = lazy(() => import('./pages/Changelog'));
 const SessionsList = lazy(() => import('./pages/Sessions/SessionsList'));
 const SessionDetail = lazy(() => import('./pages/Sessions/SessionDetail'));
@@ -53,6 +55,8 @@ export default function App() {
                   {/* Info / Analytics */}
                   <Route path="/info" element={<Navigate to="/info/timing" replace />} />
                   <Route path="/info/timing" element={<Timing />} />
+                  <Route path="/onboard" element={<Onboard />} />
+                  <Route path="/onboard/:kartId" element={<Onboard />} />
                   <Route path="/info/tracks" element={<Tracks />} />
                   <Route path="/info/karts" element={<Karts />} />
                   <Route path="/info/karts/:kartId" element={<KartDetail />} />
@@ -66,6 +70,7 @@ export default function App() {
                   <Route path="/admin/collector-log" element={<CollectorLog />} />
                   <Route path="/admin/pages" element={<PageSettings />} />
                   <Route path="/admin/competitions" element={<CompetitionManager />} />
+                  <Route path="/admin/scoring" element={<ScoringSettings />} />
 
                   {/* Sessions */}
                   <Route path="/sessions" element={<SessionsList />} />
