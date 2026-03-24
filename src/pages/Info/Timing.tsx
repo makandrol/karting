@@ -102,15 +102,25 @@ export default function Timing() {
       ]);
       setReplayLaps(lapsRes);
       const parsed: S1Event[] = [];
+      const snapshotPos = new Map<string, number>();
       for (const ev of eventsRes) {
         if (ev.event_type === 's1' && ev.data) {
           const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
           if (d.pilot && d.s1) parsed.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
         }
+        if (ev.event_type === 'snapshot' && snapshotPos.size === 0 && ev.data) {
+          const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+          for (const en of (d.entries || [])) {
+            if (en.pilot && en.position) snapshotPos.set(en.pilot, Number(en.position));
+          }
+        }
       }
       setS1Events(parsed);
+      if (!liveSessionComp.competitionId || !liveSessionComp.phase?.startsWith('race_')) {
+        setStartPositions(snapshotPos);
+      }
     } catch { /* ignore */ }
-  }, [currentSessionId]);
+  }, [currentSessionId, liveSessionComp.competitionId, liveSessionComp.phase]);
 
   // Get session start time
   useEffect(() => {
