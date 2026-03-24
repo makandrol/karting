@@ -92,13 +92,11 @@ export default function Header() {
                     {hasActiveLive ? (
                       <Link to={item.path} className="flex items-center gap-2 text-dark-300 hover:text-white transition-colors">
                         <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                        <span>Live</span>
                         <span className="text-green-400 text-[11px]">{activeCompName}</span>
                       </Link>
                     ) : (
                       <span className="flex items-center gap-2 text-dark-600">
                         <span className="w-1.5 h-1.5 rounded-full bg-red-500/50" />
-                        <span>Live</span>
                         <span className="text-[11px]">немає активного змагання</span>
                       </span>
                     )}
