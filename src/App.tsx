@@ -10,6 +10,7 @@ const HomePage = lazy(() => import('./pages/Home'));
 const CurrentRace = lazy(() => import('./pages/Results/CurrentRace'));
 const CompetitionPage = lazy(() => import('./pages/Results/CompetitionPage'));
 const Timing = lazy(() => import('./pages/Info/Timing'));
+const Onboard = lazy(() => import('./pages/Info/Onboard'));
 const Tracks = lazy(() => import('./pages/Info/Tracks'));
 const Karts = lazy(() => import('./pages/Info/Karts'));
 const KartDetail = lazy(() => import('./pages/Info/KartDetail'));
@@ -54,6 +55,8 @@ export default function App() {
                   {/* Info / Analytics */}
                   <Route path="/info" element={<Navigate to="/info/timing" replace />} />
                   <Route path="/info/timing" element={<Timing />} />
+                  <Route path="/onboard" element={<Onboard />} />
+                  <Route path="/onboard/:kartId" element={<Onboard />} />
                   <Route path="/info/tracks" element={<Tracks />} />
                   <Route path="/info/karts" element={<Karts />} />
                   <Route path="/info/karts/:kartId" element={<KartDetail />} />

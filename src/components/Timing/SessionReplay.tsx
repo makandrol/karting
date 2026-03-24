@@ -426,6 +426,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
               <th className="table-cell text-right">B.S1</th>
               <th className="table-cell text-right">B.S2</th>
               <th className="table-cell text-center">L</th>
+              <th className="table-cell w-6"></th>
             </tr>
           </thead>
           <tbody>
@@ -477,6 +478,15 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                   </td>
                   <td className="table-cell text-center font-mono text-dark-500">
                     {notStarted ? '' : e.lapNumber}
+                  </td>
+                  <td className="table-cell text-center px-0.5">
+                    {!notStarted && e.kart ? (
+                      <Link to={`/onboard/${e.kart}`} className="text-dark-700 hover:text-primary-400 transition-colors">
+                        <svg className="w-3.5 h-3.5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </Link>
+                    ) : null}
                   </td>
                 </tr>
               );

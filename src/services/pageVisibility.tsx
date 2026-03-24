@@ -19,6 +19,7 @@ export interface PageConfig {
 export const ALL_PAGES: PageConfig[] = [
   // Main (shown as top-level nav items)
   { id: 'timing', label: 'Таймінг', path: '/', group: 'main', always: true },
+  { id: 'onboard', label: 'Onboard', path: '/onboard', group: 'main' },
   { id: 'sessions', label: 'Заїзди', path: '/sessions', group: 'main' },
   { id: 'karts', label: 'Карти', path: '/info/karts', group: 'main' },
 

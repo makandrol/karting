@@ -143,6 +143,7 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
               {!compact && <th className="table-cell text-right">B.S1</th>}
               {!compact && <th className="table-cell text-right">B.S2</th>}
               <th className="table-cell text-center w-10">Л</th>
+              <th className="table-cell w-8"></th>
             </tr>
           </thead>
           <tbody>
@@ -222,11 +223,22 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
                     <td className="table-cell text-center font-mono text-dark-400 text-sm">
                       {entry.lapNumber}
                     </td>
+                    <td className="table-cell text-center w-8 px-1">
+                      <Link
+                        to={`/onboard/${entry.kart}`}
+                        className="text-dark-600 hover:text-primary-400 transition-colors"
+                        title="Onboard"
+                      >
+                        <svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </Link>
+                    </td>
                   </tr>
                 );
               }) : (
                 <tr>
-                  <td colSpan={compact ? 5 : 10} className="table-cell text-center text-dark-500 py-8">
+                  <td colSpan={compact ? 6 : 11} className="table-cell text-center text-dark-500 py-8">
                     Очікування пілотів на трасі...
                   </td>
                 </tr>
