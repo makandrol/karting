@@ -156,7 +156,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       if (onCurrentUnrecordedLap && liveEntry) {
         displayS1 = liveEntry.s1 || null;
         displayS2 = liveEntry.s2 || null;
-        displayLap = prevLapData?.lapTime || null;
+        displayLap = liveEntry.lastLap || prevLapData?.lapTime || null;
       } else if (sessionStartTime && pilotS1Events.size > 0) {
         const currentMs = sessionStartTime + timeSec * 1000;
         const events = pilotS1Events.get(pilot);
@@ -213,14 +213,22 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         if (v >= 10 && v < bestS2Sec) { bestS2Sec = v; bestS2 = liveEntry.bestS2; }
       }
 
+      const liveLapNumber = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.lapNumber : completedLaps;
+      const liveKart = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.kart : (pilotLaps[0]?.kart || 0);
+
+      if (onCurrentUnrecordedLap && liveEntry?.bestLap) {
+        const v = parseTime(liveEntry.bestLap) ?? 999;
+        if (v < bestLapSec) { bestLapSec = v; bestLap = liveEntry.bestLap; }
+      }
+
       result.push({
         position: idx + 1, pilot,
-        kart: pilotLaps[0]?.kart || 0,
+        kart: liveKart,
         lastLap: displayLap,
         s1: displayS1,
         s2: displayS2,
         bestLap: bestLap || null,
-        lapNumber: completedLaps,
+        lapNumber: liveLapNumber,
         bestS1: bestS1 || null,
         bestS2: bestS2 || null,
         progress,
