@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds, mergePilotNames, shortName } from '../../utils/timing';
-import SessionReplay from '../../components/Timing/SessionReplay';
+import SessionReplay, { type S1Event } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
@@ -58,6 +58,7 @@ export default function SessionDetail() {
   const [dbSession, setDbSession] = useState<DbSession | null>(null);
   const [daySessions, setDaySessions] = useState<DbSession[]>([]);
   const [dbLaps, setDbLaps] = useState<DbLap[]>([]);
+  const [s1Events, setS1Events] = useState<S1Event[]>([]);
   const [liveEntries, setLiveEntries] = useState<any[]>([]);
   const [dbLoading, setDbLoading] = useState(true);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
@@ -85,11 +86,22 @@ export default function SessionDetail() {
         // Fetch laps from all merged session IDs
         const sessionIds = found?.merged_session_ids || [sessionId];
         const allLaps: DbLap[] = [];
+        const allS1Events: S1Event[] = [];
         for (const sid of sessionIds) {
-          const sLaps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json());
+          const [sLaps, sEvents] = await Promise.all([
+            fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()),
+            fetch(`${COLLECTOR_URL}/db/events?session=${sid}`).then(r => r.json()).catch(() => []),
+          ]);
           allLaps.push(...sLaps);
+          for (const ev of sEvents) {
+            if (ev.event_type === 's1' && ev.data) {
+              const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+              if (d.pilot && d.s1) allS1Events.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
+            }
+          }
         }
         setDbLaps(allLaps);
+        setS1Events(allS1Events);
 
         if (found && !found.end_time) {
           try {
@@ -300,6 +312,7 @@ export default function SessionDetail() {
                   sessionStartTime={dbSession.start_time}
                   raceNumber={dbSession.race_number}
                   autoPlay={true}
+                  s1Events={s1Events}
                   onEntriesUpdate={setTrackEntries}
                   renderScrubber={(scrubber) => (
                     <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">

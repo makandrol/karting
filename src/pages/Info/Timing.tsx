@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { TrackMap } from '../../components/Track';
 import DayTimeline from '../../components/Timing/DayTimeline';
 import CompetitionControl from '../../components/Timing/CompetitionControl';
-import SessionReplay from '../../components/Timing/SessionReplay';
+import SessionReplay, { type S1Event } from '../../components/Timing/SessionReplay';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
@@ -60,6 +60,7 @@ export default function Timing() {
 
   // Fetch laps for active session (for replay)
   const [replayLaps, setReplayLaps] = useState<DbLap[]>([]);
+  const [s1Events, setS1Events] = useState<S1Event[]>([]);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
 
@@ -82,10 +83,21 @@ export default function Timing() {
   }, []);
 
   const fetchLaps = useCallback(async () => {
-    if (!currentSessionId) { setReplayLaps([]); return; }
+    if (!currentSessionId) { setReplayLaps([]); setS1Events([]); return; }
     try {
-      const res = await fetch(`${COLLECTOR_URL}/db/laps?session=${currentSessionId}`);
-      if (res.ok) setReplayLaps(await res.json());
+      const [lapsRes, eventsRes] = await Promise.all([
+        fetch(`${COLLECTOR_URL}/db/laps?session=${currentSessionId}`).then(r => r.json()),
+        fetch(`${COLLECTOR_URL}/db/events?session=${currentSessionId}`).then(r => r.json()).catch(() => []),
+      ]);
+      setReplayLaps(lapsRes);
+      const parsed: S1Event[] = [];
+      for (const ev of eventsRes) {
+        if (ev.event_type === 's1' && ev.data) {
+          const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+          if (d.pilot && d.s1) parsed.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
+        }
+      }
+      setS1Events(parsed);
     } catch { /* ignore */ }
   }, [currentSessionId]);
 
@@ -246,6 +258,7 @@ export default function Timing() {
                 raceNumber={currentRaceNumber}
                 autoPlay={true}
                 liveEntries={entries}
+                s1Events={s1Events}
                 onEntriesUpdate={setTrackEntries}
                 renderScrubber={(scrubber) => (
                   <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">

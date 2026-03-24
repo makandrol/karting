@@ -7,6 +7,12 @@ import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES, shortName, type Time
 // SessionReplay component
 // ============================================================
 
+export interface S1Event {
+  pilot: string;
+  s1: string;
+  ts: number;
+}
+
 interface SessionReplayProps {
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number; ts?: number }[];
   durationSec: number;
@@ -15,12 +21,13 @@ interface SessionReplayProps {
   raceNumber?: number | null;
   autoPlay?: boolean;
   liveEntries?: TimingEntry[];
+  s1Events?: S1Event[];
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
@@ -31,6 +38,18 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
   durationRef.current = durationSec;
 
   const pilots = useMemo(() => [...new Set(laps.map(l => l.pilot))], [laps]);
+
+  // Per-pilot S1 events sorted by timestamp for quick lookup during replay
+  const pilotS1Events = useMemo(() => {
+    const map = new Map<string, S1Event[]>();
+    if (!s1Events) return map;
+    for (const ev of s1Events) {
+      if (!map.has(ev.pilot)) map.set(ev.pilot, []);
+      map.get(ev.pilot)!.push(ev);
+    }
+    for (const arr of map.values()) arr.sort((a, b) => a.ts - b.ts);
+    return map;
+  }, [s1Events]);
 
   // Build per-pilot completion timelines using actual lap durations
   // ts from DB is poll time (same for all pilots), so we reconstruct individual timelines
@@ -139,6 +158,18 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         displayS1 = liveEntry.s1 || null;
         displayS2 = liveEntry.s2 || null;
         displayLap = prevLapData?.lapTime || null;
+      } else if (sessionStartTime && pilotS1Events.size > 0) {
+        const currentMs = sessionStartTime + timeSec * 1000;
+        const events = pilotS1Events.get(pilot);
+        let latestS1: string | null = null;
+        if (events) {
+          for (let i = events.length - 1; i >= 0; i--) {
+            if (events[i].ts <= currentMs) { latestS1 = events[i].s1; break; }
+          }
+        }
+        displayS1 = latestS1;
+        displayS2 = prevLapData?.s2 || null;
+        displayLap = prevLapData?.lapTime || null;
       } else {
         displayS1 = prevLapData?.s1 || null;
         displayS2 = prevLapData?.s2 || null;
@@ -158,6 +189,12 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         if (s1v >= 10 && s1v < bestS1Sec) { bestS1Sec = s1v; bestS1 = l?.s1 || ''; }
         const s2v = parseTime(l?.s2 || '') ?? 999;
         if (s2v >= 10 && s2v < bestS2Sec) { bestS2Sec = s2v; bestS2 = l?.s2 || ''; }
+      }
+
+      // Include displayed S1 in best calculation (from s1Events, may be mid-lap)
+      if (displayS1) {
+        const ds1v = parseTime(displayS1) ?? 999;
+        if (ds1v >= 10 && ds1v < bestS1Sec) { bestS1Sec = ds1v; bestS1 = displayS1; }
       }
 
       if (onCurrentUnrecordedLap && liveEntry?.s1) {
@@ -206,7 +243,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
-  }, [laps, pilots, sessionStartTime, pilotTimelines, liveEntries]);
+  }, [laps, pilots, sessionStartTime, pilotTimelines, pilotS1Events, liveEntries]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
