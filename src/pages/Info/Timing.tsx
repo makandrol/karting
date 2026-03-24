@@ -214,6 +214,9 @@ export default function Timing() {
                   ? 'Система таймінгу картодрому зараз не відповідає. Дані з\'являться автоматично, як тільки вона стане доступною.'
                   : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
               </p>
+              {siteReachable && recentSessions.length > 0 && recentSessions[0].end_time && (
+                <IdleTimer sinceMs={recentSessions[0].end_time} />
+              )}
             </div>
           </div>
 
@@ -330,4 +333,20 @@ function LiveTimer({ startTime }: { startTime: number }) {
     return () => clearInterval(timer);
   }, [startTime]);
   return <span className="font-normal text-dark-400 ml-1.5 font-mono">{elapsed}</span>;
+}
+
+function IdleTimer({ sinceMs }: { sinceMs: number }) {
+  const [text, setText] = useState('');
+  useEffect(() => {
+    const update = () => {
+      const sec = Math.floor((Date.now() - sinceMs) / 1000);
+      if (sec < 60) setText(`${sec}с тому`);
+      else if (sec < 3600) setText(`${Math.floor(sec / 60)}хв ${sec % 60}с тому`);
+      else { const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); setText(`${h}год ${m}хв тому`); }
+    };
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [sinceMs]);
+  return <p className="text-dark-500 text-xs font-mono mt-1">Останній заїзд закінчився {text}</p>;
 }
