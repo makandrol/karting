@@ -13,6 +13,11 @@ export interface S1Event {
   ts: number;
 }
 
+export interface SnapshotPosition {
+  ts: number;
+  positions: Map<string, number>;
+}
+
 export type ReplaySortMode = 'qualifying' | 'race';
 
 interface SessionReplayProps {
@@ -24,6 +29,7 @@ interface SessionReplayProps {
   autoPlay?: boolean;
   liveEntries?: TimingEntry[];
   s1Events?: S1Event[];
+  snapshots?: SnapshotPosition[];
   startPositions?: Map<string, number>;
   defaultSortMode?: ReplaySortMode;
   onTimeUpdate?: (timeSec: number) => void;
@@ -31,7 +37,7 @@ interface SessionReplayProps {
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, startPositions, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
@@ -278,14 +284,12 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       });
     }
 
-    // For race sort: track who passed S1 at what time (for mid-first-lap ordering)
-    const pilotS1Time = new Map<string, number>();
-    if (sessionStartTime && pilotS1Events.size > 0) {
+    // For race sort: find positions from latest snapshot before current time
+    let snapshotPositions: Map<string, number> | null = null;
+    if (sessionStartTime && snapshots && snapshots.length > 0) {
       const currentMs = sessionStartTime + timeSec * 1000;
-      for (const [pilot, events] of pilotS1Events) {
-        for (const ev of events) {
-          if (ev.ts <= currentMs) { pilotS1Time.set(pilot, ev.ts); break; }
-        }
+      for (let i = snapshots.length - 1; i >= 0; i--) {
+        if (snapshots[i].ts <= currentMs) { snapshotPositions = snapshots[i].positions; break; }
       }
     }
 
@@ -302,13 +306,11 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
           const aLastPos = pilotLastPos.get(a.pilot) ?? 99;
           const bLastPos = pilotLastPos.get(b.pilot) ?? 99;
           if (aLastPos !== 99 || bLastPos !== 99) return aLastPos - bLastPos;
-          // Mid-first-lap: who passed S1 first is ahead
-          const aS1 = pilotS1Time.get(a.pilot);
-          const bS1 = pilotS1Time.get(b.pilot);
-          if (aS1 !== undefined || bS1 !== undefined) {
-            if (aS1 !== undefined && bS1 === undefined) return -1;
-            if (aS1 === undefined && bS1 !== undefined) return 1;
-            if (aS1! !== bS1!) return aS1! - bS1!;
+          // Use snapshot positions (ground truth from timing system)
+          if (snapshotPositions) {
+            const aSnap = snapshotPositions.get(a.pilot) ?? 99;
+            const bSnap = snapshotPositions.get(b.pilot) ?? 99;
+            if (aSnap !== 99 || bSnap !== 99) return aSnap - bSnap;
           }
           return (startPositions?.get(a.pilot) ?? 99) - (startPositions?.get(b.pilot) ?? 99);
         }
@@ -320,7 +322,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
-  }, [laps, pilots, sessionStartTime, pilotTimelines, pilotS1Events, liveEntries, sortMode]);
+  }, [laps, pilots, sessionStartTime, pilotTimelines, pilotS1Events, snapshots, startPositions, liveEntries, sortMode]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
