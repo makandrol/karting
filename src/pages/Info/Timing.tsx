@@ -214,9 +214,10 @@ export default function Timing() {
                   ? 'Система таймінгу картодрому зараз не відповідає. Дані з\'являться автоматично, як тільки вона стане доступною.'
                   : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
               </p>
-              {siteReachable && recentSessions.length > 0 && recentSessions[0].end_time && (
-                <IdleTimer sinceMs={recentSessions[0].end_time} />
-              )}
+              {siteReachable && recentSessions.length > 0 && (() => {
+                const lastFinished = recentSessions.find(s => s.end_time && s.end_time > s.start_time + 60000);
+                return lastFinished?.end_time ? <IdleTimer sinceMs={lastFinished.end_time} /> : null;
+              })()}
             </div>
           </div>
 
