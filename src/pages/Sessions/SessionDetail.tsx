@@ -4,6 +4,7 @@ import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds, mergePilotNames, shortName } from '../../utils/timing';
 import SessionReplay from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
+import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
 import { useTrack } from '../../services/trackContext';
 import { useViewPrefs } from '../../services/viewPrefs';
@@ -175,12 +176,21 @@ export default function SessionDetail() {
             Заїзд {raceNum ?? ''}
             <span className="text-dark-500 font-normal text-sm ml-2">Траса #{dbSession.track_id}</span>
           </h1>
-          <p className="text-dark-400 text-sm">
-            {dateStr}, {fmtTime(dbSession.start_time)}
-            {dbSession.end_time && ` – ${fmtTime(dbSession.end_time)}`}
-            {dbSession.end_time && ` · ${fmtDuration(dbSession.start_time, dbSession.end_time)}`}
-            {` · ${pilotCount} пілотів`}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-dark-400 text-sm">
+              {dateStr}, {fmtTime(dbSession.start_time)}
+              {dbSession.end_time && ` – ${fmtTime(dbSession.end_time)}`}
+              {dbSession.end_time && ` · ${fmtDuration(dbSession.start_time, dbSession.end_time)}`}
+              {` · ${pilotCount} пілотів`}
+            </p>
+            <SessionTypeChanger
+              sessionId={sessionId!}
+              currentFormat={(dbSession as any).competition_format || null}
+              currentPhase={(dbSession as any).competition_phase || null}
+              currentCompetitionId={(dbSession as any).competition_id || null}
+              onChanged={() => window.location.reload()}
+            />
+          </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {prevSession ? (

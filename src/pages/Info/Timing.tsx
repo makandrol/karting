@@ -12,6 +12,7 @@ import { parseTime, mergePilotNames, shortName, toSeconds } from '../../utils/ti
 import type { TimingEntry } from '../../types';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
+import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { useViewPrefs } from '../../services/viewPrefs';
 
 interface DbLap {
@@ -144,11 +145,12 @@ export default function Timing() {
         </div>
 
         {(isLive && hasData) && (
-          <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-            isCompetition ? 'bg-purple-500/15 text-purple-400' : 'bg-dark-800 text-dark-400'
-          }`}>
-            {sessionType}
-          </span>
+          <SessionTypeChanger
+            sessionId={currentSessionId}
+            currentFormat={(collectorStatus as any)?.competition?.competition?.format || null}
+            currentPhase={null}
+            currentCompetitionId={null}
+          />
         )}
 
         {canManage && <CompetitionControl inline />}
