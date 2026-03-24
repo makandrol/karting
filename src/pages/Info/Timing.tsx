@@ -11,6 +11,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { parseTime, mergePilotNames, shortName, toSeconds } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 import SessionsTable from '../../components/Sessions/SessionsTable';
+import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
+import { useViewPrefs } from '../../services/viewPrefs';
 
 interface DbLap {
   pilot: string;
@@ -105,6 +107,8 @@ export default function Timing() {
       ts: l.ts,
     })));
 
+  const replayPilots = buildPilotLaps(replayLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time })));
+  const { prefs, toggle } = useViewPrefs();
   const hasReplayData = sessionStartTime != null && currentSessionId != null;
   const replayDuration = sessionStartTime
     ? Math.round((Date.now() - sessionStartTime) / 1000)
@@ -226,11 +230,23 @@ export default function Timing() {
                   </div>
                 )}
               />
-              <TrackMap track={currentTrack} entries={trackEntries} static />
+              {/* Toggle buttons */}
+              <div className="flex items-center gap-2">
+                <button onClick={() => toggle('showTrack')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${prefs.showTrack ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-500'}`}>
+                  Трек
+                </button>
+                <button onClick={() => toggle('showLapsByPilots')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${prefs.showLapsByPilots ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-500'}`}>
+                  Кола по пілотах
+                </button>
+              </div>
+              {prefs.showTrack && <TrackMap track={currentTrack} entries={trackEntries} static />}
+              {prefs.showLapsByPilots && <LapsByPilots pilots={replayPilots} currentEntries={trackEntries} />}
             </>
           ) : (
             <>
-              <TrackMap track={currentTrack} entries={entries} />
+              {prefs.showTrack && <TrackMap track={currentTrack} entries={entries} />}
               {hasData && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <StatCard label="Пілотів" value={entries.length.toString()} />
