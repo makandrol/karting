@@ -102,14 +102,13 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         }
 
         if (completedLaps >= pilotLaps.length) {
-          // All recorded laps done — estimate position on current unfinished lap
           if (pilotLaps.length > 0) {
             const lastCompletionMs = timeline[timeline.length - 1] || currentMs;
             const avgLapMs = pilotLaps.length >= 2
               ? (timeline[timeline.length - 1] - timeline[0]) / (pilotLaps.length - 1)
               : (parseTime(pilotLaps[0].lapTime) || 42) * 1000;
             const elapsed = currentMs - lastCompletionMs;
-            progress = avgLapMs > 0 ? Math.max(0, Math.min(elapsed / avgLapMs, 0.999)) : 0;
+            progress = avgLapMs > 0 ? (elapsed / avgLapMs) % 1 : 0;
           } else {
             progress = 0;
           }
