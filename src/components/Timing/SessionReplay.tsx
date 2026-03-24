@@ -451,11 +451,11 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       {/* Timing board */}
       <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-xs [&_th]:px-1 [&_th]:py-1 [&_td]:px-1 [&_td]:py-1">
           <thead>
             <tr className="table-header">
-              <th className="table-cell text-center w-6">#</th>
-              <th className="table-cell text-left min-w-[140px]">Pilot</th>
+              <th className="table-cell text-center w-5">#</th>
+              <th className="table-cell text-left min-w-[85px]">Pilot</th>
               <th className="table-cell text-center">Kart</th>
               <th className="table-cell text-right">Last</th>
               <th className="table-cell text-right">S1</th>
@@ -482,8 +482,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                   <td className="table-cell text-center font-mono font-bold text-dark-400">
                     {notStarted ? '—' : e.position}
                   </td>
-                  <td className="table-cell text-left py-2">
-                    <div className={`font-medium text-sm leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
+                  <td className="table-cell text-left py-1.5">
+                    <div className={`font-medium text-[11px] leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
                       <Link to={`/pilots/${encodeURIComponent(e.pilot)}`} className={`${notStarted ? 'text-dark-500' : 'text-white hover:text-primary-400'} transition-colors`}>
                         {shortName(e.pilot)}
                       </Link>
