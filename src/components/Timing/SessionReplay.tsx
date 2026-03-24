@@ -150,7 +150,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
       const onCurrentUnrecordedLap = completedLaps >= pilotLaps.length;
 
       if (onCurrentUnrecordedLap && liveEntry?.s1) {
-        displayS1 = liveEntry.s1;
+        const prevS1 = prevLapData?.s1 || null;
+        const liveS1IsNew = prevS1 !== liveEntry.s1;
+        displayS1 = liveS1IsNew ? liveEntry.s1 : null;
         displayS2 = prevLapData?.s2 || null;
         displayLap = prevLapData?.lapTime || null;
       } else if (onCurrentUnrecordedLap) {
@@ -183,8 +185,11 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
       }
 
       if (onCurrentUnrecordedLap && liveEntry?.s1) {
-        const liveS1v = parseTime(liveEntry.s1) ?? 999;
-        if (liveS1v >= 10 && liveS1v < bestS1Sec) { bestS1Sec = liveS1v; bestS1 = liveEntry.s1; }
+        const prevS1Str = prevLapData?.s1 || null;
+        if (prevS1Str !== liveEntry.s1) {
+          const liveS1v = parseTime(liveEntry.s1) ?? 999;
+          if (liveS1v >= 10 && liveS1v < bestS1Sec) { bestS1Sec = liveS1v; bestS1 = liveEntry.s1; }
+        }
       }
 
       result.push({
