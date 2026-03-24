@@ -128,10 +128,10 @@ export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
   },
   light_league: {
     phases: [
-      { id: 'qualifying_1', label: 'Кваліфікація 1', shortLabel: 'Кв1' },
-      { id: 'qualifying_2', label: 'Кваліфікація 2', shortLabel: 'Кв2' },
-      { id: 'qualifying_3', label: 'Кваліфікація 3', shortLabel: 'Кв3' },
-      { id: 'qualifying_4', label: 'Кваліфікація 4', shortLabel: 'Кв4' },
+      { id: 'qualifying_1', label: 'Кваліфікація 1', shortLabel: 'Квала 1' },
+      { id: 'qualifying_2', label: 'Кваліфікація 2', shortLabel: 'Квала 2' },
+      { id: 'qualifying_3', label: 'Кваліфікація 3', shortLabel: 'Квала 3' },
+      { id: 'qualifying_4', label: 'Кваліфікація 4', shortLabel: 'Квала 4' },
       { id: 'race_1_group_3', label: 'Гонка 1 · Група 3', shortLabel: 'Г1·Гр3' },
       { id: 'race_1_group_2', label: 'Гонка 1 · Група 2', shortLabel: 'Г1·Гр2' },
       { id: 'race_1_group_1', label: 'Гонка 1 · Група 1', shortLabel: 'Г1·Гр1' },
@@ -142,8 +142,8 @@ export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
   },
   champions_league: {
     phases: [
-      { id: 'qualifying_1', label: 'Кваліфікація 1', shortLabel: 'Кв1' },
-      { id: 'qualifying_2', label: 'Кваліфікація 2', shortLabel: 'Кв2' },
+      { id: 'qualifying_1', label: 'Кваліфікація 1', shortLabel: 'Квала 1' },
+      { id: 'qualifying_2', label: 'Кваліфікація 2', shortLabel: 'Квала 2' },
       { id: 'race_1_group_2', label: 'Гонка 1 · Група 2', shortLabel: 'Г1·Гр2' },
       { id: 'race_1_group_1', label: 'Гонка 1 · Група 1', shortLabel: 'Г1·Гр1' },
       { id: 'race_2_group_2', label: 'Гонка 2 · Група 2', shortLabel: 'Г2·Гр2' },
