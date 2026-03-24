@@ -278,6 +278,17 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       });
     }
 
+    // For race sort: track who passed S1 at what time (for mid-first-lap ordering)
+    const pilotS1Time = new Map<string, number>();
+    if (sessionStartTime && pilotS1Events.size > 0) {
+      const currentMs = sessionStartTime + timeSec * 1000;
+      for (const [pilot, events] of pilotS1Events) {
+        for (const ev of events) {
+          if (ev.ts <= currentMs) { pilotS1Time.set(pilot, ev.ts); break; }
+        }
+      }
+    }
+
     return result
       .sort((a, b) => {
         if (a.lapNumber < 0 && b.lapNumber < 0) return 0;
@@ -291,6 +302,14 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
           const aLastPos = pilotLastPos.get(a.pilot) ?? 99;
           const bLastPos = pilotLastPos.get(b.pilot) ?? 99;
           if (aLastPos !== 99 || bLastPos !== 99) return aLastPos - bLastPos;
+          // Mid-first-lap: who passed S1 first is ahead
+          const aS1 = pilotS1Time.get(a.pilot);
+          const bS1 = pilotS1Time.get(b.pilot);
+          if (aS1 !== undefined || bS1 !== undefined) {
+            if (aS1 !== undefined && bS1 === undefined) return -1;
+            if (aS1 === undefined && bS1 !== undefined) return 1;
+            if (aS1! !== bS1!) return aS1! - bS1!;
+          }
           return (startPositions?.get(a.pilot) ?? 99) - (startPositions?.get(b.pilot) ?? 99);
         }
         if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
