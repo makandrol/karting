@@ -82,9 +82,16 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
   type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points`;
   const [sortKey, setSortKey] = useState<SortKey>('total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(key); setSortDir(key === 'total' ? 'desc' : 'asc'); }
+  const toggleSort = (key: SortKey, fixedDir?: 'asc' | 'desc') => {
+    if (fixedDir) {
+      setSortKey(key);
+      setSortDir(fixedDir);
+    } else if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
   };
 
   const data = useMemo(() => {
@@ -177,12 +184,16 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
 
   if (sortedData.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
 
-  const SortBtn = ({ k, label }: { k: SortKey; label: string }) => (
-    <button onClick={() => toggleSort(k)}
-      className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${sortKey === k ? 'bg-primary-600/30 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
-      {label} {sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-    </button>
-  );
+  const SortBtn = ({ k, label, fixedDir }: { k: SortKey; label: string; fixedDir?: 'asc' | 'desc' }) => {
+    const active = sortKey === k;
+    const arrow = fixedDir ? (fixedDir === 'asc' ? '↑' : '↓') : (active ? (sortDir === 'asc' ? '↑' : '↓') : '');
+    return (
+      <button onClick={() => toggleSort(k, fixedDir)}
+        className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${active ? 'bg-primary-600/30 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
+        {label} {arrow}
+      </button>
+    );
+  };
 
   const showQuali = !hiddenGroups.has('quali');
   const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
@@ -201,11 +212,11 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
               </button>
               <div className="flex gap-1 flex-wrap">
                 <SortBtn k="total" label="Сума" />
-                <SortBtn k="quali_time" label="Квала" />
+                <SortBtn k="quali_time" label="Квала" fixedDir="asc" />
                 {Array.from({ length: raceCount }, (_, i) => (
                   <Fragment key={i}>
-                    <SortBtn k={`race_${i + 1}_time` as SortKey} label={`Г${i + 1} час`} />
-                    <SortBtn k={`race_${i + 1}_points` as SortKey} label={`Г${i + 1} бали`} />
+                    <SortBtn k={`race_${i + 1}_time` as SortKey} label={`Г${i + 1} час`} fixedDir="asc" />
+                    <SortBtn k={`race_${i + 1}_points` as SortKey} label={`Г${i + 1} бали`} fixedDir="desc" />
                   </Fragment>
                 ))}
               </div>
