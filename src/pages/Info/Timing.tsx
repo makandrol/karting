@@ -170,7 +170,7 @@ export default function Timing() {
           />
         )}
 
-        {canManage && <CompetitionControl inline />}
+        {canManage && !liveSessionComp.competitionId && <CompetitionControl inline />}
 
         <div className="flex-1" />
 

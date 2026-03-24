@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { COLLECTOR_URL } from '../../services/config';
 import { useAuth } from '../../services/auth';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, type CompetitionFormat } from '../../data/competitions';
@@ -242,179 +243,174 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
   if (!canManage) return null;
 
   const isLinked = !!currentCompetitionId;
-  const label = isLinked && currentFormat && currentPhase
-    ? `${COMPETITION_CONFIGS[currentFormat as CompetitionFormat]?.name || currentFormat} · ${PHASE_CONFIGS[currentFormat]?.phases.find(p => p.id === currentPhase)?.shortLabel || currentPhase}`
-    : isLinked && currentFormat
-    ? COMPETITION_CONFIGS[currentFormat as CompetitionFormat]?.name || currentFormat
-    : 'Прокат';
+  const compConfig = currentFormat ? COMPETITION_CONFIGS[currentFormat as CompetitionFormat] : null;
+  const phaseConfig = currentFormat && currentPhase ? PHASE_CONFIGS[currentFormat]?.phases.find(p => p.id === currentPhase) : null;
+
+  if (isLinked && compConfig) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <Link
+          to={`/results/${currentFormat}/${currentCompetitionId}`}
+          className="px-2.5 py-1 rounded-lg text-xs font-medium bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 transition-colors"
+        >
+          {compConfig.name}
+        </Link>
+        <div ref={dropdownRef} className="relative inline-block">
+          <button
+            onClick={() => setStep(step === 'closed' ? 'format' : 'closed')}
+            className="px-2.5 py-1 rounded-lg text-xs font-medium bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 transition-colors"
+          >
+            {phaseConfig?.shortLabel || currentPhase || '?'} ▾
+          </button>
+          {step !== 'closed' && (
+            <div className="absolute top-full left-0 mt-1 w-64 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50">
+              {renderLinkedMenu()}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={dropdownRef} className="relative inline-block">
       <button
         onClick={() => setStep(step === 'closed' ? 'format' : 'closed')}
-        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-          isLinked ? 'bg-purple-500/15 text-purple-400 hover:bg-purple-500/25' : 'bg-dark-800 text-dark-400 hover:text-white'
-        }`}
+        className="px-2.5 py-1 rounded-lg text-xs font-medium bg-dark-800 text-dark-400 hover:text-white transition-colors"
       >
-        {label} ▾
+        Прокат ▾
       </button>
-
       {step !== 'closed' && (
         <div className="absolute top-full left-0 mt-1 w-64 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50">
-          {step === 'format' && !isLinked && (
-            <>
-              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Тип заїзду</div>
-              {Object.values(COMPETITION_CONFIGS).filter(c => c.format !== 'sprint' && c.format !== 'marathon').map(config => (
-                <button
-                  key={config.format}
-                  onClick={() => handleFormatSelect(config.format)}
-                  className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
-                >
-                  {config.name}
-                </button>
-              ))}
-            </>
-          )}
-
-          {step === 'format' && isLinked && (
-            <>
-              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">{label}</div>
-              <button
-                onClick={() => {
-                  setSelectedComp({ id: currentCompetitionId!, name: '', format: currentFormat!, date: '', status: 'live', sessions: [] });
-                  setStep('change_phase_all');
-                }}
-                className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
-              >
-                Змінити етап (всі заїзди)
-              </button>
-              <button
-                onClick={() => {
-                  setSelectedComp({ id: currentCompetitionId!, name: '', format: currentFormat!, date: '', status: 'live', sessions: [] });
-                  setStep('change_phase_single');
-                }}
-                className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
-              >
-                Змінити етап (тільки цей)
-              </button>
-              <button
-                onClick={handleUnlink}
-                className="w-full text-left px-3 py-2 text-sm text-yellow-400/80 hover:text-yellow-400 hover:bg-dark-800 transition-colors"
-              >
-                Зробити прокатом
-              </button>
-              <button
-                onClick={handleDeleteCompetition}
-                className="w-full text-left px-3 py-2 text-sm text-red-400/60 hover:text-red-400 hover:bg-dark-800 transition-colors"
-              >
-                Видалити змагання
-              </button>
-            </>
-          )}
-
-          {step === 'change_phase_all' && selectedComp && (
-            <>
-              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Змінити етап (всі заїзди)</div>
-              {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => (
-                <button
-                  key={phase.id}
-                  onClick={() => handleChangePhaseAll(phase.id)}
-                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                    phase.id === currentPhase ? 'text-primary-400 font-medium' : 'text-dark-300 hover:text-white hover:bg-dark-800'
-                  }`}
-                >
-                  {phase.label}
-                  {phase.id === currentPhase && <span className="text-dark-600 text-[10px] ml-1">(поточний)</span>}
-                </button>
-              ))}
-              <button onClick={() => setStep('format')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">
-                ← Назад
-              </button>
-            </>
-          )}
-
-          {step === 'change_phase_single' && selectedComp && (
-            <>
-              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Змінити етап (тільки цей)</div>
-              {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => (
-                <button
-                  key={phase.id}
-                  onClick={() => handleChangePhaseSingle(phase.id)}
-                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                    phase.id === currentPhase ? 'text-primary-400 font-medium' : 'text-dark-300 hover:text-white hover:bg-dark-800'
-                  }`}
-                >
-                  {phase.label}
-                  {phase.id === currentPhase && <span className="text-dark-600 text-[10px] ml-1">(поточний)</span>}
-                </button>
-              ))}
-              <button onClick={() => setStep('format')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">
-                ← Назад
-              </button>
-            </>
-          )}
-
-          {step === 'competition' && selectedFormat && (
-            <>
-              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">
-                {COMPETITION_CONFIGS[selectedFormat].name} — змагання
-              </div>
-              {loading ? (
-                <div className="px-3 py-2 text-dark-500 text-sm">Завантаження...</div>
-              ) : (
-                <>
-                  {competitions.map(comp => (
-                    <button
-                      key={comp.id}
-                      onClick={() => handleCompetitionSelect(comp)}
-                      className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
-                    >
-                      {comp.name}
-                      <span className="text-dark-600 text-[10px] ml-1">({comp.sessions.length} заїздів)</span>
-                    </button>
-                  ))}
-                  <button
-                    onClick={handleCreateCompetition}
-                    className="w-full text-left px-3 py-2 text-sm text-primary-400 hover:text-primary-300 hover:bg-dark-800 transition-colors"
-                  >
-                    + Створити нове змагання
-                  </button>
-                </>
-              )}
-              <button onClick={() => setStep('format')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">
-                ← Назад
-              </button>
-            </>
-          )}
-
-          {step === 'phase' && selectedComp && (
-            <>
-              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">
-                {selectedComp.name} — етап
-              </div>
-              {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => {
-                const alreadyUsed = selectedComp.sessions.some(s => s.phase === phase.id);
-                return (
-                  <button
-                    key={phase.id}
-                    onClick={() => !alreadyUsed && handlePhaseSelect(phase.id)}
-                    disabled={alreadyUsed}
-                    className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                      alreadyUsed ? 'text-dark-600 cursor-default' : 'text-dark-300 hover:text-white hover:bg-dark-800'
-                    }`}
-                  >
-                    {phase.label}
-                    {alreadyUsed && <span className="text-dark-700 text-[10px] ml-1">(зайнято)</span>}
-                  </button>
-                );
-              })}
-              <button onClick={() => setStep('competition')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">
-                ← Назад
-              </button>
-            </>
-          )}
+          {renderUnlinkedMenu()}
         </div>
       )}
     </div>
   );
+
+  function renderLinkedMenu() {
+    return (
+      <>
+        {step === 'format' && (
+          <>
+            <button
+              onClick={() => {
+                setSelectedComp({ id: currentCompetitionId!, name: '', format: currentFormat!, date: '', status: 'live', sessions: [] });
+                setStep('change_phase_all');
+              }}
+              className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
+              Змінити етап (всі заїзди)
+            </button>
+            <button
+              onClick={() => {
+                setSelectedComp({ id: currentCompetitionId!, name: '', format: currentFormat!, date: '', status: 'live', sessions: [] });
+                setStep('change_phase_single');
+              }}
+              className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
+              Змінити етап (тільки цей)
+            </button>
+            <button onClick={handleUnlink}
+              className="w-full text-left px-3 py-2 text-sm text-yellow-400/80 hover:text-yellow-400 hover:bg-dark-800 transition-colors">
+              Зробити прокатом
+            </button>
+            <button onClick={handleDeleteCompetition}
+              className="w-full text-left px-3 py-2 text-sm text-red-400/60 hover:text-red-400 hover:bg-dark-800 transition-colors">
+              Видалити змагання
+            </button>
+          </>
+        )}
+        {renderPhaseSteps()}
+      </>
+    );
+  }
+
+  function renderUnlinkedMenu() {
+    return (
+      <>
+        {step === 'format' && (
+          <>
+            <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Тип заїзду</div>
+            {Object.values(COMPETITION_CONFIGS).filter(c => c.format !== 'sprint' && c.format !== 'marathon').map(config => (
+              <button key={config.format} onClick={() => handleFormatSelect(config.format)}
+                className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
+                {config.name}
+              </button>
+            ))}
+          </>
+        )}
+        {step === 'competition' && selectedFormat && (
+          <>
+            <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">
+              {COMPETITION_CONFIGS[selectedFormat].name} — змагання
+            </div>
+            {loading ? (
+              <div className="px-3 py-2 text-dark-500 text-sm">Завантаження...</div>
+            ) : (
+              <>
+                {competitions.map(comp => (
+                  <button key={comp.id} onClick={() => handleCompetitionSelect(comp)}
+                    className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
+                    {comp.name}
+                    <span className="text-dark-600 text-[10px] ml-1">({comp.sessions.length} заїздів)</span>
+                  </button>
+                ))}
+                <button onClick={handleCreateCompetition}
+                  className="w-full text-left px-3 py-2 text-sm text-primary-400 hover:text-primary-300 hover:bg-dark-800 transition-colors">
+                  + Створити нове змагання
+                </button>
+              </>
+            )}
+            <button onClick={() => setStep('format')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">← Назад</button>
+          </>
+        )}
+        {step === 'phase' && selectedComp && (
+          <>
+            <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">{selectedComp.name} — етап</div>
+            {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => {
+              const alreadyUsed = selectedComp.sessions.some(s => s.phase === phase.id);
+              return (
+                <button key={phase.id} onClick={() => !alreadyUsed && handlePhaseSelect(phase.id)} disabled={alreadyUsed}
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${alreadyUsed ? 'text-dark-600 cursor-default' : 'text-dark-300 hover:text-white hover:bg-dark-800'}`}>
+                  {phase.label}{alreadyUsed && <span className="text-dark-700 text-[10px] ml-1">(зайнято)</span>}
+                </button>
+              );
+            })}
+            <button onClick={() => setStep('competition')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">← Назад</button>
+          </>
+        )}
+        {renderPhaseSteps()}
+      </>
+    );
+  }
+
+  function renderPhaseSteps() {
+    return (
+      <>
+        {step === 'change_phase_all' && selectedComp && (
+          <>
+            <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Змінити етап (всі заїзди)</div>
+            {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => (
+              <button key={phase.id} onClick={() => handleChangePhaseAll(phase.id)}
+                className={`w-full text-left px-3 py-2 text-sm transition-colors ${phase.id === currentPhase ? 'text-primary-400 font-medium' : 'text-dark-300 hover:text-white hover:bg-dark-800'}`}>
+                {phase.label}{phase.id === currentPhase && <span className="text-dark-600 text-[10px] ml-1">(поточний)</span>}
+              </button>
+            ))}
+            <button onClick={() => setStep('format')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">← Назад</button>
+          </>
+        )}
+        {step === 'change_phase_single' && selectedComp && (
+          <>
+            <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Змінити етап (тільки цей)</div>
+            {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => (
+              <button key={phase.id} onClick={() => handleChangePhaseSingle(phase.id)}
+                className={`w-full text-left px-3 py-2 text-sm transition-colors ${phase.id === currentPhase ? 'text-primary-400 font-medium' : 'text-dark-300 hover:text-white hover:bg-dark-800'}`}>
+                {phase.label}{phase.id === currentPhase && <span className="text-dark-600 text-[10px] ml-1">(поточний)</span>}
+              </button>
+            ))}
+            <button onClick={() => setStep('format')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">← Назад</button>
+          </>
+        )}
+      </>
+    );
+  }
 }
