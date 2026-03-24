@@ -4,6 +4,7 @@ import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel } from '../../data/competitions';
 import { toSeconds } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
+import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -36,6 +37,27 @@ export default function CompetitionPage() {
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'live' | 'final'>('live');
+  const [compSessions, setCompSessions] = useState<SessionTableRow[]>([]);
+
+  const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[]) => {
+    const dates = new Set<string>();
+    for (const s of sessions) {
+      const m = s.sessionId.match(/session-(\d+)/);
+      if (m) { const d = new Date(parseInt(m[1])); dates.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }
+    }
+    const sessionIds = new Set(sessions.map(s => s.sessionId));
+    const all: SessionTableRow[] = [];
+    for (const date of dates) {
+      try {
+        const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
+        if (res.ok) {
+          const data: SessionTableRow[] = await res.json();
+          all.push(...data.filter(s => sessionIds.has(s.id)));
+        }
+      } catch {}
+    }
+    setCompSessions(all);
+  };
 
   useEffect(() => {
     if (eventId) {
@@ -44,6 +66,7 @@ export default function CompetitionPage() {
         .then(data => {
           setCompetition(data);
           if (data?.status === 'finished') setTab('final');
+          if (data?.sessions?.length > 0) fetchCompSessions(data.sessions);
           setLoading(false);
         })
         .catch(() => setLoading(false));
@@ -155,11 +178,23 @@ export default function CompetitionPage() {
       ) : (
         <LiveResults competition={competition} />
       )}
+
+      {compSessions.length > 0 && (
+        <div className="card p-0 overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-dark-800">
+            <h3 className="text-white font-semibold text-sm">Заїзди ({compSessions.length})</h3>
+          </div>
+          <SessionsTable sessions={compSessions} />
+        </div>
+      )}
     </div>
   );
 }
 
 function FinalResults({ competition }: { competition: Competition }) {
+  if (competition.status === 'live') {
+    return <div className="card text-center py-12 text-dark-500">Фінальні результати будуть опубліковані після завершення змагання</div>;
+  }
   if (!competition.uploaded_results) {
     return <div className="card text-center py-12 text-dark-500">Фінальні результати ще не завантажені</div>;
   }
