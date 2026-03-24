@@ -110,7 +110,8 @@ db.exec(`
     date TEXT,
     sessions TEXT NOT NULL DEFAULT '[]',
     results TEXT,
-    uploaded_results TEXT
+    uploaded_results TEXT,
+    status TEXT NOT NULL DEFAULT 'live'
   );
 `);
 
@@ -118,6 +119,7 @@ db.exec(`
 try { db.exec('ALTER TABLE sessions ADD COLUMN track_id INTEGER DEFAULT 1'); } catch {}
 try { db.exec('ALTER TABLE sessions ADD COLUMN race_number INTEGER'); } catch {}
 try { db.exec('ALTER TABLE sessions ADD COLUMN is_race INTEGER DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE competitions ADD COLUMN status TEXT NOT NULL DEFAULT \'live\''); } catch {}
 
 // ============================================================
 // Current track (persisted across restarts)
@@ -221,8 +223,8 @@ const stmts = {
   getState: db.prepare('SELECT value FROM db_stats WHERE key = ?'),
   setState: db.prepare('INSERT OR REPLACE INTO db_stats (key, value, updated_at) VALUES (?, ?, ?)'),
   // Competitions
-  insertCompetition: db.prepare('INSERT INTO competitions (id, name, format, date, sessions, results, uploaded_results) VALUES (?, ?, ?, ?, ?, ?, ?)'),
-  updateCompetition: db.prepare('UPDATE competitions SET name = ?, format = ?, date = ?, sessions = ?, results = ?, uploaded_results = ? WHERE id = ?'),
+  insertCompetition: db.prepare('INSERT INTO competitions (id, name, format, date, sessions, results, uploaded_results, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
+  updateCompetition: db.prepare('UPDATE competitions SET name = ?, format = ?, date = ?, sessions = ?, results = ?, uploaded_results = ?, status = ? WHERE id = ?'),
   getCompetition: db.prepare('SELECT * FROM competitions WHERE id = ?'),
   getAllCompetitions: db.prepare('SELECT * FROM competitions ORDER BY date DESC'),
   getCompetitionsByFormat: db.prepare('SELECT * FROM competitions WHERE format = ? ORDER BY date DESC'),
@@ -234,11 +236,17 @@ const stmts = {
 // ============================================================
 
 function parseCompetitionRow(row) {
+  let sessions = row.sessions ? JSON.parse(row.sessions) : [];
+  // Migrate old format: ["session-123"] → [{sessionId: "session-123", phase: null}]
+  if (sessions.length > 0 && typeof sessions[0] === 'string') {
+    sessions = sessions.map(id => ({ sessionId: id, phase: null }));
+  }
   return {
     ...row,
-    sessions: row.sessions ? JSON.parse(row.sessions) : [],
+    sessions,
     results: row.results ? JSON.parse(row.results) : null,
     uploaded_results: row.uploaded_results ? JSON.parse(row.uploaded_results) : null,
+    status: row.status || 'live',
   };
 }
 
@@ -377,6 +385,7 @@ export const storage = {
   /** Отримати сесії за дату (з мержем дублікатів по race_number) */
   getSessionsByDate(date) {
     const rows = stmts.getSessionsWithStats.all(date);
+    const compMap = this.getSessionCompetitionMap();
     const enriched = rows.map(r => {
       let best_lap_pilot = null;
       let best_lap_kart = null;
@@ -384,7 +393,16 @@ export const storage = {
         const pilotRow = stmts.getBestLapPilot.get(r.id, r.best_lap_time);
         if (pilotRow) { best_lap_pilot = pilotRow.pilot; best_lap_kart = pilotRow.kart; }
       }
-      return { ...r, best_lap_pilot, best_lap_kart, pilot_count: r.real_pilot_count || r.pilot_count };
+      const comp = compMap.get(r.id) || null;
+      return {
+        ...r, best_lap_pilot, best_lap_kart,
+        pilot_count: r.real_pilot_count || r.pilot_count,
+        competition_id: comp?.competitionId || null,
+        competition_name: comp?.competitionName || null,
+        competition_format: comp?.format || null,
+        competition_phase: comp?.phase || null,
+        competition_status: comp?.status || null,
+      };
     });
     return mergeSessions(enriched);
   },
@@ -542,25 +560,28 @@ export const storage = {
   // Competitions CRUD
   // ============================================================
 
-  createCompetition({ id, name, format, date, sessions, results, uploaded_results }) {
+  createCompetition({ id, name, format, date, sessions, results, uploaded_results, status }) {
     stmts.insertCompetition.run(
       id, name, format || null, date || null,
       JSON.stringify(sessions || []),
       results ? JSON.stringify(results) : null,
       uploaded_results ? JSON.stringify(uploaded_results) : null,
+      status || 'live',
     );
   },
 
   updateCompetition(id, fields) {
     const existing = stmts.getCompetition.get(id);
     if (!existing) return false;
+    const parsed = parseCompetitionRow(existing);
     stmts.updateCompetition.run(
-      fields.name ?? existing.name,
-      fields.format !== undefined ? fields.format : existing.format,
-      fields.date !== undefined ? fields.date : existing.date,
-      fields.sessions !== undefined ? JSON.stringify(fields.sessions) : existing.sessions,
-      fields.results !== undefined ? JSON.stringify(fields.results) : existing.results,
-      fields.uploaded_results !== undefined ? JSON.stringify(fields.uploaded_results) : existing.uploaded_results,
+      fields.name ?? parsed.name,
+      fields.format !== undefined ? fields.format : parsed.format,
+      fields.date !== undefined ? fields.date : parsed.date,
+      fields.sessions !== undefined ? JSON.stringify(fields.sessions) : JSON.stringify(parsed.sessions),
+      fields.results !== undefined ? JSON.stringify(fields.results) : (parsed.results ? JSON.stringify(parsed.results) : null),
+      fields.uploaded_results !== undefined ? JSON.stringify(fields.uploaded_results) : (parsed.uploaded_results ? JSON.stringify(parsed.uploaded_results) : null),
+      fields.status !== undefined ? fields.status : (parsed.status || 'live'),
       id,
     );
     return true;
@@ -578,6 +599,27 @@ export const storage = {
 
   deleteCompetition(id) {
     return stmts.deleteCompetition.run(id).changes > 0;
+  },
+
+  getSessionCompetition(sessionId) {
+    const comps = stmts.getAllCompetitions.all();
+    for (const row of comps) {
+      const comp = parseCompetitionRow(row);
+      const entry = comp.sessions.find(s => s.sessionId === sessionId);
+      if (entry) return { competitionId: comp.id, competitionName: comp.name, format: comp.format, phase: entry.phase, status: comp.status };
+    }
+    return null;
+  },
+
+  getSessionCompetitionMap() {
+    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const map = new Map();
+    for (const comp of comps) {
+      for (const s of comp.sessions) {
+        map.set(s.sessionId, { competitionId: comp.id, competitionName: comp.name, format: comp.format, phase: s.phase, status: comp.status });
+      }
+    }
+    return map;
   },
 };
 
