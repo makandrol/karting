@@ -292,7 +292,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         step={0.1}
         value={isLive && atLive ? durationSec : currentTime}
         onChange={(e) => handleScrub(parseFloat(e.target.value))}
-        className="flex-1 h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
+        className="flex-1 h-2 bg-dark-700 rounded-full appearance-none cursor-pointer
           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
           [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
       />
