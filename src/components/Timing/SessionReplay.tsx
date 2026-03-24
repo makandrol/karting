@@ -177,14 +177,14 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         const lt = parseTime(l?.lapTime || '') ?? 999;
         if (lt < bestLapSec) { bestLapSec = lt; bestLap = l?.lapTime || ''; }
         const s1v = parseTime(l?.s1 || '') ?? 999;
-        if (s1v < bestS1Sec) { bestS1Sec = s1v; bestS1 = l?.s1 || ''; }
+        if (s1v >= 10 && s1v < bestS1Sec) { bestS1Sec = s1v; bestS1 = l?.s1 || ''; }
         const s2v = parseTime(l?.s2 || '') ?? 999;
-        if (s2v < bestS2Sec) { bestS2Sec = s2v; bestS2 = l?.s2 || ''; }
+        if (s2v >= 10 && s2v < bestS2Sec) { bestS2Sec = s2v; bestS2 = l?.s2 || ''; }
       }
 
       if (onCurrentUnrecordedLap && liveEntry?.s1) {
         const liveS1v = parseTime(liveEntry.s1) ?? 999;
-        if (liveS1v < bestS1Sec) { bestS1Sec = liveS1v; bestS1 = liveEntry.s1; }
+        if (liveS1v >= 10 && liveS1v < bestS1Sec) { bestS1Sec = liveS1v; bestS1 = liveEntry.s1; }
       }
 
       result.push({
@@ -267,8 +267,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
     let bLap: number | null = null, bS1: number | null = null, bS2: number | null = null;
     for (const e of entries) {
       const lap = parseTime(e.bestLap); if (lap !== null && (bLap === null || lap < bLap)) bLap = lap;
-      const s1 = parseTime(e.bestS1); if (s1 !== null && (bS1 === null || s1 < bS1)) bS1 = s1;
-      const s2 = parseTime(e.bestS2); if (s2 !== null && (bS2 === null || s2 < bS2)) bS2 = s2;
+      const s1 = parseTime(e.bestS1); if (s1 !== null && s1 >= 10 && (bS1 === null || s1 < bS1)) bS1 = s1;
+      const s2 = parseTime(e.bestS2); if (s2 !== null && s2 >= 10 && (bS2 === null || s2 < bS2)) bS2 = s2;
     }
     return { overallBestLap: bLap, overallBestS1: bS1, overallBestS2: bS2 };
   }, [entries]);
@@ -402,19 +402,19 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
                     {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
-                    {notStarted ? '' : (e.s1 ? toSeconds(e.s1) : '—')}
+                    {notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toSeconds(e.s1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
-                    {notStarted ? '' : (e.s2 ? toSeconds(e.s2) : '—')}
+                    {notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toSeconds(e.s2) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>
                     {notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
-                    {notStarted ? '' : (e.bestS1 ? toSeconds(e.bestS1) : '—')}
+                    {notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toSeconds(e.bestS1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
-                    {notStarted ? '' : (e.bestS2 ? toSeconds(e.bestS2) : '—')}
+                    {notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toSeconds(e.bestS2) : '—')}
                   </td>
                   <td className="table-cell text-center font-mono text-dark-500">
                     {notStarted ? '' : e.lapNumber}
