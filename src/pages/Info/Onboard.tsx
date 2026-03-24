@@ -207,7 +207,6 @@ export default function Onboard() {
   const lapColor = entry ? getTimeColor(entry.lastLap, entry.bestLap, overallBestLap) : 'none';
   const s1Color = entry ? getTimeColor(entry.s1, entry.bestS1, overallBestS1) : 'none';
   const s2Color = entry ? getTimeColor(entry.s2, entry.bestS2, overallBestS2) : 'none';
-  const bestLapColor = entry ? getTimeColor(entry.bestLap, entry.bestLap, overallBestLap) : 'none';
 
   const isLive = mode === 'live' && entries.length > 0;
 
@@ -293,34 +292,37 @@ export default function Onboard() {
             <p className="text-dark-600 text-sm">Не на трасі</p>
           </div>
         ) : (
-          <div className="text-center px-16">
-            {/* Position + Lap */}
-            <div className="text-dark-500 text-sm mb-2 font-mono tracking-wide">
-              {positionDisplay} · L{entry.lapNumber}
-            </div>
-
-            {/* Last lap */}
-            <div className={`font-mono font-bold leading-none mb-4 ${COLOR_CLASSES[lapColor]}`}
-                 style={{ fontSize: 'clamp(4rem, 15vw, 10rem)' }}>
-              {entry.lastLap ? toSeconds(entry.lastLap) : '—'}
-            </div>
-
-            {/* S1 / S2 */}
-            <div className="flex items-center justify-center gap-8">
-              <div className={`font-mono font-bold ${COLOR_CLASSES[s1Color]}`}
-                   style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
-                {entry.s1 && (parseTime(entry.s1) ?? 0) >= 10 ? toSeconds(entry.s1) : '—'}
+          <div className="w-full h-full flex px-16">
+            {/* Left: position + lap */}
+            <div className="flex flex-col justify-center items-start shrink-0 mr-6">
+              <div className="font-mono font-bold text-white leading-none"
+                   style={{ fontSize: 'clamp(2.5rem, 8vw, 5rem)' }}>
+                {positionDisplay}
               </div>
-              <div className="w-px h-10 bg-dark-800" />
-              <div className={`font-mono font-bold ${COLOR_CLASSES[s2Color]}`}
-                   style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
-                {entry.s2 && (parseTime(entry.s2) ?? 0) >= 10 ? toSeconds(entry.s2) : '—'}
+              <div className="text-dark-500 font-mono mt-1"
+                   style={{ fontSize: 'clamp(1rem, 3vw, 1.5rem)' }}>
+                L{entry.lapNumber}
               </div>
             </div>
 
-            {/* Best lap */}
-            <div className={`mt-5 font-mono font-semibold text-lg ${COLOR_CLASSES[bestLapColor]}`}>
-              {entry.bestLap ? toSeconds(entry.bestLap) : '—'}
+            {/* Center: lap time + sectors */}
+            <div className="flex-1 flex flex-col justify-center items-center">
+              <div className={`font-mono font-bold leading-none mb-4 ${COLOR_CLASSES[lapColor]}`}
+                   style={{ fontSize: 'clamp(4rem, 15vw, 10rem)' }}>
+                {entry.lastLap ? toSeconds(entry.lastLap) : '—'}
+              </div>
+
+              <div className="flex items-center justify-center gap-8">
+                <div className={`font-mono font-bold ${COLOR_CLASSES[s1Color]}`}
+                     style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
+                  {entry.s1 && (parseTime(entry.s1) ?? 0) >= 10 ? toSeconds(entry.s1) : '—'}
+                </div>
+                <div className="w-px h-10 bg-dark-800" />
+                <div className={`font-mono font-bold ${COLOR_CLASSES[s2Color]}`}
+                     style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
+                  {entry.s2 && (parseTime(entry.s2) ?? 0) >= 10 ? toSeconds(entry.s2) : '—'}
+                </div>
+              </div>
             </div>
           </div>
         )}
