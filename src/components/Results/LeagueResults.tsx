@@ -91,6 +91,15 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
     });
   }, []);
 
+  const [excludedPilots, setExcludedPilots] = useState<Set<string>>(new Set());
+  const toggleExclude = useCallback((pilot: string) => {
+    setExcludedPilots(prev => {
+      const next = new Set(prev);
+      next.has(pilot) ? next.delete(pilot) : next.add(pilot);
+      return next;
+    });
+  }, []);
+
   type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points`;
   const [sortKey, setSortKey] = useState<SortKey>('total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -118,7 +127,9 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
     }
 
     // Sort by qualifying time
-    const qualiSorted = [...qualiData.entries()].sort((a, b) => a[1].bestTime - b[1].bestTime);
+    const qualiSorted = [...qualiData.entries()]
+      .filter(([p]) => !excludedPilots.has(p))
+      .sort((a, b) => a[1].bestTime - b[1].bestTime);
     const qualifiedPilots = qualiSorted.map(([p]) => p);
     const totalPilots = qualifiedPilots.length;
 
@@ -147,7 +158,7 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
       const rSessions = getRaceSessions(r);
 
       // Determine start positions from previous race/quali times (reverse order per group)
-      const prevSorted = [...prevRaceTimes].sort((a, b) => a.time - b.time);
+      const prevSorted = [...prevRaceTimes].filter(p => !excludedPilots.has(p.pilot)).sort((a, b) => a.time - b.time);
       const rGroups = splitIntoGroups(prevSorted.map(p => p.pilot), maxGroups);
       const startPositions = new Map<string, { group: number; startPos: number }>();
       rGroups.forEach((g, gi) => {
@@ -198,7 +209,7 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
 
       // Speed points for this race (top 5 by time across all groups)
       raceTimes.sort((a, b) => a.time - b.time);
-      raceTimes.slice(0, 5).forEach(({ pilot }, i) => {
+      raceTimes.filter(r => !excludedPilots.has(r.pilot)).slice(0, 5).forEach(({ pilot }, i) => {
         const rd = rData.get(pilot);
         if (rd) {
           rd.speedPoints = scoring.speedPoints[i] || 0;
@@ -207,7 +218,7 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
       });
 
       raceResults.push(rData);
-      if (raceTimes.length > 0) prevRaceTimes = raceTimes;
+      if (raceTimes.length > 0) prevRaceTimes = raceTimes.filter(r => !excludedPilots.has(r.pilot));
     }
 
     // 4. Build rows
@@ -223,10 +234,11 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
     });
 
     return rows;
-  }, [sessions, sessionLaps, scoring, edits, raceCount, maxGroups]);
+  }, [sessions, sessionLaps, scoring, edits, raceCount, maxGroups, excludedPilots]);
 
   const sortedData = useMemo(() => {
-    const arr = [...data];
+    const included = data.filter(r => !excludedPilots.has(r.pilot));
+    const excluded = data.filter(r => excludedPilots.has(r.pilot));
     const getValue = (row: PilotRow): number => {
       if (sortKey === 'total') return row.totalPoints;
       if (sortKey === 'quali_time') return row.quali?.bestTime ?? Infinity;
@@ -234,9 +246,9 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
       if (m) { const ri = parseInt(m[1]) - 1; const race = row.races[ri]; return m[2] === 'time' ? (race?.bestTime ?? Infinity) : (race?.totalRacePoints ?? 0); }
       return 0;
     };
-    arr.sort((a, b) => sortDir === 'asc' ? getValue(a) - getValue(b) : getValue(b) - getValue(a));
-    return arr;
-  }, [data, sortKey, sortDir]);
+    included.sort((a, b) => sortDir === 'asc' ? getValue(a) - getValue(b) : getValue(b) - getValue(a));
+    return [...included, ...excluded];
+  }, [data, sortKey, sortDir, excludedPilots]);
 
   if (!scoring) return <div className="card text-center py-6 text-dark-500">Завантаження балів...</div>;
   if (sortedData.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
@@ -320,10 +332,18 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
                 </tr>
               </thead>
               <tbody>
-                {sortedData.map((row, i) => (
-                  <tr key={row.pilot} className="border-b border-dark-800/50 hover:bg-dark-700/30">
-                    <td className="px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700">{i + 1}</td>
-                    <td className="px-2 py-1 text-left text-white border-r border-dark-700 whitespace-nowrap">{row.pilot}</td>
+                  {sortedData.map((row, i) => {
+                    const isExcluded = excludedPilots.has(row.pilot);
+                    return (
+                    <tr key={row.pilot} className={`border-b border-dark-800/50 ${isExcluded ? 'opacity-30' : 'hover:bg-dark-700/30'}`}>
+                      <td className="px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700">{isExcluded ? '—' : i + 1}</td>
+                      <td className="px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap">
+                        <span className="text-white">{row.pilot}</span>
+                        <button onClick={() => toggleExclude(row.pilot)}
+                          className={`ml-1 text-[9px] px-1 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-700 hover:text-red-400'}`}>
+                          {isExcluded ? '↩' : '✕'}
+                        </button>
+                      </td>
                     <td className="px-1 py-1 text-center font-mono text-green-400 font-bold border-r border-dark-700">{row.totalPoints || '—'}</td>
                     {showQuali && (<>
                       <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{row.quali?.kart || '—'}</td>
@@ -350,7 +370,8 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
                       </Fragment>
                     ) : null)}
                   </tr>
-                ))}
+                    );
+                  })}
               </tbody>
             </table>
           </div>
