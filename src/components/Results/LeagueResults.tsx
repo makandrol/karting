@@ -181,7 +181,11 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
           const ex = pilotBest.get(l.pilot);
           if (!ex || sec < ex.bestTime) pilotBest.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart });
         }
-        const sorted = [...pilotBest.entries()].sort((a, b) => a[1].bestTime - b[1].bestTime);
+        const sorted = [...pilotBest.entries()]
+          .filter(([p]) => !excludedPilots.has(p))
+          .sort((a, b) => a[1].bestTime - b[1].bestTime);
+        // Also keep excluded pilots' data (without scoring)
+        const excludedEntries = [...pilotBest.entries()].filter(([p]) => excludedPilots.has(p));
         sorted.forEach(([pilot, pData], i) => {
           const editKey = `${pilot}|${r}`;
           const edit = edits[editKey];
@@ -204,6 +208,13 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
             totalRacePoints: Math.round((posPoints + overtakePoints - penalties) * 10) / 10,
           });
           raceTimes.push({ pilot, time: pData.bestTime });
+        });
+        excludedEntries.forEach(([pilot, pData]) => {
+          rData.set(pilot, {
+            kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
+            group: 0, startPos: 0, finishPos: 0,
+            positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
+          });
         });
       }
 
