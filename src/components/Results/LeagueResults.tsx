@@ -13,6 +13,7 @@ interface SessionLap {
   lap_time: string | null;
   s1: string | null;
   s2: string | null;
+  position: number | null;
   ts: number;
 }
 
@@ -214,30 +215,31 @@ export default function LeagueResults({ format, competitionId, sessions, session
         });
       });
 
-      // Get finish positions from timing data (race mode: most laps, then earliest last lap)
+      // Get finish positions from timing data (use position from last lap — set by timing system)
       const raceTimes: { pilot: string; time: number }[] = [];
       for (const rs of rSessions) {
         const groupMatch = rs.phase?.match(/group_(\d+)/);
         const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
         const laps = sessionLaps.get(rs.sessionId) || [];
-        const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; kart: number; lapCount: number; lastTs: number }>();
+        const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; kart: number; lapCount: number; lastTs: number; lastPosition: number }>();
         for (const l of laps) {
           const sec = parseLapSec(l.lap_time);
           if (sec === null || sec < 38) continue;
           const ex = pilotStats.get(l.pilot);
           if (!ex) {
-            pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart, lapCount: 1, lastTs: l.ts });
+            pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart, lapCount: 1, lastTs: l.ts, lastPosition: l.position ?? 99 });
           } else {
             ex.lapCount++;
-            if (l.ts > ex.lastTs) ex.lastTs = l.ts;
+            if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPosition = l.position ?? 99; }
             if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
           }
         }
-        // Race finish: most laps first, then earliest last lap timestamp
+        // Race finish: by position from timing system on last lap
         const sorted = [...pilotStats.entries()]
           .filter(([p]) => !excludedPilots.has(p))
           .sort((a, b) => {
             if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
+            if (a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
             return a[1].lastTs - b[1].lastTs;
           });
         const excludedEntries = [...pilotStats.entries()].filter(([p]) => excludedPilots.has(p));
