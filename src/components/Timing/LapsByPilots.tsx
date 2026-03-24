@@ -80,12 +80,14 @@ export default function LapsByPilots({ pilots, currentEntries = [] }: LapsByPilo
                 <td className="table-cell text-center font-mono text-dark-500">{lapIdx + 1}</td>
                 {pilots.map(p => {
                   const lap = p.laps[lapIdx];
-                  if (!lap?.lap_time) return <td key={p.name} className="table-cell text-center text-dark-700">—</td>;
+                  const completed = completedLapsMap.get(p.name) ?? 0;
+                  const isCurrent = hasReplayState && lapIdx === completed;
+                  if (!lap?.lap_time) return (
+                    <td key={p.name} className={`table-cell text-center text-dark-700 ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>—</td>
+                  );
                   const sec = parseLapTime(lap.lap_time);
                   const isPB = sec !== null && Math.abs(sec - p.bestLap) < 0.002;
                   const isOverall = sec !== null && Math.abs(sec - overallBest) < 0.002;
-                  const completed = completedLapsMap.get(p.name) ?? 0;
-                  const isCurrent = hasReplayState && completed > 0 && lapIdx === completed - 1;
                   return (
                     <td key={p.name} className={`table-cell text-center font-mono ${
                       isOverall ? 'text-purple-400 font-bold' : isPB ? 'text-green-400 font-bold' : 'text-dark-300'
