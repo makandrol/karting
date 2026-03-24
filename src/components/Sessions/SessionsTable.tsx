@@ -55,9 +55,9 @@ export default function SessionsTable({ sessions, maxHeight, showDate }: Session
             const isActive = !s.end_time;
             const pilots = s.real_pilot_count ?? s.pilot_count;
             const sessionType = s.competition_format && s.competition_phase
-              ? `${COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.name || s.competition_format} · ${getPhaseShortLabel(s.competition_format, s.competition_phase)}`
+              ? `${COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.shortName || s.competition_format} · ${getPhaseShortLabel(s.competition_format, s.competition_phase)}`
               : s.competition_format
-              ? COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.name || s.competition_format
+              ? COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.shortName || s.competition_format
               : 'Прокат';
             const isCompetition = !!s.competition_id;
             return (

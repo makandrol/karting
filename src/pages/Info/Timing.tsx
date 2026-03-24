@@ -49,6 +49,15 @@ export default function Timing() {
   const isCompetition = competition?.state && !['none', 'finished'].includes(competition.state);
   const sessionType = isCompetition ? (competition.competition?.name || 'Змагання') : 'Прокат';
 
+  const [liveSessionComp, setLiveSessionComp] = useState<{ competitionId: string | null; format: string | null; phase: string | null }>({ competitionId: null, format: null, phase: null });
+  useEffect(() => {
+    if (!currentSessionId) { setLiveSessionComp({ competitionId: null, format: null, phase: null }); return; }
+    fetch(`${COLLECTOR_URL}/db/session-competition?session=${currentSessionId}`)
+      .then(r => r.json())
+      .then(data => setLiveSessionComp({ competitionId: data.competitionId || null, format: data.format || null, phase: data.phase || null }))
+      .catch(() => {});
+  }, [currentSessionId]);
+
   // Fetch laps for active session (for replay)
   const [replayLaps, setReplayLaps] = useState<DbLap[]>([]);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
@@ -147,9 +156,17 @@ export default function Timing() {
         {(isLive && hasData) && (
           <SessionTypeChanger
             sessionId={currentSessionId}
-            currentFormat={(collectorStatus as any)?.competition?.competition?.format || null}
-            currentPhase={null}
-            currentCompetitionId={null}
+            currentFormat={liveSessionComp.format}
+            currentPhase={liveSessionComp.phase}
+            currentCompetitionId={liveSessionComp.competitionId}
+            onChanged={() => {
+              if (currentSessionId) {
+                fetch(`${COLLECTOR_URL}/db/session-competition?session=${currentSessionId}`)
+                  .then(r => r.json())
+                  .then(data => setLiveSessionComp({ competitionId: data.competitionId || null, format: data.format || null, phase: data.phase || null }))
+                  .catch(() => {});
+              }
+            }}
           />
         )}
 
