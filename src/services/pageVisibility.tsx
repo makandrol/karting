@@ -43,6 +43,7 @@ export const ALL_PAGES: PageConfig[] = [
   { id: 'admin-monitoring', label: 'Моніторинг', path: '/admin/monitoring', group: 'admin', adminOnly: true },
   { id: 'admin-collector-log', label: 'Лог колектора', path: '/admin/collector-log', group: 'admin', adminOnly: true },
   { id: 'admin-competitions', label: 'Змагання', path: '/admin/competitions', group: 'admin', adminOnly: true },
+  { id: 'admin-scoring', label: 'Бали', path: '/admin/scoring', group: 'admin', adminOnly: true },
 ];
 
 const LS_KEY = 'karting_page_visibility_v1';
