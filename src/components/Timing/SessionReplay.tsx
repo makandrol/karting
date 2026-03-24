@@ -94,6 +94,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
     const result: TimingEntry[] = [];
     const useTimelines = sessionStartTime != null && pilotTimelines.size > 0;
 
+    const pilotLastPos = new Map<string, number>();
+
     for (let idx = 0; idx < pilots.length; idx++) {
       const pilot = pilots[idx];
       const pilotLaps = laps.filter(l => l.pilot === pilot);
@@ -247,6 +249,10 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       const liveLapNumber = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.lapNumber : completedLaps;
       const liveKart = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.kart : (pilotLaps[0]?.kart || 0);
 
+      // Position from last recorded lap — used for sorting after all laps done
+      const lastRecordedPos = prevLapData?.position ?? 99;
+      pilotLastPos.set(pilot, lastRecordedPos);
+
       if (onCurrentUnrecordedLap && liveEntry?.bestLap) {
         const v = parseTime(liveEntry.bestLap) ?? 999;
         if (v < bestLapSec) { bestLapSec = v; bestLap = liveEntry.bestLap; }
@@ -273,13 +279,16 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         if (a.lapNumber < 0 && b.lapNumber < 0) return 0;
         if (a.lapNumber < 0) return 1;
         if (b.lapNumber < 0) return -1;
+        if (sortMode === 'race') {
+          if (a.lapNumber !== b.lapNumber) return b.lapNumber - a.lapNumber;
+          const aP = a.progress ?? 0;
+          const bP = b.progress ?? 0;
+          if (Math.abs(aP - bP) > 0.01) return bP - aP;
+          return (pilotLastPos.get(a.pilot) ?? 99) - (pilotLastPos.get(b.pilot) ?? 99);
+        }
         if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
         if (a.lapNumber === 0) return 1;
         if (b.lapNumber === 0) return -1;
-        if (sortMode === 'race') {
-          if (a.lapNumber !== b.lapNumber) return b.lapNumber - a.lapNumber;
-          return (a.progress ?? 0) > (b.progress ?? 0) ? -1 : 1;
-        }
         const aT = parseTime(a.bestLap || '') ?? 999;
         const bT = parseTime(b.bestLap || '') ?? 999;
         return aT - bT;
