@@ -258,6 +258,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         if (v < bestLapSec) { bestLapSec = v; bestLap = liveEntry.bestLap; }
       }
 
+      // Start position = position from pilot's first recorded lap
+      const startPosition = pilotLaps.length > 0 ? (pilotLaps[0].position ?? null) : null;
+
       result.push({
         position: idx + 1, pilot,
         kart: liveKart,
@@ -269,7 +272,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         bestS1: bestS1 || null,
         bestS2: bestS2 || null,
         progress,
-        currentLapSec: null,
+        currentLapSec: startPosition,
         previousLapSec: null,
       });
     }
@@ -456,6 +459,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
             <tr className="table-header">
               <th className="table-cell text-center w-5">#</th>
               <th className="table-cell text-left min-w-[85px]">Pilot</th>
+              <th className="table-cell text-center text-dark-500">St</th>
               <th className="table-cell text-center">Kart</th>
               <th className="table-cell text-right">Last</th>
               <th className="table-cell text-right">S1</th>
@@ -495,6 +499,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                       />
                     </div>
                   </td>
+                  <td className="table-cell text-center font-mono text-dark-600 text-[10px]">{notStarted ? '' : (e.currentLapSec ?? '—')}</td>
                   <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
                     {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
