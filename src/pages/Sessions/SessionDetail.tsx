@@ -90,6 +90,7 @@ export default function SessionDetail() {
         const allLaps: DbLap[] = [];
         const allS1Events: S1Event[] = [];
         const allSnapshots: SnapshotPosition[] = [];
+        let firstSnapshotPos: Map<string, number> | null = null;
         for (const sid of sessionIds) {
           const [sLaps, sEvents] = await Promise.all([
             fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()),
@@ -107,7 +108,20 @@ export default function SessionDetail() {
               for (const en of (d.entries || [])) {
                 if (en.pilot && en.position) positions.set(en.pilot, Number(en.position));
               }
-              if (positions.size > 0) allSnapshots.push({ ts: ev.ts, positions });
+              if (positions.size > 0) {
+                allSnapshots.push({ ts: ev.ts, positions });
+                if (!firstSnapshotPos) firstSnapshotPos = positions;
+              }
+            }
+            if (ev.event_type === 'positions' && ev.data) {
+              const arr = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+              if (Array.isArray(arr)) {
+                const positions = new Map<string, number>();
+                for (const p of arr) {
+                  if (p.pilot && p.position) positions.set(p.pilot, Number(p.position));
+                }
+                if (positions.size > 0) allSnapshots.push({ ts: ev.ts, positions });
+              }
             }
           }
         }
@@ -122,8 +136,8 @@ export default function SessionDetail() {
         if (compId && compPhase?.startsWith('race_') && compFormat) {
           const sp = await fetchRaceStartPositions(COLLECTOR_URL, compId, compPhase, compFormat);
           if (active) setStartPositions(sp);
-        } else if (allSnapshots.length > 0) {
-          if (active) setStartPositions(allSnapshots[0].positions);
+        } else if (firstSnapshotPos) {
+          if (active) setStartPositions(firstSnapshotPos);
         }
 
         if (found && !found.end_time) {

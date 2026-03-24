@@ -104,6 +104,7 @@ export default function Timing() {
       setReplayLaps(lapsRes);
       const parsed: S1Event[] = [];
       const allSnapshots: SnapshotPosition[] = [];
+      let firstSnapshotPos: Map<string, number> | null = null;
       for (const ev of eventsRes) {
         if (ev.event_type === 's1' && ev.data) {
           const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
@@ -115,13 +116,26 @@ export default function Timing() {
           for (const en of (d.entries || [])) {
             if (en.pilot && en.position) positions.set(en.pilot, Number(en.position));
           }
-          if (positions.size > 0) allSnapshots.push({ ts: ev.ts, positions });
+          if (positions.size > 0) {
+            allSnapshots.push({ ts: ev.ts, positions });
+            if (!firstSnapshotPos) firstSnapshotPos = positions;
+          }
+        }
+        if (ev.event_type === 'positions' && ev.data) {
+          const arr = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+          if (Array.isArray(arr)) {
+            const positions = new Map<string, number>();
+            for (const p of arr) {
+              if (p.pilot && p.position) positions.set(p.pilot, Number(p.position));
+            }
+            if (positions.size > 0) allSnapshots.push({ ts: ev.ts, positions });
+          }
         }
       }
       setS1Events(parsed);
       setReplaySnapshots(allSnapshots.sort((a, b) => a.ts - b.ts));
       if (!liveSessionComp.competitionId || !liveSessionComp.phase?.startsWith('race_')) {
-        if (allSnapshots.length > 0) setStartPositions(allSnapshots[0].positions);
+        if (firstSnapshotPos) setStartPositions(firstSnapshotPos);
       }
     } catch { /* ignore */ }
   }, [currentSessionId, liveSessionComp.competitionId, liveSessionComp.phase]);

@@ -201,11 +201,6 @@ export class TimingPoller {
       this.#addEvent('poll_ok', null, now);
     }
 
-    if (now - this.#lastSnapshot >= SNAPSHOT_INTERVAL) {
-      this.#addEvent('snapshot', { entries, teams, meta, raw }, now);
-      this.#lastSnapshot = now;
-    }
-
     this.#previousEntries = entries;
     this.#previousTeams = teams;
     this.#entries = entries;
@@ -254,6 +249,9 @@ export class TimingPoller {
   #diff(prevTeams, currentTeams, prevEntries, currentEntries, meta) {
     const changes = [];
 
+    // Track position changes separately (compact format)
+    const posChanges = [];
+
     for (let i = 0; i < currentTeams.length; i++) {
       const team = currentTeams[i];
       const entry = currentEntries[i];
@@ -281,6 +279,11 @@ export class TimingPoller {
             meta: { bestLapRace: meta.bestLapRace, bestS1Race: meta.bestS1Race, bestS2Race: meta.bestS2Race },
           },
         });
+
+        const prevEntry = prevEntries.find(p => p.pilot === pilotKey);
+        if (prevEntry && String(entry.position) !== String(prevEntry.position)) {
+          posChanges.push({ pilot: pilotKey, position: entry.position });
+        }
         continue;
       }
 
@@ -289,13 +292,19 @@ export class TimingPoller {
           type: 's1',
           data: { pilot: pilotKey, kart: team.number || team.kart, s1: entry.s1, team },
         });
-        continue;
       }
 
-      // Check for non-volatile field changes (pit status, position, etc.)
+      // Check position change
+      const prevEntry = prevEntries.find(p => p.pilot === pilotKey);
+      if (prevEntry && String(entry.position) !== String(prevEntry.position)) {
+        posChanges.push({ pilot: pilotKey, position: entry.position });
+      }
+
+      // Check for non-volatile field changes (pit status, etc.) — excluding position (tracked separately)
       let hasRealChange = false;
       for (const key of Object.keys(team)) {
         if (VOLATILE_TEAM_FIELDS.has(key)) continue;
+        if (key === 'position') continue;
         if (team[key] !== prevTeam[key]) {
           hasRealChange = true;
           break;
@@ -315,6 +324,11 @@ export class TimingPoller {
       if (!found) {
         changes.push({ type: 'pilot_leave', data: { pilot: pilotKey } });
       }
+    }
+
+    if (posChanges.length > 0) {
+      const allPositions = currentEntries.map(e => ({ pilot: e.pilot, position: e.position }));
+      changes.push({ type: 'positions', data: allPositions });
     }
 
     return changes;
