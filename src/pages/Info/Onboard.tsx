@@ -1,19 +1,41 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTimingPoller } from '../../services/timingPoller';
+import { COLLECTOR_URL } from '../../services/config';
 import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
+
+interface CompSessionInfo {
+  competitionId: string | null;
+  format: string | null;
+  phase: string | null;
+}
+
+interface CompData {
+  sessions: { sessionId: string; phase: string }[];
+}
+
+function getRelatedPhases(phase: string): (p: string) => boolean {
+  if (phase.startsWith('qualifying')) return p => p.startsWith('qualifying');
+  const raceMatch = phase.match(/^(race_\d+)_/);
+  if (raceMatch) {
+    const prefix = raceMatch[1];
+    return p => p.startsWith(prefix + '_');
+  }
+  return p => p === phase;
+}
 
 export default function Onboard() {
   const { kartId } = useParams<{ kartId: string }>();
   const navigate = useNavigate();
-  const { entries, mode } = useTimingPoller({ interval: 1000 });
+  const { entries, mode, collectorStatus } = useTimingPoller({ interval: 1000 });
   const [locked, setLocked] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const selectorRef = useRef<HTMLDivElement>(null);
 
+  const sessionId = (collectorStatus as any)?.sessionId || null;
+
   const kart = kartId ? parseInt(kartId, 10) : null;
   const entry = kart !== null ? entries.find(e => e.kart === kart) : null;
-
   const allKarts = entries.map(e => e.kart).sort((a, b) => a - b);
 
   const goToKart = useCallback((k: number) => {
@@ -36,7 +58,6 @@ export default function Onboard() {
     return () => { try { screen.orientation.unlock(); } catch { /* */ } };
   }, [locked]);
 
-  // Close selector on outside click
   useEffect(() => {
     if (!selectorOpen) return;
     const handler = (e: MouseEvent | TouchEvent) => {
@@ -46,6 +67,127 @@ export default function Onboard() {
     document.addEventListener('touchstart', handler);
     return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler); };
   }, [selectorOpen]);
+
+  // ── Competition position tracking ──
+
+  const [compInfo, setCompInfo] = useState<CompSessionInfo>({ competitionId: null, format: null, phase: null });
+  const [compRanking, setCompRanking] = useState<{ pilot: string; bestLap: number }[]>([]);
+
+  // Fetch competition info for current session
+  useEffect(() => {
+    if (!sessionId) { setCompInfo({ competitionId: null, format: null, phase: null }); return; }
+    fetch(`${COLLECTOR_URL}/db/session-competition?session=${sessionId}`)
+      .then(r => r.json())
+      .then(d => setCompInfo({ competitionId: d.competitionId || null, format: d.format || null, phase: d.phase || null }))
+      .catch(() => setCompInfo({ competitionId: null, format: null, phase: null }));
+  }, [sessionId]);
+
+  // Fetch laps from all related sessions + build ranking
+  useEffect(() => {
+    if (!compInfo.competitionId || !compInfo.phase) { setCompRanking([]); return; }
+    let active = true;
+
+    (async () => {
+      try {
+        const compRes = await fetch(`${COLLECTOR_URL}/competitions/${compInfo.competitionId}`);
+        const comp: CompData = await compRes.json();
+        const sessions = typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : comp.sessions;
+
+        const isRelated = getRelatedPhases(compInfo.phase!);
+        const relatedSessionIds = sessions
+          .filter((s: any) => isRelated(s.phase))
+          .map((s: any) => s.sessionId);
+
+        const allLaps: { pilot: string; lap_time: string }[] = [];
+        for (const sid of relatedSessionIds) {
+          const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()).catch(() => []);
+          allLaps.push(...laps);
+        }
+        // Also include current live entries best laps
+        const pilotBests = new Map<string, number>();
+        for (const l of allLaps) {
+          if (!l.lap_time) continue;
+          const sec = parseTime(l.lap_time);
+          if (sec === null || sec < 38) continue;
+          const prev = pilotBests.get(l.pilot);
+          if (prev === undefined || sec < prev) pilotBests.set(l.pilot, sec);
+        }
+        // Merge with live entries (current session, might not be in DB yet)
+        for (const e of entries) {
+          const sec = parseTime(e.bestLap);
+          if (sec === null || sec < 38) continue;
+          const prev = pilotBests.get(e.pilot);
+          if (prev === undefined || sec < prev) pilotBests.set(e.pilot, sec);
+        }
+
+        if (!active) return;
+        const ranked = [...pilotBests.entries()]
+          .map(([pilot, bestLap]) => ({ pilot, bestLap }))
+          .sort((a, b) => a.bestLap - b.bestLap);
+        setCompRanking(ranked);
+      } catch {
+        if (active) setCompRanking([]);
+      }
+    })();
+
+    const timer = setInterval(() => {
+      // Re-fetch periodically
+      fetch(`${COLLECTOR_URL}/competitions/${compInfo.competitionId}`)
+        .then(r => r.json())
+        .then(async (comp: CompData) => {
+          const sessions = typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : comp.sessions;
+          const isRelated = getRelatedPhases(compInfo.phase!);
+          const relatedSessionIds = sessions.filter((s: any) => isRelated(s.phase)).map((s: any) => s.sessionId);
+
+          const allLaps: { pilot: string; lap_time: string }[] = [];
+          for (const sid of relatedSessionIds) {
+            const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()).catch(() => []);
+            allLaps.push(...laps);
+          }
+          const pilotBests = new Map<string, number>();
+          for (const l of allLaps) {
+            if (!l.lap_time) continue;
+            const sec = parseTime(l.lap_time);
+            if (sec === null || sec < 38) continue;
+            const prev = pilotBests.get(l.pilot);
+            if (prev === undefined || sec < prev) pilotBests.set(l.pilot, sec);
+          }
+          for (const e of entries) {
+            const sec = parseTime(e.bestLap);
+            if (sec === null || sec < 38) continue;
+            const prev = pilotBests.get(e.pilot);
+            if (prev === undefined || sec < prev) pilotBests.set(e.pilot, sec);
+          }
+          setCompRanking([...pilotBests.entries()].map(([pilot, bestLap]) => ({ pilot, bestLap })).sort((a, b) => a.bestLap - b.bestLap));
+        })
+        .catch(() => {});
+    }, 5000);
+
+    return () => { active = false; clearInterval(timer); };
+  }, [compInfo.competitionId, compInfo.phase, entries]);
+
+  // Compute position string for current pilot
+  const positionDisplay = useMemo(() => {
+    if (!entry) return null;
+    const pilot = entry.pilot;
+
+    if (compInfo.competitionId && compRanking.length > 0) {
+      const idx = compRanking.findIndex(r => r.pilot === pilot);
+      const pos = idx >= 0 ? idx + 1 : null;
+      const total = compRanking.length;
+      return pos ? `${pos}/${total}` : `—/${total}`;
+    }
+
+    // No competition — position in current session by best lap
+    const withBest = entries
+      .map(e => ({ pilot: e.pilot, best: parseTime(e.bestLap) }))
+      .filter(e => e.best !== null && e.best >= 38) as { pilot: string; best: number }[];
+    withBest.sort((a, b) => a.best - b.best);
+    const idx = withBest.findIndex(e => e.pilot === pilot);
+    return idx >= 0 ? String(idx + 1) : '—';
+  }, [entry, entries, compInfo.competitionId, compRanking]);
+
+  // ── Color calculations ──
 
   const overallBestLap = entries.reduce((best, e) => {
     const v = parseTime(e.bestLap);
@@ -77,7 +219,6 @@ export default function Onboard() {
           ← Таймінг
         </Link>
 
-        {/* Kart number button + dropdown */}
         <div ref={selectorRef} className="relative">
           <button
             onClick={() => setSelectorOpen(o => !o)}
@@ -93,13 +234,10 @@ export default function Onboard() {
               {allKarts.map(k => {
                 const en = entries.find(e => e.kart === k);
                 return (
-                  <button
-                    key={k}
-                    onClick={() => goToKart(k)}
+                  <button key={k} onClick={() => goToKart(k)}
                     className={`block w-full text-left px-4 py-2 text-sm transition-colors ${
                       k === kart ? 'text-primary-400 bg-primary-500/10' : 'text-dark-300 hover:text-white hover:bg-dark-800'
-                    }`}
-                  >
+                    }`}>
                     <span className="font-bold">{k}</span>
                     {en && <span className="text-dark-500 ml-2">{en.pilot}</span>}
                   </button>
@@ -111,13 +249,10 @@ export default function Onboard() {
 
         <div className="flex-1" />
 
-        {/* Lock orientation */}
-        <button
-          onClick={() => setLocked(l => !l)}
+        <button onClick={() => setLocked(l => !l)}
           className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 ${
             locked ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'
-          }`}
-        >
+          }`}>
           {locked ? '🔒' : '🔓'}
         </button>
 
@@ -131,24 +266,18 @@ export default function Onboard() {
 
       {/* Main content */}
       <div className="flex-1 flex items-center justify-center relative overflow-hidden">
-        {/* Prev kart */}
         {prevKart !== null && (
-          <button
-            onClick={() => goToKart(prevKart)}
-            className="absolute left-1 top-1/2 -translate-y-1/2 w-12 h-24 flex items-center justify-center text-dark-600 hover:text-white active:text-primary-400 transition-colors z-10"
-          >
+          <button onClick={() => goToKart(prevKart)}
+            className="absolute left-1 top-1/2 -translate-y-1/2 w-12 h-24 flex items-center justify-center text-dark-600 hover:text-white active:text-primary-400 transition-colors z-10">
             <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
         )}
 
-        {/* Next kart */}
         {nextKart !== null && (
-          <button
-            onClick={() => goToKart(nextKart)}
-            className="absolute right-1 top-1/2 -translate-y-1/2 w-12 h-24 flex items-center justify-center text-dark-600 hover:text-white active:text-primary-400 transition-colors z-10"
-          >
+          <button onClick={() => goToKart(nextKart)}
+            className="absolute right-1 top-1/2 -translate-y-1/2 w-12 h-24 flex items-center justify-center text-dark-600 hover:text-white active:text-primary-400 transition-colors z-10">
             <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
             </svg>
@@ -167,7 +296,7 @@ export default function Onboard() {
           <div className="text-center px-16">
             {/* Position + Lap */}
             <div className="text-dark-500 text-sm mb-2 font-mono tracking-wide">
-              P{entry.position} · L{entry.lapNumber}
+              {positionDisplay} · L{entry.lapNumber}
             </div>
 
             {/* Last lap */}
