@@ -121,6 +121,8 @@ export default function SessionDetail() {
     return () => clearInterval(timer);
   }, [dbSession]);
 
+  const { prefs, toggle } = useViewPrefs();
+
   if (dbLoading) {
     return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
   }
@@ -137,6 +139,7 @@ export default function SessionDetail() {
 
   // Merge "Карт X" → real pilot name and build stats
   const mergedLaps = mergePilotNames(dbLaps);
+
   const pilotMap = new Map<string, { kart: number; laps: DbLap[]; bestLap: number }>();
   for (const lap of mergedLaps) {
     if (!pilotMap.has(lap.pilot)) pilotMap.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity });
@@ -150,8 +153,6 @@ export default function SessionDetail() {
   const pilots = [...pilotMap.entries()]
     .sort((a, b) => a[1].bestLap - b[1].bestLap)
     .map(([name, data], i) => ({ name, ...data, position: i + 1 }));
-
-  const { prefs, toggle } = useViewPrefs();
 
   const dateStr = new Date(dbSession.start_time).toLocaleDateString('uk-UA', { day: '2-digit', month: 'long', year: 'numeric' });
   const pilotCount = pilots.length > 0 ? pilots.length : (liveEntries.length > 0 ? liveEntries.length : (dbSession.real_pilot_count ?? 0));
