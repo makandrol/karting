@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { toSeconds, shortName } from '../../utils/timing';
+import { COMPETITION_CONFIGS, getPhaseShortLabel } from '../../data/competitions';
 
 export interface SessionTableRow {
   id: string;
@@ -12,6 +13,10 @@ export interface SessionTableRow {
   best_lap_time: string | null;
   best_lap_pilot: string | null;
   best_lap_kart?: number | null;
+  competition_id?: string | null;
+  competition_name?: string | null;
+  competition_format?: string | null;
+  competition_phase?: string | null;
 }
 
 function fmtTime(ms: number): string {
@@ -49,6 +54,12 @@ export default function SessionsTable({ sessions, maxHeight, showDate }: Session
           {sessions.map((s) => {
             const isActive = !s.end_time;
             const pilots = s.real_pilot_count ?? s.pilot_count;
+            const sessionType = s.competition_format && s.competition_phase
+              ? `${COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.name || s.competition_format} · ${getPhaseShortLabel(s.competition_format, s.competition_phase)}`
+              : s.competition_format
+              ? COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.name || s.competition_format
+              : 'Прокат';
+            const isCompetition = !!s.competition_id;
             return (
               <tr key={s.id}
                 onClick={() => navigate(isActive ? '/' : `/sessions/${s.id}`)}
@@ -61,7 +72,7 @@ export default function SessionsTable({ sessions, maxHeight, showDate }: Session
                     : <span className="text-dark-400">{s.end_time ? fmtDuration(s.start_time, s.end_time) : '—'}</span>}
                 </td>
                 <td className="py-1.5 text-dark-500 whitespace-nowrap">{pilots} пілот{pilots === 1 ? '' : pilots < 5 ? 'и' : 'ів'}</td>
-                <td className="py-1.5 text-dark-500 whitespace-nowrap">Прокат</td>
+                <td className={`py-1.5 whitespace-nowrap ${isCompetition ? 'text-purple-400' : 'text-dark-500'}`}>{sessionType}</td>
                 <td className="py-1.5 text-dark-500 whitespace-nowrap">Траса {s.track_id || 1}</td>
                 <td className="py-1.5 pr-3 text-right font-mono whitespace-nowrap">
                   {s.best_lap_time && s.best_lap_pilot ? (
