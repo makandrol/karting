@@ -355,7 +355,7 @@ export default function SessionDetail() {
                   defaultSortMode={(dbSession as any).competition_phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                   onEntriesUpdate={setTrackEntries}
                   renderScrubber={(scrubber) => (
-                    <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+                    <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
                       {scrubber}
                     </div>
                   )}
