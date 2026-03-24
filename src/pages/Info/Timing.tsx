@@ -242,7 +242,7 @@ export default function Timing() {
                 </button>
               </div>
               {prefs.showTrack && <TrackMap track={currentTrack} entries={trackEntries} static />}
-              {prefs.showLapsByPilots && <LapsByPilots pilots={replayPilots} currentEntries={trackEntries} />}
+              {prefs.showLapsByPilots && <LapsByPilots pilots={replayPilots} currentEntries={trackEntries} isLive />}
             </>
           ) : (
             <>

@@ -25,6 +25,7 @@ interface PilotLaps {
 interface LapsByPilotsProps {
   pilots: PilotLaps[];
   currentEntries?: TimingEntry[];
+  isLive?: boolean;
 }
 
 export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
@@ -43,7 +44,7 @@ export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
     .map(([name, data]) => ({ name, ...data }));
 }
 
-export default function LapsByPilots({ pilots, currentEntries = [] }: LapsByPilotsProps) {
+export default function LapsByPilots({ pilots, currentEntries = [], isLive }: LapsByPilotsProps) {
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const maxLaps = Math.max(...pilots.map(p => p.laps.length), 0);
 
@@ -51,7 +52,7 @@ export default function LapsByPilots({ pilots, currentEntries = [] }: LapsByPilo
   for (const e of currentEntries) {
     if (e.lapNumber >= 0) completedLapsMap.set(e.pilot, e.lapNumber);
   }
-  const hasReplayState = currentEntries.length > 0 && currentEntries.some(e => e.lapNumber > 0);
+  const hasReplayState = !isLive && currentEntries.length > 0 && currentEntries.some(e => e.lapNumber > 0);
 
   if (maxLaps === 0) return null;
 
