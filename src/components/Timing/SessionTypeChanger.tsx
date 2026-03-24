@@ -113,11 +113,11 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     try {
       await apiPost(`/competitions/${encodeURIComponent(selectedComp.id)}/link-session`, { sessionId, phase: phaseId });
       
-      // Auto-link previous sessions
+      // Auto-link surrounding sessions (both before and after)
       const phases = PHASE_CONFIGS[selectedComp.format]?.phases || [];
       const phaseIdx = phases.findIndex(p => p.id === phaseId);
-      if (phaseIdx > 0) {
-        await autoLinkPreviousSessions(selectedComp.id, sessionId, phases, phaseIdx);
+      if (phaseIdx >= 0) {
+        await autoLinkSurroundingSessions(selectedComp.id, sessionId, phases, phaseIdx);
       }
     } catch {}
     setLoading(false);
@@ -125,10 +125,11 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     onChanged?.();
   };
 
-  const autoLinkPreviousSessions = async (compId: string, currentSessionId: string, phases: { id: string }[], currentPhaseIdx: number) => {
+  const autoLinkSurroundingSessions = async (compId: string, currentSessionId: string, phases: { id: string }[], currentPhaseIdx: number) => {
     const sessionTs = currentSessionId.match(/session-(\d+)/);
     if (!sessionTs) return;
-    const currentDate = new Date(parseInt(sessionTs[1]));
+    const currentTime = parseInt(sessionTs[1]);
+    const currentDate = new Date(currentTime);
     const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
 
     try {
@@ -136,16 +137,33 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       if (!res.ok) return;
       const allSessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; merged_session_ids?: string[] }[] = await res.json();
 
-      const validSessions = allSessions
+      const available = allSessions
         .filter(s => s.end_time && (s.end_time - s.start_time) >= 60000)
-        .filter(s => s.start_time < parseInt(sessionTs[1]))
-        .filter(s => !s.competition_id)
+        .filter(s => !s.competition_id && s.id !== currentSessionId);
+
+      const before = available
+        .filter(s => s.start_time < currentTime)
         .sort((a, b) => b.start_time - a.start_time);
 
-      for (let i = currentPhaseIdx - 1; i >= 0 && (currentPhaseIdx - 1 - i) < validSessions.length; i--) {
-        const session = validSessions[currentPhaseIdx - 1 - i];
-        const allIds = session.merged_session_ids || [session.id];
-        await apiPost(`/competitions/${encodeURIComponent(compId)}/link-session`, { sessionId: allIds[0], phase: phases[i].id });
+      const after = available
+        .filter(s => s.start_time > currentTime)
+        .sort((a, b) => a.start_time - b.start_time);
+
+      // Link previous sessions (phases before currentPhaseIdx)
+      for (let i = 0; i < currentPhaseIdx && i < before.length; i++) {
+        const session = before[i];
+        const phaseId = phases[currentPhaseIdx - 1 - i].id;
+        const sid = session.merged_session_ids?.[0] || session.id;
+        await apiPost(`/competitions/${encodeURIComponent(compId)}/link-session`, { sessionId: sid, phase: phaseId });
+      }
+
+      // Link next sessions (phases after currentPhaseIdx)
+      const remainingPhases = phases.length - currentPhaseIdx - 1;
+      for (let i = 0; i < remainingPhases && i < after.length; i++) {
+        const session = after[i];
+        const phaseId = phases[currentPhaseIdx + 1 + i].id;
+        const sid = session.merged_session_ids?.[0] || session.id;
+        await apiPost(`/competitions/${encodeURIComponent(compId)}/link-session`, { sessionId: sid, phase: phaseId });
       }
     } catch {}
   };
