@@ -39,7 +39,7 @@ async function apiPatch(path: string, body: object) {
   });
 }
 
-type Step = 'closed' | 'format' | 'competition' | 'phase' | 'change_phase';
+type Step = 'closed' | 'format' | 'competition' | 'phase' | 'change_phase_all' | 'change_phase_single';
 
 export default function SessionTypeChanger({ sessionId, currentFormat, currentPhase, currentCompetitionId, onChanged }: SessionTypeChangerProps) {
   const { hasPermission } = useAuth();
@@ -193,10 +193,45 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     onChanged?.();
   };
 
-  const handleChangePhase = async (phaseId: string) => {
+  const handleChangePhaseAll = async (phaseId: string) => {
+    if (!currentCompetitionId || !sessionId || !currentFormat) return;
+    setLoading(true);
+    try {
+      // Fetch current competition to get all linked sessions
+      const compRes = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(currentCompetitionId)}`);
+      if (!compRes.ok) return;
+      const comp: Competition = await compRes.json();
+      // Unlink all existing sessions
+      for (const s of comp.sessions) {
+        await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/unlink-session`, { sessionId: s.sessionId });
+      }
+      // Link current session with new phase
+      await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/link-session`, { sessionId, phase: phaseId });
+      // Auto-link surrounding sessions
+      const phases = PHASE_CONFIGS[currentFormat]?.phases || [];
+      const phaseIdx = phases.findIndex(p => p.id === phaseId);
+      if (phaseIdx >= 0) {
+        await autoLinkSurroundingSessions(currentCompetitionId, sessionId, phases, phaseIdx);
+      }
+    } catch {}
+    setLoading(false);
+    setStep('closed');
+    onChanged?.();
+  };
+
+  const handleChangePhaseSingle = async (phaseId: string) => {
     if (!currentCompetitionId || !sessionId) return;
     setLoading(true);
     try {
+      // If phase is already taken by another session, unlink that session
+      const compRes = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(currentCompetitionId)}`);
+      if (compRes.ok) {
+        const comp: Competition = await compRes.json();
+        const existing = comp.sessions.find(s => s.phase === phaseId && s.sessionId !== sessionId);
+        if (existing) {
+          await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/unlink-session`, { sessionId: existing.sessionId });
+        }
+      }
       await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/link-session`, { sessionId, phase: phaseId });
     } catch {}
     setLoading(false);
@@ -247,11 +282,20 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
               <button
                 onClick={() => {
                   setSelectedComp({ id: currentCompetitionId!, name: '', format: currentFormat!, date: '', status: 'live', sessions: [] });
-                  setStep('change_phase');
+                  setStep('change_phase_all');
                 }}
                 className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
               >
-                Змінити етап
+                Змінити етап (всі заїзди)
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedComp({ id: currentCompetitionId!, name: '', format: currentFormat!, date: '', status: 'live', sessions: [] });
+                  setStep('change_phase_single');
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors"
+              >
+                Змінити етап (тільки цей)
               </button>
               <button
                 onClick={handleUnlink}
@@ -268,13 +312,34 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
             </>
           )}
 
-          {step === 'change_phase' && selectedComp && (
+          {step === 'change_phase_all' && selectedComp && (
             <>
-              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Змінити етап</div>
+              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Змінити етап (всі заїзди)</div>
               {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => (
                 <button
                   key={phase.id}
-                  onClick={() => handleChangePhase(phase.id)}
+                  onClick={() => handleChangePhaseAll(phase.id)}
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                    phase.id === currentPhase ? 'text-primary-400 font-medium' : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                  }`}
+                >
+                  {phase.label}
+                  {phase.id === currentPhase && <span className="text-dark-600 text-[10px] ml-1">(поточний)</span>}
+                </button>
+              ))}
+              <button onClick={() => setStep('format')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">
+                ← Назад
+              </button>
+            </>
+          )}
+
+          {step === 'change_phase_single' && selectedComp && (
+            <>
+              <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Змінити етап (тільки цей)</div>
+              {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => (
+                <button
+                  key={phase.id}
+                  onClick={() => handleChangePhaseSingle(phase.id)}
                   className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                     phase.id === currentPhase ? 'text-primary-400 font-medium' : 'text-dark-300 hover:text-white hover:bg-dark-800'
                   }`}
