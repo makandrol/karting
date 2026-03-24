@@ -252,10 +252,16 @@ export default function LeagueResults({ format, sessions, sessionLaps }: LeagueR
   const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
   const rc = 9; // race columns: Карт, Час, Група, Старт, Фініш, Позиція, Обгони, Штрафи, Сума
 
-  const EditableCell = ({ value, onChange }: { value: number; onChange: (v: number) => void }) => (
-    <input type="number" value={value} onChange={e => onChange(parseFloat(e.target.value) || 0)}
-      className="w-8 bg-transparent text-center font-mono text-dark-300 outline-none border-b border-dark-700 focus:border-primary-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
-  );
+  const EditableCell = ({ value, onChange }: { value: number; onChange: (v: number) => void }) => {
+    const [text, setText] = useState(String(value));
+    useEffect(() => { setText(String(value)); }, [value]);
+    return (
+      <input type="text" inputMode="numeric" value={text}
+        onChange={e => setText(e.target.value)}
+        onBlur={() => { const v = parseFloat(text); onChange(isNaN(v) ? 0 : v); }}
+        className="w-10 bg-transparent text-center font-mono text-dark-300 outline-none border-b border-dark-700 focus:border-primary-500" />
+    );
+  };
 
   return (
     <div className="space-y-4">
