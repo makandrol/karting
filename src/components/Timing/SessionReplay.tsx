@@ -13,6 +13,13 @@ export interface S1Event {
   ts: number;
 }
 
+export interface SnapshotPosition {
+  ts: number;
+  positions: Map<string, number>;
+}
+
+export type ReplaySortMode = 'qualifying' | 'race';
+
 interface SessionReplayProps {
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number; ts?: number }[];
   durationSec: number;
@@ -22,16 +29,22 @@ interface SessionReplayProps {
   autoPlay?: boolean;
   liveEntries?: TimingEntry[];
   s1Events?: S1Event[];
+  snapshots?: SnapshotPosition[];
+  startPositions?: Map<string, number>;
+  defaultSortMode?: ReplaySortMode;
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
   const [atLive, setAtLive] = useState(!!isLive && !!autoPlay);
+  const [sortMode, setSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
+
+  useEffect(() => { if (defaultSortMode) setSortMode(defaultSortMode); }, [defaultSortMode]);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
   const durationRef = useRef(durationSec);
@@ -87,6 +100,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
   const getEntriesAtTime = useCallback((timeSec: number): TimingEntry[] => {
     const result: TimingEntry[] = [];
     const useTimelines = sessionStartTime != null && pilotTimelines.size > 0;
+
+    const pilotLastPos = new Map<string, number>();
 
     for (let idx = 0; idx < pilots.length; idx++) {
       const pilot = pilots[idx];
@@ -241,10 +256,17 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       const liveLapNumber = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.lapNumber : completedLaps;
       const liveKart = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.kart : (pilotLaps[0]?.kart || 0);
 
+      // Position from last recorded lap — used for sorting after all laps done
+      const lastRecordedPos = prevLapData?.position ?? 99;
+      pilotLastPos.set(pilot, lastRecordedPos);
+
       if (onCurrentUnrecordedLap && liveEntry?.bestLap) {
         const v = parseTime(liveEntry.bestLap) ?? 999;
         if (v < bestLapSec) { bestLapSec = v; bestLap = liveEntry.bestLap; }
       }
+
+      // Start position from first snapshot event (if available) or first lap
+      const startPosition = startPositions?.get(pilot) ?? (pilotLaps.length > 0 ? (pilotLaps[0].position ?? null) : null);
 
       result.push({
         position: idx + 1, pilot,
@@ -257,9 +279,18 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         bestS1: bestS1 || null,
         bestS2: bestS2 || null,
         progress,
-        currentLapSec: null,
+        currentLapSec: startPosition,
         previousLapSec: null,
       });
+    }
+
+    // For race sort: find positions from latest snapshot before current time
+    let snapshotPositions: Map<string, number> | null = null;
+    if (sessionStartTime && snapshots && snapshots.length > 0) {
+      const currentMs = sessionStartTime + timeSec * 1000;
+      for (let i = snapshots.length - 1; i >= 0; i--) {
+        if (snapshots[i].ts <= currentMs) { snapshotPositions = snapshots[i].positions; break; }
+      }
     }
 
     return result
@@ -267,6 +298,22 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         if (a.lapNumber < 0 && b.lapNumber < 0) return 0;
         if (a.lapNumber < 0) return 1;
         if (b.lapNumber < 0) return -1;
+        if (sortMode === 'race') {
+          if (a.lapNumber !== b.lapNumber) return b.lapNumber - a.lapNumber;
+          const aP = a.progress ?? 0;
+          const bP = b.progress ?? 0;
+          if (Math.abs(aP - bP) > 0.01) return bP - aP;
+          const aLastPos = pilotLastPos.get(a.pilot) ?? 99;
+          const bLastPos = pilotLastPos.get(b.pilot) ?? 99;
+          if (aLastPos !== 99 || bLastPos !== 99) return aLastPos - bLastPos;
+          // Use snapshot positions (ground truth from timing system)
+          if (snapshotPositions) {
+            const aSnap = snapshotPositions.get(a.pilot) ?? 99;
+            const bSnap = snapshotPositions.get(b.pilot) ?? 99;
+            if (aSnap !== 99 || bSnap !== 99) return aSnap - bSnap;
+          }
+          return (startPositions?.get(a.pilot) ?? 99) - (startPositions?.get(b.pilot) ?? 99);
+        }
         if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
         if (a.lapNumber === 0) return 1;
         if (b.lapNumber === 0) return -1;
@@ -275,7 +322,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
-  }, [laps, pilots, sessionStartTime, pilotTimelines, pilotS1Events, liveEntries]);
+  }, [laps, pilots, sessionStartTime, pilotTimelines, pilotS1Events, snapshots, startPositions, liveEntries, sortMode]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
@@ -389,6 +436,25 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         <option value={10}>10x</option>
       </select>
 
+      <div className="flex bg-dark-800 rounded-md p-0.5 shrink-0">
+        <button
+          onClick={() => setSortMode('qualifying')}
+          className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+            sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+          }`}
+        >
+          Квала
+        </button>
+        <button
+          onClick={() => setSortMode('race')}
+          className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+            sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+          }`}
+        >
+          Гонка
+        </button>
+      </div>
+
       <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
         {isLive ? formatTimeSec(currentTime) : `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
       </span>
@@ -413,11 +479,12 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       {/* Timing board */}
       <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-xs [&_th]:px-0.5 [&_th]:py-0.5 [&_td]:px-0.5 [&_td]:py-0.5">
           <thead>
             <tr className="table-header">
-              <th className="table-cell text-center w-6">#</th>
-              <th className="table-cell text-left min-w-[140px]">Pilot</th>
+              <th className="table-cell text-center w-5">#</th>
+              <th className="table-cell text-left min-w-[70px]">Pilot</th>
+              <th className="table-cell text-center text-dark-500 w-5" style={{ paddingLeft: 0 }}>+/-</th>
               <th className="table-cell text-center">Kart</th>
               <th className="table-cell text-right">Last</th>
               <th className="table-cell text-right">S1</th>
@@ -444,19 +511,28 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                   <td className="table-cell text-center font-mono font-bold text-dark-400">
                     {notStarted ? '—' : e.position}
                   </td>
-                  <td className="table-cell text-left py-2">
-                    <div className={`font-medium text-sm leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
+                  <td className="table-cell text-left py-1.5" style={{ paddingRight: 0 }}>
+                    <div className={`font-medium text-[11px] leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
                       <Link to={`/pilots/${encodeURIComponent(e.pilot)}`} className={`${notStarted ? 'text-dark-500' : 'text-white hover:text-primary-400'} transition-colors`}>
                         {shortName(e.pilot)}
                       </Link>
                     </div>
-                    <div className="mt-1 h-[3px] w-full bg-dark-800 rounded-full overflow-hidden">
+                    <div className="mt-0.5 h-[1.5px] w-1/2 bg-dark-800 rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all duration-[50ms] ease-linear bg-yellow-500/60"
                         style={{ width: `${!notStarted && e.progress !== null ? Math.round(e.progress * 100) : 0}%` }}
                       />
                     </div>
                   </td>
+                  <td className="table-cell text-center font-mono text-[10px]" style={{ paddingLeft: 0 }}>{(() => {
+                    if (notStarted) return '';
+                    const st = e.currentLapSec;
+                    if (st == null) return '—';
+                    const diff = st - e.position;
+                    if (diff > 0) return <span className="text-green-400">↑{diff}</span>;
+                    if (diff < 0) return <span className="text-red-400">↓{Math.abs(diff)}</span>;
+                    return <span className="text-dark-600">0</span>;
+                  })()}</td>
                   <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
                     {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}

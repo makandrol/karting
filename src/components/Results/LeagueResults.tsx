@@ -13,6 +13,7 @@ interface SessionLap {
   lap_time: string | null;
   s1: string | null;
   s2: string | null;
+  position: number | null;
   ts: number;
 }
 
@@ -61,13 +62,22 @@ type ManualEdits = Record<string, { startPos?: number; finishPos?: number; penal
 const TH_V = "px-1 py-1 text-center text-dark-500 border-r border-dark-700/30";
 const TH_R = "[writing-mode:vertical-lr] rotate-180 text-[9px]";
 
-function getOvertakeRate(scoring: ScoringData, group: number, startPos: number): number {
+function getOvertakeRate(scoring: ScoringData, group: number, pos: number): number {
   if (group === 3) return scoring.overtakePoints.groupIII;
   if (group === 2) return scoring.overtakePoints.groupII;
   for (const rule of scoring.overtakePoints.groupI) {
-    if (startPos >= rule.startPosMin && startPos <= rule.startPosMax) return rule.perOvertake;
+    if (pos >= rule.startPosMin && pos <= rule.startPosMax) return rule.perOvertake;
   }
   return 0;
+}
+
+function calcOvertakePoints(scoring: ScoringData, group: number, startPos: number, finishPos: number): number {
+  if (startPos <= finishPos) return 0;
+  let total = 0;
+  for (let pos = startPos; pos > finishPos; pos--) {
+    total += getOvertakeRate(scoring, group, pos);
+  }
+  return Math.round(total * 10) / 10;
 }
 
 function getPositionPoints(scoring: ScoringData, totalPilots: number, group: string, finishPos: number): number {
@@ -125,12 +135,20 @@ export default function LeagueResults({ format, competitionId, sessions, session
   }, [competitionId]);
 
   type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points`;
-  const [sortKey, setSortKey] = useState<SortKey>('total');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sortKey, setSortKey] = useState<SortKey>(() => {
+    try { const v = localStorage.getItem(`karting_league_sort_${competitionId}`); return v ? JSON.parse(v).key : 'total'; } catch { return 'total'; }
+  });
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => {
+    try { const v = localStorage.getItem(`karting_league_sort_${competitionId}`); return v ? JSON.parse(v).dir : 'desc'; } catch { return 'desc'; }
+  });
   const toggleSort = (key: SortKey, fixedDir?: 'asc' | 'desc') => {
-    if (fixedDir) { setSortKey(key); setSortDir(fixedDir); }
-    else if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(key); setSortDir('desc'); }
+    let newKey = key;
+    let newDir: 'asc' | 'desc';
+    if (fixedDir) { newDir = fixedDir; }
+    else if (sortKey === key) { newDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+    else { newDir = 'desc'; }
+    setSortKey(newKey); setSortDir(newDir);
+    try { localStorage.setItem(`karting_league_sort_${competitionId}`, JSON.stringify({ key: newKey, dir: newDir })); } catch {}
   };
 
   const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
@@ -197,24 +215,34 @@ export default function LeagueResults({ format, competitionId, sessions, session
         });
       });
 
-      // Get finish positions from timing data
+      // Get finish positions from timing data (use position from last lap — set by timing system)
       const raceTimes: { pilot: string; time: number }[] = [];
       for (const rs of rSessions) {
         const groupMatch = rs.phase?.match(/group_(\d+)/);
         const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
         const laps = sessionLaps.get(rs.sessionId) || [];
-        const pilotBest = new Map<string, { bestTime: number; bestTimeStr: string; kart: number }>();
+        const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; kart: number; lapCount: number; lastTs: number; lastPosition: number }>();
         for (const l of laps) {
           const sec = parseLapSec(l.lap_time);
           if (sec === null || sec < 38) continue;
-          const ex = pilotBest.get(l.pilot);
-          if (!ex || sec < ex.bestTime) pilotBest.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart });
+          const ex = pilotStats.get(l.pilot);
+          if (!ex) {
+            pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart, lapCount: 1, lastTs: l.ts, lastPosition: l.position ?? 99 });
+          } else {
+            ex.lapCount++;
+            if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPosition = l.position ?? 99; }
+            if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
+          }
         }
-        const sorted = [...pilotBest.entries()]
+        // Race finish: by position from timing system on last lap
+        const sorted = [...pilotStats.entries()]
           .filter(([p]) => !excludedPilots.has(p))
-          .sort((a, b) => a[1].bestTime - b[1].bestTime);
-        // Also keep excluded pilots' data (without scoring)
-        const excludedEntries = [...pilotBest.entries()].filter(([p]) => excludedPilots.has(p));
+          .sort((a, b) => {
+            if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
+            if (a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
+            return a[1].lastTs - b[1].lastTs;
+          });
+        const excludedEntries = [...pilotStats.entries()].filter(([p]) => excludedPilots.has(p));
         sorted.forEach(([pilot, pData], i) => {
           const editKey = `${pilot}|${r}`;
           const edit = edits[editKey];
@@ -225,9 +253,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
           const group = isDisqualified ? 0 : (sp?.group ?? groupNum);
           const penalties = edit?.penalties ?? 0;
 
-          const overtakes = isDisqualified ? 0 : Math.max(0, startPos - finishPos);
-          const overtakeRate = getOvertakeRate(scoring, group, startPos);
-          const overtakePoints = Math.round(overtakes * overtakeRate * 10) / 10;
+          const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos);
           const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
           const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos);
 
@@ -303,7 +329,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const showQuali = !hiddenGroups.has('quali');
   const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
-  const rc = 9; // race columns: Карт, Час, Група, Старт, Фініш, Позиція, Обгони, Штрафи, Сума
+  const rc = 10; // race columns: Карт, Час, Бали(speed), Група, Старт, Фініш, Позиція, Обгони, Штрафи, Сума
 
   const EditableCell = ({ value, onChange }: { value: number; onChange: (v: number) => void }) => {
     const [text, setText] = useState(String(value));
@@ -343,9 +369,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
             <table className="w-full text-[10px] border-collapse">
               <thead>
                 <tr className="bg-dark-800/50">
-                  <th rowSpan={2} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-6">#</th>
-                  <th rowSpan={2} className="px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px]">Пілот</th>
-                  <th rowSpan={2} className="px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10"><span className={TH_R}>Сума</span></th>
+                  <th rowSpan={3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-6">#</th>
+                  <th rowSpan={3} className="px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px]">Пілот</th>
+                  <th rowSpan={3} className="px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10"><span className={TH_R}>Сума</span></th>
                   {showQuali && <th colSpan={3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Квала</th>}
                   {Array.from({ length: raceCount }, (_, i) => showRace(i + 1) ? (
                     <th key={i} colSpan={rc} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Гонка {i + 1}</th>
@@ -353,17 +379,25 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 </tr>
                 <tr className="bg-dark-800/30">
                   {showQuali && (<>
-                    <th className={TH_V}><span className={TH_R}>Карт</span></th>
-                    <th className={TH_V}><span className={TH_R}>Час</span></th>
-                    <th className={TH_V}><span className={TH_R}>Бали</span></th>
+                    <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>
+                    <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>
+                    <th rowSpan={2} className={TH_V}><span className={TH_R}>Бали</span></th>
                   </>)}
                   {Array.from({ length: raceCount }, (_, i) => showRace(i + 1) ? (
                     <Fragment key={i}>
-                      <th className={TH_V}><span className={TH_R}>Карт</span></th>
-                      <th className={TH_V}><span className={TH_R}>Час</span></th>
-                      <th className={TH_V}><span className={TH_R}>Група</span></th>
-                      <th className={TH_V}><span className={TH_R}>Старт</span></th>
-                      <th className={TH_V}><span className={TH_R}>Фініш</span></th>
+                      <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>
+                      <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>
+                      <th rowSpan={2} className={TH_V}><span className={TH_R}>Швидк.</span></th>
+                      <th rowSpan={2} className={TH_V}><span className={TH_R}>Група</span></th>
+                      <th rowSpan={2} className={TH_V}><span className={TH_R}>Старт</span></th>
+                      <th rowSpan={2} className={TH_V}><span className={TH_R}>Фініш</span></th>
+                      <th colSpan={4} className="px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30">Бали</th>
+                    </Fragment>
+                  ) : null)}
+                </tr>
+                <tr className="bg-dark-800/20">
+                  {Array.from({ length: raceCount }, (_, i) => showRace(i + 1) ? (
+                    <Fragment key={i}>
                       <th className={TH_V}><span className={TH_R}>Позиція</span></th>
                       <th className={TH_V}><span className={TH_R}>Обгони</span></th>
                       <th className={TH_V}><span className={TH_R}>Штрафи</span></th>
@@ -391,12 +425,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     {showQuali && (<>
                       <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{row.quali?.kart || '—'}</td>
                       <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>
-                      <td className="px-1 py-1 text-center font-mono text-dark-400 border-r border-dark-700">{row.quali?.speedPoints ? row.quali.speedPoints : '—'}</td>
+                      <td className="px-1 py-1 text-center font-mono border-r border-dark-700">{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>
                     </>)}
                     {row.races.map((race, ri) => showRace(ri + 1) ? (
                       <Fragment key={ri}>
                         <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{race?.kart || '—'}</td>
                         <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">{race ? toSeconds(race.bestTimeStr) : '—'}</td>
+                        <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>
                         <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{race?.group || '—'}</td>
                         <td className="px-1 py-1 text-center font-mono text-dark-400 border-r border-dark-700/30">
                           {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : isOwner ? <EditableCell value={race.startPos} onChange={v => setEdit(row.pilot, ri + 1, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}
@@ -404,12 +439,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">
                           {race ? (isOwner ? <EditableCell value={race.finishPos} onChange={v => setEdit(row.pilot, ri + 1, 'finishPos', v)} /> : <span>{race.finishPos}</span>) : '—'}
                         </td>
-                        <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{race?.positionPoints || '—'}</td>
-                        <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{race?.overtakePoints || '—'}</td>
-                        <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">
-                          {race ? (isOwner ? <EditableCell value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} /> : <span>{race.penalties || '—'}</span>) : '—'}
+                        <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>
+                        <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>
+                        <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">
+                          {race ? (isOwner ? <EditableCell value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} /> : race.penalties ? <span className="text-red-400/70">{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
                         </td>
-                        <td className="px-1 py-1 text-center font-mono text-dark-300 font-bold border-r border-dark-700">{race?.totalRacePoints || '—'}</td>
+                        <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
                       </Fragment>
                     ) : null)}
                   </tr>

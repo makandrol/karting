@@ -1,8 +1,8 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds, mergePilotNames, shortName } from '../../utils/timing';
-import SessionReplay, { type S1Event } from '../../components/Timing/SessionReplay';
+import { toSeconds, mergePilotNames, shortName, fetchRaceStartPositions } from '../../utils/timing';
+import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
@@ -59,6 +59,8 @@ export default function SessionDetail() {
   const [daySessions, setDaySessions] = useState<DbSession[]>([]);
   const [dbLaps, setDbLaps] = useState<DbLap[]>([]);
   const [s1Events, setS1Events] = useState<S1Event[]>([]);
+  const [replaySnapshots, setReplaySnapshots] = useState<SnapshotPosition[]>([]);
+  const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
   const [liveEntries, setLiveEntries] = useState<any[]>([]);
   const [dbLoading, setDbLoading] = useState(true);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
@@ -87,6 +89,8 @@ export default function SessionDetail() {
         const sessionIds = found?.merged_session_ids || [sessionId];
         const allLaps: DbLap[] = [];
         const allS1Events: S1Event[] = [];
+        const allSnapshots: SnapshotPosition[] = [];
+        let firstSnapshotPos: Map<string, number> | null = null;
         for (const sid of sessionIds) {
           const [sLaps, sEvents] = await Promise.all([
             fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()),
@@ -98,10 +102,43 @@ export default function SessionDetail() {
               const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
               if (d.pilot && d.s1) allS1Events.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
             }
+            if (ev.event_type === 'snapshot' && ev.data) {
+              const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+              const positions = new Map<string, number>();
+              for (const en of (d.entries || [])) {
+                if (en.pilot && en.position) positions.set(en.pilot, Number(en.position));
+              }
+              if (positions.size > 0) {
+                allSnapshots.push({ ts: ev.ts, positions });
+                if (!firstSnapshotPos) firstSnapshotPos = positions;
+              }
+            }
+            if (ev.event_type === 'positions' && ev.data) {
+              const arr = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+              if (Array.isArray(arr)) {
+                const positions = new Map<string, number>();
+                for (const p of arr) {
+                  if (p.pilot && p.position) positions.set(p.pilot, Number(p.position));
+                }
+                if (positions.size > 0) allSnapshots.push({ ts: ev.ts, positions });
+              }
+            }
           }
         }
         setDbLaps(allLaps);
         setS1Events(allS1Events);
+        setReplaySnapshots(allSnapshots.sort((a, b) => a.ts - b.ts));
+
+        // Compute start positions from competition data
+        const compPhase = (found as any)?.competition_phase;
+        const compId = (found as any)?.competition_id;
+        const compFormat = (found as any)?.competition_format;
+        if (compId && compPhase?.startsWith('race_') && compFormat) {
+          const sp = await fetchRaceStartPositions(COLLECTOR_URL, compId, compPhase, compFormat);
+          if (active) setStartPositions(sp);
+        } else if (firstSnapshotPos) {
+          if (active) setStartPositions(firstSnapshotPos);
+        }
 
         if (found && !found.end_time) {
           try {
@@ -313,6 +350,9 @@ export default function SessionDetail() {
                   raceNumber={dbSession.race_number}
                   autoPlay={true}
                   s1Events={s1Events}
+                  snapshots={replaySnapshots}
+                  startPositions={startPositions}
+                  defaultSortMode={(dbSession as any).competition_phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                   onEntriesUpdate={setTrackEntries}
                   renderScrubber={(scrubber) => (
                     <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
