@@ -61,13 +61,22 @@ type ManualEdits = Record<string, { startPos?: number; finishPos?: number; penal
 const TH_V = "px-1 py-1 text-center text-dark-500 border-r border-dark-700/30";
 const TH_R = "[writing-mode:vertical-lr] rotate-180 text-[9px]";
 
-function getOvertakeRate(scoring: ScoringData, group: number, startPos: number): number {
+function getOvertakeRate(scoring: ScoringData, group: number, pos: number): number {
   if (group === 3) return scoring.overtakePoints.groupIII;
   if (group === 2) return scoring.overtakePoints.groupII;
   for (const rule of scoring.overtakePoints.groupI) {
-    if (startPos >= rule.startPosMin && startPos <= rule.startPosMax) return rule.perOvertake;
+    if (pos >= rule.startPosMin && pos <= rule.startPosMax) return rule.perOvertake;
   }
   return 0;
+}
+
+function calcOvertakePoints(scoring: ScoringData, group: number, startPos: number, finishPos: number): number {
+  if (startPos <= finishPos) return 0;
+  let total = 0;
+  for (let pos = startPos; pos > finishPos; pos--) {
+    total += getOvertakeRate(scoring, group, pos);
+  }
+  return Math.round(total * 10) / 10;
 }
 
 function getPositionPoints(scoring: ScoringData, totalPilots: number, group: string, finishPos: number): number {
@@ -242,9 +251,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
           const group = isDisqualified ? 0 : (sp?.group ?? groupNum);
           const penalties = edit?.penalties ?? 0;
 
-          const overtakes = isDisqualified ? 0 : Math.max(0, startPos - finishPos);
-          const overtakeRate = getOvertakeRate(scoring, group, startPos);
-          const overtakePoints = Math.round(overtakes * overtakeRate * 10) / 10;
+          const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos);
           const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
           const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos);
 
