@@ -52,7 +52,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive }: La
   for (const e of currentEntries) {
     if (e.lapNumber >= 0) completedLapsMap.set(e.pilot, e.lapNumber);
   }
-  const hasReplayState = !isLive && currentEntries.length > 0 && currentEntries.some(e => e.lapNumber > 0);
+  const hasReplayState = !isLive && currentEntries.length > 0 && currentEntries.some(e => e.lapNumber >= 0);
 
   if (maxLaps === 0) return null;
 
