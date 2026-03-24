@@ -126,10 +126,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         }
       }
 
-      const currentLapData = completedLaps < pilotLaps.length ? pilotLaps[completedLaps] : null;
       const prevLapData = completedLaps > 0 ? pilotLaps[completedLaps - 1] : null;
 
-      // S1/S2/Lap: show latest known data for this pilot
       let displayS1: string | null;
       let displayS2: string | null;
       let displayLap: string | null;
