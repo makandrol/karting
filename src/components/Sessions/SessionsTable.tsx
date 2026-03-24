@@ -9,6 +9,7 @@ export interface SessionTableRow {
   pilot_count: number;
   real_pilot_count: number | null;
   race_number: number | null;
+  day_order?: number | null;
   track_id?: number;
   best_lap_time: string | null;
   best_lap_pilot: string | null;
@@ -58,13 +59,13 @@ export default function SessionsTable({ sessions, maxHeight, showDate }: Session
               ? `${COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.shortName || s.competition_format} · ${getPhaseShortLabel(s.competition_format, s.competition_phase)}`
               : s.competition_format
               ? COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.shortName || s.competition_format
-              : 'Прокат';
+              : `Прокат${s.race_number != null ? ` ${s.race_number}` : ''}`;
             const isCompetition = !!s.competition_id;
             return (
               <tr key={s.id}
                 onClick={() => navigate(isActive ? '/' : `/sessions/${s.id}`)}
                 className="border-b border-dark-800/50 last:border-0 hover:bg-dark-700/50 transition-colors cursor-pointer">
-                <td className="py-1.5 pl-3 pr-1 text-dark-500 font-mono whitespace-nowrap">№{s.race_number ?? '—'}</td>
+                <td className="py-1.5 pl-3 pr-1 text-dark-500 font-mono whitespace-nowrap">{s.day_order ?? '—'}</td>
                 <td className="py-1.5 font-mono text-white whitespace-nowrap">{showDate ? fmtDateTime(s.start_time) : fmtTime(s.start_time)}</td>
                 <td className="py-1.5 font-mono whitespace-nowrap">
                   {isActive

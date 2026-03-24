@@ -404,7 +404,8 @@ export const storage = {
         competition_status: comp?.status || null,
       };
     });
-    return mergeSessions(enriched);
+    const merged = mergeSessions(enriched);
+    return merged.map((s, i) => ({ ...s, day_order: i + 1 }));
   },
 
   getSessionCounts(fromDate, toDate) {

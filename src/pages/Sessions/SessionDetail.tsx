@@ -160,6 +160,7 @@ export default function SessionDetail() {
   const raceNum = dbSession.race_number;
 
   const currentIdx = daySessions.findIndex(s => s.id === sessionId);
+  const dayOrder = (dbSession as any).day_order ?? (currentIdx >= 0 ? currentIdx + 1 : null);
   const prevSession = currentIdx > 0 ? daySessions[currentIdx - 1] : null;
   const nextSession = currentIdx >= 0 && currentIdx < daySessions.length - 1 ? daySessions[currentIdx + 1] : null;
 
@@ -173,7 +174,7 @@ export default function SessionDetail() {
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold text-white">
-            Заїзд {raceNum ?? ''}
+            Заїзд {dayOrder ?? ''}
             <span className="text-dark-500 font-normal text-sm ml-2">Траса #{dbSession.track_id}</span>
           </h1>
           <div className="flex items-center gap-2">
