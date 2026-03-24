@@ -167,8 +167,6 @@ export default function Karts() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Карти</h1>
-
       {/* Date multi-select */}
       <DateNavigator
         selectedDate={todayStr}
