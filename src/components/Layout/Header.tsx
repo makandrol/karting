@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth, ROLE_ICONS } from '../../services/auth';
 import { usePageVisibility } from '../../services/pageVisibility';
+import { COLLECTOR_URL } from '../../services/config';
 
 const ChevronDown = () => (
   <svg className="w-3 h-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -21,6 +22,17 @@ export default function Header() {
   const competitionPages = getVisiblePages('competitions', role);
   const otherPages = getVisiblePages('other', role);
   const adminPages = (isOwner || isModerator) ? getVisiblePages('admin', role) : [];
+
+  const [activeCompName, setActiveCompName] = useState<string | null>(null);
+  useEffect(() => {
+    fetch(`${COLLECTOR_URL}/competitions`)
+      .then(r => r.json())
+      .then((comps: { name: string; status: string }[]) => {
+        const live = comps.find(c => c.status === 'live');
+        setActiveCompName(live?.name || null);
+      })
+      .catch(() => {});
+  }, [location.pathname]);
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/';
@@ -70,17 +82,41 @@ export default function Header() {
         </button>
         {openDropdown === id && (
           <div className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} mt-1 w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50`}>
-            {items.map(item => (
-              <Link
-                key={item.path}
-                to={item.path}
+            {items.map(item => {
+              const isLiveItem = item.path === '/results/current';
+              const hasActiveLive = !!activeCompName;
+              if (isLiveItem) {
+                return (
+                  <div key={item.path}
+                    className={`block px-4 py-2 text-sm ${hasActiveLive ? '' : 'opacity-50 cursor-default'}`}>
+                    {hasActiveLive ? (
+                      <Link to={item.path} className="flex items-center gap-2 text-dark-300 hover:text-white transition-colors">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                        <span>Live</span>
+                        <span className="text-green-400 text-[11px]">{activeCompName}</span>
+                      </Link>
+                    ) : (
+                      <span className="flex items-center gap-2 text-dark-600">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500/50" />
+                        <span>Live</span>
+                        <span className="text-[11px]">немає активного змагання</span>
+                      </span>
+                    )}
+                  </div>
+                );
+              }
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
                 className={`block px-4 py-2 text-sm transition-colors ${
                   isActive(item.path) ? 'text-primary-400 bg-primary-500/10' : 'text-dark-300 hover:text-white hover:bg-dark-800'
                 }`}
               >
                 {item.label}
               </Link>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

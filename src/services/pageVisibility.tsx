@@ -23,12 +23,12 @@ export const ALL_PAGES: PageConfig[] = [
   { id: 'karts', label: 'Карти', path: '/info/karts', group: 'main' },
 
   // Competitions (shown in "Змагання" dropdown)
-  { id: 'results-current', label: 'Поточне змагання', path: '/results/current', group: 'competitions' },
+  { id: 'results-current', label: 'Live', path: '/results/current', group: 'competitions' },
   { id: 'results-gonzales', label: 'Гонзалес', path: '/results/gonzales', group: 'competitions' },
-  { id: 'results-light-league', label: 'Лайт Ліга', path: '/results/light-league', group: 'competitions' },
-  { id: 'results-champions-league', label: 'Ліга Чемпіонів', path: '/results/champions-league', group: 'competitions' },
-  { id: 'results-sprints', label: 'Спринти', path: '/results/sprints', group: 'competitions' },
-  { id: 'results-marathons', label: 'Марафони', path: '/results/marathons', group: 'competitions' },
+  { id: 'results-light-league', label: 'Лайт Ліга', path: '/results/light_league', group: 'competitions' },
+  { id: 'results-champions-league', label: 'Ліга Чемпіонів', path: '/results/champions_league', group: 'competitions' },
+  { id: 'results-sprints', label: 'Спринти', path: '/results/sprint', group: 'competitions' },
+  { id: 'results-marathons', label: 'Марафони', path: '/results/marathon', group: 'competitions' },
 
   // Other (shown in "Інше" dropdown)
   { id: 'tracks', label: 'Траси', path: '/info/tracks', group: 'other' },
