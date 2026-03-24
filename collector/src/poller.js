@@ -184,6 +184,7 @@ export class TimingPoller {
         raceNumber: meta.raceNumber,
         isRace: meta.isRace,
       });
+      storage.autoLinkSessionToActiveCompetition(this.#sessionId);
       this.#addEvent('snapshot', { entries, teams, meta, raw }, now);
       this.#lastSnapshot = now;
       if (this.onSessionStart) this.onSessionStart(this.#sessionId, entries.length);

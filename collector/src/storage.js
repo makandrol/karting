@@ -621,6 +621,27 @@ export const storage = {
     }
     return map;
   },
+
+  autoLinkSessionToActiveCompetition(sessionId) {
+    const PHASE_ORDER = {
+      gonzales: Array.from({ length: 12 }, (_, i) => `round_${i + 1}`),
+      light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
+      champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
+      sprint: ['race'],
+      marathon: ['race'],
+    };
+    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const liveComp = comps.find(c => c.status === 'live');
+    if (!liveComp) return null;
+    const phases = PHASE_ORDER[liveComp.format] || [];
+    const usedPhases = new Set(liveComp.sessions.map(s => s.phase));
+    const nextPhase = phases.find(p => !usedPhases.has(p));
+    if (!nextPhase) return null;
+    const sessions = [...liveComp.sessions, { sessionId, phase: nextPhase }];
+    this.updateCompetition(liveComp.id, { sessions });
+    console.log(`🏁 Auto-linked session ${sessionId} → ${liveComp.name} · ${nextPhase}`);
+    return { competitionId: liveComp.id, phase: nextPhase };
+  },
 };
 
 console.log(`💾 SQLite DB: ${DB_PATH}`);
