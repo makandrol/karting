@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTimingPoller } from '../../services/timingPoller';
 import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
@@ -8,13 +8,18 @@ export default function Onboard() {
   const navigate = useNavigate();
   const { entries, mode } = useTimingPoller({ interval: 1000 });
   const [locked, setLocked] = useState(false);
+  const [selectorOpen, setSelectorOpen] = useState(false);
+  const selectorRef = useRef<HTMLDivElement>(null);
 
   const kart = kartId ? parseInt(kartId, 10) : null;
   const entry = kart !== null ? entries.find(e => e.kart === kart) : null;
 
   const allKarts = entries.map(e => e.kart).sort((a, b) => a - b);
 
-  const goToKart = useCallback((k: number) => navigate(`/onboard/${k}`, { replace: true }), [navigate]);
+  const goToKart = useCallback((k: number) => {
+    navigate(`/onboard/${k}`, { replace: true });
+    setSelectorOpen(false);
+  }, [navigate]);
 
   const kartIdx = kart !== null ? allKarts.indexOf(kart) : -1;
   const prevKart = kartIdx > 0 ? allKarts[kartIdx - 1] : (allKarts.length > 0 ? allKarts[allKarts.length - 1] : null);
@@ -30,6 +35,17 @@ export default function Onboard() {
     catch { /* not supported */ }
     return () => { try { screen.orientation.unlock(); } catch { /* */ } };
   }, [locked]);
+
+  // Close selector on outside click
+  useEffect(() => {
+    if (!selectorOpen) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (selectorRef.current && !selectorRef.current.contains(e.target as Node)) setSelectorOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler); };
+  }, [selectorOpen]);
 
   const overallBestLap = entries.reduce((best, e) => {
     const v = parseTime(e.bestLap);
@@ -61,18 +77,37 @@ export default function Onboard() {
           ← Таймінг
         </Link>
 
-        {/* Kart selector — looks like a button, opens dropdown */}
-        <select
-          value={kart ?? ''}
-          onChange={e => goToKart(parseInt(e.target.value))}
-          className="bg-dark-800 border border-dark-700 text-white text-sm font-bold rounded-lg px-3 py-1.5 outline-none focus:border-primary-500 min-w-0"
-        >
-          {kart !== null && kartIdx === -1 && <option value={kart}>Карт {kart}</option>}
-          {allKarts.map(k => {
-            const en = entries.find(e => e.kart === k);
-            return <option key={k} value={k}>Карт {k}{en ? ` · ${en.pilot}` : ''}</option>;
-          })}
-        </select>
+        {/* Kart number button + dropdown */}
+        <div ref={selectorRef} className="relative">
+          <button
+            onClick={() => setSelectorOpen(o => !o)}
+            className="flex items-center gap-1.5 bg-dark-800 border border-dark-700 text-white text-lg font-bold rounded-lg px-3 py-1 hover:border-primary-500 transition-colors"
+          >
+            {kart ?? '—'}
+            <svg className={`w-3.5 h-3.5 text-dark-400 transition-transform ${selectorOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {selectorOpen && (
+            <div className="absolute top-full left-0 mt-1 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1 z-50 min-w-[140px] max-h-64 overflow-y-auto">
+              {allKarts.map(k => {
+                const en = entries.find(e => e.kart === k);
+                return (
+                  <button
+                    key={k}
+                    onClick={() => goToKart(k)}
+                    className={`block w-full text-left px-4 py-2 text-sm transition-colors ${
+                      k === kart ? 'text-primary-400 bg-primary-500/10' : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                    }`}
+                  >
+                    <span className="font-bold">{k}</span>
+                    {en && <span className="text-dark-500 ml-2">{en.pilot}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         <div className="flex-1" />
 
@@ -82,7 +117,6 @@ export default function Onboard() {
           className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 ${
             locked ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'
           }`}
-          title="Залочити горизонтальний режим"
         >
           {locked ? '🔒' : '🔓'}
         </button>
@@ -123,19 +157,17 @@ export default function Onboard() {
 
         {!isLive ? (
           <div className="text-center">
-            <div className="text-5xl mb-3 opacity-40">🏎️</div>
             <p className="text-dark-500 text-sm">Очікування заїзду...</p>
           </div>
         ) : !entry ? (
           <div className="text-center">
-            <div className="text-dark-500 text-lg mb-1">Карт {kart}</div>
             <p className="text-dark-600 text-sm">Не на трасі</p>
           </div>
         ) : (
           <div className="text-center px-16">
-            {/* Pilot + info */}
-            <div className="text-dark-400 text-sm mb-1 tracking-wide">
-              {entry.pilot} · P{entry.position} · Коло {entry.lapNumber}
+            {/* Position + Lap */}
+            <div className="text-dark-500 text-sm mb-2 font-mono tracking-wide">
+              P{entry.position} · L{entry.lapNumber}
             </div>
 
             {/* Last lap */}
@@ -146,29 +178,20 @@ export default function Onboard() {
 
             {/* S1 / S2 */}
             <div className="flex items-center justify-center gap-8">
-              <div className="text-center">
-                <div className="text-dark-600 text-[10px] uppercase tracking-wider mb-0.5">S1</div>
-                <div className={`font-mono font-bold ${COLOR_CLASSES[s1Color]}`}
-                     style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
-                  {entry.s1 && (parseTime(entry.s1) ?? 0) >= 10 ? toSeconds(entry.s1) : '—'}
-                </div>
+              <div className={`font-mono font-bold ${COLOR_CLASSES[s1Color]}`}
+                   style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
+                {entry.s1 && (parseTime(entry.s1) ?? 0) >= 10 ? toSeconds(entry.s1) : '—'}
               </div>
               <div className="w-px h-10 bg-dark-800" />
-              <div className="text-center">
-                <div className="text-dark-600 text-[10px] uppercase tracking-wider mb-0.5">S2</div>
-                <div className={`font-mono font-bold ${COLOR_CLASSES[s2Color]}`}
-                     style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
-                  {entry.s2 && (parseTime(entry.s2) ?? 0) >= 10 ? toSeconds(entry.s2) : '—'}
-                </div>
+              <div className={`font-mono font-bold ${COLOR_CLASSES[s2Color]}`}
+                   style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
+                {entry.s2 && (parseTime(entry.s2) ?? 0) >= 10 ? toSeconds(entry.s2) : '—'}
               </div>
             </div>
 
             {/* Best lap */}
-            <div className="mt-5 flex items-center justify-center gap-2">
-              <span className="text-dark-600 text-xs">Найкращий:</span>
-              <span className={`font-mono font-semibold text-lg ${COLOR_CLASSES[bestLapColor]}`}>
-                {entry.bestLap ? toSeconds(entry.bestLap) : '—'}
-              </span>
+            <div className={`mt-5 font-mono font-semibold text-lg ${COLOR_CLASSES[bestLapColor]}`}>
+              {entry.bestLap ? toSeconds(entry.bestLap) : '—'}
             </div>
           </div>
         )}
