@@ -7,9 +7,12 @@ import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
-import { Link } from 'react-router-dom';
-import { parseTime, mergePilotNames } from '../../utils/timing';
+import { Link, useNavigate } from 'react-router-dom';
+import { parseTime, mergePilotNames, shortName, toSeconds } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
+import SessionsTable from '../../components/Sessions/SessionsTable';
+import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
+import { useViewPrefs } from '../../services/viewPrefs';
 
 interface DbLap {
   pilot: string;
@@ -23,6 +26,7 @@ interface DbLap {
 }
 
 export default function Timing() {
+  const navigate = useNavigate();
   const { entries, mode, lastUpdate, error, collectorStatus } = useTimingPoller({
     interval: 1000,
   });
@@ -48,6 +52,24 @@ export default function Timing() {
   const [replayLaps, setReplayLaps] = useState<DbLap[]>([]);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
+
+  interface RecentSession {
+    id: string; start_time: number; end_time: number | null; pilot_count: number;
+    real_pilot_count: number | null; race_number: number | null; track_id: number;
+    best_lap_time: string | null; best_lap_pilot: string | null; best_lap_kart: number | null;
+  }
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
+
+  useEffect(() => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    fetch(`${COLLECTOR_URL}/db/sessions?date=${todayStr}`)
+      .then(r => r.json())
+      .then((data: RecentSession[]) => {
+        setRecentSessions(data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000).slice(-5).reverse());
+      })
+      .catch(() => {});
+  }, []);
 
   const fetchLaps = useCallback(async () => {
     if (!currentSessionId) { setReplayLaps([]); return; }
@@ -85,6 +107,8 @@ export default function Timing() {
       ts: l.ts,
     })));
 
+  const replayPilots = buildPilotLaps(replayLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time })));
+  const { prefs, toggle } = useViewPrefs();
   const hasReplayData = sessionStartTime != null && currentSessionId != null;
   const replayDuration = sessionStartTime
     ? Math.round((Date.now() - sessionStartTime) / 1000)
@@ -119,11 +143,13 @@ export default function Timing() {
            'Офлайн'}
         </div>
 
-        <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-          isCompetition ? 'bg-purple-500/15 text-purple-400' : 'bg-dark-800 text-dark-400'
-        }`}>
-          {sessionType}
-        </span>
+        {(isLive && hasData) && (
+          <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+            isCompetition ? 'bg-purple-500/15 text-purple-400' : 'bg-dark-800 text-dark-400'
+          }`}>
+            {sessionType}
+          </span>
+        )}
 
         {canManage && <CompetitionControl inline />}
 
@@ -150,27 +176,36 @@ export default function Timing() {
 
       {/* ===== OFFLINE / CONNECTING ===== */}
       {(isOffline || isConnecting) && !hasData && (
-        <div className="card text-center py-12 space-y-4">
-          <div className="text-4xl">{isConnecting ? '🔄' : siteReachable ? '⏳' : collectorConnected ? '🏎️' : '🔌'}</div>
-          <div>
-            <h2 className="text-lg font-bold text-white mb-1">
-              {isConnecting ? 'Підключення до сервера...' :
-               siteReachable ? 'Очікування заїзду' :
-               collectorConnected ? 'Таймінг картодрому недоступний' :
-               'Сервер збору даних недоступний'}
-            </h2>
-            <p className="text-dark-400 text-sm max-w-md mx-auto">
-              {isConnecting
-                ? 'Зачекайте, встановлюється з\'єднання з сервером...'
-                : siteReachable
-                ? 'Картодром працює, але зараз немає активних заїздів. Дані з\'являться автоматично.'
-                : collectorConnected
-                ? 'Система таймінгу картодрому зараз не відповідає. Дані з\'являться автоматично, як тільки вона стане доступною.'
-                : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
-            </p>
+        <div className="space-y-4">
+          <div className="card text-center py-8 space-y-3">
+            <div className="text-4xl">{isConnecting ? '🔄' : siteReachable ? '⏳' : collectorConnected ? '🏎️' : '🔌'}</div>
+            <div>
+              <h2 className="text-lg font-bold text-white mb-1">
+                {isConnecting ? 'Підключення до сервера...' :
+                 siteReachable ? 'Очікування заїзду' :
+                 collectorConnected ? 'Таймінг картодрому недоступний' :
+                 'Сервер збору даних недоступний'}
+              </h2>
+              <p className="text-dark-400 text-sm max-w-md mx-auto">
+                {isConnecting
+                  ? 'Зачекайте, встановлюється з\'єднання з сервером...'
+                  : siteReachable
+                  ? 'Картодром працює, але зараз немає активних заїздів. Дані з\'являться автоматично.'
+                  : collectorConnected
+                  ? 'Система таймінгу картодрому зараз не відповідає. Дані з\'являться автоматично, як тільки вона стане доступною.'
+                  : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
+              </p>
+            </div>
           </div>
-          <Link to="/sessions" className="inline-block text-primary-400 hover:text-primary-300 text-sm font-medium transition-colors">
-            Переглянути попередні заїзди
+
+          {recentSessions.length > 0 && (
+            <div className="card p-0 overflow-hidden">
+              <SessionsTable sessions={recentSessions} />
+            </div>
+          )}
+
+          <Link to="/sessions" className="block text-center text-primary-400 hover:text-primary-300 text-sm font-medium transition-colors">
+            Всі заїзди →
           </Link>
         </div>
       )}
@@ -190,20 +225,47 @@ export default function Timing() {
                 liveEntries={entries}
                 onEntriesUpdate={setTrackEntries}
                 renderScrubber={(scrubber) => (
-                  <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+                  <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
                     {scrubber}
                   </div>
                 )}
               />
-              <TrackMap track={currentTrack} entries={trackEntries} static />
+              {prefs.showTrack ? (
+                <div className="relative">
+                  <button onClick={() => toggle('showTrack')}
+                    className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
+                    сховати
+                  </button>
+                  <TrackMap track={currentTrack} entries={trackEntries} static />
+                </div>
+              ) : (
+                <button onClick={() => toggle('showTrack')}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
+                  Показати трек
+                </button>
+              )}
+              {prefs.showLapsByPilots ? (
+                <div className="relative">
+                  <button onClick={() => toggle('showLapsByPilots')}
+                    className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
+                    сховати
+                  </button>
+                  <LapsByPilots pilots={replayPilots} currentEntries={trackEntries} isLive />
+                </div>
+              ) : (
+                <button onClick={() => toggle('showLapsByPilots')}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
+                  Показати кола по пілотах
+                </button>
+              )}
             </>
           ) : (
             <>
-              <TrackMap track={currentTrack} entries={entries} />
+              {prefs.showTrack && <TrackMap track={currentTrack} entries={entries} />}
               {hasData && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <StatCard label="Пілотів" value={entries.length.toString()} />
-                  <StatCard label="Лідер" value={entries.length > 0 ? entries[0].pilot.split(' ')[0] : '—'} />
+                  <StatCard label="Лідер" value={entries.length > 0 ? shortName(entries[0].pilot) : '—'} />
                   <StatCard label="Найкращий час" value={entries.length > 0 ? (entries[0].bestLap || '—') : '—'} />
                 </div>
               )}

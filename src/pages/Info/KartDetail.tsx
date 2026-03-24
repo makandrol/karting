@@ -1,8 +1,9 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { parseTime, toSeconds } from '../../utils/timing';
+import { parseTime, toSeconds, mergePilotNames } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
+import SessionsTable from '../../components/Sessions/SessionsTable';
 
 interface KartLap {
   id: number;
@@ -30,18 +31,24 @@ interface DbSession {
   date: string;
   best_lap_time: string | null;
   best_lap_pilot: string | null;
+  merged_session_ids?: string[];
 }
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
 }
+function fmtDate(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 function shortPilot(name: string): string {
-  const p = name.split(' '); return p.length < 2 ? name : `${p[0]} ${p[1][0]}.`;
+  const p = name.trim().split(' ').filter(Boolean);
+  return p.length < 2 ? p[0] || name : `${p[0]} ${p[1][0]}.`;
 }
 
-const LS_KART_STAT_IDS = 'karting_kart_detail_stat_ids';
-function loadStatIds(): Set<string> {
-  try { const s = localStorage.getItem(LS_KART_STAT_IDS); if (s) return new Set(JSON.parse(s)); } catch {} return new Set();
+const LS_KART_DETAIL_DATES = 'karting_kart_detail_dates';
+function loadSelectedDates(): Set<string> {
+  try { const s = localStorage.getItem(LS_KART_DETAIL_DATES); if (s) return new Set(JSON.parse(s)); } catch {} return new Set();
 }
 
 export default function KartDetail() {
@@ -50,107 +57,178 @@ export default function KartDetail() {
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-  const [pickerDate, setPickerDate] = useState(todayStr);
-  const [pickerSessions, setPickerSessions] = useState<DbSession[]>([]);
-  const [selectedForAdd, setSelectedForAdd] = useState<Set<string>>(new Set());
-  const [statSessionIds, setStatSessionIds] = useState<Set<string>>(loadStatIds);
-  const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set());
+  // Selected dates (multi-select, persisted)
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
+    const saved = loadSelectedDates();
+    return saved.size > 0 ? saved : new Set([todayStr]);
+  });
+
+  useEffect(() => {
+    localStorage.setItem(LS_KART_DETAIL_DATES, JSON.stringify([...selectedDates]));
+  }, [selectedDates]);
+
+  const handleToggleDate = useCallback((date: string) => {
+    setSelectedDates(prev => {
+      const next = new Set(prev);
+      next.has(date) ? next.delete(date) : next.add(date);
+      return next;
+    });
+  }, []);
+
+  const handleSelectDates = useCallback((dates: string[]) => {
+    setSelectedDates(prev => {
+      const next = new Set(prev);
+      for (const d of dates) next.add(d);
+      return next;
+    });
+  }, []);
+
+  const clearAllDates = useCallback(() => {
+    setSelectedDates(new Set());
+  }, []);
+
+  // Fetch all-time session counts for this kart
+  const [kartDateCounts, setKartDateCounts] = useState<Record<string, number> | undefined>(undefined);
+  useEffect(() => {
+    fetch(`${COLLECTOR_URL}/db/kart-session-counts?kart=${kartNumber}`)
+      .then(r => r.json())
+      .then((data: { date: string; count: number }[]) => {
+        const counts: Record<string, number> = {};
+        for (const d of data) counts[d.date] = d.count;
+        setKartDateCounts(counts);
+      })
+      .catch(() => setKartDateCounts(undefined));
+  }, [kartNumber]);
+
+  // Fetch session IDs and details for selected dates
+  const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
   const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
   const [laps, setLaps] = useState<KartLap[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { localStorage.setItem(LS_KART_STAT_IDS, JSON.stringify([...statSessionIds])); }, [statSessionIds]);
-
-  // Fetch sessions for picker date
+  // Fetch sessions + kart laps in one flow, filter to only sessions with this kart
   useEffect(() => {
-    fetch(`${COLLECTOR_URL}/db/sessions?date=${pickerDate}`)
-      .then(r => r.json())
-      .then((data: DbSession[]) => setPickerSessions(data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000)))
-      .catch(() => setPickerSessions([]));
-  }, [pickerDate]);
-
-  // Auto-add today on first load
-  useEffect(() => {
-    if (statSessionIds.size > 0) return;
-    fetch(`${COLLECTOR_URL}/db/sessions?date=${todayStr}`)
-      .then(r => r.json())
-      .then((data: DbSession[]) => {
-        const ids = data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000).map(s => s.id);
-        if (ids.length > 0) setStatSessionIds(new Set(ids));
-      }).catch(() => {});
-  }, []);
-
-  // Fetch stat session details
-  useEffect(() => {
-    if (statSessionIds.size === 0) { setStatSessionDetails([]); return; }
-    const dates = new Set<string>();
-    for (const id of statSessionIds) {
-      const m = id.match(/session-(\d+)/);
-      if (m) { const d = new Date(parseInt(m[1])); dates.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }
+    if (selectedDates.size === 0) {
+      setStatSessionIds(new Set());
+      setStatSessionDetails([]);
+      setLaps([]);
+      return;
     }
-    (async () => {
-      const all: DbSession[] = [];
-      for (const date of dates) {
-        try { const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`); if (res.ok) all.push(...(await res.json())); } catch {}
-      }
-      setStatSessionDetails(all.filter(s => statSessionIds.has(s.id)));
-    })();
-  }, [statSessionIds]);
-
-  // Fetch kart laps for stat sessions
-  useEffect(() => {
-    if (statSessionIds.size === 0) { setLaps([]); return; }
+    let cancelled = false;
     setLoading(true);
-    fetch(`${COLLECTOR_URL}/db/kart-stats`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionIds: [...statSessionIds] }),
-    }).then(() => {
-      // Also fetch raw laps for this kart from all stat session dates
-      const dates = new Set<string>();
-      for (const id of statSessionIds) {
-        const m = id.match(/session-(\d+)/);
-        if (m) { const d = new Date(parseInt(m[1])); dates.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }
+    (async () => {
+      // 1. Fetch all sessions for selected dates
+      const allSessions: DbSession[] = [];
+      for (const date of selectedDates) {
+        try {
+          const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
+          if (res.ok) {
+            const data: DbSession[] = await res.json();
+            allSessions.push(...data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000));
+          }
+        } catch {}
       }
-      const sortedDates = [...dates].sort();
-      const from = sortedDates[0] || todayStr;
-      const to = sortedDates[sortedDates.length - 1] || todayStr;
-      return fetch(`${COLLECTOR_URL}/db/laps?kart=${kartNumber}&from=${from}&to=${to}`);
-    })
-      .then(r => r.json())
-      .then((allLaps: KartLap[]) => setLaps(allLaps.filter(l => statSessionIds.has(l.session_id))))
-      .catch(() => setLaps([]))
-      .finally(() => setLoading(false));
-  }, [statSessionIds, kartNumber]);
+      if (cancelled) return;
 
-  const addToStats = () => {
-    const next = new Set(statSessionIds);
-    for (const id of selectedForAdd) next.add(id);
-    setStatSessionIds(next); setSelectedForAdd(new Set());
-  };
-  const removeFromStats = () => {
-    const next = new Set(statSessionIds);
-    for (const id of selectedToRemove) next.delete(id);
-    setStatSessionIds(next); setSelectedToRemove(new Set());
-  };
+      // 2. Fetch laps for this kart
+      const sortedDates = [...selectedDates].sort();
+      const from = sortedDates[0];
+      const to = sortedDates[sortedDates.length - 1];
+      let kartLaps: KartLap[] = [];
+      try {
+        const res = await fetch(`${COLLECTOR_URL}/db/laps?kart=${kartNumber}&from=${from}&to=${to}`);
+        if (res.ok) kartLaps = await res.json();
+      } catch {}
+      if (cancelled) return;
 
-  const pilotStats = useMemo(() => {
-    const map = new Map<string, { pilot: string; bestSec: number; bestTime: string; lapCount: number; sessions: Set<string> }>();
+      // 3. Filter to sessions where this kart has laps (include merged sub-session IDs)
+      const allIds = new Set<string>();
+      const subIdToMerged = new Map<string, string>();
+      for (const s of allSessions) {
+        allIds.add(s.id);
+        if (s.merged_session_ids) {
+          for (const subId of s.merged_session_ids) {
+            allIds.add(subId);
+            subIdToMerged.set(subId, s.id);
+          }
+        }
+      }
+      const filtered = kartLaps.filter(l => allIds.has(l.session_id));
+      const bySession = new Map<string, KartLap[]>();
+      for (const l of filtered) {
+        if (!bySession.has(l.session_id)) bySession.set(l.session_id, []);
+        bySession.get(l.session_id)!.push(l);
+      }
+      const merged: KartLap[] = [];
+      for (const sessionLaps of bySession.values()) {
+        merged.push(...mergePilotNames(sessionLaps));
+      }
+      const kartSessionIds = new Set<string>();
+      for (const l of filtered) {
+        const mergedId = subIdToMerged.get(l.session_id) || l.session_id;
+        kartSessionIds.add(mergedId);
+      }
+
+      setLaps(merged);
+      setStatSessionIds(kartSessionIds);
+      // Override best lap with kart-specific best lap per session
+      const kartBestBySession = new Map<string, { pilot: string; time: string; sec: number }>();
+      for (const l of merged) {
+        const sid = subIdToMerged.get(l.session_id) || l.session_id;
+        const sec = parseTime(l.lap_time);
+        if (sec === null) continue;
+        const cur = kartBestBySession.get(sid);
+        if (!cur || sec < cur.sec) kartBestBySession.set(sid, { pilot: l.pilot, time: l.lap_time, sec });
+      }
+      setStatSessionDetails(allSessions.filter(s => kartSessionIds.has(s.id)).map(s => {
+        const best = kartBestBySession.get(s.id);
+        if (best) return { ...s, best_lap_time: best.time, best_lap_pilot: best.pilot, best_lap_kart: kartNumber };
+        return s;
+      }));
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [selectedDates, kartNumber]);
+
+  const [sortBy, setSortBy] = useState<'best' | 'date'>('best');
+
+  // Per-session stats for this kart
+  const sessionStats = useMemo(() => {
+    const bySession = new Map<string, KartLap[]>();
     for (const l of laps) {
-      const sec = parseTime(l.lap_time);
-      if (sec === null) continue;
-      if (!map.has(l.pilot)) map.set(l.pilot, { pilot: l.pilot, bestSec: Infinity, bestTime: '', lapCount: 0, sessions: new Set() });
-      const p = map.get(l.pilot)!;
-      p.lapCount++; p.sessions.add(l.session_id);
-      if (sec < p.bestSec) { p.bestSec = sec; p.bestTime = l.lap_time; }
+      if (!bySession.has(l.session_id)) bySession.set(l.session_id, []);
+      bySession.get(l.session_id)!.push(l);
     }
-    return [...map.values()].sort((a, b) => a.bestSec - b.bestSec);
-  }, [laps]);
+    const result: { pilot: string; bestLap: string; bestLapSec: number; bestS1: string | null; bestS2: string | null; sessionId: string; date: string; sessionStart: number; raceNumber: number | null; lapCount: number }[] = [];
+    for (const [sessionId, sessionLaps] of bySession) {
+      let bestLap = '', bestLapSec = Infinity, bestS1: string | null = null, bestS1Sec = Infinity, bestS2: string | null = null, bestS2Sec = Infinity;
+      const pilots = new Set<string>();
+      for (const l of sessionLaps) {
+        pilots.add(l.pilot);
+        const sec = parseTime(l.lap_time);
+        if (sec !== null && sec < bestLapSec) { bestLapSec = sec; bestLap = l.lap_time; }
+        const s1sec = parseTime(l.s1);
+        if (s1sec !== null && s1sec < bestS1Sec) { bestS1Sec = s1sec; bestS1 = l.s1; }
+        const s2sec = parseTime(l.s2);
+        if (s2sec !== null && s2sec < bestS2Sec) { bestS2Sec = s2sec; bestS2 = l.s2; }
+      }
+      const detail = statSessionDetails.find(s => s.id === sessionId);
+      result.push({
+        pilot: [...pilots].join(', '),
+        bestLap, bestLapSec, bestS1, bestS2,
+        sessionId, date: sessionLaps[0].date, sessionStart: sessionLaps[0].session_start,
+        raceNumber: detail?.race_number ?? null,
+        lapCount: sessionLaps.length,
+      });
+    }
+    return result.sort((a, b) =>
+      sortBy === 'date' ? b.sessionStart - a.sessionStart : a.bestLapSec - b.bestLapSec
+    );
+  }, [laps, statSessionDetails, sortBy]);
 
-  const sortedLaps = useMemo(() =>
-    laps.map(l => ({ ...l, sec: parseTime(l.lap_time) })).filter(l => l.sec !== null).sort((a, b) => a.sec! - b.sec!).slice(0, 50),
-  [laps]);
-
-  const overallBest = pilotStats.length > 0 ? pilotStats[0].bestSec : null;
+  const overallBestSec = sessionStats.length > 0 ? sessionStats[0].bestLapSec : null;
+  const overallBestS1 = sessionStats.reduce((best, s) => { const v = parseTime(s.bestS1); return v !== null && v < best ? v : best; }, Infinity);
+  const overallBestS2 = sessionStats.reduce((best, s) => { const v = parseTime(s.bestS2); return v !== null && v < best ? v : best; }, Infinity);
 
   return (
     <div className="space-y-6">
@@ -163,141 +241,88 @@ export default function KartDetail() {
         <div>
           <h1 className="text-2xl font-bold text-white">Карт {kartNumber}</h1>
           <p className="text-dark-400 text-sm">
-            {laps.length} кіл · {pilotStats.length} пілотів
-            {overallBest && <> · Рекорд: <span className="text-green-400 font-mono">{toSeconds(pilotStats[0].bestTime)}</span> ({pilotStats[0].pilot})</>}
+            {laps.length} кіл · {sessionStats.length} заїздів
+            {overallBestSec !== null && overallBestSec < Infinity && <> · Рекорд: <span className="text-green-400 font-mono">{toSeconds(sessionStats[0].bestLap)}</span> ({sessionStats[0].pilot})</>}
           </p>
         </div>
       </div>
 
-      {/* Same date navigator as everywhere */}
-      <DateNavigator selectedDate={pickerDate} onSelectDate={setPickerDate} />
+      {/* Date multi-select */}
+      <DateNavigator
+        selectedDate={todayStr}
+        onSelectDate={handleToggleDate}
+        selectedDates={selectedDates}
+        onToggleDate={handleToggleDate}
+        onSelectDates={handleSelectDates}
+        overrideCounts={kartDateCounts}
+      />
 
-      {/* Sessions for picked date */}
-      {pickerSessions.length > 0 && (
-        <div className="card p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">Заїзди за {pickerDate} ({pickerSessions.length})</div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setSelectedForAdd(new Set(pickerSessions.map(s => s.id)))} className="text-dark-400 text-[10px] hover:text-white transition-colors">виділити всі</button>
-              <span className="text-dark-700">|</span>
-              <button onClick={() => setSelectedForAdd(new Set())} className="text-dark-400 text-[10px] hover:text-white transition-colors">зняти всі</button>
-            </div>
-          </div>
-          <div className="max-h-48 overflow-y-auto space-y-0.5">
-            {pickerSessions.map(s => {
-              const inStats = statSessionIds.has(s.id);
-              return (
-                <label key={s.id} className={`flex items-center gap-2 px-2 py-1 rounded hover:bg-dark-800/50 cursor-pointer text-xs ${inStats ? 'text-dark-600' : 'text-dark-300'}`}>
-                  <input type="checkbox" checked={selectedForAdd.has(s.id)} disabled={inStats}
-                    onChange={e => { const n = new Set(selectedForAdd); e.target.checked ? n.add(s.id) : n.delete(s.id); setSelectedForAdd(n); }}
-                    className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0 shrink-0" />
-                  <span className="flex-1 flex items-center justify-between">
-                    <span>
-                      <span className="text-white font-mono">{fmtTime(s.start_time)}</span>
-                      {s.race_number != null && <span className="text-dark-500 ml-1">#{s.race_number}</span>}
-                      <span className="text-dark-500 ml-1">· {s.real_pilot_count ?? s.pilot_count} пілотів</span>
-                      {inStats && <span className="text-dark-600 ml-1">(в статистиці)</span>}
-                    </span>
-                    {s.best_lap_time && s.best_lap_pilot && (
-                      <span className="text-dark-500 font-mono shrink-0 ml-2">{shortPilot(s.best_lap_pilot)} — <span className="text-green-400">{toSeconds(s.best_lap_time)}</span></span>
-                    )}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-          {selectedForAdd.size > 0 && (
-            <button onClick={addToStats} className="px-3 py-1.5 bg-primary-600 text-white text-xs rounded-lg hover:bg-primary-500 transition-colors">
-              Додати до статистики ({selectedForAdd.size})
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Stat sessions */}
+      {/* Stat summary */}
       <div className="card p-3 space-y-2">
         <div className="flex items-center justify-between">
-          <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">Заїзди для статистики ({statSessionIds.size})</div>
-          {statSessionIds.size > 0 && (
-            <div className="flex items-center gap-2">
-              <button onClick={() => setSelectedToRemove(new Set(statSessionIds))} className="text-dark-400 text-[10px] hover:text-white transition-colors">виділити всі</button>
-              <span className="text-dark-700">|</span>
-              <button onClick={() => { setStatSessionIds(new Set()); setSelectedToRemove(new Set()); }} className="text-red-400/60 text-[10px] hover:text-red-400 transition-colors">очистити</button>
-            </div>
+          <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">
+            Статистика: {selectedDates.size} {selectedDates.size === 1 ? 'день' : selectedDates.size < 5 ? 'дні' : 'днів'}, {statSessionIds.size} заїздів
+            {loading && <span className="text-dark-600 ml-2">завантаження...</span>}
+          </div>
+          {selectedDates.size > 0 && (
+            <button onClick={clearAllDates}
+              className="text-red-400/60 text-[10px] hover:text-red-400 transition-colors">очистити</button>
           )}
         </div>
-        {statSessionDetails.length === 0 ? (
-          <div className="text-dark-600 text-xs py-2">Немає заїздів. Додайте через календар вище.</div>
-        ) : (
-          <div className="max-h-32 overflow-y-auto space-y-0.5">
-            {statSessionDetails.map(s => (
-              <label key={s.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-dark-800/50 cursor-pointer text-xs text-dark-300">
-                <input type="checkbox" checked={selectedToRemove.has(s.id)}
-                  onChange={e => { const n = new Set(selectedToRemove); e.target.checked ? n.add(s.id) : n.delete(s.id); setSelectedToRemove(n); }}
-                  className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0 shrink-0" />
-                <span><span className="text-white font-mono">{s.date.slice(5)} {fmtTime(s.start_time)}</span> · {s.real_pilot_count ?? s.pilot_count} пілотів</span>
-              </label>
-            ))}
+        {statSessionDetails.length > 0 && (
+          <div className="max-h-48 overflow-y-auto">
+            <SessionsTable sessions={statSessionDetails} showDate />
           </div>
-        )}
-        {selectedToRemove.size > 0 && (
-          <button onClick={removeFromStats} className="px-3 py-1.5 bg-red-600/20 text-red-400 text-xs rounded-lg hover:bg-red-600/30 transition-colors">Видалити ({selectedToRemove.size})</button>
         )}
       </div>
 
       {loading ? (
         <div className="card text-center py-12 text-dark-500">Завантаження...</div>
       ) : laps.length === 0 ? (
-        <div className="card text-center py-12 text-dark-500">Немає даних. Додайте заїзди до статистики.</div>
+        <div className="card text-center py-12 text-dark-500">Немає даних. Оберіть дні в календарі.</div>
       ) : (
         <>
-          {/* Pilots leaderboard */}
+          {/* Sessions table */}
           <div className="card p-0 overflow-hidden">
-            <div className="px-4 py-3 border-b border-dark-800"><h3 className="text-white font-semibold">Пілоти ({pilotStats.length})</h3></div>
+            <div className="px-4 py-3 border-b border-dark-800 flex items-center justify-between">
+              <h3 className="text-white font-semibold">Заїзди ({sessionStats.length})</h3>
+              <div className="flex bg-dark-800 rounded-md p-0.5">
+                <button onClick={() => setSortBy('best')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortBy === 'best' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по швидкості</button>
+                <button onClick={() => setSortBy('date')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortBy === 'date' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по даті</button>
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead><tr className="table-header">
-                  <th className="table-cell text-center w-10">#</th><th className="table-cell text-left">Пілот</th>
-                  <th className="table-cell text-right">Найкращий</th><th className="table-cell text-center">Кіл</th><th className="table-cell text-center">Заїздів</th>
+                  <th className="table-cell text-center w-8">#</th>
+                  <th className="table-cell text-left">Pilot</th>
+                  <th className="table-cell text-right">Best</th>
+                  <th className="table-cell text-right">B.S1</th>
+                  <th className="table-cell text-right">B.S2</th>
+                  <th className="table-cell text-left">Session</th>
                 </tr></thead>
                 <tbody>
-                  {pilotStats.map((p, i) => (
-                    <tr key={p.pilot} className="table-row">
-                      <td className={`table-cell text-center font-mono font-bold ${i < 3 ? `position-${i + 1}` : 'text-dark-400'}`}>{i + 1}</td>
-                      <td className="table-cell text-left"><Link to={`/pilots/${encodeURIComponent(p.pilot)}`} className="text-white hover:text-primary-400 transition-colors">{p.pilot}</Link></td>
-                      <td className={`table-cell text-right font-mono font-semibold ${overallBest && Math.abs(p.bestSec - overallBest) < 0.002 ? 'text-purple-400' : 'text-green-400'}`}>{toSeconds(p.bestTime)}</td>
-                      <td className="table-cell text-center font-mono text-dark-300">{p.lapCount}</td>
-                      <td className="table-cell text-center font-mono text-dark-300">{p.sessions.size}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Top 50 laps */}
-          <div className="card p-0 overflow-hidden">
-            <div className="px-4 py-3 border-b border-dark-800"><h3 className="text-white font-semibold">Топ 50 кіл</h3></div>
-            <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0"><tr className="table-header">
-                  <th className="table-cell text-center w-10">#</th><th className="table-cell text-left">Пілот</th>
-                  <th className="table-cell text-right">Час</th><th className="table-cell text-right">S1</th><th className="table-cell text-right">S2</th>
-                  <th className="table-cell text-left">Дата</th>
-                </tr></thead>
-                <tbody>
-                  {sortedLaps.map((l, i) => (
-                    <tr key={l.id} className="table-row">
-                      <td className={`table-cell text-center font-mono font-bold ${i < 3 ? `position-${i + 1}` : 'text-dark-400'}`}>{i + 1}</td>
-                      <td className="table-cell text-left text-white">{l.pilot}</td>
-                      <td className={`table-cell text-right font-mono font-semibold ${i === 0 ? 'text-purple-400' : 'text-green-400'}`}>{toSeconds(l.lap_time)}</td>
-                      <td className="table-cell text-right font-mono text-dark-400">{l.s1 ? toSeconds(l.s1) : '—'}</td>
-                      <td className="table-cell text-right font-mono text-dark-400">{l.s2 ? toSeconds(l.s2) : '—'}</td>
-                      <td className="table-cell text-left text-dark-500">
-                        <Link to={`/sessions/${l.session_id}`} className="hover:text-primary-400 transition-colors">{l.date} {fmtTime(l.session_start)}</Link>
-                      </td>
-                    </tr>
-                  ))}
+                  {sessionStats.map((s, i) => {
+                    const isBestLap = overallBestSec !== null && Math.abs(s.bestLapSec - overallBestSec) < 0.002;
+                    const s1sec = parseTime(s.bestS1);
+                    const isBestS1 = s1sec !== null && Math.abs(s1sec - overallBestS1) < 0.002;
+                    const s2sec = parseTime(s.bestS2);
+                    const isBestS2 = s2sec !== null && Math.abs(s2sec - overallBestS2) < 0.002;
+                    return (
+                      <tr key={s.sessionId} className="table-row">
+                        <td className="table-cell text-center font-mono font-bold text-white">{i + 1}</td>
+                        <td className="table-cell text-left text-white">{s.pilot}</td>
+                        <td className={`table-cell text-right font-mono font-semibold ${isBestLap ? 'text-purple-400' : 'text-green-400'}`}>{toSeconds(s.bestLap)}</td>
+                        <td className={`table-cell text-right font-mono text-[11px] ${isBestS1 ? 'text-purple-400' : 'text-dark-400'}`}>{s.bestS1 ? toSeconds(s.bestS1) : '—'}</td>
+                        <td className={`table-cell text-right font-mono text-[11px] ${isBestS2 ? 'text-purple-400' : 'text-dark-400'}`}>{s.bestS2 ? toSeconds(s.bestS2) : '—'}</td>
+                        <td className="table-cell text-left">
+                          <Link to={`/sessions/${s.sessionId}`} className="text-primary-400 hover:text-primary-300 transition-colors underline underline-offset-2 decoration-primary-400/30">
+                            {s.date.slice(5)} {fmtTime(s.sessionStart)}{s.raceNumber != null ? ` · Заїзд ${s.raceNumber}` : ''} · Прокат
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

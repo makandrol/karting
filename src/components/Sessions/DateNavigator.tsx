@@ -44,15 +44,13 @@ function getWeeksInMonth(year: number, month: number): string[][] {
 interface DateNavigatorProps {
   selectedDate: string;
   onSelectDate: (date: string) => void;
-  /** Multi-select mode: set of selected dates */
   selectedDates?: Set<string>;
-  /** Multi-select mode: toggle a single date */
   onToggleDate?: (date: string) => void;
-  /** Multi-select mode: select multiple dates at once */
   onSelectDates?: (dates: string[]) => void;
+  overrideCounts?: Record<string, number>;
 }
 
-export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates }: DateNavigatorProps) {
+export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates, overrideCounts }: DateNavigatorProps) {
   const multiSelect = !!(selectedDates && onToggleDate);
   const todayStr = localDateStr(new Date());
   const thisMonday = getMonday(new Date());
@@ -60,7 +58,10 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
   prevMonday.setDate(prevMonday.getDate() - 7);
 
   const [dateCounts, setDateCounts] = useState<Record<string, number>>({});
-  const [prevWeekOpen, setPrevWeekOpen] = useState(false);
+  const prevWeekDaysSet = new Set(getWeekDays(prevMonday));
+  const [prevWeekOpen, setPrevWeekOpen] = useState(() =>
+    multiSelect && selectedDates ? [...selectedDates].some(d => prevWeekDaysSet.has(d)) : false
+  );
   const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
 
@@ -74,6 +75,8 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       })
       .catch(() => {});
   }, []);
+
+  const displayCounts = overrideCounts ?? dateCounts;
 
   const toggleYear = (y: string) => {
     const next = new Set(expandedYears);
@@ -100,7 +103,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
 
   const DateBtn = ({ d }: { d: string }) => {
     const isToday = d === todayStr;
-    const count = dateCounts[d] ?? 0;
+    const count = displayCounts[d] ?? 0;
     const hasData = count > 0 || isToday;
     const dayDate = new Date(d + 'T00:00:00');
     const label = `${DAY_NAMES[dayDate.getDay()]} ${String(dayDate.getDate()).padStart(2, '0')}.${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
@@ -144,10 +147,15 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
 
   const thisWeekDays = getWeekDays(thisMonday);
   const prevWeekDays = getWeekDays(prevMonday);
-  const thisWeekCount = thisWeekDays.reduce((s, d) => s + (dateCounts[d] || 0), 0);
-  const prevWeekCount = prevWeekDays.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+  const thisWeekCount = thisWeekDays.reduce((s, d) => s + (displayCounts[d] || 0), 0);
+  const prevWeekCount = prevWeekDays.reduce((s, d) => s + (displayCounts[d] || 0), 0);
 
-  const datesWithSessions = (dates: string[]) => dates.filter(d => (dateCounts[d] ?? 0) > 0);
+  const selectedCount = (dates: string[]) =>
+    multiSelect ? dates.filter(d => selectedDates!.has(d)).reduce((s, d) => s + (displayCounts[d] || 0), 0) : null;
+  const fmtCount = (selected: number | null, total: number) =>
+    selected !== null ? `${selected}/${total}` : `${total}`;
+
+  const datesWithSessions = (dates: string[]) => dates.filter(d => (displayCounts[d] ?? 0) > 0);
 
   const SelectAllBtn = ({ dates }: { dates: string[] }) => {
     if (!multiSelect || !onSelectDates) return null;
@@ -156,12 +164,13 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
     const allSelected = withData.every(d => selectedDates!.has(d));
     if (allSelected) return null;
     const notSelected = withData.filter(d => !selectedDates!.has(d));
+    const sessionsToAdd = notSelected.reduce((s, d) => s + (displayCounts[d] || 0), 0);
     return (
       <button
         onClick={(e) => { e.stopPropagation(); onSelectDates(withData); }}
         title="Виділити всі дні в статистику"
         className="bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 hover:text-primary-300 text-[11px] font-bold rounded px-1.5 py-0.5 transition-colors ml-1.5 leading-none"
-      >+{notSelected.length}д</button>
+      >+{sessionsToAdd}</button>
     );
   };
 
@@ -170,7 +179,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       {/* This week */}
       <div>
         <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 flex items-center">
-          Цей тиждень<span className="text-dark-600 normal-case"> ({thisWeekCount})</span>
+          Цей тиждень<span className="text-dark-600 normal-case ml-1">({fmtCount(selectedCount(thisWeekDays), thisWeekCount)})</span>
           <SelectAllBtn dates={thisWeekDays} />
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -185,7 +194,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
           className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors"
         >
           <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>&#9654;</span>
-          Попередній тиждень<span className="text-dark-600 normal-case"> ({prevWeekCount})</span>
+          Попередній тиждень<span className="text-dark-600 normal-case ml-1">({fmtCount(selectedCount(prevWeekDays), prevWeekCount)})</span>
           <SelectAllBtn dates={prevWeekDays} />
         </button>
         {prevWeekOpen && (
@@ -198,7 +207,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       {/* Older — by year > month > weeks */}
       {[...yearMonths.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => {
         const yearDates = allDatesWithData.filter(d => d.startsWith(year));
-        const yearCount = yearDates.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+        const yearCount = yearDates.reduce((s, d) => s + (displayCounts[d] || 0), 0);
         return (
           <div key={year}>
             <button
@@ -207,7 +216,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
             >
               <span className={`text-[10px] transition-transform ${expandedYears.has(year) ? 'rotate-90' : ''}`}>&#9654;</span>
               {year}
-              <span className="text-dark-600 text-[10px]">({yearCount})</span>
+              <span className="text-dark-600 text-[10px] ml-1">({fmtCount(selectedCount(yearDates), yearCount)})</span>
               <SelectAllBtn dates={yearDates} />
             </button>
 
@@ -217,7 +226,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
                   const monthKey = `${year}-${month}`;
                   const weeks = getWeeksInMonth(parseInt(year), month);
                   const monthDates = allDatesWithData.filter(d => d.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`));
-                  const monthCount = monthDates.reduce((s, d) => s + (dateCounts[d] || 0), 0);
+                  const monthCount = monthDates.reduce((s, d) => s + (displayCounts[d] || 0), 0);
 
                   return (
                     <div key={monthKey}>
@@ -227,7 +236,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
                       >
                         <span className={`text-[8px] transition-transform ${expandedMonths.has(monthKey) ? 'rotate-90' : ''}`}>&#9654;</span>
                         {MONTH_NAMES[month]}
-                        <span className="text-dark-600 text-[10px]">({monthCount})</span>
+                        <span className="text-dark-600 text-[10px] ml-1">({fmtCount(selectedCount(monthDates), monthCount)})</span>
                         <SelectAllBtn dates={monthDates} />
                       </button>
 

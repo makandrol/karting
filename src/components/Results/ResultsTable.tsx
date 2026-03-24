@@ -30,11 +30,7 @@ export default function ResultsTable({ results, title }: ResultsTableProps) {
           <tbody>
             {results.map((r) => (
               <tr key={`${r.pilot}-${r.position}`} className="table-row">
-                <td className={`table-cell text-center font-mono font-bold ${
-                  r.position === 1 ? 'position-1' :
-                  r.position === 2 ? 'position-2' :
-                  r.position === 3 ? 'position-3' : 'text-dark-400'
-                }`}>
+                <td className="table-cell text-center font-mono font-bold text-white">
                   {r.position}
                 </td>
                 <td className="table-cell text-left font-medium text-white">

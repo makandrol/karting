@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
-import { parseTime, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
+import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
 
 // ============================================================
 // SessionReplay component
@@ -25,6 +25,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
+  const [atLive, setAtLive] = useState(!!isLive && !!autoPlay);
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
   const durationRef = useRef(durationSec);
@@ -253,6 +254,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   };
 
   const handleScrub = (val: number) => {
+    setAtLive(false);
     setCurrentTime(val);
     const ent = getEntriesAtTime(val);
     setEntries(ent);
@@ -288,18 +290,26 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         min={0}
         max={durationSec}
         step={0.1}
-        value={currentTime}
+        value={isLive && atLive ? durationSec : currentTime}
         onChange={(e) => handleScrub(parseFloat(e.target.value))}
-        className="flex-1 h-2 bg-dark-800 rounded-full appearance-none cursor-pointer
+        className="flex-1 h-2 bg-dark-700 rounded-full appearance-none cursor-pointer
           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
           [&::-webkit-slider-thumb]:bg-primary-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-grab"
       />
 
       {isLive && (
         <button
-          onClick={() => { handleScrub(durationSec); setPlaying(true); }}
+          onClick={() => {
+            setAtLive(true);
+            setCurrentTime(durationSec);
+            setPlaying(true);
+            const ent = getEntriesAtTime(durationSec);
+            setEntries(ent);
+            onTimeUpdate?.(durationSec);
+            onEntriesUpdate?.(ent);
+          }}
           className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors shrink-0 ${
-            currentTime >= durationSec - 5
+            atLive
               ? 'bg-green-500/20 text-green-400'
               : 'bg-dark-800 text-dark-400 hover:text-green-400 hover:bg-green-500/10'
           }`}
@@ -389,22 +399,22 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
                   </td>
                   <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
-                    {notStarted ? '' : (e.lastLap || '—')}
+                    {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
-                    {notStarted ? '' : (e.s1 || '—')}
+                    {notStarted ? '' : (e.s1 ? toSeconds(e.s1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
-                    {notStarted ? '' : (e.s2 || '—')}
+                    {notStarted ? '' : (e.s2 ? toSeconds(e.s2) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>
-                    {notStarted ? '' : (e.bestLap || '—')}
+                    {notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
-                    {notStarted ? '' : (e.bestS1 || '—')}
+                    {notStarted ? '' : (e.bestS1 ? toSeconds(e.bestS1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
-                    {notStarted ? '' : (e.bestS2 || '—')}
+                    {notStarted ? '' : (e.bestS2 ? toSeconds(e.bestS2) : '—')}
                   </td>
                   <td className="table-cell text-center font-mono text-dark-500">
                     {notStarted ? '' : e.lapNumber}

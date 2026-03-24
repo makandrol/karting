@@ -3,7 +3,7 @@
 // ============================================================
 
 /** Мінімальний валідний час кола в секундах. Менше = скоротили трасу */
-export const MIN_VALID_LAP_SECONDS = 38.5;
+export const MIN_VALID_LAP_SECONDS = 38;
 
 export interface TimingEntry {
   position: number;

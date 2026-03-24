@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { shortName as shortPilotName } from '../../utils/timing';
 
 interface CompetitionEvent {
   id: string;
@@ -65,7 +66,7 @@ export function SessionRows({ events, showDate = false }: { events: CompetitionE
           </span>
           {bestPilot && (
             <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-              {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestPilot.bestLap}</span>
+              {shortPilotName(bestPilot.pilot)} — <span className="text-green-400">{bestPilot.bestLap}</span>
             </span>
           )}
         </Link>
@@ -83,7 +84,7 @@ export function SessionRows({ events, showDate = false }: { events: CompetitionE
             </span>
             {bestPilot && (
               <span className="text-dark-500 text-xs font-mono shrink-0 ml-4">
-                {bestPilot.pilot.split(' ')[0]} — <span className="text-green-400">{bestPilot.bestLap}</span>
+                {shortPilotName(bestPilot.pilot)} — <span className="text-green-400">{bestPilot.bestLap}</span>
               </span>
             )}
           </Link>
@@ -131,7 +132,7 @@ export function SessionCheckboxRows({ events, selected, onToggle, showDate = fal
                 </span>
                 {best && (
                   <span className="text-dark-500 font-mono shrink-0 ml-4">
-                    {best.pilot.split(' ')[0]} — <span className="text-green-400">{best.bestLap}</span>
+                    {shortPilotName(best.pilot)} — <span className="text-green-400">{best.bestLap}</span>
                   </span>
                 )}
               </span>

@@ -1,10 +1,12 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds, mergePilotNames } from '../../utils/timing';
+import { toSeconds, mergePilotNames, shortName } from '../../utils/timing';
 import SessionReplay from '../../components/Timing/SessionReplay';
+import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
 import { TrackMap } from '../../components/Track';
 import { useTrack } from '../../services/trackContext';
+import { useViewPrefs } from '../../services/viewPrefs';
 import type { TimingEntry } from '../../types';
 
 interface DbSession {
@@ -119,6 +121,8 @@ export default function SessionDetail() {
     return () => clearInterval(timer);
   }, [dbSession]);
 
+  const { prefs, toggle } = useViewPrefs();
+
   if (dbLoading) {
     return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
   }
@@ -135,6 +139,7 @@ export default function SessionDetail() {
 
   // Merge "Карт X" → real pilot name and build stats
   const mergedLaps = mergePilotNames(dbLaps);
+
   const pilotMap = new Map<string, { kart: number; laps: DbLap[]; bestLap: number }>();
   for (const lap of mergedLaps) {
     if (!pilotMap.has(lap.pilot)) pilotMap.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity });
@@ -235,7 +240,7 @@ export default function SessionDetail() {
                 <tbody>
                   {liveEntries.map((e: any, i: number) => (
                     <tr key={e.pilot} className="table-row">
-                      <td className={`table-cell text-center font-mono font-bold ${i < 3 ? `position-${i + 1}` : 'text-dark-400'}`}>{e.position || i + 1}</td>
+                      <td className="table-cell text-center font-mono font-bold text-white">{e.position || i + 1}</td>
                       <td className="table-cell text-left text-white">{e.pilot}</td>
                       <td className="table-cell text-center font-mono text-dark-300">{e.kart}</td>
                       <td className="table-cell text-center font-mono text-dark-300">{e.lapNumber || 0}</td>
@@ -286,18 +291,45 @@ export default function SessionDetail() {
                   autoPlay={true}
                   onEntriesUpdate={setTrackEntries}
                   renderScrubber={(scrubber) => (
-                    <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+                    <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
                       {scrubber}
                     </div>
                   )}
                 />
-                {track?.svgPath && <TrackMap track={track} entries={trackEntries} static />}
+                {prefs.showTrack && track?.svgPath ? (
+                  <div className="relative">
+                    <button onClick={() => toggle('showTrack')}
+                      className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
+                      сховати
+                    </button>
+                    <TrackMap track={track} entries={trackEntries} static />
+                  </div>
+                ) : null}
               </>
             ) : null;
           })()}
 
-          {/* Results table - laps grid */}
-          <DbLapsGrid pilots={pilots} currentEntries={trackEntries} />
+          {!prefs.showTrack && (
+            <button onClick={() => toggle('showTrack')}
+              className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
+              Показати трек
+            </button>
+          )}
+
+          {prefs.showLapsByPilots ? (
+            <div className="relative">
+              <button onClick={() => toggle('showLapsByPilots')}
+                className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
+                сховати
+              </button>
+              <LapsByPilots pilots={pilots} currentEntries={trackEntries} />
+            </div>
+          ) : (
+            <button onClick={() => toggle('showLapsByPilots')}
+              className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
+              Показати кола по пілотах
+            </button>
+          )}
         </>
       )}
     </div>
@@ -314,73 +346,4 @@ function parseLapTime(t: string): number | null {
   const secMatch = t.match(/^\d+\.\d+$/);
   if (secMatch) return parseFloat(t);
   return null;
-}
-
-function formatSeconds(sec: number): string {
-  if (sec >= 60) {
-    const m = Math.floor(sec / 60);
-    const s = sec - m * 60;
-    return `${m}:${s.toFixed(3).padStart(6, '0')}`;
-  }
-  return sec.toFixed(3);
-}
-
-function DbLapsGrid({ pilots, currentEntries = [] }: { pilots: { name: string; laps: DbLap[]; bestLap: number }[]; currentEntries?: TimingEntry[] }) {
-  const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
-  const maxLaps = Math.max(...pilots.map(p => p.laps.length), 0);
-
-  const completedLapsMap = new Map<string, number>();
-  for (const e of currentEntries) {
-    if (e.lapNumber >= 0) completedLapsMap.set(e.pilot, e.lapNumber);
-  }
-  const hasReplayState = currentEntries.length > 0 && currentEntries.some(e => e.lapNumber > 0);
-
-  if (maxLaps === 0) return null;
-
-  return (
-    <div className="card p-0 overflow-hidden">
-      <div className="px-4 py-3 border-b border-dark-800">
-        <h3 className="text-white font-semibold">Кола по пілотах</h3>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-[10px]">
-          <thead>
-            <tr className="table-header">
-              <th className="table-cell text-center w-8">Коло</th>
-              {pilots.map(p => (
-                <th key={p.name} className="table-cell text-center min-w-[80px]">
-                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors">
-                    {p.name.split(' ')[0]}
-                  </Link>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: maxLaps }, (_, lapIdx) => (
-              <tr key={lapIdx} className="table-row">
-                <td className="table-cell text-center font-mono text-dark-500">{lapIdx + 1}</td>
-                {pilots.map(p => {
-                  const lap = p.laps[lapIdx];
-                  if (!lap?.lap_time) return <td key={p.name} className="table-cell text-center text-dark-700">—</td>;
-                  const sec = parseLapTime(lap.lap_time);
-                  const isPB = sec !== null && Math.abs(sec - p.bestLap) < 0.002;
-                  const isOverall = sec !== null && Math.abs(sec - overallBest) < 0.002;
-                  const completed = completedLapsMap.get(p.name) ?? 0;
-                  const isCurrent = hasReplayState && completed > 0 && lapIdx === completed - 1;
-                  return (
-                    <td key={p.name} className={`table-cell text-center font-mono ${
-                      isOverall ? 'text-purple-400 font-bold' : isPB ? 'text-green-400 font-bold' : 'text-dark-300'
-                    } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>
-                      {toSeconds(lap.lap_time)}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
 }
