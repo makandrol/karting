@@ -11,7 +11,6 @@ interface SessionReplayProps {
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number; ts?: number }[];
   durationSec: number;
   sessionStartTime?: number;
-  s1Ratio?: number;
   isLive?: boolean;
   raceNumber?: number | null;
   autoPlay?: boolean;
@@ -21,7 +20,7 @@ interface SessionReplayProps {
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, s1Ratio, isLive, raceNumber, autoPlay, liveEntries, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
@@ -32,24 +31,6 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
   durationRef.current = durationSec;
 
   const pilots = useMemo(() => [...new Set(laps.map(l => l.pilot))], [laps]);
-
-  const effectiveS1Ratio = useMemo(() => {
-    if (s1Ratio) return s1Ratio;
-    const ratios: number[] = [];
-    for (const lap of laps) {
-      if (!lap.s1 || !lap.lapTime) continue;
-      const s1Sec = parseTime(lap.s1) || 0;
-      const lapSec = parseTime(lap.lapTime) || 0;
-      if (s1Sec >= 10 && lapSec >= 38 && lapSec < 120) {
-        ratios.push(s1Sec / lapSec);
-      }
-    }
-    if (ratios.length > 0) {
-      ratios.sort((a, b) => a - b);
-      return ratios[Math.floor(ratios.length / 2)];
-    }
-    return 0.43;
-  }, [s1Ratio, laps]);
 
   // Build per-pilot completion timelines using actual lap durations
   // ts from DB is poll time (same for all pilots), so we reconstruct individual timelines
@@ -148,7 +129,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
       const currentLapData = completedLaps < pilotLaps.length ? pilotLaps[completedLaps] : null;
       const prevLapData = completedLaps > 0 ? pilotLaps[completedLaps - 1] : null;
 
-      // S1/S2/Lap display logic
+      // S1/S2/Lap: show latest known data for this pilot
       let displayS1: string | null;
       let displayS2: string | null;
       let displayLap: string | null;
@@ -159,14 +140,6 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
       if (onCurrentUnrecordedLap && liveEntry) {
         displayS1 = liveEntry.s1 || null;
         displayS2 = liveEntry.s2 || null;
-        displayLap = prevLapData?.lapTime || null;
-      } else if (onCurrentUnrecordedLap) {
-        displayLap = prevLapData?.lapTime || null;
-        displayS1 = prevLapData?.s1 || null;
-        displayS2 = prevLapData?.s2 || null;
-      } else if (progress >= effectiveS1Ratio && currentLapData) {
-        displayS1 = currentLapData.s1 || null;
-        displayS2 = prevLapData?.s2 || null;
         displayLap = prevLapData?.lapTime || null;
       } else {
         displayS1 = prevLapData?.s1 || null;
@@ -235,7 +208,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, s1R
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
-  }, [laps, pilots, effectiveS1Ratio, sessionStartTime, pilotTimelines, liveEntries]);
+  }, [laps, pilots, sessionStartTime, pilotTimelines, liveEntries]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
 
