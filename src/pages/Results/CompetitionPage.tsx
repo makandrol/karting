@@ -233,6 +233,8 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
   const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
+  const [livePositions, setLivePositions] = useState<{ pilot: string; position: number }[]>([]);
 
   const fetchAllLaps = async (comp: Competition) => {
     if (comp.sessions.length === 0) return new Map<string, SessionLap[]>();
@@ -254,7 +256,8 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
 
     if (initialCompetition.status !== 'live') return () => { cancelled = true; };
 
-    const timer = setInterval(async () => {
+    // Slow poll: competition data + all laps (every 5s)
+    const slowTimer = setInterval(async () => {
       try {
         const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(initialCompetition.id)}`);
         if (!res.ok || cancelled) return;
@@ -267,7 +270,25 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
       } catch {}
     }, 5000);
 
-    return () => { cancelled = true; clearInterval(timer); };
+    // Fast poll: live timing positions (every 2s)
+    const fastTimer = setInterval(async () => {
+      try {
+        const [statusRes, timingRes] = await Promise.all([
+          fetch(`${COLLECTOR_URL}/status`).then(r => r.json()),
+          fetch(`${COLLECTOR_URL}/timing`).then(r => r.json()),
+        ]);
+        if (cancelled) return;
+        setLiveSessionId(statusRes.sessionId || null);
+        if (timingRes.entries?.length > 0) {
+          setLivePositions(timingRes.entries.map((e: any) => ({
+            pilot: e.pilot,
+            position: Number(e.position),
+          })));
+        }
+      } catch {}
+    }, 2000);
+
+    return () => { cancelled = true; clearInterval(slowTimer); clearInterval(fastTimer); };
   }, [initialCompetition.id]);
 
   if (loading) return <div className="card text-center py-6 text-dark-500">Завантаження даних...</div>;
@@ -283,6 +304,8 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
       competitionId={competition.id}
       sessions={competition.sessions}
       sessionLaps={sessionLaps}
+      liveSessionId={liveSessionId}
+      livePositions={livePositions}
       initialExcludedPilots={competition.results?.excludedPilots}
       initialEdits={competition.results?.edits}
     />;

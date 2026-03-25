@@ -27,6 +27,8 @@ interface LeagueResultsProps {
   competitionId: string;
   sessions: CompSession[];
   sessionLaps: Map<string, SessionLap[]>;
+  liveSessionId?: string | null;
+  livePositions?: { pilot: string; position: number }[];
   initialExcludedPilots?: string[];
   initialEdits?: ManualEdits;
 }
@@ -88,7 +90,7 @@ function getPositionPoints(scoring: ScoringData, totalPilots: number, group: str
   return pts[finishPos - 1];
 }
 
-export default function LeagueResults({ format, competitionId, sessions, sessionLaps, initialExcludedPilots, initialEdits }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, initialExcludedPilots, initialEdits }: LeagueResultsProps) {
   const { prefs, toggle } = useViewPrefs();
   const { isOwner } = useAuth();
   const raceCount = format === 'champions_league' ? 3 : 2;
@@ -234,7 +236,16 @@ export default function LeagueResults({ format, competitionId, sessions, session
             if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
           }
         }
-        // Race finish: by position from timing system on last lap
+        // Override positions with live timing data if this is the active session
+        const isActiveSession = rs.sessionId === liveSessionId && livePositions && livePositions.length > 0;
+        if (isActiveSession) {
+          for (const lp of livePositions!) {
+            const ps = pilotStats.get(lp.pilot);
+            if (ps) ps.lastPosition = lp.position;
+          }
+        }
+
+        // Race finish: by position from timing system
         const sorted = [...pilotStats.entries()]
           .filter(([p]) => !excludedPilots.has(p))
           .sort((a, b) => {
@@ -301,7 +312,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     });
 
     return rows;
-  }, [sessions, sessionLaps, scoring, edits, raceCount, maxGroups, excludedPilots]);
+  }, [sessions, sessionLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePositions]);
 
   const sortedData = useMemo(() => {
     const included = data.filter(r => !excludedPilots.has(r.pilot));
