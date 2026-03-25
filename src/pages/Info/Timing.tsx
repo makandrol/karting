@@ -61,11 +61,11 @@ export default function Timing() {
   // Compute start positions from competition data (qualifying / previous race)
   useEffect(() => {
     if (!liveSessionComp.competitionId || !liveSessionComp.phase?.startsWith('race_') || !liveSessionComp.format) {
-      setStartPositions(new Map()); return;
+      setStartPositions(new Map()); setTotalQualifiedPilots(0); return;
     }
     fetchRaceStartPositions(COLLECTOR_URL, liveSessionComp.competitionId, liveSessionComp.phase, liveSessionComp.format)
-      .then(setStartPositions)
-      .catch(() => setStartPositions(new Map()));
+      .then(r => { setStartPositions(r.positions); setTotalQualifiedPilots(r.totalQualified); })
+      .catch(() => { setStartPositions(new Map()); setTotalQualifiedPilots(0); });
   }, [liveSessionComp.competitionId, liveSessionComp.phase, liveSessionComp.format]);
 
   // Fetch laps for active session (for replay)
@@ -73,6 +73,7 @@ export default function Timing() {
   const [s1Events, setS1Events] = useState<S1Event[]>([]);
   const [replaySnapshots, setReplaySnapshots] = useState<SnapshotPosition[]>([]);
   const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
+  const [totalQualifiedPilots, setTotalQualifiedPilots] = useState(0);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
 
@@ -300,6 +301,8 @@ export default function Timing() {
                 s1Events={s1Events}
                 snapshots={replaySnapshots}
                 startPositions={startPositions}
+                raceGroup={liveSessionComp.phase?.match(/group_(\d+)/)?.[1] ? parseInt(liveSessionComp.phase!.match(/group_(\d+)/)![1]) : undefined}
+                totalQualifiedPilots={totalQualifiedPilots || undefined}
                 defaultSortMode={liveSessionComp.phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                 onEntriesUpdate={setTrackEntries}
                 renderScrubber={(scrubber) => (

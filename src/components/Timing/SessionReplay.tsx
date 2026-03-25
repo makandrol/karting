@@ -31,13 +31,15 @@ interface SessionReplayProps {
   s1Events?: S1Event[];
   snapshots?: SnapshotPosition[];
   startPositions?: Map<string, number>;
+  raceGroup?: number;
+  totalQualifiedPilots?: number;
   defaultSortMode?: ReplaySortMode;
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
@@ -45,6 +47,11 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
   const [sortMode, setSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
 
   useEffect(() => { if (defaultSortMode) setSortMode(defaultSortMode); }, [defaultSortMode]);
+
+  // Scoring data for race points
+  const [scoringData, setScoringData] = useState<any>(null);
+  useEffect(() => { fetch('/data/scoring.json').then(r => r.json()).then(setScoringData).catch(() => {}); }, []);
+
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
   const durationRef = useRef(durationSec);
@@ -485,6 +492,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
               <th className="table-cell text-center w-5">#</th>
               <th className="table-cell text-left min-w-[70px]">Pilot</th>
               {sortMode === 'race' && <th className="table-cell text-center text-dark-500 w-5" style={{ paddingLeft: 0 }}>+/-</th>}
+              {sortMode === 'race' && raceGroup && <th className="table-cell text-center text-dark-500 w-6">P</th>}
               <th className="table-cell text-center">Kart</th>
               <th className="table-cell text-right">Last</th>
               <th className="table-cell text-right">S1</th>
@@ -533,6 +541,28 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                     if (diff > 0) return <span className="text-green-400">↑{diff}</span>;
                     if (diff < 0) return <span className="text-red-400">↓{Math.abs(diff)}</span>;
                     return <span className="text-dark-600">0</span>;
+                  })()}</td>}
+                  {sortMode === 'race' && raceGroup && scoringData && <td className="table-cell text-center font-mono text-[10px] text-green-400/70">{(() => {
+                    if (notStarted) return '';
+                    const st = e.currentLapSec;
+                    if (st == null) return '—';
+                    const finishPos = e.position;
+                    const groupLabel = raceGroup === 1 ? 'I' : raceGroup === 2 ? 'II' : 'III';
+                    const total = totalQualifiedPilots || 0;
+                    const cat = scoringData.positionPoints?.find((c: any) => total >= c.minPilots && total <= c.maxPilots);
+                    const posArr = cat?.groups?.[groupLabel];
+                    const posPoints = posArr && finishPos >= 1 && finishPos <= posArr.length ? posArr[finishPos - 1] : 0;
+                    let overtakePoints = 0;
+                    for (let pos = st; pos > finishPos; pos--) {
+                      if (raceGroup === 3) overtakePoints += scoringData.overtakePoints?.groupIII ?? 0;
+                      else if (raceGroup === 2) overtakePoints += scoringData.overtakePoints?.groupII ?? 0;
+                      else {
+                        const rule = scoringData.overtakePoints?.groupI?.find((r: any) => pos >= r.startPosMin && pos <= r.startPosMax);
+                        overtakePoints += rule?.perOvertake ?? 0;
+                      }
+                    }
+                    const total_pts = Math.round((posPoints + overtakePoints) * 10) / 10;
+                    return total_pts || '—';
                   })()}</td>}
                   <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>

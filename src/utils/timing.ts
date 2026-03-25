@@ -95,10 +95,10 @@ export async function fetchRaceStartPositions(
   competitionId: string,
   currentPhase: string,
   format: string,
-): Promise<Map<string, number>> {
+): Promise<{ positions: Map<string, number>; totalQualified: number }> {
   const result = new Map<string, number>();
   const raceMatch = currentPhase.match(/^race_(\d+)_group_(\d+)$/);
-  if (!raceMatch) return result;
+  if (!raceMatch) return { positions: result, totalQualified: 0 };
 
   const raceNum = parseInt(raceMatch[1]);
   const groupNum = parseInt(raceMatch[2]);
@@ -162,7 +162,8 @@ export async function fetchRaceStartPositions(
       }
       idx += size;
     }
+    return { positions: result, totalQualified: qualified.length };
   } catch { /* ignore */ }
 
-  return result;
+  return { positions: result, totalQualified: 0 };
 }

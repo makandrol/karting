@@ -61,6 +61,7 @@ export default function SessionDetail() {
   const [s1Events, setS1Events] = useState<S1Event[]>([]);
   const [replaySnapshots, setReplaySnapshots] = useState<SnapshotPosition[]>([]);
   const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
+  const [totalQualifiedPilots, setTotalQualifiedPilots] = useState(0);
   const [liveEntries, setLiveEntries] = useState<any[]>([]);
   const [dbLoading, setDbLoading] = useState(true);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
@@ -135,7 +136,7 @@ export default function SessionDetail() {
         const compFormat = (found as any)?.competition_format;
         if (compId && compPhase?.startsWith('race_') && compFormat) {
           const sp = await fetchRaceStartPositions(COLLECTOR_URL, compId, compPhase, compFormat);
-          if (active) setStartPositions(sp);
+          if (active) { setStartPositions(sp.positions); setTotalQualifiedPilots(sp.totalQualified); }
         } else if (firstSnapshotPos) {
           if (active) setStartPositions(firstSnapshotPos);
         }
@@ -360,6 +361,8 @@ export default function SessionDetail() {
                   s1Events={s1Events}
                   snapshots={replaySnapshots}
                   startPositions={startPositions}
+                  raceGroup={(dbSession as any).competition_phase?.match(/group_(\d+)/)?.[1] ? parseInt((dbSession as any).competition_phase.match(/group_(\d+)/)[1]) : undefined}
+                  totalQualifiedPilots={totalQualifiedPilots || undefined}
                   defaultSortMode={(dbSession as any).competition_phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                   onEntriesUpdate={setTrackEntries}
                   renderScrubber={(scrubber) => (
