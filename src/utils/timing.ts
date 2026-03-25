@@ -120,8 +120,9 @@ export async function fetchRaceStartPositions(
     const sourceSessions = sessions.filter(s => s.phase.startsWith(sourcePhasePrefix));
     const pilotBest = new Map<string, number>();
     for (const ss of sourceSessions) {
-      const laps: { pilot: string; lap_time: string | null }[] =
+      let laps: { pilot: string; kart: number; lap_time: string | null }[] =
         await fetch(`${collectorUrl}/db/laps?session=${ss.sessionId}`).then(r => r.json()).catch(() => []);
+      laps = mergePilotNames(laps);
       for (const l of laps) {
         if (!l.lap_time || excluded.has(l.pilot)) continue;
         const sec = parseTime(l.lap_time);
