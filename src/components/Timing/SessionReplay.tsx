@@ -208,6 +208,21 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         displayS1 = prevLapData?.s1 || null;
         displayS2 = prevLapData?.s2 || null;
         displayLap = prevLapData?.lapTime || null;
+
+        if (sessionStartTime && pilotS1Events.size > 0 && !onCurrentUnrecordedLap) {
+          const currentMs = sessionStartTime + timeSec * 1000;
+          const timeline = pilotTimelines.get(pilot) || [];
+          const lastLapMs = completedLaps > 0 ? timeline[completedLaps - 1] : 0;
+          const events = pilotS1Events.get(pilot);
+          if (events) {
+            for (let i = events.length - 1; i >= 0; i--) {
+              if (events[i].ts <= currentMs && events[i].ts > lastLapMs) {
+                displayS1 = events[i].s1;
+                break;
+              }
+            }
+          }
+        }
       }
 
       // Best lap, S1, S2 among completed laps
