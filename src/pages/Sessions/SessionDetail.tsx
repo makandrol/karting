@@ -2,6 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds, mergePilotNames, shortName, fetchRaceStartPositions } from '../../utils/timing';
+import { useAuth } from '../../services/auth';
 import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
@@ -54,6 +55,8 @@ function fmtDuration(startMs: number, endMs: number): string {
 export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const { allTracks } = useTrack();
+  const { isOwner } = useAuth();
+  const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
   const [dbSession, setDbSession] = useState<DbSession | null>(null);
   const [daySessions, setDaySessions] = useState<DbSession[]>([]);
@@ -146,6 +149,19 @@ export default function SessionDetail() {
   }, [dbSession]);
 
   const { prefs, toggle } = useViewPrefs();
+
+  const handleRenamePilot = async (oldName: string, newName: string) => {
+    if (!sessionId) return;
+    const sessionIds = dbSession?.merged_session_ids || [sessionId];
+    for (const sid of sessionIds) {
+      await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ sessionId: sid, oldName, newName }),
+      }).catch(() => {});
+    }
+    window.location.reload();
+  };
 
   if (dbLoading) {
     return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
@@ -370,7 +386,7 @@ export default function SessionDetail() {
                 className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
                 сховати
               </button>
-              <LapsByPilots pilots={pilots} currentEntries={trackEntries} />
+              <LapsByPilots pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined} />
             </div>
           ) : (
             <button onClick={() => toggle('showLapsByPilots')}

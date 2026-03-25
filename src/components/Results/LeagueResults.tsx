@@ -31,6 +31,7 @@ interface LeagueResultsProps {
   livePositions?: { pilot: string; position: number }[];
   initialExcludedPilots?: string[];
   initialEdits?: ManualEdits;
+  initialMergedPilots?: Record<string, string>;
 }
 
 interface ScoringData {

@@ -30,6 +30,7 @@ interface LapsByPilotsProps {
   pilots: PilotLaps[];
   currentEntries?: TimingEntry[];
   isLive?: boolean;
+  onRenamePilot?: (oldName: string, newName: string) => void;
 }
 
 export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
@@ -56,7 +57,7 @@ export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
     .map(([name, data]) => ({ name, ...data }));
 }
 
-export default function LapsByPilots({ pilots, currentEntries = [], isLive }: LapsByPilotsProps) {
+export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot }: LapsByPilotsProps) {
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
   const overallBestS2 = Math.min(...pilots.map(p => p.bestS2).filter(v => v < Infinity));
@@ -85,6 +86,12 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive }: La
                   <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors">
                     {shortName(p.name)}
                   </Link>
+                  {onRenamePilot && (
+                    <button onClick={() => {
+                      const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
+                      if (newName && newName !== p.name) onRenamePilot(p.name, newName);
+                    }} className="ml-0.5 text-dark-700 hover:text-primary-400 text-[8px]">✎</button>
+                  )}
                   <div className="text-dark-600 text-[9px] font-normal">К{p.laps[0]?.kart}</div>
                 </th>
               ))}

@@ -446,6 +446,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /db/rename-pilot — перейменувати пілота в заїзді (admin only)
+    if (req.method === 'POST' && url.pathname === '/db/rename-pilot') {
+      if (!isAdmin) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+      const body = await readBody(req);
+      const { sessionId, oldName, newName } = body;
+      if (!sessionId || !oldName || !newName) { sendJson(res, 400, { error: 'sessionId, oldName, newName required' }); return; }
+      const changes = storage.renamePilot(sessionId, oldName, newName);
+      sendJson(res, 200, { ok: true, changes });
+      return;
+    }
+
     sendJson(res, 404, { error: 'Not found' });
   } catch (err) {
     console.error('Request error:', err);
