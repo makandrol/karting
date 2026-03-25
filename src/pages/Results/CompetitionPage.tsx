@@ -229,25 +229,46 @@ function FinalResults({ competition }: { competition: Competition }) {
   return <div className="card p-4"><pre className="text-dark-300 text-xs overflow-auto">{JSON.stringify(results, null, 2)}</pre></div>;
 }
 
-function LiveResults({ competition }: { competition: Competition }) {
+function LiveResults({ competition: initialCompetition }: { competition: Competition }) {
+  const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
 
+  const fetchAllLaps = async (comp: Competition) => {
+    if (comp.sessions.length === 0) return new Map<string, SessionLap[]>();
+    const map = new Map<string, SessionLap[]>();
+    for (const s of comp.sessions) {
+      try {
+        const res = await fetch(`${COLLECTOR_URL}/db/laps?session=${s.sessionId}`);
+        if (res.ok) map.set(s.sessionId, await res.json());
+      } catch {}
+    }
+    return map;
+  };
+
   useEffect(() => {
-    if (competition.sessions.length === 0) { setLoading(false); return; }
     let cancelled = false;
-    (async () => {
-      const map = new Map<string, SessionLap[]>();
-      for (const s of competition.sessions) {
-        try {
-          const res = await fetch(`${COLLECTOR_URL}/db/laps?session=${s.sessionId}`);
-          if (res.ok) map.set(s.sessionId, await res.json());
-        } catch {}
-      }
+    fetchAllLaps(initialCompetition).then(map => {
       if (!cancelled) { setSessionLaps(map); setLoading(false); }
-    })();
-    return () => { cancelled = true; };
-  }, [competition.sessions]);
+    });
+
+    if (initialCompetition.status !== 'live') return () => { cancelled = true; };
+
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(initialCompetition.id)}`);
+        if (!res.ok || cancelled) return;
+        const fresh: Competition = await res.json();
+        if (typeof fresh.sessions === 'string') fresh.sessions = JSON.parse(fresh.sessions);
+        if (typeof fresh.results === 'string') fresh.results = JSON.parse(fresh.results);
+        setCompetition(fresh);
+        const map = await fetchAllLaps(fresh);
+        if (!cancelled) setSessionLaps(map);
+      } catch {}
+    }, 5000);
+
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [initialCompetition.id]);
 
   if (loading) return <div className="card text-center py-6 text-dark-500">Завантаження даних...</div>;
   if (competition.sessions.length === 0) return <div className="card text-center py-12 text-dark-500">Немає прив'язаних заїздів</div>;
