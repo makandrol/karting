@@ -492,6 +492,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
               <th className="table-cell text-right">Best</th>
               <th className="table-cell text-right">B.S1</th>
               <th className="table-cell text-right">B.S2</th>
+              <th className="table-cell text-right">Теор</th>
               <th className="table-cell text-center">L</th>
               <th className="table-cell w-6"></th>
             </tr>
@@ -551,6 +552,15 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
                     {notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toSeconds(e.bestS2) : '—')}
+                  </td>
+                  <td className="table-cell text-right font-mono text-[11px] text-dark-400">
+                    {(() => {
+                      if (notStarted) return '';
+                      const s1 = parseTime(e.bestS1);
+                      const s2 = parseTime(e.bestS2);
+                      if (s1 === null || s1 < 10 || s2 === null || s2 < 10) return '—';
+                      return (s1 + s2).toFixed(3);
+                    })()}
                   </td>
                   <td className="table-cell text-center font-mono text-dark-500">
                     {notStarted ? '' : e.lapNumber}

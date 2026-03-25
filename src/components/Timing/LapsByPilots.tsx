@@ -85,6 +85,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive }: La
                   <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors">
                     {shortName(p.name)}
                   </Link>
+                  <div className="text-dark-600 text-[9px] font-normal">К{p.laps[0]?.kart}</div>
                 </th>
               ))}
             </tr>
@@ -118,9 +119,9 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive }: La
                       <div>{toSeconds(lap.lap_time)}</div>
                       {(s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10) ? (
                         <div className="text-[8px] leading-tight mt-0.5">
-                          <span className={COLOR_CLASSES[s1Color]}>{s1Val !== null && s1Val >= 10 ? toSeconds(lap.s1!) : '—'}</span>
-                          <span className="text-dark-700">, </span>
-                          <span className={COLOR_CLASSES[s2Color]}>{s2Val !== null && s2Val >= 10 ? toSeconds(lap.s2!) : '—'}</span>
+                          <span className={s1Color === 'purple' ? 'text-purple-400' : s1Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s1Val !== null && s1Val >= 10 ? toSeconds(lap.s1!) : '—'}</span>
+                          <span className="text-dark-700"> </span>
+                          <span className={s2Color === 'purple' ? 'text-purple-400' : s2Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s2Val !== null && s2Val >= 10 ? toSeconds(lap.s2!) : '—'}</span>
                         </div>
                       ) : null}
                     </td>
