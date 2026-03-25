@@ -363,11 +363,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const EditableCell = ({ value, onChange }: { value: number; onChange: (v: number) => void }) => {
     const [text, setText] = useState(String(value));
-    useEffect(() => { setText(String(value)); }, [value]);
+    const [focused, setFocused] = useState(false);
+    useEffect(() => { if (!focused) setText(String(value)); }, [value, focused]);
     return (
       <input type="text" inputMode="numeric" value={text}
         onChange={e => setText(e.target.value)}
-        onBlur={() => { const v = parseFloat(text); onChange(isNaN(v) ? 0 : v); }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => { setFocused(false); const v = parseFloat(text); onChange(isNaN(v) ? 0 : v); }}
         className="w-10 bg-transparent text-center font-mono text-dark-300 outline-none border-b border-dark-700 focus:border-primary-500" />
     );
   };
