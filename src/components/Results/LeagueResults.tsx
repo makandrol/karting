@@ -453,7 +453,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         <span className="text-white">{row.pilot}</span>
                         {isOwner && (
                           <>
-                            <button onClick={() => {
+                            <button onClick={(e) => {
+                              e.stopPropagation();
                               const newName = prompt(`Перейменувати "${row.pilot}" на:`, row.pilot);
                               if (newName && newName !== row.pilot) {
                                 (async () => {

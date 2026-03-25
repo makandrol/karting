@@ -87,10 +87,11 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                     {shortName(p.name)}
                   </Link>
                   {onRenamePilot && (
-                    <button onClick={() => {
+                    <button onClick={(e) => {
+                      e.stopPropagation();
                       const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
                       if (newName && newName !== p.name) onRenamePilot(p.name, newName);
-                    }} className="ml-0.5 text-dark-700 hover:text-primary-400 text-[8px]">✎</button>
+                    }} className="ml-0.5 text-dark-500 hover:text-primary-400 text-[9px]">✎</button>
                   )}
                   <div className="text-dark-600 text-[9px] font-normal">К{p.laps[0]?.kart}</div>
                 </th>
