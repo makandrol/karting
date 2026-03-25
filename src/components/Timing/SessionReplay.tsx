@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
-import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
+import { parseTime, toSeconds, toHundredths, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
 
 // ============================================================
 // SessionReplay component
@@ -492,7 +492,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
               <th className="table-cell text-right">Best</th>
               <th className="table-cell text-right">B.S1</th>
               <th className="table-cell text-right">B.S2</th>
-              <th className="table-cell text-right">Теор</th>
+              <th className="table-cell text-right">TB</th>
               <th className="table-cell text-center">L</th>
               <th className="table-cell w-6"></th>
             </tr>
@@ -539,19 +539,19 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                     {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
-                    {notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toSeconds(e.s1) : '—')}
+                    {notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toHundredths(e.s1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
-                    {notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toSeconds(e.s2) : '—')}
+                    {notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toHundredths(e.s2) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>
                     {notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
-                    {notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toSeconds(e.bestS1) : '—')}
+                    {notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toHundredths(e.bestS1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
-                    {notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toSeconds(e.bestS2) : '—')}
+                    {notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toHundredths(e.bestS2) : '—')}
                   </td>
                   <td className="table-cell text-right font-mono text-[11px] text-dark-400">
                     {(() => {

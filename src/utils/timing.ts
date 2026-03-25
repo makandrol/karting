@@ -57,6 +57,14 @@ export function toSeconds(t: string | null): string {
   return sec.toFixed(3);
 }
 
+/** Like toSeconds but truncated to hundredths: "18.080" → "18.08" */
+export function toHundredths(t: string | null): string {
+  if (!t) return '—';
+  const sec = parseTime(t);
+  if (sec === null) return t;
+  return sec.toFixed(2);
+}
+
 /**
  * Merge laps where pilot name is "Карт X" with subsequent laps from a named pilot on the same kart.
  * The timing system sometimes shows "Карт X" for the first few laps before the real name appears.

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { toSeconds, shortName, parseTime, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
+import { toSeconds, toHundredths, shortName, parseTime, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 
 function parseLapTime(t: string): number | null {
@@ -119,9 +119,9 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive }: La
                       <div>{toSeconds(lap.lap_time)}</div>
                       {(s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10) ? (
                         <div className="text-[8px] leading-tight mt-0.5">
-                          <span className={s1Color === 'purple' ? 'text-purple-400' : s1Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s1Val !== null && s1Val >= 10 ? toSeconds(lap.s1!) : '—'}</span>
+                          <span className={s1Color === 'purple' ? 'text-purple-400' : s1Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s1Val !== null && s1Val >= 10 ? toHundredths(lap.s1!) : '—'}</span>
                           <span className="text-dark-700"> </span>
-                          <span className={s2Color === 'purple' ? 'text-purple-400' : s2Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s2Val !== null && s2Val >= 10 ? toSeconds(lap.s2!) : '—'}</span>
+                          <span className={s2Color === 'purple' ? 'text-purple-400' : s2Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s2Val !== null && s2Val >= 10 ? toHundredths(lap.s2!) : '—'}</span>
                         </div>
                       ) : null}
                     </td>
