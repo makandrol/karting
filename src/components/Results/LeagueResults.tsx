@@ -477,7 +477,6 @@ export default function LeagueResults({ format, competitionId, sessions, session
                               onKeyDown={e => { if (e.key === 'Escape') setRenamingPilot(null); }}
                               className="w-32 bg-dark-800 border border-primary-500 text-white text-[10px] rounded px-1.5 py-0.5 outline-none" />
                           </form>
-                          </form>
                         ) : (
                           <>
                             <span className="text-white">{row.pilot}</span>
