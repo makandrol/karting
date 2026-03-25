@@ -298,6 +298,19 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
       raceResults.push(rData);
       if (raceTimes.length > 0) prevRaceTimes = raceTimes.filter(r => !excludedPilots.has(r.pilot));
+
+      // Fill start positions for pilots without race data yet (race hasn't started)
+      if (rData.size === 0 || rSessions.length === 0) {
+        for (const [pilot, sp] of startPositions) {
+          if (!rData.has(pilot) && !excludedPilots.has(pilot)) {
+            rData.set(pilot, {
+              kart: 0, bestTime: Infinity, bestTimeStr: '',
+              group: sp.group, startPos: sp.startPos, finishPos: 0,
+              positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
+            });
+          }
+        }
+      }
     }
 
     // 4. Build rows
