@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { TrackMap } from '../../components/Track';
 import DayTimeline from '../../components/Timing/DayTimeline';
 import CompetitionControl from '../../components/Timing/CompetitionControl';
-import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition } from '../../components/Timing/SessionReplay';
+import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
@@ -103,40 +103,11 @@ export default function Timing() {
         fetch(`${COLLECTOR_URL}/db/events?session=${currentSessionId}`).then(r => r.json()).catch(() => []),
       ]);
       setReplayLaps(lapsRes);
-      const parsed: S1Event[] = [];
-      const allSnapshots: SnapshotPosition[] = [];
-      let firstSnapshotPos: Map<string, number> | null = null;
-      for (const ev of eventsRes) {
-        if (ev.event_type === 's1' && ev.data) {
-          const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-          if (d.pilot && d.s1) parsed.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
-        }
-        if (ev.event_type === 'snapshot' && ev.data) {
-          const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-          const positions = new Map<string, number>();
-          for (const en of (d.entries || [])) {
-            if (en.pilot && en.position) positions.set(en.pilot, Number(en.position));
-          }
-          if (positions.size > 0) {
-            allSnapshots.push({ ts: ev.ts, positions });
-            if (!firstSnapshotPos) firstSnapshotPos = positions;
-          }
-        }
-        if (ev.event_type === 'positions' && ev.data) {
-          const arr = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-          if (Array.isArray(arr)) {
-            const positions = new Map<string, number>();
-            for (const p of arr) {
-              if (p.pilot && p.position) positions.set(p.pilot, Number(p.position));
-            }
-            if (positions.size > 0) allSnapshots.push({ ts: ev.ts, positions });
-          }
-        }
-      }
-      setS1Events(parsed);
-      setReplaySnapshots(allSnapshots.sort((a, b) => a.ts - b.ts));
+      const parsed = parseSessionEvents(eventsRes);
+      setS1Events(parsed.s1Events);
+      setReplaySnapshots(parsed.snapshots);
       if (!liveSessionComp.competitionId || !liveSessionComp.phase?.startsWith('race_')) {
-        if (firstSnapshotPos) setStartPositions(firstSnapshotPos);
+        if (parsed.firstSnapshotPos) setStartPositions(parsed.firstSnapshotPos);
       }
     } catch { /* ignore */ }
   }, [currentSessionId, liveSessionComp.competitionId, liveSessionComp.phase]);

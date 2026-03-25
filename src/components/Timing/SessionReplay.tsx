@@ -18,6 +18,68 @@ export interface SnapshotPosition {
   positions: Map<string, number>;
 }
 
+export function parseSessionEvents(rawEvents: any[]): {
+  s1Events: S1Event[];
+  snapshots: SnapshotPosition[];
+  firstSnapshotPos: Map<string, number> | null;
+} {
+  const s1Events: S1Event[] = [];
+  const snapshots: SnapshotPosition[] = [];
+  let firstSnapshotPos: Map<string, number> | null = null;
+  const currentPositions = new Map<string, number>();
+
+  for (const ev of rawEvents) {
+    const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+    if (!d) continue;
+
+    if (ev.event_type === 's1') {
+      if (d.pilot && d.s1) s1Events.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
+      const pos = d.team?.position ?? d.position;
+      if (d.pilot && pos) currentPositions.set(d.pilot, Number(pos));
+    }
+
+    if (ev.event_type === 'snapshot') {
+      const positions = new Map<string, number>();
+      for (const en of (d.entries || [])) {
+        if (en.pilot && en.position) {
+          positions.set(en.pilot, Number(en.position));
+          currentPositions.set(en.pilot, Number(en.position));
+        }
+      }
+      if (positions.size > 0) {
+        snapshots.push({ ts: ev.ts, positions });
+        if (!firstSnapshotPos) firstSnapshotPos = positions;
+      }
+    }
+
+    if (ev.event_type === 'positions') {
+      const arr = Array.isArray(d) ? d : [];
+      const positions = new Map<string, number>();
+      for (const p of arr) {
+        if (p.pilot && p.position) {
+          positions.set(p.pilot, Number(p.position));
+          currentPositions.set(p.pilot, Number(p.position));
+        }
+      }
+      if (positions.size > 0) snapshots.push({ ts: ev.ts, positions });
+    }
+
+    if (ev.event_type === 'lap' || ev.event_type === 'update') {
+      const pos = d.team?.position ?? d.position;
+      if (d.pilot && pos) {
+        const newPos = Number(pos);
+        if (currentPositions.get(d.pilot) !== newPos) {
+          currentPositions.set(d.pilot, newPos);
+          snapshots.push({ ts: ev.ts, positions: new Map(currentPositions) });
+        }
+      }
+    }
+  }
+
+  snapshots.sort((a, b) => a.ts - b.ts);
+  return { s1Events, snapshots, firstSnapshotPos };
+}
+
 export type ReplaySortMode = 'qualifying' | 'race';
 
 interface SessionReplayProps {
