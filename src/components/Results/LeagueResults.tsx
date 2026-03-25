@@ -99,6 +99,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const { isOwner } = useAuth();
   const raceCount = format === 'champions_league' ? 3 : 2;
   const maxGroups = format === 'champions_league' ? 2 : 3;
+  const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   const [scoring, setScoring] = useState<ScoringData | null>(null);
   useEffect(() => { fetch('/data/scoring.json').then(r => r.json()).then(setScoring).catch(() => {}); }, []);
@@ -450,29 +452,43 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     <tr key={row.pilot} className={`border-b border-dark-800/50 ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : 'hover:bg-dark-700/30'}`}>
                       <td className="px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700">{isExcluded ? '—' : i + 1}</td>
                       <td className="px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap">
-                        <span className="text-white">{row.pilot}</span>
-                        {isOwner && (
+                        {renamingPilot === row.pilot ? (
+                          <form onSubmit={(e) => {
+                            e.preventDefault();
+                            const newName = renameValue.trim();
+                            if (newName && newName !== row.pilot) {
+                              (async () => {
+                                for (const s of sessions) {
+                                  await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                                    body: JSON.stringify({ sessionId: s.sessionId, oldName: row.pilot, newName }),
+                                  }).catch(() => {});
+                                }
+                                window.location.reload();
+                              })();
+                            }
+                            setRenamingPilot(null);
+                          }} className="flex items-center gap-1">
+                            <input autoFocus type="text" value={renameValue}
+                              onChange={e => setRenameValue(e.target.value)}
+                              onBlur={() => setRenamingPilot(null)}
+                              onKeyDown={e => { if (e.key === 'Escape') setRenamingPilot(null); }}
+                              className="w-32 bg-dark-800 border border-primary-500 text-white text-[10px] rounded px-1.5 py-0.5 outline-none" />
+                          </form>
+                        ) : (
                           <>
-                            <button onClick={(e) => {
-                              e.stopPropagation();
-                              const newName = prompt(`Перейменувати "${row.pilot}" на:`, row.pilot);
-                              if (newName && newName !== row.pilot) {
-                                (async () => {
-                                  for (const s of sessions) {
-                                    await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                                      body: JSON.stringify({ sessionId: s.sessionId, oldName: row.pilot, newName }),
-                                    }).catch(() => {});
-                                  }
-                                  window.location.reload();
-                                })();
-                              }
-                            }} className="ml-1 text-[9px] px-0.5 rounded text-dark-600 hover:text-primary-400 transition-colors">✎</button>
-                            <button onClick={() => toggleExclude(row.pilot)}
-                              className={`text-[9px] px-0.5 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-600 hover:text-red-400'}`}>
-                              {isExcluded ? '↩' : '✕'}
-                            </button>
+                            <span className="text-white">{row.pilot}</span>
+                            {isOwner && (
+                              <>
+                                <button onClick={() => { setRenamingPilot(row.pilot); setRenameValue(row.pilot); }}
+                                  className="ml-1 text-[9px] px-0.5 rounded text-dark-600 hover:text-primary-400 transition-colors">✎</button>
+                                <button onClick={() => toggleExclude(row.pilot)}
+                                  className={`text-[9px] px-0.5 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-600 hover:text-red-400'}`}>
+                                  {isExcluded ? '↩' : '✕'}
+                                </button>
+                              </>
+                            )}
                           </>
                         )}
                       </td>
