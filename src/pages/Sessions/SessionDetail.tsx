@@ -190,14 +190,22 @@ export default function SessionDetail() {
   // Merge "Карт X" → real pilot name and build stats
   const mergedLaps = mergePilotNames(dbLaps);
 
-  const pilotMap = new Map<string, { kart: number; laps: DbLap[]; bestLap: number }>();
+  const pilotMap = new Map<string, { kart: number; laps: DbLap[]; bestLap: number; bestS1: number; bestS2: number }>();
   for (const lap of mergedLaps) {
-    if (!pilotMap.has(lap.pilot)) pilotMap.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity });
+    if (!pilotMap.has(lap.pilot)) pilotMap.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity, bestS1: Infinity, bestS2: Infinity });
     const p = pilotMap.get(lap.pilot)!;
     p.laps.push(lap);
     if (lap.lap_time) {
       const sec = parseLapTime(lap.lap_time);
       if (sec !== null && sec < p.bestLap) p.bestLap = sec;
+    }
+    if (lap.s1) {
+      const v = parseLapTime(lap.s1);
+      if (v !== null && v >= 10 && v < p.bestS1) p.bestS1 = v;
+    }
+    if (lap.s2) {
+      const v = parseLapTime(lap.s2);
+      if (v !== null && v >= 10 && v < p.bestS2) p.bestS2 = v;
     }
   }
   const pilots = [...pilotMap.entries()]

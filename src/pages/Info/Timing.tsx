@@ -168,7 +168,7 @@ export default function Timing() {
       ts: l.ts,
     })));
 
-  const replayPilots = buildPilotLaps(replayLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time })));
+  const replayPilots = buildPilotLaps(replayLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time, s1: l.s1, s2: l.s2 })));
   const { prefs, toggle } = useViewPrefs();
   const hasReplayData = sessionStartTime != null && currentSessionId != null;
   const replayDuration = sessionStartTime
