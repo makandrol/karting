@@ -457,6 +457,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                             e.preventDefault();
                             const newName = renameValue.trim();
                             if (newName && newName !== row.pilot) {
+                              setRenamingPilot(null);
                               (async () => {
                                 for (const s of sessions) {
                                   await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
@@ -467,14 +468,15 @@ export default function LeagueResults({ format, competitionId, sessions, session
                                 }
                                 window.location.reload();
                               })();
+                            } else {
+                              setRenamingPilot(null);
                             }
-                            setRenamingPilot(null);
                           }} className="flex items-center gap-1">
                             <input autoFocus type="text" value={renameValue}
                               onChange={e => setRenameValue(e.target.value)}
-                              onBlur={() => setRenamingPilot(null)}
                               onKeyDown={e => { if (e.key === 'Escape') setRenamingPilot(null); }}
                               className="w-32 bg-dark-800 border border-primary-500 text-white text-[10px] rounded px-1.5 py-0.5 outline-none" />
+                          </form>
                           </form>
                         ) : (
                           <>
