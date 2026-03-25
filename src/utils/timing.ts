@@ -57,6 +57,14 @@ export function toSeconds(t: string | null): string {
   return sec.toFixed(3);
 }
 
+/** Like toSeconds but truncated to hundredths: "18.080" → "18.08" */
+export function toHundredths(t: string | null): string {
+  if (!t) return '—';
+  const sec = parseTime(t);
+  if (sec === null) return t;
+  return sec.toFixed(2);
+}
+
 /**
  * Merge laps where pilot name is "Карт X" with subsequent laps from a named pilot on the same kart.
  * The timing system sometimes shows "Карт X" for the first few laps before the real name appears.
@@ -87,10 +95,10 @@ export async function fetchRaceStartPositions(
   competitionId: string,
   currentPhase: string,
   format: string,
-): Promise<Map<string, number>> {
+): Promise<{ positions: Map<string, number>; totalQualified: number }> {
   const result = new Map<string, number>();
   const raceMatch = currentPhase.match(/^race_(\d+)_group_(\d+)$/);
-  if (!raceMatch) return result;
+  if (!raceMatch) return { positions: result, totalQualified: 0 };
 
   const raceNum = parseInt(raceMatch[1]);
   const groupNum = parseInt(raceMatch[2]);
@@ -154,7 +162,8 @@ export async function fetchRaceStartPositions(
       }
       idx += size;
     }
+    return { positions: result, totalQualified: qualified.length };
   } catch { /* ignore */ }
 
-  return result;
+  return { positions: result, totalQualified: 0 };
 }

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { toSeconds, shortName } from '../../utils/timing';
+import { toSeconds, toHundredths, shortName, parseTime, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 
 function parseLapTime(t: string): number | null {
@@ -14,29 +14,42 @@ export interface LapData {
   pilot: string;
   kart: number;
   lap_time: string | null;
+  s1?: string | null;
+  s2?: string | null;
 }
 
 interface PilotLaps {
   name: string;
   laps: LapData[];
   bestLap: number;
+  bestS1: number;
+  bestS2: number;
 }
 
 interface LapsByPilotsProps {
   pilots: PilotLaps[];
   currentEntries?: TimingEntry[];
   isLive?: boolean;
+  onRenamePilot?: (oldName: string, newName: string) => void;
 }
 
 export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
-  const map = new Map<string, { kart: number; laps: LapData[]; bestLap: number }>();
+  const map = new Map<string, { kart: number; laps: LapData[]; bestLap: number; bestS1: number; bestS2: number }>();
   for (const lap of laps) {
-    if (!map.has(lap.pilot)) map.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity });
+    if (!map.has(lap.pilot)) map.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity, bestS1: Infinity, bestS2: Infinity });
     const p = map.get(lap.pilot)!;
     p.laps.push(lap);
     if (lap.lap_time) {
       const sec = parseLapTime(lap.lap_time);
       if (sec !== null && sec < p.bestLap) p.bestLap = sec;
+    }
+    if (lap.s1) {
+      const v = parseLapTime(lap.s1);
+      if (v !== null && v >= 10 && v < p.bestS1) p.bestS1 = v;
+    }
+    if (lap.s2) {
+      const v = parseLapTime(lap.s2);
+      if (v !== null && v >= 10 && v < p.bestS2) p.bestS2 = v;
     }
   }
   return [...map.entries()]
@@ -44,8 +57,10 @@ export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
     .map(([name, data]) => ({ name, ...data }));
 }
 
-export default function LapsByPilots({ pilots, currentEntries = [], isLive }: LapsByPilotsProps) {
+export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot }: LapsByPilotsProps) {
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
+  const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
+  const overallBestS2 = Math.min(...pilots.map(p => p.bestS2).filter(v => v < Infinity));
   const maxLaps = Math.max(...pilots.map(p => p.laps.length), 0);
 
   const completedLapsMap = new Map<string, number>();
@@ -71,6 +86,14 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive }: La
                   <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors">
                     {shortName(p.name)}
                   </Link>
+                  {onRenamePilot && (
+                    <button onClick={(e) => {
+                      e.stopPropagation();
+                      const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
+                      if (newName && newName !== p.name) onRenamePilot(p.name, newName);
+                    }} className="ml-0.5 text-dark-500 hover:text-primary-400 text-[9px]">✎</button>
+                  )}
+                  <div className="text-dark-600 text-[9px] font-normal">К{p.laps[0]?.kart}</div>
                 </th>
               ))}
             </tr>
@@ -89,11 +112,26 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive }: La
                   const sec = parseLapTime(lap.lap_time);
                   const isPB = sec !== null && Math.abs(sec - p.bestLap) < 0.002;
                   const isOverall = sec !== null && Math.abs(sec - overallBest) < 0.002;
+
+                  const s1Val = lap.s1 ? parseLapTime(lap.s1) : null;
+                  const s2Val = lap.s2 ? parseLapTime(lap.s2) : null;
+                  const s1Str = s1Val !== null && s1Val >= 10 ? (p.bestS1 < Infinity ? String(p.bestS1) : null) : null;
+                  const s2Str = s2Val !== null && s2Val >= 10 ? (p.bestS2 < Infinity ? String(p.bestS2) : null) : null;
+                  const s1Color = s1Val !== null && s1Val >= 10 ? getTimeColor(lap.s1!, s1Str, overallBestS1 < Infinity ? overallBestS1 : null) : 'none';
+                  const s2Color = s2Val !== null && s2Val >= 10 ? getTimeColor(lap.s2!, s2Str, overallBestS2 < Infinity ? overallBestS2 : null) : 'none';
+
                   return (
                     <td key={p.name} className={`table-cell text-center font-mono ${
                       isOverall ? 'text-purple-400 font-bold' : isPB ? 'text-green-400 font-bold' : 'text-dark-300'
                     } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>
-                      {toSeconds(lap.lap_time)}
+                      <div>{toSeconds(lap.lap_time)}</div>
+                      {(s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10) ? (
+                        <div className="text-[8px] leading-tight mt-0.5">
+                          <span className={s1Color === 'purple' ? 'text-purple-400' : s1Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s1Val !== null && s1Val >= 10 ? toHundredths(lap.s1!) : '—'}</span>
+                          <span className="text-dark-700"> </span>
+                          <span className={s2Color === 'purple' ? 'text-purple-400' : s2Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s2Val !== null && s2Val >= 10 ? toHundredths(lap.s2!) : '—'}</span>
+                        </div>
+                      ) : null}
                     </td>
                   );
                 })}

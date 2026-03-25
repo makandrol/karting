@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { TrackMap } from '../../components/Track';
 import DayTimeline from '../../components/Timing/DayTimeline';
 import CompetitionControl from '../../components/Timing/CompetitionControl';
-import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition } from '../../components/Timing/SessionReplay';
+import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
@@ -61,11 +61,11 @@ export default function Timing() {
   // Compute start positions from competition data (qualifying / previous race)
   useEffect(() => {
     if (!liveSessionComp.competitionId || !liveSessionComp.phase?.startsWith('race_') || !liveSessionComp.format) {
-      setStartPositions(new Map()); return;
+      setStartPositions(new Map()); setTotalQualifiedPilots(0); return;
     }
     fetchRaceStartPositions(COLLECTOR_URL, liveSessionComp.competitionId, liveSessionComp.phase, liveSessionComp.format)
-      .then(setStartPositions)
-      .catch(() => setStartPositions(new Map()));
+      .then(r => { setStartPositions(r.positions); setTotalQualifiedPilots(r.totalQualified); })
+      .catch(() => { setStartPositions(new Map()); setTotalQualifiedPilots(0); });
   }, [liveSessionComp.competitionId, liveSessionComp.phase, liveSessionComp.format]);
 
   // Fetch laps for active session (for replay)
@@ -73,6 +73,7 @@ export default function Timing() {
   const [s1Events, setS1Events] = useState<S1Event[]>([]);
   const [replaySnapshots, setReplaySnapshots] = useState<SnapshotPosition[]>([]);
   const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
+  const [totalQualifiedPilots, setTotalQualifiedPilots] = useState(0);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
 
@@ -102,40 +103,11 @@ export default function Timing() {
         fetch(`${COLLECTOR_URL}/db/events?session=${currentSessionId}`).then(r => r.json()).catch(() => []),
       ]);
       setReplayLaps(lapsRes);
-      const parsed: S1Event[] = [];
-      const allSnapshots: SnapshotPosition[] = [];
-      let firstSnapshotPos: Map<string, number> | null = null;
-      for (const ev of eventsRes) {
-        if (ev.event_type === 's1' && ev.data) {
-          const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-          if (d.pilot && d.s1) parsed.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
-        }
-        if (ev.event_type === 'snapshot' && ev.data) {
-          const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-          const positions = new Map<string, number>();
-          for (const en of (d.entries || [])) {
-            if (en.pilot && en.position) positions.set(en.pilot, Number(en.position));
-          }
-          if (positions.size > 0) {
-            allSnapshots.push({ ts: ev.ts, positions });
-            if (!firstSnapshotPos) firstSnapshotPos = positions;
-          }
-        }
-        if (ev.event_type === 'positions' && ev.data) {
-          const arr = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-          if (Array.isArray(arr)) {
-            const positions = new Map<string, number>();
-            for (const p of arr) {
-              if (p.pilot && p.position) positions.set(p.pilot, Number(p.position));
-            }
-            if (positions.size > 0) allSnapshots.push({ ts: ev.ts, positions });
-          }
-        }
-      }
-      setS1Events(parsed);
-      setReplaySnapshots(allSnapshots.sort((a, b) => a.ts - b.ts));
+      const parsed = parseSessionEvents(eventsRes);
+      setS1Events(parsed.s1Events);
+      setReplaySnapshots(parsed.snapshots);
       if (!liveSessionComp.competitionId || !liveSessionComp.phase?.startsWith('race_')) {
-        if (firstSnapshotPos) setStartPositions(firstSnapshotPos);
+        if (parsed.firstSnapshotPos) setStartPositions(parsed.firstSnapshotPos);
       }
     } catch { /* ignore */ }
   }, [currentSessionId, liveSessionComp.competitionId, liveSessionComp.phase]);
@@ -168,7 +140,7 @@ export default function Timing() {
       ts: l.ts,
     })));
 
-  const replayPilots = buildPilotLaps(replayLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time })));
+  const replayPilots = buildPilotLaps(replayLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time, s1: l.s1, s2: l.s2 })));
   const { prefs, toggle } = useViewPrefs();
   const hasReplayData = sessionStartTime != null && currentSessionId != null;
   const replayDuration = sessionStartTime
@@ -300,10 +272,12 @@ export default function Timing() {
                 s1Events={s1Events}
                 snapshots={replaySnapshots}
                 startPositions={startPositions}
+                raceGroup={liveSessionComp.phase?.match(/group_(\d+)/)?.[1] ? parseInt(liveSessionComp.phase!.match(/group_(\d+)/)![1]) : undefined}
+                totalQualifiedPilots={totalQualifiedPilots || undefined}
                 defaultSortMode={liveSessionComp.phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                 onEntriesUpdate={setTrackEntries}
                 renderScrubber={(scrubber) => (
-                  <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+                  <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
                     {scrubber}
                   </div>
                 )}

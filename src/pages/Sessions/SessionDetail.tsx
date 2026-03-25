@@ -2,7 +2,8 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds, mergePilotNames, shortName, fetchRaceStartPositions } from '../../utils/timing';
-import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition } from '../../components/Timing/SessionReplay';
+import { useAuth } from '../../services/auth';
+import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
@@ -54,6 +55,8 @@ function fmtDuration(startMs: number, endMs: number): string {
 export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const { allTracks } = useTrack();
+  const { isOwner } = useAuth();
+  const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
   const [dbSession, setDbSession] = useState<DbSession | null>(null);
   const [daySessions, setDaySessions] = useState<DbSession[]>([]);
@@ -61,6 +64,7 @@ export default function SessionDetail() {
   const [s1Events, setS1Events] = useState<S1Event[]>([]);
   const [replaySnapshots, setReplaySnapshots] = useState<SnapshotPosition[]>([]);
   const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
+  const [totalQualifiedPilots, setTotalQualifiedPilots] = useState(0);
   const [liveEntries, setLiveEntries] = useState<any[]>([]);
   const [dbLoading, setDbLoading] = useState(true);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
@@ -88,46 +92,19 @@ export default function SessionDetail() {
         // Fetch laps from all merged session IDs
         const sessionIds = found?.merged_session_ids || [sessionId];
         const allLaps: DbLap[] = [];
-        const allS1Events: S1Event[] = [];
-        const allSnapshots: SnapshotPosition[] = [];
-        let firstSnapshotPos: Map<string, number> | null = null;
+        const allEvents: any[] = [];
         for (const sid of sessionIds) {
           const [sLaps, sEvents] = await Promise.all([
             fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()),
             fetch(`${COLLECTOR_URL}/db/events?session=${sid}`).then(r => r.json()).catch(() => []),
           ]);
           allLaps.push(...sLaps);
-          for (const ev of sEvents) {
-            if (ev.event_type === 's1' && ev.data) {
-              const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-              if (d.pilot && d.s1) allS1Events.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
-            }
-            if (ev.event_type === 'snapshot' && ev.data) {
-              const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-              const positions = new Map<string, number>();
-              for (const en of (d.entries || [])) {
-                if (en.pilot && en.position) positions.set(en.pilot, Number(en.position));
-              }
-              if (positions.size > 0) {
-                allSnapshots.push({ ts: ev.ts, positions });
-                if (!firstSnapshotPos) firstSnapshotPos = positions;
-              }
-            }
-            if (ev.event_type === 'positions' && ev.data) {
-              const arr = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
-              if (Array.isArray(arr)) {
-                const positions = new Map<string, number>();
-                for (const p of arr) {
-                  if (p.pilot && p.position) positions.set(p.pilot, Number(p.position));
-                }
-                if (positions.size > 0) allSnapshots.push({ ts: ev.ts, positions });
-              }
-            }
-          }
+          allEvents.push(...sEvents);
         }
+        const parsed = parseSessionEvents(allEvents);
         setDbLaps(allLaps);
-        setS1Events(allS1Events);
-        setReplaySnapshots(allSnapshots.sort((a, b) => a.ts - b.ts));
+        setS1Events(parsed.s1Events);
+        setReplaySnapshots(parsed.snapshots);
 
         // Compute start positions from competition data
         const compPhase = (found as any)?.competition_phase;
@@ -135,9 +112,9 @@ export default function SessionDetail() {
         const compFormat = (found as any)?.competition_format;
         if (compId && compPhase?.startsWith('race_') && compFormat) {
           const sp = await fetchRaceStartPositions(COLLECTOR_URL, compId, compPhase, compFormat);
-          if (active) setStartPositions(sp);
-        } else if (firstSnapshotPos) {
-          if (active) setStartPositions(firstSnapshotPos);
+          if (active) { setStartPositions(sp.positions); setTotalQualifiedPilots(sp.totalQualified); }
+        } else if (parsed.firstSnapshotPos) {
+          if (active) setStartPositions(parsed.firstSnapshotPos);
         }
 
         if (found && !found.end_time) {
@@ -173,6 +150,19 @@ export default function SessionDetail() {
 
   const { prefs, toggle } = useViewPrefs();
 
+  const handleRenamePilot = async (oldName: string, newName: string) => {
+    if (!sessionId) return;
+    const sessionIds = dbSession?.merged_session_ids || [sessionId];
+    for (const sid of sessionIds) {
+      await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ sessionId: sid, oldName, newName }),
+      }).catch(() => {});
+    }
+    window.location.reload();
+  };
+
   if (dbLoading) {
     return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
   }
@@ -190,14 +180,22 @@ export default function SessionDetail() {
   // Merge "Карт X" → real pilot name and build stats
   const mergedLaps = mergePilotNames(dbLaps);
 
-  const pilotMap = new Map<string, { kart: number; laps: DbLap[]; bestLap: number }>();
+  const pilotMap = new Map<string, { kart: number; laps: DbLap[]; bestLap: number; bestS1: number; bestS2: number }>();
   for (const lap of mergedLaps) {
-    if (!pilotMap.has(lap.pilot)) pilotMap.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity });
+    if (!pilotMap.has(lap.pilot)) pilotMap.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity, bestS1: Infinity, bestS2: Infinity });
     const p = pilotMap.get(lap.pilot)!;
     p.laps.push(lap);
     if (lap.lap_time) {
       const sec = parseLapTime(lap.lap_time);
       if (sec !== null && sec < p.bestLap) p.bestLap = sec;
+    }
+    if (lap.s1) {
+      const v = parseLapTime(lap.s1);
+      if (v !== null && v >= 10 && v < p.bestS1) p.bestS1 = v;
+    }
+    if (lap.s2) {
+      const v = parseLapTime(lap.s2);
+      if (v !== null && v >= 10 && v < p.bestS2) p.bestS2 = v;
     }
   }
   const pilots = [...pilotMap.entries()]
@@ -352,10 +350,12 @@ export default function SessionDetail() {
                   s1Events={s1Events}
                   snapshots={replaySnapshots}
                   startPositions={startPositions}
+                  raceGroup={(dbSession as any).competition_phase?.match(/group_(\d+)/)?.[1] ? parseInt((dbSession as any).competition_phase.match(/group_(\d+)/)[1]) : undefined}
+                  totalQualifiedPilots={totalQualifiedPilots || undefined}
                   defaultSortMode={(dbSession as any).competition_phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                   onEntriesUpdate={setTrackEntries}
                   renderScrubber={(scrubber) => (
-                    <div className="sticky top-12 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+                    <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
                       {scrubber}
                     </div>
                   )}
@@ -386,7 +386,7 @@ export default function SessionDetail() {
                 className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
                 сховати
               </button>
-              <LapsByPilots pilots={pilots} currentEntries={trackEntries} />
+              <LapsByPilots pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined} />
             </div>
           ) : (
             <button onClick={() => toggle('showLapsByPilots')}

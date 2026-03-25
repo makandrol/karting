@@ -663,6 +663,13 @@ export const storage = {
     }
     return false;
   },
+
+  renamePilot(sessionId, oldName, newName) {
+    const updLaps = db.prepare('UPDATE laps SET pilot = ? WHERE session_id = ? AND pilot = ?');
+    const result = updLaps.run(newName, sessionId, oldName);
+    console.log(`✏️ Renamed "${oldName}" → "${newName}" in ${sessionId}: ${result.changes} laps`);
+    return result.changes;
+  },
 };
 
 console.log(`💾 SQLite DB: ${DB_PATH}`);

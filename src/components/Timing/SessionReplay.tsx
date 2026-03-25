@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
-import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
+import { parseTime, toSeconds, toHundredths, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
 
 // ============================================================
 // SessionReplay component
@@ -18,6 +18,68 @@ export interface SnapshotPosition {
   positions: Map<string, number>;
 }
 
+export function parseSessionEvents(rawEvents: any[]): {
+  s1Events: S1Event[];
+  snapshots: SnapshotPosition[];
+  firstSnapshotPos: Map<string, number> | null;
+} {
+  const s1Events: S1Event[] = [];
+  const snapshots: SnapshotPosition[] = [];
+  let firstSnapshotPos: Map<string, number> | null = null;
+  const currentPositions = new Map<string, number>();
+
+  for (const ev of rawEvents) {
+    const d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+    if (!d) continue;
+
+    if (ev.event_type === 's1') {
+      if (d.pilot && d.s1) s1Events.push({ pilot: d.pilot, s1: d.s1, ts: ev.ts });
+      const pos = d.team?.position ?? d.position;
+      if (d.pilot && pos) currentPositions.set(d.pilot, Number(pos));
+    }
+
+    if (ev.event_type === 'snapshot') {
+      const positions = new Map<string, number>();
+      for (const en of (d.entries || [])) {
+        if (en.pilot && en.position) {
+          positions.set(en.pilot, Number(en.position));
+          currentPositions.set(en.pilot, Number(en.position));
+        }
+      }
+      if (positions.size > 0) {
+        snapshots.push({ ts: ev.ts, positions });
+        if (!firstSnapshotPos) firstSnapshotPos = positions;
+      }
+    }
+
+    if (ev.event_type === 'positions') {
+      const arr = Array.isArray(d) ? d : [];
+      const positions = new Map<string, number>();
+      for (const p of arr) {
+        if (p.pilot && p.position) {
+          positions.set(p.pilot, Number(p.position));
+          currentPositions.set(p.pilot, Number(p.position));
+        }
+      }
+      if (positions.size > 0) snapshots.push({ ts: ev.ts, positions });
+    }
+
+    if (ev.event_type === 'lap' || ev.event_type === 'update') {
+      const pos = d.team?.position ?? d.position;
+      if (d.pilot && pos) {
+        const newPos = Number(pos);
+        if (currentPositions.get(d.pilot) !== newPos) {
+          currentPositions.set(d.pilot, newPos);
+          snapshots.push({ ts: ev.ts, positions: new Map(currentPositions) });
+        }
+      }
+    }
+  }
+
+  snapshots.sort((a, b) => a.ts - b.ts);
+  return { s1Events, snapshots, firstSnapshotPos };
+}
+
 export type ReplaySortMode = 'qualifying' | 'race';
 
 interface SessionReplayProps {
@@ -31,13 +93,15 @@ interface SessionReplayProps {
   s1Events?: S1Event[];
   snapshots?: SnapshotPosition[];
   startPositions?: Map<string, number>;
+  raceGroup?: number;
+  totalQualifiedPilots?: number;
   defaultSortMode?: ReplaySortMode;
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
   const [speed, setSpeed] = useState(1);
@@ -45,6 +109,11 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
   const [sortMode, setSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
 
   useEffect(() => { if (defaultSortMode) setSortMode(defaultSortMode); }, [defaultSortMode]);
+
+  // Scoring data for race points
+  const [scoringData, setScoringData] = useState<any>(null);
+  useEffect(() => { fetch('/data/scoring.json').then(r => r.json()).then(setScoringData).catch(() => {}); }, []);
+
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
   const durationRef = useRef(durationSec);
@@ -197,22 +266,25 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         displayS1 = liveEntry.s1 || null;
         displayS2 = liveEntry.s2 || null;
         displayLap = liveEntry.lastLap || prevLapData?.lapTime || null;
-      } else if (sessionStartTime && pilotS1Events.size > 0) {
-        const currentMs = sessionStartTime + timeSec * 1000;
-        const events = pilotS1Events.get(pilot);
-        let latestS1: string | null = null;
-        if (events) {
-          for (let i = events.length - 1; i >= 0; i--) {
-            if (events[i].ts <= currentMs) { latestS1 = events[i].s1; break; }
-          }
-        }
-        displayS1 = latestS1;
-        displayS2 = prevLapData?.s2 || null;
-        displayLap = prevLapData?.lapTime || null;
       } else {
         displayS1 = prevLapData?.s1 || null;
         displayS2 = prevLapData?.s2 || null;
         displayLap = prevLapData?.lapTime || null;
+
+        if (sessionStartTime && pilotS1Events.size > 0 && !onCurrentUnrecordedLap) {
+          const currentMs = sessionStartTime + timeSec * 1000;
+          const timeline = pilotTimelines.get(pilot) || [];
+          const lastLapMs = completedLaps > 0 ? timeline[completedLaps - 1] : 0;
+          const events = pilotS1Events.get(pilot);
+          if (events) {
+            for (let i = events.length - 1; i >= 0; i--) {
+              if (events[i].ts <= currentMs && events[i].ts > lastLapMs) {
+                displayS1 = events[i].s1;
+                break;
+              }
+            }
+          }
+        }
       }
 
       // Best lap, S1, S2 among completed laps
@@ -484,7 +556,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
             <tr className="table-header">
               <th className="table-cell text-center w-5">#</th>
               <th className="table-cell text-left min-w-[70px]">Pilot</th>
-              <th className="table-cell text-center text-dark-500 w-5" style={{ paddingLeft: 0 }}>+/-</th>
+              {sortMode === 'race' && <th className="table-cell text-center text-dark-500 w-5" style={{ paddingLeft: 0 }}>+/-</th>}
+              {sortMode === 'race' && raceGroup && <th className="table-cell text-center text-dark-500 w-6">P</th>}
               <th className="table-cell text-center">Kart</th>
               <th className="table-cell text-right">Last</th>
               <th className="table-cell text-right">S1</th>
@@ -492,6 +565,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
               <th className="table-cell text-right">Best</th>
               <th className="table-cell text-right">B.S1</th>
               <th className="table-cell text-right">B.S2</th>
+              <th className="table-cell text-right">TB</th>
               <th className="table-cell text-center">L</th>
               <th className="table-cell w-6"></th>
             </tr>
@@ -524,7 +598,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                       />
                     </div>
                   </td>
-                  <td className="table-cell text-center font-mono text-[10px]" style={{ paddingLeft: 0 }}>{(() => {
+                  {sortMode === 'race' && <td className="table-cell text-center font-mono text-[10px]" style={{ paddingLeft: 0 }}>{(() => {
                     if (notStarted) return '';
                     const st = e.currentLapSec;
                     if (st == null) return '—';
@@ -532,25 +606,56 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                     if (diff > 0) return <span className="text-green-400">↑{diff}</span>;
                     if (diff < 0) return <span className="text-red-400">↓{Math.abs(diff)}</span>;
                     return <span className="text-dark-600">0</span>;
-                  })()}</td>
+                  })()}</td>}
+                  {sortMode === 'race' && raceGroup && scoringData && <td className="table-cell text-center font-mono text-[10px] text-green-400/70">{(() => {
+                    if (notStarted) return '';
+                    const st = e.currentLapSec;
+                    if (st == null) return '—';
+                    const finishPos = e.position;
+                    const groupLabel = raceGroup === 1 ? 'I' : raceGroup === 2 ? 'II' : 'III';
+                    const total = totalQualifiedPilots || 0;
+                    const cat = scoringData.positionPoints?.find((c: any) => total >= c.minPilots && total <= c.maxPilots);
+                    const posArr = cat?.groups?.[groupLabel];
+                    const posPoints = posArr && finishPos >= 1 && finishPos <= posArr.length ? posArr[finishPos - 1] : 0;
+                    let overtakePoints = 0;
+                    for (let pos = st; pos > finishPos; pos--) {
+                      if (raceGroup === 3) overtakePoints += scoringData.overtakePoints?.groupIII ?? 0;
+                      else if (raceGroup === 2) overtakePoints += scoringData.overtakePoints?.groupII ?? 0;
+                      else {
+                        const rule = scoringData.overtakePoints?.groupI?.find((r: any) => pos >= r.startPosMin && pos <= r.startPosMax);
+                        overtakePoints += rule?.perOvertake ?? 0;
+                      }
+                    }
+                    const total_pts = Math.round((posPoints + overtakePoints) * 10) / 10;
+                    return total_pts || '—';
+                  })()}</td>}
                   <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
                     {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
-                    {notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toSeconds(e.s1) : '—')}
+                    {notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toHundredths(e.s1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
-                    {notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toSeconds(e.s2) : '—')}
+                    {notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toHundredths(e.s2) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>
                     {notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
-                    {notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toSeconds(e.bestS1) : '—')}
+                    {notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toHundredths(e.bestS1) : '—')}
                   </td>
                   <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
-                    {notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toSeconds(e.bestS2) : '—')}
+                    {notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toHundredths(e.bestS2) : '—')}
+                  </td>
+                  <td className="table-cell text-right font-mono text-[11px] text-dark-400">
+                    {(() => {
+                      if (notStarted) return '';
+                      const s1 = parseTime(e.bestS1);
+                      const s2 = parseTime(e.bestS2);
+                      if (s1 === null || s1 < 10 || s2 === null || s2 < 10) return '—';
+                      return (s1 + s2).toFixed(3);
+                    })()}
                   </td>
                   <td className="table-cell text-center font-mono text-dark-500">
                     {notStarted ? '' : e.lapNumber}

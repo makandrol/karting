@@ -27,8 +27,14 @@ interface LeagueResultsProps {
   competitionId: string;
   sessions: CompSession[];
   sessionLaps: Map<string, SessionLap[]>;
+  liveSessionId?: string | null;
+  livePositions?: { pilot: string; position: number }[];
+  livePilots?: string[];
+  liveEnabled?: boolean;
+  onToggleLive?: () => void;
   initialExcludedPilots?: string[];
   initialEdits?: ManualEdits;
+  initialMergedPilots?: Record<string, string>;
 }
 
 interface ScoringData {
@@ -88,11 +94,13 @@ function getPositionPoints(scoring: ScoringData, totalPilots: number, group: str
   return pts[finishPos - 1];
 }
 
-export default function LeagueResults({ format, competitionId, sessions, sessionLaps, initialExcludedPilots, initialEdits }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits }: LeagueResultsProps) {
   const { prefs, toggle } = useViewPrefs();
   const { isOwner } = useAuth();
   const raceCount = format === 'champions_league' ? 3 : 2;
   const maxGroups = format === 'champions_league' ? 2 : 3;
+  const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   const [scoring, setScoring] = useState<ScoringData | null>(null);
   useEffect(() => { fetch('/data/scoring.json').then(r => r.json()).then(setScoring).catch(() => {}); }, []);
@@ -234,7 +242,16 @@ export default function LeagueResults({ format, competitionId, sessions, session
             if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
           }
         }
-        // Race finish: by position from timing system on last lap
+        // Override positions with live timing data if this is the active session
+        const isActiveSession = rs.sessionId === liveSessionId && livePositions && livePositions.length > 0;
+        if (isActiveSession) {
+          for (const lp of livePositions!) {
+            const ps = pilotStats.get(lp.pilot);
+            if (ps) ps.lastPosition = lp.position;
+          }
+        }
+
+        // Race finish: by position from timing system
         const sorted = [...pilotStats.entries()]
           .filter(([p]) => !excludedPilots.has(p))
           .sort((a, b) => {
@@ -286,6 +303,19 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
       raceResults.push(rData);
       if (raceTimes.length > 0) prevRaceTimes = raceTimes.filter(r => !excludedPilots.has(r.pilot));
+
+      // Fill start positions for pilots without race data yet (race hasn't started)
+      if (rData.size === 0 || rSessions.length === 0) {
+        for (const [pilot, sp] of startPositions) {
+          if (!rData.has(pilot) && !excludedPilots.has(pilot)) {
+            rData.set(pilot, {
+              kart: 0, bestTime: Infinity, bestTimeStr: '',
+              group: sp.group, startPos: sp.startPos, finishPos: 0,
+              positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
+            });
+          }
+        }
+      }
     }
 
     // 4. Build rows
@@ -301,7 +331,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     });
 
     return rows;
-  }, [sessions, sessionLaps, scoring, edits, raceCount, maxGroups, excludedPilots]);
+  }, [sessions, sessionLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePositions]);
 
   const sortedData = useMemo(() => {
     const included = data.filter(r => !excludedPilots.has(r.pilot));
@@ -348,6 +378,14 @@ export default function LeagueResults({ format, competitionId, sessions, session
         <div className="card p-0 overflow-hidden">
           <div className="px-4 py-2.5 border-b border-dark-800 flex items-center gap-3 flex-wrap">
             <button onClick={() => toggle('showLeaguePoints')} className="text-white font-semibold text-sm hover:text-dark-300 transition-colors">Таблиця балів ▾</button>
+            {onToggleLive && (
+              <button onClick={onToggleLive}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors ${
+                  liveEnabled ? 'bg-green-500/20 text-green-400' : 'bg-dark-800 text-dark-500 hover:text-dark-300'
+                }`}>
+                {liveEnabled ? '● LIVE' : '○ LIVE'}
+              </button>
+            )}
             <div className="flex gap-1 flex-wrap">
               <SortBtn k="total" label="Сума" />
               <SortBtn k="quali_time" label="Квала" fixedDir="asc" />
@@ -409,16 +447,50 @@ export default function LeagueResults({ format, competitionId, sessions, session
               <tbody>
                   {sortedData.map((row, i) => {
                     const isExcluded = excludedPilots.has(row.pilot);
+                    const isOnTrack = livePilots?.includes(row.pilot);
                     return (
-                    <tr key={row.pilot} className={`border-b border-dark-800/50 ${isExcluded ? 'opacity-30' : 'hover:bg-dark-700/30'}`}>
+                    <tr key={row.pilot} className={`border-b border-dark-800/50 ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : 'hover:bg-dark-700/30'}`}>
                       <td className="px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700">{isExcluded ? '—' : i + 1}</td>
                       <td className="px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap">
-                        <span className="text-white">{row.pilot}</span>
-                        {isOwner && (
-                          <button onClick={() => toggleExclude(row.pilot)}
-                            className={`ml-1 text-[9px] px-1 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-700 hover:text-red-400'}`}>
-                            {isExcluded ? '↩' : '✕'}
-                          </button>
+                        {renamingPilot === row.pilot ? (
+                          <form onSubmit={(e) => {
+                            e.preventDefault();
+                            const newName = renameValue.trim();
+                            if (newName && newName !== row.pilot) {
+                              setRenamingPilot(null);
+                              (async () => {
+                                for (const s of sessions) {
+                                  await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                                    body: JSON.stringify({ sessionId: s.sessionId, oldName: row.pilot, newName }),
+                                  }).catch(() => {});
+                                }
+                                window.location.reload();
+                              })();
+                            } else {
+                              setRenamingPilot(null);
+                            }
+                          }} className="flex items-center gap-1">
+                            <input autoFocus type="text" value={renameValue}
+                              onChange={e => setRenameValue(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Escape') setRenamingPilot(null); }}
+                              className="w-32 bg-dark-800 border border-primary-500 text-white text-[10px] rounded px-1.5 py-0.5 outline-none" />
+                          </form>
+                        ) : (
+                          <>
+                            <span className="text-white">{row.pilot}</span>
+                            {isOwner && (
+                              <>
+                                <button onClick={() => { setRenamingPilot(row.pilot); setRenameValue(row.pilot); }}
+                                  className="ml-1 text-[9px] px-0.5 rounded text-dark-600 hover:text-primary-400 transition-colors">✎</button>
+                                <button onClick={() => toggleExclude(row.pilot)}
+                                  className={`text-[9px] px-0.5 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-600 hover:text-red-400'}`}>
+                                  {isExcluded ? '↩' : '✕'}
+                                </button>
+                              </>
+                            )}
+                          </>
                         )}
                       </td>
                     <td className="px-1 py-1 text-center font-mono text-green-400 font-bold border-r border-dark-700">{row.totalPoints || '—'}</td>
