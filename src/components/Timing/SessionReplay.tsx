@@ -204,22 +204,26 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         displayS1 = liveEntry.s1 || null;
         displayS2 = liveEntry.s2 || null;
         displayLap = liveEntry.lastLap || prevLapData?.lapTime || null;
-      } else if (sessionStartTime && pilotS1Events.size > 0) {
-        const currentMs = sessionStartTime + timeSec * 1000;
-        const events = pilotS1Events.get(pilot);
-        let latestS1: string | null = null;
-        if (events) {
-          for (let i = events.length - 1; i >= 0; i--) {
-            if (events[i].ts <= currentMs) { latestS1 = events[i].s1; break; }
-          }
-        }
-        displayS1 = latestS1;
-        displayS2 = prevLapData?.s2 || null;
-        displayLap = prevLapData?.lapTime || null;
       } else {
         displayS1 = prevLapData?.s1 || null;
         displayS2 = prevLapData?.s2 || null;
         displayLap = prevLapData?.lapTime || null;
+
+        // Mid-lap S1 override: if there's a s1 event AFTER the last lap completion, use it
+        if (sessionStartTime && pilotS1Events.size > 0 && !onCurrentUnrecordedLap) {
+          const currentMs = sessionStartTime + timeSec * 1000;
+          const timeline = pilotTimelines.get(pilot) || [];
+          const lastLapCompletionMs = completedLaps > 0 ? timeline[completedLaps - 1] : 0;
+          const events = pilotS1Events.get(pilot);
+          if (events) {
+            for (let i = events.length - 1; i >= 0; i--) {
+              if (events[i].ts <= currentMs && events[i].ts > lastLapCompletionMs) {
+                displayS1 = events[i].s1;
+                break;
+              }
+            }
+          }
+        }
       }
 
       // Best lap, S1, S2 among completed laps
