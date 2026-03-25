@@ -235,6 +235,7 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
   const [loading, setLoading] = useState(true);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [livePositions, setLivePositions] = useState<{ pilot: string; position: number }[]>([]);
+  const [liveEnabled, setLiveEnabled] = useState(true);
 
   const fetchAllLaps = async (comp: Competition) => {
     if (comp.sessions.length === 0) return new Map<string, SessionLap[]>();
@@ -256,8 +257,8 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
 
     if (initialCompetition.status !== 'live') return () => { cancelled = true; };
 
-    // Slow poll: competition data + all laps (every 5s)
     const slowTimer = setInterval(async () => {
+      if (!liveEnabled) return;
       try {
         const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(initialCompetition.id)}`);
         if (!res.ok || cancelled) return;
@@ -268,10 +269,10 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
         const map = await fetchAllLaps(fresh);
         if (!cancelled) setSessionLaps(map);
       } catch {}
-    }, 5000);
+    }, 3000);
 
-    // Fast poll: live timing positions (every 2s)
     const fastTimer = setInterval(async () => {
+      if (!liveEnabled) return;
       try {
         const [statusRes, timingRes] = await Promise.all([
           fetch(`${COLLECTOR_URL}/status`).then(r => r.json()),
@@ -284,12 +285,14 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
             pilot: e.pilot,
             position: Number(e.position),
           })));
+        } else {
+          setLivePositions([]);
         }
       } catch {}
     }, 2000);
 
     return () => { cancelled = true; clearInterval(slowTimer); clearInterval(fastTimer); };
-  }, [initialCompetition.id]);
+  }, [initialCompetition.id, liveEnabled]);
 
   if (loading) return <div className="card text-center py-6 text-dark-500">Завантаження даних...</div>;
   if (competition.sessions.length === 0) return <div className="card text-center py-12 text-dark-500">Немає прив'язаних заїздів</div>;
@@ -306,6 +309,9 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
       sessionLaps={sessionLaps}
       liveSessionId={liveSessionId}
       livePositions={livePositions}
+      livePilots={livePositions.map(p => p.pilot)}
+      liveEnabled={liveEnabled}
+      onToggleLive={() => setLiveEnabled(v => !v)}
       initialExcludedPilots={competition.results?.excludedPilots}
       initialEdits={competition.results?.edits}
     />;

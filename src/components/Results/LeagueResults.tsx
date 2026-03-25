@@ -29,6 +29,9 @@ interface LeagueResultsProps {
   sessionLaps: Map<string, SessionLap[]>;
   liveSessionId?: string | null;
   livePositions?: { pilot: string; position: number }[];
+  livePilots?: string[];
+  liveEnabled?: boolean;
+  onToggleLive?: () => void;
   initialExcludedPilots?: string[];
   initialEdits?: ManualEdits;
   initialMergedPilots?: Record<string, string>;
@@ -91,7 +94,7 @@ function getPositionPoints(scoring: ScoringData, totalPilots: number, group: str
   return pts[finishPos - 1];
 }
 
-export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, initialExcludedPilots, initialEdits }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits }: LeagueResultsProps) {
   const { prefs, toggle } = useViewPrefs();
   const { isOwner } = useAuth();
   const raceCount = format === 'champions_league' ? 3 : 2;
@@ -373,6 +376,14 @@ export default function LeagueResults({ format, competitionId, sessions, session
         <div className="card p-0 overflow-hidden">
           <div className="px-4 py-2.5 border-b border-dark-800 flex items-center gap-3 flex-wrap">
             <button onClick={() => toggle('showLeaguePoints')} className="text-white font-semibold text-sm hover:text-dark-300 transition-colors">Таблиця балів ▾</button>
+            {onToggleLive && (
+              <button onClick={onToggleLive}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors ${
+                  liveEnabled ? 'bg-green-500/20 text-green-400' : 'bg-dark-800 text-dark-500 hover:text-dark-300'
+                }`}>
+                {liveEnabled ? '● LIVE' : '○ LIVE'}
+              </button>
+            )}
             <div className="flex gap-1 flex-wrap">
               <SortBtn k="total" label="Сума" />
               <SortBtn k="quali_time" label="Квала" fixedDir="asc" />
@@ -434,8 +445,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
               <tbody>
                   {sortedData.map((row, i) => {
                     const isExcluded = excludedPilots.has(row.pilot);
+                    const isOnTrack = livePilots?.includes(row.pilot);
                     return (
-                    <tr key={row.pilot} className={`border-b border-dark-800/50 ${isExcluded ? 'opacity-30' : 'hover:bg-dark-700/30'}`}>
+                    <tr key={row.pilot} className={`border-b border-dark-800/50 ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : 'hover:bg-dark-700/30'}`}>
                       <td className="px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700">{isExcluded ? '—' : i + 1}</td>
                       <td className="px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap">
                         <span className="text-white">{row.pilot}</span>
