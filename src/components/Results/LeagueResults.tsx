@@ -427,10 +427,27 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       <td className="px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap">
                         <span className="text-white">{row.pilot}</span>
                         {isOwner && (
-                          <button onClick={() => toggleExclude(row.pilot)}
-                            className={`ml-1 text-[9px] px-1 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-700 hover:text-red-400'}`}>
-                            {isExcluded ? '↩' : '✕'}
-                          </button>
+                          <>
+                            <button onClick={() => {
+                              const newName = prompt(`Перейменувати "${row.pilot}" на:`, row.pilot);
+                              if (newName && newName !== row.pilot) {
+                                (async () => {
+                                  for (const s of sessions) {
+                                    await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                                      body: JSON.stringify({ sessionId: s.sessionId, oldName: row.pilot, newName }),
+                                    }).catch(() => {});
+                                  }
+                                  window.location.reload();
+                                })();
+                              }
+                            }} className="ml-1 text-[9px] px-0.5 rounded text-dark-600 hover:text-primary-400 transition-colors">✎</button>
+                            <button onClick={() => toggleExclude(row.pilot)}
+                              className={`text-[9px] px-0.5 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-600 hover:text-red-400'}`}>
+                              {isExcluded ? '↩' : '✕'}
+                            </button>
+                          </>
                         )}
                       </td>
                     <td className="px-1 py-1 text-center font-mono text-green-400 font-bold border-r border-dark-700">{row.totalPoints || '—'}</td>
