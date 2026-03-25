@@ -26,6 +26,7 @@ interface SessionLap {
   lap_time: string | null;
   s1: string | null;
   s2: string | null;
+  position: number | null;
   ts: number;
 }
 
