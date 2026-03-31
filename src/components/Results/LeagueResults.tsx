@@ -428,11 +428,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
       const n = new Set(prev);
       n.delete('__show_all');
       n.delete('__edits_only');
-      n.delete('quali');
-      for (let i = 1; i <= raceCount; i++) n.delete(`race_${i}`);
       if (mode === 'all') {
+        n.delete('quali');
+        for (let i = 1; i <= raceCount; i++) n.delete(`race_${i}`);
         n.add('__show_all');
       } else if (mode === 'edits') {
+        n.delete('quali');
+        for (let i = 1; i <= raceCount; i++) n.delete(`race_${i}`);
         n.add('__edits_only');
       }
       saveSettings({ hiddenGroups: [...n] });
@@ -490,9 +492,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
             <div className="flex gap-1">
               <button onClick={() => setViewMode('all')} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showAll ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
               <button onClick={() => setViewMode('edits')} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Ред.</button>
-              <button onClick={() => toggleGroup('quali')} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showQuali && !showAll && !showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Квала</button>
+              <button onClick={() => { setViewMode(''); toggleGroup('quali'); }} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showQuali && !showAll && !showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Квала</button>
               {Array.from({ length: raceCount }, (_, i) => (
-                <button key={i} onClick={() => toggleGroup(`race_${i + 1}`)} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showRace(i + 1) && !showAll && !showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Г{i + 1}</button>
+                <button key={i} onClick={() => { setViewMode(''); toggleGroup(`race_${i + 1}`); }} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showRace(i + 1) && !showAll && !showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Г{i + 1}</button>
               ))}
             </div>
           </div>
