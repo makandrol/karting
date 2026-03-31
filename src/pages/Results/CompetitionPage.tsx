@@ -176,9 +176,6 @@ export default function CompetitionPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link to={`/results/${competition.format}`} className="text-dark-500 text-sm hover:text-dark-300 transition-colors">
-            ← {config?.name || competition.format}
-          </Link>
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl font-bold text-white">{competition.name.replace(/,?\s*Тр\.\s*\d+/, '')}</h1>
             <select
