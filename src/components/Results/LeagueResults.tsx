@@ -39,6 +39,7 @@ interface LeagueResultsProps {
   allSessionsEnded?: boolean;
   totalPilotsOverride?: number | null;
   totalPilotsLocked?: boolean;
+  groupCountOverride?: number | null;
   onSaveResults?: (partial: Record<string, any>) => Promise<void>;
   onPilotCount?: (n: number) => void;
 }
@@ -120,12 +121,13 @@ function getPositionPoints(scoring: ScoringData, totalPilots: number, group: str
   return pts[finishPos - 1];
 }
 
-export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, onSaveResults, onPilotCount }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount }: LeagueResultsProps) {
   const { prefs, toggle } = useViewPrefs();
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
   const raceCount = format === 'champions_league' ? 3 : 2;
-  const maxGroups = format === 'champions_league' ? 2 : 3;
+  const formatMaxGroups = format === 'champions_league' ? 2 : 3;
+  const maxGroups = groupCountOverride ?? formatMaxGroups;
   const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const editingRef = useRef(false);

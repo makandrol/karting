@@ -191,7 +191,28 @@ export default function CompetitionPage() {
               ))}
             </select>
             {(competition.format === 'light_league' || competition.format === 'champions_league') && (
-              <span className="text-dark-500 text-xs">Пілотів: <span className="text-dark-300 font-mono">{pilotCount || '—'}</span></span>
+              <CompetitionParams
+                pilotCount={pilotCount}
+                pilotOverride={competition.results?.totalPilotsOverride ?? null}
+                pilotLocked={competition.results?.totalPilotsLocked ?? false}
+                groupOverride={competition.results?.groupCountOverride ?? null}
+                maxGroups={competition.format === 'champions_league' ? 2 : 3}
+                canManage={canManage}
+                onSave={async (partial) => {
+                  try {
+                    const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+                    if (!res.ok) return;
+                    const comp = await res.json();
+                    const currentResults = comp.results || {};
+                    await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                      body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+                    });
+                    setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+                  } catch {}
+                }}
+              />
             )}
           </div>
         </div>
@@ -416,6 +437,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
           allSessionsEnded={allSessionsEnded}
           totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
           totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
+          groupCountOverride={competition.results?.groupCountOverride ?? null}
           onPilotCount={onPilotCount}
           onSaveResults={async (partial) => {
             try {
@@ -491,6 +513,52 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         );
       })}
     </div>
+  );
+}
+
+function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverride, maxGroups, canManage, onSave }: {
+  pilotCount: number; pilotOverride: number | null; pilotLocked: boolean;
+  groupOverride: number | null; maxGroups: number; canManage: boolean;
+  onSave: (partial: Record<string, any>) => Promise<void>;
+}) {
+  const effectivePilots = (pilotLocked && pilotOverride !== null) ? pilotOverride : pilotCount;
+  const autoGroups = effectivePilots <= 13 ? 1 : maxGroups >= 3 && effectivePilots > 26 ? 3 : effectivePilots > 13 ? 2 : 1;
+  const effectiveGroups = groupOverride ?? autoGroups;
+
+  return (
+    <span className="flex items-center gap-2 text-xs">
+      <span className="flex items-center gap-1">
+        <span className="text-dark-500">Пілотів:</span>
+        {canManage ? (
+          <input type="text" inputMode="numeric"
+            value={pilotLocked ? (pilotOverride ?? effectivePilots) : effectivePilots}
+            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) onSave({ totalPilotsOverride: v, totalPilotsLocked: true }); }}
+            className={`w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotLocked ? 'text-yellow-400' : 'text-dark-300'}`} />
+        ) : (
+          <span className="text-dark-300 font-mono">{effectivePilots || '—'}</span>
+        )}
+        {canManage && pilotLocked && (
+          <button onClick={() => onSave({ totalPilotsOverride: null, totalPilotsLocked: false })} className="text-[9px] text-yellow-400/70 hover:text-yellow-400" title="Автовизначення">🔒</button>
+        )}
+        {canManage && !pilotLocked && (
+          <button onClick={() => onSave({ totalPilotsOverride: effectivePilots, totalPilotsLocked: true })} className="text-[9px] text-dark-600 hover:text-dark-400" title="Зафіксувати">🔓</button>
+        )}
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="text-dark-500">Груп:</span>
+        {canManage ? (
+          <select value={groupOverride ?? ''} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; onSave({ groupCountOverride: v }); }}
+            className="bg-dark-800 text-dark-300 text-xs rounded px-1 py-0 border border-dark-700 outline-none focus:border-primary-500 cursor-pointer font-mono">
+            <option value="">авто ({autoGroups})</option>
+            {Array.from({ length: maxGroups }, (_, i) => (
+              <option key={i + 1} value={i + 1}>{i + 1}</option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-dark-300 font-mono">{effectiveGroups}</span>
+        )}
+      </span>
+    </span>
   );
 }
 
