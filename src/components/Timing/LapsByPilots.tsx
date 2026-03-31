@@ -36,12 +36,17 @@ interface LapsByPilotsProps {
   sessionId?: string;
 }
 
-export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
+export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sessionId?: string): PilotLaps[] {
   const map = new Map<string, { kart: number; laps: LapData[]; bestLap: number; bestS1: number; bestS2: number }>();
+  const pilotLapCount = new Map<string, number>();
   for (const lap of laps) {
     if (!map.has(lap.pilot)) map.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity, bestS1: Infinity, bestS2: Infinity });
     const p = map.get(lap.pilot)!;
+    const lapNum = (pilotLapCount.get(lap.pilot) ?? 0) + 1;
+    pilotLapCount.set(lap.pilot, lapNum);
     p.laps.push(lap);
+    const isExcluded = sessionId && excludedLaps?.has(`${sessionId}|${lap.pilot}|${lapNum}`);
+    if (isExcluded) continue;
     if (lap.lap_time) {
       const sec = parseLapTime(lap.lap_time);
       if (sec !== null && sec < p.bestLap) p.bestLap = sec;
