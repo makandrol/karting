@@ -1,4 +1,4 @@
-import { useMemo, Fragment, useState, useEffect, useCallback } from 'react';
+import { useMemo, Fragment, useState, useEffect, useCallback, useRef } from 'react';
 import { toSeconds } from '../../utils/timing';
 import { PHASE_CONFIGS, splitIntoGroups } from '../../data/competitions';
 import { useViewPrefs } from '../../services/viewPrefs';
@@ -100,12 +100,13 @@ function getPositionPoints(scoring: ScoringData, totalPilots: number, group: str
 
 export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, onSaveResults }: LeagueResultsProps) {
   const { prefs, toggle } = useViewPrefs();
-  const { isOwner, hasPermission } = useAuth();
+  const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
   const raceCount = format === 'champions_league' ? 3 : 2;
   const maxGroups = format === 'champions_league' ? 2 : 3;
   const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const editingRef = useRef(false);
 
   const [pilotsOverride, setPilotsOverride] = useState<number | null>(totalPilotsOverride ?? null);
   const [pilotsLocked, setPilotsLocked] = useState(initialLocked ?? false);
@@ -113,8 +114,30 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const [scoring, setScoring] = useState<ScoringData | null>(null);
   useEffect(() => { fetch('/data/scoring.json').then(r => r.json()).then(setScoring).catch(() => {}); }, []);
 
-  const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(new Set());
-  const toggleGroup = (g: string) => setHiddenGroups(prev => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n; });
+  // --- Persist view settings per user+competition ---
+  const settingsKey = `karting_league_${competitionId}_${user?.email || 'anon'}`;
+  const loadSettings = () => {
+    try {
+      const raw = localStorage.getItem(settingsKey);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return null;
+  };
+  const saveSettings = useCallback((partial: Record<string, any>) => {
+    try {
+      const cur = JSON.parse(localStorage.getItem(settingsKey) || '{}');
+      localStorage.setItem(settingsKey, JSON.stringify({ ...cur, ...partial }));
+    } catch {}
+  }, [settingsKey]);
+
+  const saved = loadSettings();
+  const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(() => new Set(saved?.hiddenGroups || []));
+  const toggleGroup = (g: string) => setHiddenGroups(prev => {
+    const n = new Set(prev);
+    n.has(g) ? n.delete(g) : n.add(g);
+    saveSettings({ hiddenGroups: [...n] });
+    return n;
+  });
 
   const [edits, setEdits] = useState<ManualEdits>(initialEdits || {});
   const setEdit = useCallback((pilot: string, raceNum: number, field: string, value: number) => {
@@ -151,12 +174,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
   }, [competitionId]);
 
   type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points`;
-  const [sortKey, setSortKey] = useState<SortKey>(() => {
-    try { const v = localStorage.getItem(`karting_league_sort_${competitionId}`); return v ? JSON.parse(v).key : 'total'; } catch { return 'total'; }
-  });
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => {
-    try { const v = localStorage.getItem(`karting_league_sort_${competitionId}`); return v ? JSON.parse(v).dir : 'desc'; } catch { return 'desc'; }
-  });
+  const [sortKey, setSortKey] = useState<SortKey>(() => saved?.sortKey || 'total');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => saved?.sortDir || 'desc');
   const toggleSort = (key: SortKey, fixedDir?: 'asc' | 'desc') => {
     let newKey = key;
     let newDir: 'asc' | 'desc';
@@ -164,7 +183,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     else if (sortKey === key) { newDir = sortDir === 'asc' ? 'desc' : 'asc'; }
     else { newDir = 'desc'; }
     setSortKey(newKey); setSortDir(newDir);
-    try { localStorage.setItem(`karting_league_sort_${competitionId}`, JSON.stringify({ key: newKey, dir: newDir })); } catch {}
+    saveSettings({ sortKey: newKey, sortDir: newDir });
   };
 
   const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
@@ -340,7 +359,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
     return rows;
   }, [sessions, sessionLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePositions, pilotsOverride, pilotsLocked]);
 
+  const sortedDataRef = useRef<PilotRow[]>([]);
   const sortedData = useMemo(() => {
+    if (editingRef.current) return sortedDataRef.current;
     const included = data.filter(r => !excludedPilots.has(r.pilot));
     const excluded = data.filter(r => excludedPilots.has(r.pilot));
     const getValue = (row: PilotRow): number => {
@@ -351,7 +372,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
       return 0;
     };
     included.sort((a, b) => sortDir === 'asc' ? getValue(a) - getValue(b) : getValue(b) - getValue(a));
-    return [...included, ...excluded];
+    const result = [...included, ...excluded];
+    sortedDataRef.current = result;
+    return result;
   }, [data, sortKey, sortDir, excludedPilots]);
 
   if (!scoring) return <div className="card text-center py-6 text-dark-500">Завантаження балів...</div>;
@@ -378,8 +401,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
     return (
       <input type="text" inputMode="numeric" value={text}
         onChange={e => setText(e.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => { setFocused(false); const v = Math.abs(parseFloat(text.replace(/[^0-9.]/g, ''))); onChange(isNaN(v) ? 0 : v); }}
+        onFocus={() => { setFocused(true); editingRef.current = true; }}
+        onBlur={() => { setFocused(false); editingRef.current = false; const v = Math.abs(parseFloat(text.replace(/[^0-9.]/g, ''))); onChange(isNaN(v) ? 0 : v); }}
         className={`w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${colorClass || 'text-dark-300'}`} />
     );
   };
@@ -409,6 +432,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
       } else if (mode === 'edits') {
         n.add('__edits_only');
       }
+      saveSettings({ hiddenGroups: [...n] });
       return n;
     });
   };
