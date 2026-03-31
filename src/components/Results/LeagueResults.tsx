@@ -80,11 +80,13 @@ function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
   const [text, setText] = useState(display);
   const [focused, setFocused] = useState(false);
   useEffect(() => { if (!focused) setText(display); }, [display, focused]);
+  const commit = () => { setFocused(false); editingRef.current = false; const v = Math.abs(parseFloat(text.replace(/[^0-9.]/g, ''))); onChange(isNaN(v) ? 0 : v); };
   return (
     <input type="text" inputMode="numeric" value={text}
       onChange={e => setText(e.target.value)}
       onFocus={() => { setFocused(true); editingRef.current = true; }}
-      onBlur={() => { setFocused(false); editingRef.current = false; const v = Math.abs(parseFloat(text.replace(/[^0-9.]/g, ''))); onChange(isNaN(v) ? 0 : v); }}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
       className={`w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${colorClass || 'text-dark-300'}`} />
   );
 }
