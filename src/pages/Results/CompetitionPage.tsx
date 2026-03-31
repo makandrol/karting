@@ -313,10 +313,12 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const [scrubTime, setScrubTime] = useState<number | null>(null);
 
   const sessionTimes = useMemo(() => {
-    return compSessions.map(s => {
-      const compSession = competition.sessions.find(cs => cs.sessionId === s.id);
-      return { sessionId: s.id, phase: compSession?.phase ?? null, startTime: s.start_time, endTime: s.end_time };
-    }).sort((a, b) => a.startTime - b.startTime);
+    return compSessions
+      .filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000)
+      .map(s => {
+        const compSession = competition.sessions.find(cs => cs.sessionId === s.id);
+        return { sessionId: s.id, phase: compSession?.phase ?? null, startTime: s.start_time, endTime: s.end_time };
+      }).sort((a, b) => a.startTime - b.startTime);
   }, [compSessions, competition.sessions]);
 
   const filteredSessionLaps = useMemo(() => {

@@ -132,6 +132,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const qualiSessionsWithData = qualiSessions.filter(s => (sessionLaps.get(s.sessionId) || []).length > 0);
   const autoGroupsByQuali = Math.min(Math.max(qualiSessionsWithData.length, 1), formatMaxGroups);
   const maxGroups = groupCountOverride ?? autoGroupsByQuali;
+  const sessionsWithData = new Set(sessions.filter(s => (sessionLaps.get(s.sessionId) || []).length > 0).map(s => s.sessionId));
   const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const editingRef = useRef(false);
