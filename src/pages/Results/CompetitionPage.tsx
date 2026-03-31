@@ -177,20 +177,17 @@ export default function CompetitionPage() {
           </Link>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-white">{competition.name}</h1>
-            {canManage ? (
-              <select
-                value={trackId ?? ''}
-                onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
-                className="bg-dark-800 text-dark-300 text-xs rounded px-1.5 py-0.5 border border-dark-700 outline-none focus:border-primary-500 cursor-pointer"
-              >
-                <option value="">Траса</option>
-                {TRACK_CONFIGS.map(t => (
-                  <option key={t.id} value={t.id}>Траса {t.id}</option>
-                ))}
-              </select>
-            ) : trackLabel ? (
-              <span className="text-dark-400 text-xs">{trackLabel}</span>
-            ) : null}
+            <select
+              value={trackId ?? ''}
+              onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
+              disabled={!canManage}
+              className={`bg-dark-800 text-dark-300 text-xs rounded px-1.5 py-0.5 border border-dark-700 outline-none focus:border-primary-500 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
+            >
+              <option value="">Траса</option>
+              {TRACK_CONFIGS.map(t => (
+                <option key={t.id} value={t.id}>Траса {t.id}</option>
+              ))}
+            </select>
           </div>
           <p className="text-dark-400 text-sm">{competition.sessions.length} заїздів</p>
         </div>
