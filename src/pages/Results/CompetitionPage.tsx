@@ -1,5 +1,5 @@
 import { useParams, Link, Navigate } from 'react-router-dom';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel } from '../../data/competitions';
 import { toSeconds } from '../../utils/timing';
@@ -7,6 +7,7 @@ import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 import LeagueResults from '../../components/Results/LeagueResults';
+import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -224,7 +225,7 @@ export default function CompetitionPage() {
       {tab === 'final' ? (
         <FinalResults competition={competition} />
       ) : (
-        <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} />
+        <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} />
       )}
 
       {compSessions.length > 0 && (
@@ -276,13 +277,48 @@ function FinalResults({ competition }: { competition: Competition }) {
   return <div className="card p-4"><pre className="text-dark-300 text-xs overflow-auto">{JSON.stringify(results, null, 2)}</pre></div>;
 }
 
-function LiveResults({ competition: initialCompetition, allSessionsEnded }: { competition: Competition; allSessionsEnded: boolean }) {
+function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[] }) {
   const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [livePositions, setLivePositions] = useState<{ pilot: string; position: number }[]>([]);
   const [liveEnabled, setLiveEnabled] = useState(true);
+  const [scrubTime, setScrubTime] = useState<number | null>(null);
+
+  const sessionTimes = useMemo(() => {
+    return compSessions.map(s => {
+      const compSession = competition.sessions.find(cs => cs.sessionId === s.id);
+      return { sessionId: s.id, phase: compSession?.phase ?? null, startTime: s.start_time, endTime: s.end_time };
+    }).sort((a, b) => a.startTime - b.startTime);
+  }, [compSessions, competition.sessions]);
+
+  const filteredSessionLaps = useMemo(() => {
+    if (scrubTime === null) return sessionLaps;
+    const filtered = new Map<string, SessionLap[]>();
+    for (const [sessionId, laps] of sessionLaps) {
+      const st = sessionTimes.find(s => s.sessionId === sessionId);
+      if (!st || st.startTime > scrubTime) continue;
+      filtered.set(sessionId, laps.filter(l => l.ts <= scrubTime));
+    }
+    return filtered;
+  }, [sessionLaps, scrubTime, sessionTimes]);
+
+  const scrubSessionId = useMemo(() => {
+    if (scrubTime === null) return null;
+    const active = sessionTimes.find(s => s.startTime <= scrubTime && (s.endTime === null || s.endTime >= scrubTime));
+    return active?.sessionId ?? null;
+  }, [scrubTime, sessionTimes]);
+
+  const scrubPilots = useMemo(() => {
+    if (scrubTime === null || !scrubSessionId) return [];
+    const laps = sessionLaps.get(scrubSessionId) || [];
+    const pilots = new Set<string>();
+    for (const l of laps) {
+      if (l.ts <= scrubTime) pilots.add(l.pilot);
+    }
+    return [...pilots];
+  }, [scrubTime, scrubSessionId, sessionLaps]);
 
   const fetchAllLaps = async (comp: Competition) => {
     if (comp.sessions.length === 0) return new Map<string, SessionLap[]>();
@@ -349,36 +385,51 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded }: { co
   }
 
   if (competition.format === 'light_league' || competition.format === 'champions_league') {
-    return <LeagueResults
-      format={competition.format}
-      competitionId={competition.id}
-      sessions={competition.sessions}
-      sessionLaps={sessionLaps}
-      liveSessionId={liveSessionId}
-      livePositions={livePositions}
-      livePilots={livePositions.map(p => p.pilot)}
-      liveEnabled={liveEnabled}
-      onToggleLive={() => setLiveEnabled(v => !v)}
-      initialExcludedPilots={competition.results?.excludedPilots}
-      initialEdits={competition.results?.edits}
-      allSessionsEnded={allSessionsEnded}
-      totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
-      totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
-      onSaveResults={async (partial) => {
-        try {
-          const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-          if (!res.ok) return;
-          const comp = await res.json();
-          const currentResults = comp.results || {};
-          await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-            body: JSON.stringify({ results: { ...currentResults, ...partial } }),
-          });
-          setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
-        } catch {}
-      }}
-    />;
+    const isScrubbing = scrubTime !== null;
+    return (
+      <div className="space-y-4">
+        {sessionTimes.length > 0 && (
+          <CompetitionTimeline
+            format={competition.format}
+            sessions={competition.sessions}
+            sessionTimes={sessionTimes}
+            currentTime={scrubTime}
+            onTimeChange={(t) => { setScrubTime(t); if (t !== null) setLiveEnabled(false); else setLiveEnabled(true); }}
+            isLive={competition.status === 'live' && !allSessionsEnded}
+          />
+        )}
+        <LeagueResults
+          format={competition.format}
+          competitionId={competition.id}
+          sessions={competition.sessions}
+          sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+          liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+          livePositions={isScrubbing ? [] : livePositions}
+          livePilots={isScrubbing ? scrubPilots : livePositions.map(p => p.pilot)}
+          liveEnabled={!isScrubbing && liveEnabled}
+          onToggleLive={() => { if (isScrubbing) { setScrubTime(null); setLiveEnabled(true); } else setLiveEnabled(v => !v); }}
+          initialExcludedPilots={competition.results?.excludedPilots}
+          initialEdits={competition.results?.edits}
+          allSessionsEnded={allSessionsEnded}
+          totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
+          totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
+          onSaveResults={async (partial) => {
+            try {
+              const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+              if (!res.ok) return;
+              const comp = await res.json();
+              const currentResults = comp.results || {};
+              await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+              });
+              setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+            } catch {}
+          }}
+        />
+      </div>
+    );
   }
 
   const phases = PHASE_CONFIGS[competition.format]?.phases || [];
