@@ -103,7 +103,7 @@ interface SessionReplayProps {
 
 export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
-  const [currentTime, setCurrentTime] = useState(autoPlay && isLive ? durationSec : 0);
+  const [currentTime, setCurrentTime] = useState(durationSec);
   const [speed, setSpeed] = useState(1);
   const [atLive, setAtLive] = useState(!!isLive && !!autoPlay);
   const [sortMode, setSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
