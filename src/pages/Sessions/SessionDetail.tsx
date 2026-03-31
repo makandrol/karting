@@ -211,14 +211,11 @@ export default function SessionDetail() {
   const mergedLaps = mergePilotNames(dbLaps);
 
   const pilotMap = new Map<string, { kart: number; laps: DbLap[]; bestLap: number; bestS1: number; bestS2: number }>();
-  const pilotLapCounter = new Map<string, number>();
   for (const lap of mergedLaps) {
     if (!pilotMap.has(lap.pilot)) pilotMap.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity, bestS1: Infinity, bestS2: Infinity });
     const p = pilotMap.get(lap.pilot)!;
-    const lapNum = (pilotLapCounter.get(lap.pilot) ?? 0) + 1;
-    pilotLapCounter.set(lap.pilot, lapNum);
     p.laps.push(lap);
-    const isExcluded = sessionId && excludedLaps.has(`${sessionId}|${lap.pilot}|${lapNum}`);
+    const isExcluded = sessionId && excludedLaps.has(`${sessionId}|${lap.ts}`);
     if (isExcluded) continue;
     if (lap.lap_time) {
       const sec = parseLapTime(lap.lap_time);
