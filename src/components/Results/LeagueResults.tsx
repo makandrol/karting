@@ -40,6 +40,7 @@ interface LeagueResultsProps {
   totalPilotsOverride?: number | null;
   totalPilotsLocked?: boolean;
   onSaveResults?: (partial: Record<string, any>) => Promise<void>;
+  onPilotCount?: (n: number) => void;
 }
 
 interface ScoringData {
@@ -119,7 +120,7 @@ function getPositionPoints(scoring: ScoringData, totalPilots: number, group: str
   return pts[finishPos - 1];
 }
 
-export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, onSaveResults }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, onSaveResults, onPilotCount }: LeagueResultsProps) {
   const { prefs, toggle } = useViewPrefs();
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
@@ -428,6 +429,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const rc = showEditsOnly ? 4 : showPointsOnly ? 5 : 10;
 
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
+  Promise.resolve().then(() => onPilotCount?.(autoTotalPilots));
 
   const handlePilotsOverrideChange = (val: number) => {
     setPilotsOverride(val);
@@ -481,37 +483,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   {allSessionsEnded ? '○ LIVE' : liveEnabled ? '● LIVE' : '○ LIVE'}
                 </button>
               )}
-              {canManage && (
-                <div className="flex items-center gap-1">
-                  <span className="text-dark-500 text-[9px]">Пілотів:</span>
-                  {pilotsLocked ? (
-                    <>
-                      <input type="text" inputMode="numeric" value={pilotsOverride ?? autoTotalPilots}
-                        onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) handlePilotsOverrideChange(v); }}
-                        className="w-7 bg-transparent text-center font-mono text-[10px] text-yellow-400 outline-none border-b border-dark-700 focus:border-primary-500" />
-                      <button onClick={handlePilotsUnlock} className="text-[9px] text-yellow-400/70 hover:text-yellow-400" title="Автовизначення">🔒</button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-[10px] font-mono text-dark-300">{autoTotalPilots}</span>
-                      <button onClick={() => handlePilotsOverrideChange(autoTotalPilots)} className="text-[9px] text-dark-600 hover:text-dark-400" title="Зафіксувати">🔓</button>
-                    </>
-                  )}
-                </div>
-              )}
-              {!canManage && (
-                <span className="text-dark-500 text-[9px]">Пілотів: {autoTotalPilots}</span>
-              )}
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-dark-500 text-[9px]">Сорт:</span>
               <SortBtn k="total" label="Сума" />
               <SortBtn k="quali_time" label="Квала" fixedDir="asc" />
               {Array.from({ length: raceCount }, (_, i) => (
-                <Fragment key={i}>
-                  <SortBtn k={`race_${i + 1}_time` as SortKey} label={`Г${i + 1} час`} fixedDir="asc" />
-                  <SortBtn k={`race_${i + 1}_points` as SortKey} label={`Г${i + 1} бали`} fixedDir="desc" />
-                </Fragment>
+                <SortBtn key={i} k={`race_${i + 1}_time` as SortKey} label={`Г${i + 1} час`} fixedDir="asc" />
               ))}
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">

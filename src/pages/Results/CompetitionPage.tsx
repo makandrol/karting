@@ -43,6 +43,7 @@ export default function CompetitionPage() {
   const [tab, setTab] = useState<'live' | 'final'>('live');
   const [compSessions, setCompSessions] = useState<SessionTableRow[]>([]);
   const [allSessionsEnded, setAllSessionsEnded] = useState(false);
+  const [pilotCount, setPilotCount] = useState(0);
 
   const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[]) => {
     const dates = new Set<string>();
@@ -177,7 +178,7 @@ export default function CompetitionPage() {
             ← {config?.name || competition.format}
           </Link>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-white">{competition.name}</h1>
+            <h1 className="text-xl font-bold text-white">{competition.name.replace(/,?\s*Тр\.\s*\d+/, '')}</h1>
             <select
               value={trackId ?? ''}
               onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
@@ -189,6 +190,9 @@ export default function CompetitionPage() {
                 <option key={t.id} value={t.id}>Траса {t.id}</option>
               ))}
             </select>
+            {(competition.format === 'light_league' || competition.format === 'champions_league') && (
+              <span className="text-dark-500 text-xs">Пілотів: <span className="text-dark-300 font-mono">{pilotCount || '—'}</span></span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -224,7 +228,7 @@ export default function CompetitionPage() {
       {tab === 'final' ? (
         <FinalResults competition={competition} />
       ) : (
-        <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} />
+        <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} />
       )}
 
       {compSessions.length > 0 && (
@@ -276,7 +280,7 @@ function FinalResults({ competition }: { competition: Competition }) {
   return <div className="card p-4"><pre className="text-dark-300 text-xs overflow-auto">{JSON.stringify(results, null, 2)}</pre></div>;
 }
 
-function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[] }) {
+function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void }) {
   const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -412,6 +416,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
           allSessionsEnded={allSessionsEnded}
           totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
           totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
+          onPilotCount={onPilotCount}
           onSaveResults={async (partial) => {
             try {
               const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
