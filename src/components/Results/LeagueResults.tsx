@@ -400,7 +400,11 @@ export default function LeagueResults({ format, competitionId, sessions, session
       if (m) { const ri = parseInt(m[1]) - 1; const race = row.races[ri]; return m[2] === 'time' ? (race?.bestTime ?? Infinity) : (race?.totalRacePoints ?? 0); }
       return 0;
     };
-    included.sort((a, b) => sortDir === 'asc' ? getValue(a) - getValue(b) : getValue(b) - getValue(a));
+    included.sort((a, b) => {
+      const diff = sortDir === 'asc' ? getValue(a) - getValue(b) : getValue(b) - getValue(a);
+      if (diff !== 0) return diff;
+      return (a.quali?.bestTime ?? Infinity) - (b.quali?.bestTime ?? Infinity);
+    });
     const result = [...included, ...excluded];
     sortedDataRef.current = result;
     return result;
