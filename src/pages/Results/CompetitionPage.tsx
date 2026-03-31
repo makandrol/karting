@@ -146,7 +146,7 @@ export default function CompetitionPage() {
 
   const trackId = competition.results?.trackId ?? null;
   const trackConfig = trackId ? TRACK_CONFIGS.find(t => t.id === trackId) : null;
-  const trackLabel = trackConfig ? `Тр. ${trackConfig.id}` : null;
+  const trackLabel = trackConfig ? `Траса ${trackConfig.id}` : null;
 
   const changeTrack = async (newTrackId: number) => {
     try {
@@ -185,7 +185,7 @@ export default function CompetitionPage() {
               >
                 <option value="">Траса</option>
                 {TRACK_CONFIGS.map(t => (
-                  <option key={t.id} value={t.id}>Тр. {t.id}</option>
+                  <option key={t.id} value={t.id}>Траса {t.id}</option>
                 ))}
               </select>
             ) : trackLabel ? (
