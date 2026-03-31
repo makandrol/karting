@@ -111,9 +111,9 @@ export default function ScoringSettings() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.positionPoints.map(cat =>
+                  {data.positionPoints.map((cat, ci) =>
                     Object.entries(cat.groups).map(([group, points], gi) => (
-                      <tr key={`${cat.label}-${group}`} className="border-b border-dark-800/50">
+                      <tr key={`${cat.label}-${group}`} className={`border-b border-dark-800/50 ${gi === 0 && ci > 0 ? 'border-t-2 border-t-dark-600' : ''}`}>
                         {gi === 0 && (
                           <td rowSpan={Object.keys(cat.groups).length} className="px-2 py-1 text-dark-300 border-r border-dark-700 whitespace-nowrap">
                             {cat.label}
