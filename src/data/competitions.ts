@@ -162,6 +162,22 @@ export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
   marathon: { phases: [{ id: 'race', label: 'Гонка', shortLabel: 'Гонка' }] },
 };
 
+export function getPhasesForFormat(format: string, groupCount?: number | null): PhaseConfig[] {
+  const config = PHASE_CONFIGS[format];
+  if (!config) return [];
+  if (groupCount === undefined || groupCount === null) return config.phases;
+
+  return config.phases.filter(p => {
+    if (p.id.startsWith('qualifying_')) {
+      const num = parseInt(p.id.split('_')[1]);
+      return num <= groupCount;
+    }
+    const groupMatch = p.id.match(/group_(\d+)/);
+    if (groupMatch) return parseInt(groupMatch[1]) <= groupCount;
+    return true;
+  });
+}
+
 export function getPhaseLabel(format: string, phaseId: string): string {
   const config = PHASE_CONFIGS[format];
   if (!config) return phaseId;
