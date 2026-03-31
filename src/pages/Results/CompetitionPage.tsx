@@ -1,9 +1,10 @@
 import { useParams, Link, Navigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel } from '../../data/competitions';
 import { toSeconds } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
+import { TRACK_CONFIGS } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 import LeagueResults from '../../components/Results/LeagueResults';
 
@@ -40,6 +41,7 @@ export default function CompetitionPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'live' | 'final'>('live');
   const [compSessions, setCompSessions] = useState<SessionTableRow[]>([]);
+  const [allSessionsEnded, setAllSessionsEnded] = useState(false);
 
   const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[]) => {
     const dates = new Set<string>();
@@ -59,6 +61,9 @@ export default function CompetitionPage() {
       } catch {}
     }
     setCompSessions(all);
+    if (all.length > 0 && all.every(s => s.end_time !== null && s.end_time !== undefined)) {
+      setAllSessionsEnded(true);
+    }
   };
 
   useEffect(() => {
@@ -139,6 +144,30 @@ export default function CompetitionPage() {
 
   const config = COMPETITION_CONFIGS[competition.format as keyof typeof COMPETITION_CONFIGS];
 
+  const trackId = competition.results?.trackId ?? null;
+  const trackConfig = trackId ? TRACK_CONFIGS.find(t => t.id === trackId) : null;
+  const trackLabel = trackConfig ? `Тр. ${trackConfig.id}` : null;
+
+  const changeTrack = async (newTrackId: number) => {
+    try {
+      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+      if (!res.ok) return;
+      const comp = await res.json();
+      const currentResults = comp.results || {};
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ results: { ...currentResults, trackId: newTrackId } }),
+      });
+      setCompetition({ ...competition, results: { ...competition.results, trackId: newTrackId } });
+    } catch {}
+  };
+
+  const phaseConfig = PHASE_CONFIGS[competition.format];
+  const totalPhases = phaseConfig?.phases.length ?? 0;
+  const linkedPhases = competition.sessions.filter(s => s.phase).length;
+  const allPhasesLinked = totalPhases > 0 && linkedPhases >= totalPhases;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -146,15 +175,35 @@ export default function CompetitionPage() {
           <Link to={`/results/${competition.format}`} className="text-dark-500 text-sm hover:text-dark-300 transition-colors">
             ← {config?.name || competition.format}
           </Link>
-          <h1 className="text-xl font-bold text-white">{competition.name}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-white">{competition.name}</h1>
+            {canManage ? (
+              <select
+                value={trackId ?? ''}
+                onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
+                className="bg-dark-800 text-dark-300 text-xs rounded px-1.5 py-0.5 border border-dark-700 outline-none focus:border-primary-500 cursor-pointer"
+              >
+                <option value="">Траса</option>
+                {TRACK_CONFIGS.map(t => (
+                  <option key={t.id} value={t.id}>Тр. {t.id}</option>
+                ))}
+              </select>
+            ) : trackLabel ? (
+              <span className="text-dark-400 text-xs">{trackLabel}</span>
+            ) : null}
+          </div>
           <p className="text-dark-400 text-sm">{competition.sessions.length} заїздів</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-            competition.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
-          }`}>
-            {competition.status === 'finished' ? 'Завершено' : 'Live'}
-          </span>
+          {competition.status === 'live' && allSessionsEnded && allPhasesLinked ? (
+            <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-yellow-500/15 text-yellow-400">Очікує завершення</span>
+          ) : (
+            <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+              competition.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
+            }`}>
+              {competition.status === 'finished' ? 'Завершено' : 'Live'}
+            </span>
+          )}
           {canManage && (
             <button onClick={toggleStatus}
               className="px-2 py-0.5 rounded text-[10px] bg-dark-800 text-dark-400 hover:text-white transition-colors">
@@ -178,7 +227,7 @@ export default function CompetitionPage() {
       {tab === 'final' ? (
         <FinalResults competition={competition} />
       ) : (
-        <LiveResults competition={competition} />
+        <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} />
       )}
 
       {compSessions.length > 0 && (
@@ -230,7 +279,7 @@ function FinalResults({ competition }: { competition: Competition }) {
   return <div className="card p-4"><pre className="text-dark-300 text-xs overflow-auto">{JSON.stringify(results, null, 2)}</pre></div>;
 }
 
-function LiveResults({ competition: initialCompetition }: { competition: Competition }) {
+function LiveResults({ competition: initialCompetition, allSessionsEnded }: { competition: Competition; allSessionsEnded: boolean }) {
   const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -315,6 +364,23 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
       onToggleLive={() => setLiveEnabled(v => !v)}
       initialExcludedPilots={competition.results?.excludedPilots}
       initialEdits={competition.results?.edits}
+      allSessionsEnded={allSessionsEnded}
+      totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
+      totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
+      onSaveResults={async (partial) => {
+        try {
+          const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+          if (!res.ok) return;
+          const comp = await res.json();
+          const currentResults = comp.results || {};
+          await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+            body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+          });
+          setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+        } catch {}
+      }}
     />;
   }
 
