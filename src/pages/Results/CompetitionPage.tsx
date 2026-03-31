@@ -219,21 +219,31 @@ export default function CompetitionPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-end gap-1">
           {competition.status === 'live' && allSessionsEnded && allPhasesLinked ? (
-            <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-yellow-500/15 text-yellow-400">Очікує завершення</span>
+            <>
+              <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-yellow-500/15 text-yellow-400">Очікує завершення</span>
+              {canManage && (
+                <button onClick={toggleStatus}
+                  className="px-2 py-0.5 rounded text-[10px] bg-dark-800 text-dark-400 hover:text-white transition-colors">
+                  Завершити
+                </button>
+              )}
+            </>
           ) : (
-            <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-              competition.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
-            }`}>
-              {competition.status === 'finished' ? 'Завершено' : 'Live'}
-            </span>
-          )}
-          {canManage && (
-            <button onClick={toggleStatus}
-              className="px-2 py-0.5 rounded text-[10px] bg-dark-800 text-dark-400 hover:text-white transition-colors">
-              {competition.status === 'finished' ? 'Відкрити' : 'Завершити'}
-            </button>
+            <div className="flex items-center gap-2">
+              <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                competition.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
+              }`}>
+                {competition.status === 'finished' ? 'Завершено' : 'Live'}
+              </span>
+              {canManage && (
+                <button onClick={toggleStatus}
+                  className="px-2 py-0.5 rounded text-[10px] bg-dark-800 text-dark-400 hover:text-white transition-colors">
+                  {competition.status === 'finished' ? 'Відкрити' : 'Завершити'}
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
