@@ -31,6 +31,9 @@ interface LapsByPilotsProps {
   currentEntries?: TimingEntry[];
   isLive?: boolean;
   onRenamePilot?: (oldName: string, newName: string) => void;
+  excludedLaps?: Set<string>;
+  onToggleLap?: (key: string) => void;
+  sessionId?: string;
 }
 
 export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
@@ -57,7 +60,7 @@ export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
     .map(([name, data]) => ({ name, ...data }));
 }
 
-export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot }: LapsByPilotsProps) {
+export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId }: LapsByPilotsProps) {
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
   const overallBestS2 = Math.min(...pilots.map(p => p.bestS2).filter(v => v < Infinity));
@@ -109,9 +112,11 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   if (!lap?.lap_time) return (
                     <td key={p.name} className={`table-cell text-center text-dark-700 ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>—</td>
                   );
+                  const lapKey = sessionId ? `${sessionId}|${p.name}|${lapIdx + 1}` : '';
+                  const isExcluded = lapKey ? excludedLaps?.has(lapKey) : false;
                   const sec = parseLapTime(lap.lap_time);
-                  const isPB = sec !== null && Math.abs(sec - p.bestLap) < 0.002;
-                  const isOverall = sec !== null && Math.abs(sec - overallBest) < 0.002;
+                  const isPB = !isExcluded && sec !== null && Math.abs(sec - p.bestLap) < 0.002;
+                  const isOverall = !isExcluded && sec !== null && Math.abs(sec - overallBest) < 0.002;
 
                   const s1Val = lap.s1 ? parseLapTime(lap.s1) : null;
                   const s2Val = lap.s2 ? parseLapTime(lap.s2) : null;
@@ -122,10 +127,19 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
 
                   return (
                     <td key={p.name} className={`table-cell text-center font-mono ${
+                      isExcluded ? 'opacity-40' :
                       isOverall ? 'text-purple-400 font-bold' : isPB ? 'text-green-400 font-bold' : 'text-dark-300'
                     } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>
-                      <div>{toSeconds(lap.lap_time)}</div>
-                      {(s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10) ? (
+                      <div className={`relative ${isExcluded ? 'line-through decoration-red-400' : ''}`}>
+                        {toSeconds(lap.lap_time)}
+                        {onToggleLap && lapKey && (
+                          <button onClick={() => onToggleLap(lapKey)}
+                            className={`absolute -right-0.5 -top-0.5 text-[7px] leading-none ${isExcluded ? 'text-green-400 hover:text-green-300' : 'text-dark-700 hover:text-red-400'} transition-colors`}>
+                            {isExcluded ? '↩' : '✕'}
+                          </button>
+                        )}
+                      </div>
+                      {!isExcluded && ((s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10)) ? (
                         <div className="text-[8px] leading-tight mt-0.5">
                           <span className={s1Color === 'purple' ? 'text-purple-400' : s1Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s1Val !== null && s1Val >= 10 ? toHundredths(lap.s1!) : '—'}</span>
                           <span className="text-dark-700"> </span>

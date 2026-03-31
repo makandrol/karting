@@ -36,6 +36,7 @@ interface LeagueResultsProps {
   initialEdits?: ManualEdits;
   initialMergedPilots?: Record<string, string>;
   initialEditLog?: { pilot: string; action: string; detail: string; user: string; ts: number }[];
+  excludedLapKeys?: string[];
   allSessionsEnded?: boolean;
   totalPilotsOverride?: number | null;
   totalPilotsLocked?: boolean;
@@ -122,17 +123,26 @@ function getPositionPoints(scoring: ScoringData, totalPilots: number, group: str
   return pts[finishPos - 1];
 }
 
-export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount, onAutoGroups }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
   const { prefs, toggle } = useViewPrefs();
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
   const raceCount = format === 'champions_league' ? 3 : 2;
+  const excludedLapSet = useMemo(() => new Set(excludedLapKeys || []), [excludedLapKeys]);
+  const effectiveLaps = useMemo(() => {
+    if (excludedLapSet.size === 0) return sessionLaps;
+    const filtered = new Map<string, SessionLap[]>();
+    for (const [sid, laps] of sessionLaps) {
+      filtered.set(sid, laps.filter((l, i) => !excludedLapSet.has(`${sid}|${l.pilot}|${i + 1}`)));
+    }
+    return filtered;
+  }, [sessionLaps, excludedLapSet]);
   const formatMaxGroups = format === 'champions_league' ? 2 : 3;
   const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
-  const qualiSessionsWithData = qualiSessions.filter(s => (sessionLaps.get(s.sessionId) || []).length > 0);
+  const qualiSessionsWithData = qualiSessions.filter(s => (effectiveLaps.get(s.sessionId) || []).length > 0);
   const autoGroupsByQuali = Math.min(Math.max(qualiSessionsWithData.length, 1), formatMaxGroups);
   const maxGroups = groupCountOverride ?? autoGroupsByQuali;
-  const sessionsWithData = new Set(sessions.filter(s => (sessionLaps.get(s.sessionId) || []).length > 0).map(s => s.sessionId));
+  const sessionsWithData = new Set(sessions.filter(s => (effectiveLaps.get(s.sessionId) || []).length > 0).map(s => s.sessionId));
   const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const editingRef = useRef(false);
@@ -229,7 +239,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     // 1. Qualifying: best time per pilot
     const qualiData = new Map<string, PilotQualiData>();
     for (const qs of qualiSessions) {
-      for (const l of (sessionLaps.get(qs.sessionId) || [])) {
+      for (const l of (effectiveLaps.get(qs.sessionId) || [])) {
         const sec = parseLapSec(l.lap_time);
         if (sec === null || sec < 38) continue;
         const ex = qualiData.get(l.pilot);
@@ -292,7 +302,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
       for (const rs of rSessions) {
         const groupMatch = rs.phase?.match(/group_(\d+)/);
         const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
-        const laps = sessionLaps.get(rs.sessionId) || [];
+        const laps = effectiveLaps.get(rs.sessionId) || [];
         const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; kart: number; lapCount: number; lastTs: number; lastPosition: number }>();
         for (const l of laps) {
           const sec = parseLapSec(l.lap_time);
@@ -393,7 +403,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     });
 
     return rows;
-  }, [sessions, sessionLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePositions, pilotsOverride, pilotsLocked]);
+  }, [sessions, effectiveLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePositions, pilotsOverride, pilotsLocked]);
 
   const sortedDataRef = useRef<PilotRow[]>([]);
   const sortedData = useMemo(() => {

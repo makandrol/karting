@@ -449,6 +449,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
           onToggleLive={() => { if (isScrubbing) { setScrubTime(null); setLiveEnabled(true); } else setLiveEnabled(v => !v); }}
           initialExcludedPilots={competition.results?.excludedPilots}
           initialEdits={competition.results?.edits}
+          excludedLapKeys={competition.results?.excludedLaps}
           allSessionsEnded={allSessionsEnded}
           totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
           totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
