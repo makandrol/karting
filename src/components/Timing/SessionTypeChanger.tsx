@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { COLLECTOR_URL } from '../../services/config';
 import { useAuth } from '../../services/auth';
-import { COMPETITION_CONFIGS, PHASE_CONFIGS, type CompetitionFormat } from '../../data/competitions';
+import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhasesForFormat, type CompetitionFormat } from '../../data/competitions';
 import { useTrack } from '../../services/trackContext';
 import { isValidSession } from '../../utils/timing';
 
@@ -13,6 +13,7 @@ interface Competition {
   date: string;
   status: string;
   sessions: { sessionId: string; phase: string | null }[];
+  results?: any;
 }
 
 interface SessionTypeChangerProps {
@@ -115,8 +116,11 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     try {
       await apiPost(`/competitions/${encodeURIComponent(selectedComp.id)}/link-session`, { sessionId, phase: phaseId });
       
-      // Auto-link surrounding sessions (both before and after)
-      const phases = PHASE_CONFIGS[selectedComp.format]?.phases || [];
+      const compRes = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(selectedComp.id)}`);
+      const comp = compRes.ok ? await compRes.json() : null;
+      const results = comp ? (typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {})) : {};
+      const groupCount = results?.groupCountOverride ?? null;
+      const phases = getPhasesForFormat(selectedComp.format, groupCount);
       const phaseIdx = phases.findIndex(p => p.id === phaseId);
       if (phaseIdx >= 0) {
         await autoLinkSurroundingSessions(selectedComp.id, sessionId, phases, phaseIdx);
@@ -199,21 +203,44 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     if (!currentCompetitionId || !sessionId || !currentFormat) return;
     setLoading(true);
     try {
-      // Fetch current competition to get all linked sessions
       const compRes = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(currentCompetitionId)}`);
       if (!compRes.ok) return;
       const comp: Competition = await compRes.json();
-      // Unlink all existing sessions
+      const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
+      const groupCount = results?.groupCountOverride ?? null;
+
+      const sessionTs = sessionId.match(/session-(\d+)/);
+      const currentTime = sessionTs ? parseInt(sessionTs[1]) : 0;
+
+      // Unlink this session and all sessions after it
       for (const s of comp.sessions) {
-        await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/unlink-session`, { sessionId: s.sessionId });
+        const sTs = s.sessionId.match(/session-(\d+)/);
+        const sTime = sTs ? parseInt(sTs[1]) : 0;
+        if (sTime >= currentTime) {
+          await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/unlink-session`, { sessionId: s.sessionId });
+        }
       }
+
       // Link current session with new phase
       await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/link-session`, { sessionId, phase: phaseId });
-      // Auto-link surrounding sessions
-      const phases = PHASE_CONFIGS[currentFormat]?.phases || [];
-      const phaseIdx = phases.findIndex(p => p.id === phaseId);
+
+      // Auto-link sessions after this one
+      const allPhases = getPhasesForFormat(currentFormat, groupCount);
+      const phaseIdx = allPhases.findIndex(p => p.id === phaseId);
       if (phaseIdx >= 0) {
-        await autoLinkSurroundingSessions(currentCompetitionId, sessionId, phases, phaseIdx);
+        const dateStr = new Date(currentTime).toISOString().split('T')[0];
+        const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${dateStr}`);
+        if (res.ok) {
+          const allSessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; merged_session_ids?: string[] }[] = await res.json();
+          const after = allSessions
+            .filter(s => s.end_time && isValidSession(s) && s.start_time > currentTime && !s.competition_id && s.id !== sessionId)
+            .sort((a, b) => a.start_time - b.start_time);
+          const remainingPhases = allPhases.length - phaseIdx - 1;
+          for (let i = 0; i < remainingPhases && i < after.length; i++) {
+            const sid = after[i].merged_session_ids?.[0] || after[i].id;
+            await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/link-session`, { sessionId: sid, phase: allPhases[phaseIdx + 1 + i].id });
+          }
+        }
       }
     } catch {}
     setLoading(false);
@@ -289,6 +316,11 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     </div>
   );
 
+  function getCompPhases(format: string, comp?: Competition | null): { id: string; label: string }[] {
+    if (!comp) return PHASE_CONFIGS[format]?.phases || [];
+    return getPhasesForFormat(format, null);
+  }
+
   function renderLinkedMenu() {
     return (
       <>
@@ -300,7 +332,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
                 setStep('change_phase_all');
               }}
               className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
-              Змінити етап (всі заїзди)
+              Змінити етап (цей і далі)
             </button>
             <button
               onClick={() => {
@@ -389,7 +421,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       <>
         {step === 'change_phase_all' && selectedComp && (
           <>
-            <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Змінити етап (всі заїзди)</div>
+            <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Змінити етап (цей і далі)</div>
             {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => (
               <button key={phase.id} onClick={() => handleChangePhaseAll(phase.id)}
                 className={`w-full text-left px-3 py-2 text-sm transition-colors ${phase.id === currentPhase ? 'text-primary-400 font-medium' : 'text-dark-300 hover:text-white hover:bg-dark-800'}`}>
