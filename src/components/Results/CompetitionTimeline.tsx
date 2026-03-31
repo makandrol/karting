@@ -195,7 +195,12 @@ export default function CompetitionTimeline({ format, sessions, sessionTimes, cu
               >
                 {isSession && seg.phase && width > 3 && (
                   <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold text-green-200/70 pointer-events-none select-none overflow-hidden whitespace-nowrap">
-                    {getPhaseLabel(format, seg.phase).replace('Гонка ', 'Г').replace('Кваліфікація', 'Кв').replace(' · Група ', '·ГР')}
+                    {(() => {
+                      const label = getPhaseLabel(format, seg.phase);
+                      const m = label.match(/Гонка (\d+) · Група (\d+)/);
+                      if (m) return `${m[1]}-${m[2]}`;
+                      return label.replace('Кваліфікація ', 'Кв');
+                    })()}
                   </span>
                 )}
               </div>

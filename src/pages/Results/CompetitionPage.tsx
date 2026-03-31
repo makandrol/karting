@@ -1,7 +1,7 @@
 import { useParams, Link, Navigate } from 'react-router-dom';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel } from '../../data/competitions';
+import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat } from '../../data/competitions';
 import { toSeconds, isValidSession } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS } from '../../data/tracks';
@@ -166,8 +166,9 @@ export default function CompetitionPage() {
     } catch {}
   };
 
-  const phaseConfig = PHASE_CONFIGS[competition.format];
-  const totalPhases = phaseConfig?.phases.length ?? 0;
+  const groupCount = competition.results?.groupCountOverride ?? null;
+  const effectivePhases = getPhasesForFormat(competition.format, groupCount);
+  const totalPhases = effectivePhases.length;
   const linkedPhases = competition.sessions.filter(s => s.phase).length;
   const allPhasesLinked = totalPhases > 0 && linkedPhases >= totalPhases;
 
