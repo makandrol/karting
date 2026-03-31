@@ -215,7 +215,7 @@ export default function SessionDetail() {
     if (!pilotMap.has(lap.pilot)) pilotMap.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity, bestS1: Infinity, bestS2: Infinity });
     const p = pilotMap.get(lap.pilot)!;
     p.laps.push(lap);
-    const isExcluded = sessionId && excludedLaps.has(`${sessionId}|${lap.ts}`);
+    const isExcluded = sessionId && excludedLaps.has(`${sessionId}|${lap.pilot}|${lap.ts}`);
     if (isExcluded) continue;
     if (lap.lap_time) {
       const sec = parseLapTime(lap.lap_time);

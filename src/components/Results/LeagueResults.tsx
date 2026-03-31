@@ -133,7 +133,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     if (excludedLapSet.size === 0) return sessionLaps;
     const filtered = new Map<string, SessionLap[]>();
     for (const [sid, laps] of sessionLaps) {
-      filtered.set(sid, laps.filter(l => !excludedLapSet.has(`${sid}|${l.ts}`)));
+      filtered.set(sid, laps.filter(l => !excludedLapSet.has(`${sid}|${l.pilot}|${l.ts}`)));
     }
     return filtered;
   }, [sessionLaps, excludedLapSet]);

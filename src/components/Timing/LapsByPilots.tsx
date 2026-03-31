@@ -43,7 +43,7 @@ export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sess
     if (!map.has(lap.pilot)) map.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity, bestS1: Infinity, bestS2: Infinity });
     const p = map.get(lap.pilot)!;
     p.laps.push(lap);
-    const isExcluded = sessionId && lap.ts && excludedLaps?.has(`${sessionId}|${lap.ts}`);
+    const isExcluded = sessionId && lap.ts && excludedLaps?.has(`${sessionId}|${lap.pilot}|${lap.ts}`);
     if (isExcluded) continue;
     if (lap.lap_time) {
       const sec = parseLapTime(lap.lap_time);
@@ -115,7 +115,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   if (!lap?.lap_time) return (
                     <td key={p.name} className={`table-cell text-center text-dark-700 ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>—</td>
                   );
-                  const lapKey = sessionId && lap.ts ? `${sessionId}|${lap.ts}` : '';
+                  const lapKey = sessionId && lap.ts ? `${sessionId}|${p.name}|${lap.ts}` : '';
                   const isExcluded = lapKey ? excludedLaps?.has(lapKey) : false;
                   const sec = parseLapTime(lap.lap_time);
                   const isPB = !isExcluded && sec !== null && Math.abs(sec - p.bestLap) < 0.002;
