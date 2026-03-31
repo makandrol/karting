@@ -370,15 +370,16 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const showEditsOnly = hiddenGroups.has('__edits_only');
   const rc = showEditsOnly ? 4 : 10;
 
-  const EditableCell = ({ value, onChange, colorClass }: { value: number; onChange: (v: number) => void; colorClass?: string }) => {
-    const [text, setText] = useState(String(value));
+  const EditableCell = ({ value, onChange, colorClass, prefix }: { value: number; onChange: (v: number) => void; colorClass?: string; prefix?: string }) => {
+    const display = prefix && value ? `${prefix}${value}` : String(value);
+    const [text, setText] = useState(display);
     const [focused, setFocused] = useState(false);
-    useEffect(() => { if (!focused) setText(String(value)); }, [value, focused]);
+    useEffect(() => { if (!focused) setText(display); }, [display, focused]);
     return (
       <input type="text" inputMode="numeric" value={text}
         onChange={e => setText(e.target.value)}
         onFocus={() => setFocused(true)}
-        onBlur={() => { setFocused(false); const v = parseFloat(text); onChange(isNaN(v) ? 0 : v); }}
+        onBlur={() => { setFocused(false); const v = Math.abs(parseFloat(text.replace(/[^0-9.]/g, ''))); onChange(isNaN(v) ? 0 : v); }}
         className={`w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${colorClass || 'text-dark-300'}`} />
     );
   };
@@ -600,7 +601,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                             ) : '—'}
                           </td>
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">
-                            {race ? (canManage ? <EditableCell value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} /> : race.penalties ? <span className="text-red-400">{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
+                            {race ? (canManage ? <EditableCell value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
                           </td>
                           <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
                         </Fragment>
@@ -625,7 +626,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">
-                            {race ? (canManage ? <EditableCell value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} /> : race.penalties ? <span className="text-red-400">{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
+                            {race ? (canManage ? <EditableCell value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
                           </td>
                           <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
                         </Fragment>
