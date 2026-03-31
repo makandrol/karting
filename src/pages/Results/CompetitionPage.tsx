@@ -314,12 +314,16 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
 
   const sessionTimes = useMemo(() => {
     return compSessions
-      .filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000)
+      .filter(s => {
+        const hasLaps = sessionLaps.has(s.id) && (sessionLaps.get(s.id)?.length ?? 0) > 0;
+        const longEnough = !s.end_time || (s.end_time - s.start_time) >= 180000;
+        return hasLaps && longEnough;
+      })
       .map(s => {
         const compSession = competition.sessions.find(cs => cs.sessionId === s.id);
         return { sessionId: s.id, phase: compSession?.phase ?? null, startTime: s.start_time, endTime: s.end_time };
       }).sort((a, b) => a.startTime - b.startTime);
-  }, [compSessions, competition.sessions]);
+  }, [compSessions, competition.sessions, sessionLaps]);
 
   const filteredSessionLaps = useMemo(() => {
     if (scrubTime === null) return sessionLaps;
