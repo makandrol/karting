@@ -4,6 +4,7 @@ import { COLLECTOR_URL } from '../../services/config';
 import { useAuth } from '../../services/auth';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, type CompetitionFormat } from '../../data/competitions';
 import { useTrack } from '../../services/trackContext';
+import { isValidSession } from '../../utils/timing';
 
 interface Competition {
   id: string;
@@ -139,7 +140,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       const allSessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; merged_session_ids?: string[] }[] = await res.json();
 
       const available = allSessions
-        .filter(s => s.end_time && (s.end_time - s.start_time) >= 60000)
+        .filter(s => s.end_time && isValidSession(s))
         .filter(s => !s.competition_id && s.id !== currentSessionId);
 
       const before = available

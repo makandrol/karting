@@ -2,7 +2,7 @@ import { useParams, Link, Navigate } from 'react-router-dom';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel } from '../../data/competitions';
-import { toSeconds } from '../../utils/timing';
+import { toSeconds, isValidSession } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
@@ -316,8 +316,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     return compSessions
       .filter(s => {
         const hasLaps = sessionLaps.has(s.id) && (sessionLaps.get(s.id)?.length ?? 0) > 0;
-        const longEnough = !s.end_time || (s.end_time - s.start_time) >= 180000;
-        return hasLaps && longEnough;
+        return hasLaps && isValidSession(s);
       })
       .map(s => {
         const compSession = competition.sessions.find(cs => cs.sessionId === s.id);

@@ -167,3 +167,12 @@ export async function fetchRaceStartPositions(
 
   return { positions: result, totalQualified: 0 };
 }
+
+const MIN_SESSION_DURATION_MS = 180000;
+
+export function isValidSession(session: { end_time?: number | null; start_time?: number; end_time_ms?: number | null; start_time_ms?: number }): boolean {
+  const start = session.start_time ?? session.start_time_ms ?? 0;
+  const end = session.end_time ?? session.end_time_ms ?? null;
+  if (!end) return true;
+  return (end - start) >= MIN_SESSION_DURATION_MS;
+}

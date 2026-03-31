@@ -8,7 +8,7 @@ import { useTrack } from '../../services/trackContext';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
 import { Link, useNavigate } from 'react-router-dom';
-import { parseTime, mergePilotNames, shortName, toSeconds, fetchRaceStartPositions } from '../../utils/timing';
+import { parseTime, mergePilotNames, shortName, toSeconds, fetchRaceStartPositions, isValidSession } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
@@ -90,7 +90,7 @@ export default function Timing() {
     fetch(`${COLLECTOR_URL}/db/sessions?date=${todayStr}`)
       .then(r => r.json())
       .then((data: RecentSession[]) => {
-        setRecentSessions(data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000).slice(-5).reverse());
+        setRecentSessions(data.filter(s => s.end_time && isValidSession(s)).slice(-5).reverse());
       })
       .catch(() => {});
   }, []);
@@ -238,7 +238,7 @@ export default function Timing() {
                   : 'Перевірте з\'єднання з сервером або спробуйте пізніше.'}
               </p>
               {siteReachable && recentSessions.length > 0 && (() => {
-                const lastFinished = recentSessions.find(s => s.end_time && s.end_time > s.start_time + 60000);
+                const lastFinished = recentSessions.find(s => s.end_time && isValidSession(s));
                 return lastFinished?.end_time ? <IdleTimer sinceMs={lastFinished.end_time} /> : null;
               })()}
             </div>
