@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getPhaseLabel } from '../../data/competitions';
 
 interface CompSession {
@@ -36,6 +37,8 @@ function fmtDuration(ms: number): string {
 export default function CompetitionTimeline({ format, sessions, sessionTimes, currentTime, onTimeChange, isLive }: CompetitionTimelineProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  const navigate = useNavigate();
+  const [hoveredSession, setHoveredSession] = useState<string | null>(null);
 
   const timeRange = useMemo(() => {
     if (sessionTimes.length === 0) return null;
@@ -173,10 +176,18 @@ export default function CompetitionTimeline({ format, sessions, sessionTimes, cu
           {segments.map((seg, i) => {
             const left = toPct(seg.start);
             const width = Math.max(toPct(seg.end) - left, 0.3);
-            const bg = seg.type === 'session' ? 'bg-green-400/35' : seg.type === 'idle' ? 'bg-yellow-400/25' : 'bg-red-400/20';
+            const isSession = seg.type === 'session';
+            const isHov = isSession && hoveredSession === seg.sessionId;
+            const bg = isSession ? (isHov ? 'bg-green-400/50' : 'bg-green-400/35') : seg.type === 'idle' ? 'bg-yellow-400/25' : 'bg-red-400/20';
             return (
-              <div key={i} className={`absolute top-0 h-full ${bg} pointer-events-none`} style={{ left: `${left}%`, width: `${width}%` }}>
-                {seg.type === 'session' && seg.phase && width > 3 && (
+              <div key={i}
+                className={`absolute top-0 h-full ${bg} transition-colors ${isSession ? 'cursor-pointer z-[1]' : 'pointer-events-none'}`}
+                style={{ left: `${left}%`, width: `${width}%` }}
+                onMouseEnter={isSession ? () => setHoveredSession(seg.sessionId!) : undefined}
+                onMouseLeave={isSession ? () => setHoveredSession(null) : undefined}
+                onClick={isSession ? (e) => { e.stopPropagation(); navigate(`/sessions/${seg.sessionId}`); } : undefined}
+              >
+                {isSession && seg.phase && width > 3 && (
                   <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold text-green-200/70 pointer-events-none select-none overflow-hidden whitespace-nowrap">
                     {getPhaseLabel(format, seg.phase).replace('Гонка ', 'Г').replace('Кваліфікація', 'Кв').replace(' · Група ', '·ГР')}
                   </span>
@@ -189,6 +200,20 @@ export default function CompetitionTimeline({ format, sessions, sessionTimes, cu
             <div className="absolute top-0 h-full w-[2px] bg-white z-10 pointer-events-none" style={{ left: `${scrubberPct}%` }} />
           )}
         </div>
+
+        {hoveredSession && (() => {
+          const st = sessionTimes.find(s => s.sessionId === hoveredSession);
+          if (!st) return null;
+          const label = st.phase ? getPhaseLabel(format, st.phase) : 'Заїзд';
+          return (
+            <div className="h-4 flex items-center mt-1 text-[10px] text-dark-300 gap-2">
+              <span className="text-white font-medium">{label}</span>
+              <span className="font-mono">{fmtTime(st.startTime)}–{st.endTime ? fmtTime(st.endTime) : 'зараз'}</span>
+              {st.endTime && <span>{fmtDuration(st.endTime - st.startTime)}</span>}
+              <span className="text-dark-500">→ клік для перегляду</span>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

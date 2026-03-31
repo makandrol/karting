@@ -176,7 +176,7 @@ export default function CompetitionPage() {
           <Link to={`/results/${competition.format}`} className="text-dark-500 text-sm hover:text-dark-300 transition-colors">
             ← {config?.name || competition.format}
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl font-bold text-white">{competition.name}</h1>
             <select
               value={trackId ?? ''}
@@ -190,7 +190,6 @@ export default function CompetitionPage() {
               ))}
             </select>
           </div>
-          <p className="text-dark-400 text-sm">{competition.sessions.length} заїздів</p>
         </div>
         <div className="flex items-center gap-2">
           {competition.status === 'live' && allSessionsEnded && allPhasesLinked ? (
