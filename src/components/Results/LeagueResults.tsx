@@ -42,6 +42,7 @@ interface LeagueResultsProps {
   groupCountOverride?: number | null;
   onSaveResults?: (partial: Record<string, any>) => Promise<void>;
   onPilotCount?: (n: number) => void;
+  onAutoGroups?: (n: number) => void;
 }
 
 interface ScoringData {
@@ -121,13 +122,16 @@ function getPositionPoints(scoring: ScoringData, totalPilots: number, group: str
   return pts[finishPos - 1];
 }
 
-export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount, onAutoGroups }: LeagueResultsProps) {
   const { prefs, toggle } = useViewPrefs();
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
   const raceCount = format === 'champions_league' ? 3 : 2;
   const formatMaxGroups = format === 'champions_league' ? 2 : 3;
-  const maxGroups = groupCountOverride ?? formatMaxGroups;
+  const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
+  const qualiSessionsWithData = qualiSessions.filter(s => (sessionLaps.get(s.sessionId) || []).length > 0);
+  const autoGroupsByQuali = Math.min(Math.max(qualiSessionsWithData.length, 1), formatMaxGroups);
+  const maxGroups = groupCountOverride ?? autoGroupsByQuali;
   const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const editingRef = useRef(false);
@@ -216,7 +220,6 @@ export default function LeagueResults({ format, competitionId, sessions, session
     saveSettings({ sortKey: newKey, sortDir: newDir });
   };
 
-  const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
   const getRaceSessions = (raceNum: number) => sessions.filter(s => s.phase?.startsWith(`race_${raceNum}_`));
 
   const data = useMemo(() => {
@@ -431,7 +434,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const rc = showEditsOnly ? 4 : showPointsOnly ? 5 : 10;
 
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
-  Promise.resolve().then(() => onPilotCount?.(autoTotalPilots));
+  Promise.resolve().then(() => { onPilotCount?.(autoTotalPilots); onAutoGroups?.(autoGroupsByQuali); });
 
   const handlePilotsOverrideChange = (val: number) => {
     setPilotsOverride(val);

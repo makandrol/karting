@@ -44,6 +44,7 @@ export default function CompetitionPage() {
   const [compSessions, setCompSessions] = useState<SessionTableRow[]>([]);
   const [allSessionsEnded, setAllSessionsEnded] = useState(false);
   const [pilotCount, setPilotCount] = useState(0);
+  const [autoGroups, setAutoGroups] = useState(1);
 
   const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[]) => {
     const dates = new Set<string>();
@@ -196,6 +197,7 @@ export default function CompetitionPage() {
                 pilotOverride={competition.results?.totalPilotsOverride ?? null}
                 pilotLocked={competition.results?.totalPilotsLocked ?? false}
                 groupOverride={competition.results?.groupCountOverride ?? null}
+                autoGroups={autoGroups}
                 maxGroups={competition.format === 'champions_league' ? 2 : 3}
                 canManage={canManage}
                 onSave={async (partial) => {
@@ -249,7 +251,7 @@ export default function CompetitionPage() {
       {tab === 'final' ? (
         <FinalResults competition={competition} />
       ) : (
-        <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} />
+        <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
       )}
 
       {compSessions.length > 0 && (
@@ -301,7 +303,7 @@ function FinalResults({ competition }: { competition: Competition }) {
   return <div className="card p-4"><pre className="text-dark-300 text-xs overflow-auto">{JSON.stringify(results, null, 2)}</pre></div>;
 }
 
-function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void }) {
+function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void }) {
   const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -439,6 +441,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
           totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
           groupCountOverride={competition.results?.groupCountOverride ?? null}
           onPilotCount={onPilotCount}
+          onAutoGroups={onAutoGroups}
           onSaveResults={async (partial) => {
             try {
               const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
@@ -516,13 +519,12 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   );
 }
 
-function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverride, maxGroups, canManage, onSave }: {
+function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverride, autoGroups, maxGroups, canManage, onSave }: {
   pilotCount: number; pilotOverride: number | null; pilotLocked: boolean;
-  groupOverride: number | null; maxGroups: number; canManage: boolean;
+  groupOverride: number | null; autoGroups: number; maxGroups: number; canManage: boolean;
   onSave: (partial: Record<string, any>) => Promise<void>;
 }) {
   const effectivePilots = (pilotLocked && pilotOverride !== null) ? pilotOverride : pilotCount;
-  const autoGroups = effectivePilots <= 13 ? 1 : maxGroups >= 3 && effectivePilots > 26 ? 3 : effectivePilots > 13 ? 2 : 1;
   const effectiveGroups = groupOverride ?? autoGroups;
 
   return (
