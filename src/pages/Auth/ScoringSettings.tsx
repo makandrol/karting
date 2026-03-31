@@ -15,6 +15,7 @@ interface ScoringData {
   }[];
   overtakePoints: {
     groupI: OvertakeRule[];
+    groupILarge?: OvertakeRule[];
     groupII: number;
     groupIII: number;
   };
@@ -137,23 +138,23 @@ export default function ScoringSettings() {
           <div className="card p-4 space-y-4">
             <h3 className="text-white font-semibold text-sm">Бали за обгони</h3>
 
-            <div>
-              <h4 className="text-dark-400 text-xs mb-2">Група I (за 1 обгон)</h4>
-              <div className="overflow-x-auto">
+            <div className="flex gap-6 flex-wrap">
+              <div>
+                <h4 className="text-dark-400 text-xs mb-2">Група I</h4>
                 <table className="text-[10px]">
                   <thead>
                     <tr className="bg-dark-800/50">
                       <th className="px-2 py-1 text-left text-dark-300">Стартова позиція</th>
-                      <th className="px-2 py-1 text-center text-dark-300">Бали за обгон</th>
+                      <th className="px-2 py-1 text-center text-dark-300">Бали за 1 обгін</th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.overtakePoints.groupI.map((rule, i) => (
                       <tr key={i} className="border-b border-dark-800/50">
                         <td className="px-2 py-1 text-dark-300">
-                          {rule.startPosMin === rule.startPosMax ? `${rule.startPosMin} місце` :
-                           rule.startPosMax >= 99 ? `${rule.startPosMin}+ місце` :
-                           `${rule.startPosMin}-${rule.startPosMax} місце`}
+                          {rule.startPosMin === rule.startPosMax ? `${rule.startPosMin}` :
+                           rule.startPosMax >= 99 ? `${rule.startPosMin}+` :
+                           `${rule.startPosMin}-${rule.startPosMax}`}
                         </td>
                         <td className="px-2 py-1 text-center font-mono text-green-400 font-bold">{rule.perOvertake}</td>
                       </tr>
@@ -161,17 +162,44 @@ export default function ScoringSettings() {
                   </tbody>
                 </table>
               </div>
-            </div>
 
-            <div className="flex gap-8">
               <div>
-                <h4 className="text-dark-400 text-xs mb-1">Група II</h4>
-                <div className="text-green-400 font-mono font-bold text-lg">{data.overtakePoints.groupII} за обгон</div>
+                <h4 className="text-dark-400 text-xs mb-2">Група II</h4>
+                <div className="text-green-400 font-mono font-bold text-lg mt-2">{data.overtakePoints.groupII}</div>
+                <div className="text-dark-500 text-[10px]">за 1 обгін</div>
               </div>
+
               <div>
-                <h4 className="text-dark-400 text-xs mb-1">Група III</h4>
-                <div className="text-green-400 font-mono font-bold text-lg">{data.overtakePoints.groupIII} за обгон</div>
+                <h4 className="text-dark-400 text-xs mb-2">Група III</h4>
+                <div className="text-green-400 font-mono font-bold text-lg mt-2">{data.overtakePoints.groupIII}</div>
+                <div className="text-dark-500 text-[10px]">за 1 обгін</div>
               </div>
+
+              {data.overtakePoints.groupILarge && (
+                <div>
+                  <h4 className="text-dark-400 text-xs mb-2">Група I (більше 10 осіб)</h4>
+                  <table className="text-[10px]">
+                    <thead>
+                      <tr className="bg-dark-800/50">
+                        <th className="px-2 py-1 text-left text-dark-300">Стартова позиція</th>
+                        <th className="px-2 py-1 text-center text-dark-300">Бали за 1 обгін</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.overtakePoints.groupILarge.map((rule, i) => (
+                        <tr key={i} className="border-b border-dark-800/50">
+                          <td className="px-2 py-1 text-dark-300">
+                            {rule.startPosMin === rule.startPosMax ? `${rule.startPosMin}` :
+                             rule.startPosMax >= 99 ? `${rule.startPosMin}+` :
+                             `${rule.startPosMin}-${rule.startPosMax}`}
+                          </td>
+                          <td className="px-2 py-1 text-center font-mono text-green-400 font-bold">{rule.perOvertake}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </>
