@@ -148,10 +148,14 @@ export default function CompetitionTimeline({ format, sessions, sessionTimes, cu
             <span className="flex items-center gap-1 text-dark-500"><span className="w-2 h-2 rounded-sm bg-yellow-400/60" /> перерва</span>
             <span className="flex items-center gap-1 text-dark-500"><span className="w-2 h-2 rounded-sm bg-green-400/70" /> заїзд</span>
           </div>
-          {currentTime !== null && (
+          {currentTime !== null ? (
             <button onClick={() => onTimeChange(null)} className="px-1.5 py-0.5 rounded text-[9px] bg-primary-600/20 text-primary-400 hover:bg-primary-600/30 transition-colors">
               LIVE ▸
             </button>
+          ) : isLive ? (
+            <span className="px-1.5 py-0.5 rounded text-[9px] bg-green-500/20 text-green-400 font-semibold">● LIVE</span>
+          ) : (
+            <span className="px-1.5 py-0.5 rounded text-[9px] bg-dark-800 text-dark-600">○ LIVE</span>
           )}
         </div>
       </div>
@@ -167,12 +171,13 @@ export default function CompetitionTimeline({ format, sessions, sessionTimes, cu
 
         <div
           ref={barRef}
-          className="relative h-7 bg-dark-800 rounded-lg overflow-hidden cursor-pointer touch-none"
+          className="relative h-7 bg-dark-800 rounded-lg cursor-pointer touch-none"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
+          <div className="absolute inset-0 rounded-lg overflow-hidden">
           {hours.map(h => (
             <div key={h} className="absolute top-0 h-full w-px bg-dark-600/60 pointer-events-none" style={{ left: `${toPct(h)}%` }} />
           ))}
@@ -196,6 +201,7 @@ export default function CompetitionTimeline({ format, sessions, sessionTimes, cu
               </div>
             );
           })}
+          </div>
 
           {scrubberPct !== null && (
             <div className="absolute top-0 h-full w-[2px] bg-white z-10 pointer-events-none" style={{ left: `${scrubberPct}%` }} />
