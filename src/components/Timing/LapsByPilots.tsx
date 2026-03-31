@@ -135,11 +135,11 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                       isExcluded ? 'opacity-40' :
                       isOverall ? 'text-purple-400 font-bold' : isPB ? 'text-green-400 font-bold' : 'text-dark-300'
                     } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>
-                      <div className={`relative ${isExcluded ? 'line-through decoration-red-400' : ''}`}>
+                      <div className={`relative group ${isExcluded ? 'line-through decoration-red-400' : ''}`}>
                         {toSeconds(lap.lap_time)}
                         {onToggleLap && lapKey && (
-                          <button onClick={() => onToggleLap(lapKey)}
-                            className={`absolute -right-0.5 -top-0.5 text-[7px] leading-none ${isExcluded ? 'text-green-400 hover:text-green-300' : 'text-dark-700 hover:text-red-400'} transition-colors`}>
+                          <button onClick={(e) => { e.stopPropagation(); onToggleLap(lapKey); }}
+                            className={`absolute -right-1 -top-1 w-3.5 h-3.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none opacity-0 group-hover:opacity-100 transition-all ${isExcluded ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30 !opacity-100' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}`}>
                             {isExcluded ? '↩' : '✕'}
                           </button>
                         )}
