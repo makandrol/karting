@@ -131,7 +131,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     onChanged?.();
   };
 
-  const autoLinkSurroundingSessions = async (compId: string, currentSessionId: string, phases: { id: string }[], currentPhaseIdx: number) => {
+  const autoLinkSurroundingSessions = async (compId: string, currentSessionId: string, _phases: { id: string }[], currentPhaseIdx: number) => {
     const sessionTs = currentSessionId.match(/session-(\d+)/);
     if (!sessionTs) return;
     const currentTime = parseInt(sessionTs[1]);
@@ -147,27 +147,72 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         .filter(s => s.end_time && isValidSession(s))
         .filter(s => !s.competition_id && s.id !== currentSessionId);
 
-      const before = available
-        .filter(s => s.start_time < currentTime)
-        .sort((a, b) => b.start_time - a.start_time);
+      const before = available.filter(s => s.start_time < currentTime).sort((a, b) => b.start_time - a.start_time);
+      const after = available.filter(s => s.start_time > currentTime).sort((a, b) => a.start_time - b.start_time);
 
-      const after = available
-        .filter(s => s.start_time > currentTime)
-        .sort((a, b) => a.start_time - b.start_time);
+      const allToLink = [...before.reverse(), { id: currentSessionId, start_time: currentTime, end_time: null, merged_session_ids: undefined as string[] | undefined }, ...after];
 
-      // Link previous sessions (phases before currentPhaseIdx)
-      for (let i = 0; i < currentPhaseIdx && i < before.length; i++) {
-        const session = before[i];
-        const phaseId = phases[currentPhaseIdx - 1 - i].id;
+      const sessionPilots = new Map<string, Set<string>>();
+      for (const s of allToLink) {
+        const sid = s.merged_session_ids?.[0] || s.id;
+        try {
+          const lapsRes = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`);
+          if (lapsRes.ok) {
+            const laps: { pilot: string }[] = await lapsRes.json();
+            sessionPilots.set(sid, new Set(laps.map(l => l.pilot)));
+          }
+        } catch {}
+      }
+
+      const format = selectedFormat || selectedComp?.format || '';
+      const formatMaxGroups = format === 'champions_league' ? 2 : 3;
+
+      let detectedGroups = 1;
+      const cumulativePilots = new Set<string>();
+      let qualiCount = 0;
+      for (const s of allToLink) {
+        const sid = s.merged_session_ids?.[0] || s.id;
+        const pilots = sessionPilots.get(sid);
+        if (!pilots || pilots.size === 0) continue;
+
+        if (cumulativePilots.size === 0) {
+          qualiCount = 1;
+          for (const p of pilots) cumulativePilots.add(p);
+          continue;
+        }
+
+        let overlap = 0;
+        for (const p of pilots) { if (cumulativePilots.has(p)) overlap++; }
+        const overlapRatio = overlap / pilots.size;
+
+        if (overlapRatio >= 0.5) break;
+
+        qualiCount++;
+        for (const p of pilots) cumulativePilots.add(p);
+      }
+      detectedGroups = Math.min(Math.max(qualiCount, 1), formatMaxGroups);
+
+      const phases = getPhasesForFormat(format, detectedGroups);
+      const currentIdx = phases.findIndex(p => p.id === _phases[currentPhaseIdx]?.id);
+      const effectiveIdx = currentIdx >= 0 ? currentIdx : Math.min(currentPhaseIdx, phases.length - 1);
+
+      await apiPatch(`/competitions/${encodeURIComponent(compId)}`, {
+        results: { groupCountOverride: detectedGroups },
+      });
+
+      for (let i = 0; i < effectiveIdx && i < before.length; i++) {
+        const session = before[before.length - 1 - i];
+        const phaseId = phases[effectiveIdx - 1 - i]?.id;
+        if (!phaseId) continue;
         const sid = session.merged_session_ids?.[0] || session.id;
         await apiPost(`/competitions/${encodeURIComponent(compId)}/link-session`, { sessionId: sid, phase: phaseId });
       }
 
-      // Link next sessions (phases after currentPhaseIdx)
-      const remainingPhases = phases.length - currentPhaseIdx - 1;
+      const remainingPhases = phases.length - effectiveIdx - 1;
       for (let i = 0; i < remainingPhases && i < after.length; i++) {
         const session = after[i];
-        const phaseId = phases[currentPhaseIdx + 1 + i].id;
+        const phaseId = phases[effectiveIdx + 1 + i]?.id;
+        if (!phaseId) continue;
         const sid = session.merged_session_ids?.[0] || session.id;
         await apiPost(`/competitions/${encodeURIComponent(compId)}/link-session`, { sessionId: sid, phase: phaseId });
       }
