@@ -499,9 +499,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
               <span className="flex rounded overflow-hidden">
                 <button onClick={() => setViewMode(showAll ? '' : 'all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showAll ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
                 <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-                <button onClick={() => setViewMode(showEditsOnly ? '' : 'edits')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Ред.</button>
-                <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
                 <button onClick={() => setViewMode(showPointsOnly ? '' : 'points')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showPointsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Бали</button>
+                <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+                <button onClick={() => setViewMode(showEditsOnly ? '' : 'edits')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Ред.</button>
               </span>
               <button onClick={() => { setViewMode(''); toggleGroup('quali'); }} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showAll || showPointsOnly || (!showEditsOnly && showQuali) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Квала</button>
               {Array.from({ length: raceCount }, (_, i) => (
