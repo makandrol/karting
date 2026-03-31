@@ -408,7 +408,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
   const showAll = hiddenGroups.has('__show_all');
   const showEditsOnly = hiddenGroups.has('__edits_only');
-  const rc = showEditsOnly ? 4 : 10;
+  const showPointsOnly = hiddenGroups.has('__points_only');
+  const rc = showEditsOnly ? 4 : showPointsOnly ? 5 : 10;
 
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
 
@@ -428,6 +429,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
       const n = new Set(prev);
       n.delete('__show_all');
       n.delete('__edits_only');
+      n.delete('__points_only');
       if (mode === 'all') {
         n.delete('quali');
         for (let i = 1; i <= raceCount; i++) n.delete(`race_${i}`);
@@ -436,6 +438,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
         n.delete('quali');
         for (let i = 1; i <= raceCount; i++) n.delete(`race_${i}`);
         n.add('__edits_only');
+      } else if (mode === 'points') {
+        n.delete('quali');
+        for (let i = 1; i <= raceCount; i++) n.delete(`race_${i}`);
+        n.add('__points_only');
       }
       saveSettings({ hiddenGroups: [...n] });
       return n;
@@ -494,10 +500,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 <button onClick={() => setViewMode(showAll ? '' : 'all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showAll ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
                 <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
                 <button onClick={() => setViewMode(showEditsOnly ? '' : 'edits')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Ред.</button>
+                <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+                <button onClick={() => setViewMode(showPointsOnly ? '' : 'points')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showPointsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Бали</button>
               </span>
-              <button onClick={() => { setViewMode(''); toggleGroup('quali'); }} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showAll || (!showEditsOnly && showQuali) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Квала</button>
+              <button onClick={() => { setViewMode(''); toggleGroup('quali'); }} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showAll || showPointsOnly || (!showEditsOnly && showQuali) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Квала</button>
               {Array.from({ length: raceCount }, (_, i) => (
-                <button key={i} onClick={() => { setViewMode(''); toggleGroup(`race_${i + 1}`); }} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showAll || showEditsOnly || showRace(i + 1) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Г{i + 1}</button>
+                <button key={i} onClick={() => { setViewMode(''); toggleGroup(`race_${i + 1}`); }} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${showAll || showEditsOnly || showPointsOnly || showRace(i + 1) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Г{i + 1}</button>
               ))}
             </div>
           </div>
@@ -508,26 +516,35 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   <th rowSpan={3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-6">#</th>
                   <th rowSpan={3} className="px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px]">Пілот</th>
                   <th rowSpan={3} className="px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10"><span className={TH_R}>Сума</span></th>
-                  {(showAll || (!showEditsOnly && showQuali)) && <th colSpan={3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Квала</th>}
+                  {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && <th colSpan={showPointsOnly ? 1 : 3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Квала</th>}
                   {Array.from({ length: raceCount }, (_, i) => {
-                    const visible = showAll || showEditsOnly || showRace(i + 1);
+                    const visible = showAll || showEditsOnly || showPointsOnly || showRace(i + 1);
                     if (!visible) return null;
                     return <th key={i} colSpan={rc} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Гонка {i + 1}</th>;
                   })}
                 </tr>
                 <tr className="bg-dark-800/30">
-                  {(showAll || (!showEditsOnly && showQuali)) && (<>
-                    <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>
-                    <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>
+                  {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && (<>
+                    {!showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>}
+                    {!showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>}
                     <th rowSpan={2} className={TH_V}><span className={TH_R}>Бали</span></th>
                   </>)}
                   {Array.from({ length: raceCount }, (_, i) => {
-                    const visible = showAll || showEditsOnly || showRace(i + 1);
+                    const visible = showAll || showEditsOnly || showPointsOnly || showRace(i + 1);
                     if (!visible) return null;
                     if (showEditsOnly) return (
                       <Fragment key={i}>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Старт</span></th>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Фініш</span></th>
+                        <th rowSpan={2} className={TH_V}><span className={TH_R}>Штрафи</span></th>
+                        <th rowSpan={2} className={TH_V}><span className={TH_R}>Сума</span></th>
+                      </Fragment>
+                    );
+                    if (showPointsOnly) return (
+                      <Fragment key={i}>
+                        <th rowSpan={2} className={TH_V}><span className={TH_R}>Швидк.</span></th>
+                        <th rowSpan={2} className={TH_V}><span className={TH_R}>Позиція</span></th>
+                        <th rowSpan={2} className={TH_V}><span className={TH_R}>Обгони</span></th>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Штрафи</span></th>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Сума</span></th>
                       </Fragment>
@@ -547,8 +564,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 </tr>
                 <tr className="bg-dark-800/20">
                   {Array.from({ length: raceCount }, (_, i) => {
-                    const visible = showAll || showEditsOnly || showRace(i + 1);
-                    if (!visible || showEditsOnly) return null;
+                    const visible = showAll || showEditsOnly || showPointsOnly || showRace(i + 1);
+                    if (!visible || showEditsOnly || showPointsOnly) return null;
                     return (
                       <Fragment key={i}>
                         <th className={TH_V}><span className={TH_R}>Позиція</span></th>
@@ -610,13 +627,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         )}
                       </td>
                     <td className="px-1 py-1 text-center font-mono text-green-400 font-bold border-r border-dark-700">{row.totalPoints || '—'}</td>
-                    {(showAll || (!showEditsOnly && showQuali)) && (<>
-                      <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{row.quali?.kart || '—'}</td>
-                      <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>
+                    {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && (<>
+                      {!showPointsOnly && <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{row.quali?.kart || '—'}</td>}
+                      {!showPointsOnly && <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>}
                       <td className="px-1 py-1 text-center font-mono border-r border-dark-700">{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>
                     </>)}
                     {row.races.map((race, ri) => {
-                      const visible = showAll || showEditsOnly || showRace(ri + 1);
+                      const visible = showAll || showEditsOnly || showPointsOnly || showRace(ri + 1);
                       if (!visible) return null;
                       const posChange = race && race.startPos > 0 && race.finishPos > 0 ? race.startPos - race.finishPos : 0;
                       if (showEditsOnly) return (
@@ -635,6 +652,15 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">
                             {race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
                           </td>
+                          <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
+                        </Fragment>
+                      );
+                      if (showPointsOnly) return (
+                        <Fragment key={ri}>
+                          <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>
+                          <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>
+                          <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>
+                          <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>}</td>
                           <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
                         </Fragment>
                       );
