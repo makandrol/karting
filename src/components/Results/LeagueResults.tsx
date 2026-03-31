@@ -72,6 +72,23 @@ type ManualEdits = Record<string, { startPos?: number; finishPos?: number; penal
 const TH_V = "px-1 py-1 text-center text-dark-500 border-r border-dark-700/30";
 const TH_R = "[writing-mode:vertical-lr] rotate-180 text-[9px]";
 
+function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
+  value: number; onChange: (v: number) => void; colorClass?: string; prefix?: string;
+  editingRef: React.MutableRefObject<boolean>;
+}) {
+  const display = prefix && value ? `${prefix}${value}` : String(value);
+  const [text, setText] = useState(display);
+  const [focused, setFocused] = useState(false);
+  useEffect(() => { if (!focused) setText(display); }, [display, focused]);
+  return (
+    <input type="text" inputMode="numeric" value={text}
+      onChange={e => setText(e.target.value)}
+      onFocus={() => { setFocused(true); editingRef.current = true; }}
+      onBlur={() => { setFocused(false); editingRef.current = false; const v = Math.abs(parseFloat(text.replace(/[^0-9.]/g, ''))); onChange(isNaN(v) ? 0 : v); }}
+      className={`w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${colorClass || 'text-dark-300'}`} />
+  );
+}
+
 function getOvertakeRate(scoring: ScoringData, group: number, pos: number): number {
   if (group === 3) return scoring.overtakePoints.groupIII;
   if (group === 2) return scoring.overtakePoints.groupII;
@@ -393,20 +410,6 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const showEditsOnly = hiddenGroups.has('__edits_only');
   const rc = showEditsOnly ? 4 : 10;
 
-  const EditableCell = ({ value, onChange, colorClass, prefix }: { value: number; onChange: (v: number) => void; colorClass?: string; prefix?: string }) => {
-    const display = prefix && value ? `${prefix}${value}` : String(value);
-    const [text, setText] = useState(display);
-    const [focused, setFocused] = useState(false);
-    useEffect(() => { if (!focused) setText(display); }, [display, focused]);
-    return (
-      <input type="text" inputMode="numeric" value={text}
-        onChange={e => setText(e.target.value)}
-        onFocus={() => { setFocused(true); editingRef.current = true; }}
-        onBlur={() => { setFocused(false); editingRef.current = false; const v = Math.abs(parseFloat(text.replace(/[^0-9.]/g, ''))); onChange(isNaN(v) ? 0 : v); }}
-        className={`w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${colorClass || 'text-dark-300'}`} />
-    );
-  };
-
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
 
   const handlePilotsOverrideChange = (val: number) => {
@@ -614,18 +617,18 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       if (showEditsOnly) return (
                         <Fragment key={ri}>
                           <td className="px-1 py-1 text-center font-mono text-dark-400 border-r border-dark-700/30">
-                            {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell value={race.startPos} onChange={v => setEdit(row.pilot, ri + 1, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}
+                            {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell editingRef={editingRef} value={race.startPos} onChange={v => setEdit(row.pilot, ri + 1, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}
                           </td>
                           <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">
                             {race ? (
                               <span className="inline-flex items-center gap-0.5">
-                                {canManage ? <EditableCell value={race.finishPos} onChange={v => setEdit(row.pilot, ri + 1, 'finishPos', v)} /> : <span>{race.finishPos}</span>}
+                                {canManage ? <EditableCell editingRef={editingRef} value={race.finishPos} onChange={v => setEdit(row.pilot, ri + 1, 'finishPos', v)} /> : <span>{race.finishPos}</span>}
                                 {posChange !== 0 && <span className={`text-[8px] ${posChange > 0 ? 'text-green-400' : 'text-red-400'}`}>{posChange > 0 ? `▲${posChange}` : `▼${Math.abs(posChange)}`}</span>}
                               </span>
                             ) : '—'}
                           </td>
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">
-                            {race ? (canManage ? <EditableCell value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
+                            {race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
                           </td>
                           <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
                         </Fragment>
@@ -637,12 +640,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>
                           <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{race?.group || '—'}</td>
                           <td className="px-1 py-1 text-center font-mono text-dark-400 border-r border-dark-700/30">
-                            {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell value={race.startPos} onChange={v => setEdit(row.pilot, ri + 1, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}
+                            {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell editingRef={editingRef} value={race.startPos} onChange={v => setEdit(row.pilot, ri + 1, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}
                           </td>
                           <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">
                             {race ? (
                               <span className="inline-flex items-center gap-0.5">
-                                {canManage ? <EditableCell value={race.finishPos} onChange={v => setEdit(row.pilot, ri + 1, 'finishPos', v)} /> : <span>{race.finishPos}</span>}
+                                {canManage ? <EditableCell editingRef={editingRef} value={race.finishPos} onChange={v => setEdit(row.pilot, ri + 1, 'finishPos', v)} /> : <span>{race.finishPos}</span>}
                                 {posChange !== 0 && <span className={`text-[8px] ${posChange > 0 ? 'text-green-400' : 'text-red-400'}`}>{posChange > 0 ? `▲${posChange}` : `▼${Math.abs(posChange)}`}</span>}
                               </span>
                             ) : '—'}
@@ -650,7 +653,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">
-                            {race ? (canManage ? <EditableCell value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
+                            {race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
                           </td>
                           <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
                         </Fragment>
