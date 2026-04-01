@@ -528,15 +528,6 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         </button>
       </div>
 
-      <div className="flex items-center gap-1.5">
-        <span className="text-dark-500 text-[9px]">Вид:</span>
-        <span className="flex rounded overflow-hidden">
-          <button onClick={() => setColumnFilter('all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
-          <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-          <button onClick={() => setColumnFilter('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
-        </span>
-      </div>
-
       <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
         {isLive ? formatTimeSec(currentTime) : `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
       </span>
@@ -560,6 +551,17 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
 
       {/* Timing board */}
       <div className="card p-0 overflow-hidden">
+        <div className="px-4 py-3 border-b border-dark-800 flex items-center justify-between">
+          <h3 className="text-white font-semibold">Таймінг</h3>
+          <div className="flex items-center gap-1.5">
+            <span className="text-dark-500 text-[9px]">Вид:</span>
+            <span className="flex rounded overflow-hidden">
+              <button onClick={() => setColumnFilter('all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
+              <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+              <button onClick={() => setColumnFilter('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
+            </span>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs [&_th]:px-0.5 [&_th]:py-0.5 [&_td]:px-0.5 [&_td]:py-0.5">
           <thead>
