@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { parseTime } from '../../utils/timing';
+import { parseTime, isValidSession } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 
@@ -31,7 +31,7 @@ export default function SessionsList() {
       const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`, { signal: AbortSignal.timeout(5000) });
       if (res.ok) {
         const all: SessionTableRow[] = await res.json();
-        setSessions(all.filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000));
+        setSessions(all.filter(isValidSession));
       } else setSessions([]);
     } catch { setSessions([]); }
     setLoading(false);

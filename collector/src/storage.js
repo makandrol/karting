@@ -624,19 +624,62 @@ export const storage = {
   },
 
   autoLinkSessionToActiveCompetition(sessionId) {
-    const PHASE_ORDER = {
+    const FORMAT_MAX_GROUPS = { gonzales: 1, light_league: 3, champions_league: 2, sprint: 1, marathon: 1 };
+    const FULL_PHASES = {
       gonzales: Array.from({ length: 12 }, (_, i) => `round_${i + 1}`),
       light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
       champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
       sprint: ['race'],
       marathon: ['race'],
     };
+
     const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
     const liveComp = comps.find(c => c.status === 'live');
     if (!liveComp) return null;
-    const phases = PHASE_ORDER[liveComp.format] || [];
+
+    const results = liveComp.results || {};
+    let groupCount = results.groupCountOverride || null;
+
+    // Auto-detect groups by pilot overlap if not manually set
+    if (!groupCount && (liveComp.format === 'light_league' || liveComp.format === 'champions_league')) {
+      const linkedSessions = liveComp.sessions.filter(s => s.phase?.startsWith('qualifying'));
+      if (linkedSessions.length > 0) {
+        const cumulativePilots = new Set();
+        for (const ls of linkedSessions) {
+          const laps = stmts.getLaps.all(ls.sessionId);
+          for (const l of laps) cumulativePilots.add(l.pilot);
+        }
+        // Check if new session has significant overlap with existing pilots
+        const newLaps = stmts.getLaps.all(sessionId);
+        const newPilots = new Set(newLaps.map(l => l.pilot));
+        if (newPilots.size > 0 && cumulativePilots.size > 0) {
+          let overlap = 0;
+          for (const p of newPilots) { if (cumulativePilots.has(p)) overlap++; }
+          const overlapRatio = overlap / newPilots.size;
+          if (overlapRatio >= 0.5) {
+            groupCount = linkedSessions.length;
+            const maxGroups = FORMAT_MAX_GROUPS[liveComp.format] || 3;
+            groupCount = Math.min(Math.max(groupCount, 1), maxGroups);
+            this.updateCompetition(liveComp.id, { results: { ...results, groupCountOverride: groupCount } });
+            console.log(`🔍 Detected ${groupCount} groups (${Math.round(overlapRatio * 100)}% overlap)`);
+          }
+        }
+      }
+    }
+
+    const filterPhases = (phases, gc) => {
+      if (!gc) return phases;
+      return phases.filter(p => {
+        if (p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
+        const gm = p.match(/group_(\d+)/);
+        if (gm) return parseInt(gm[1]) <= gc;
+        return true;
+      });
+    };
+
+    const allPhases = FULL_PHASES[liveComp.format] || [];
+    const phases = filterPhases(allPhases, groupCount);
     const usedPhases = liveComp.sessions.map(s => s.phase);
-    // Find the last used phase index, then take the next one
     let lastUsedIdx = -1;
     for (const p of usedPhases) {
       const idx = phases.indexOf(p);
@@ -648,6 +691,68 @@ export const storage = {
     this.updateCompetition(liveComp.id, { sessions });
     console.log(`🏁 Auto-linked session ${sessionId} → ${liveComp.name} · ${nextPhase}`);
     return { competitionId: liveComp.id, phase: nextPhase };
+  },
+
+  recheckSessionPhase(sessionId) {
+    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
+    if (!comp || comp.status !== 'live') return;
+    if (comp.format !== 'light_league' && comp.format !== 'champions_league') return;
+
+    const results = comp.results || {};
+    if (results.groupCountOverride) return;
+
+    const entry = comp.sessions.find(s => s.sessionId === sessionId);
+    if (!entry || !entry.phase?.startsWith('qualifying_')) return;
+
+    const qualiSessions = comp.sessions.filter(s => s.phase?.startsWith('qualifying_') && s.sessionId !== sessionId);
+    if (qualiSessions.length === 0) return;
+
+    const cumulativePilots = new Set();
+    for (const qs of qualiSessions) {
+      const laps = stmts.getLaps.all(qs.sessionId);
+      for (const l of laps) cumulativePilots.add(l.pilot);
+    }
+
+    const newLaps = stmts.getLaps.all(sessionId);
+    const newPilots = new Set(newLaps.map(l => l.pilot));
+    if (newPilots.size < 3 || cumulativePilots.size === 0) return;
+
+    let overlap = 0;
+    for (const p of newPilots) { if (cumulativePilots.has(p)) overlap++; }
+    const overlapRatio = overlap / newPilots.size;
+
+    if (overlapRatio < 0.5) return;
+
+    const groupCount = Math.min(qualiSessions.length, { light_league: 3, champions_league: 2 }[comp.format] || 3);
+    console.log(`🔍 Session ${sessionId}: ${Math.round(overlapRatio * 100)}% overlap → detected ${groupCount} groups, reassigning phase`);
+
+    const filterPhases = (phases, gc) => phases.filter(p => {
+      if (p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
+      const gm = p.match(/group_(\d+)/);
+      if (gm) return parseInt(gm[1]) <= gc;
+      return true;
+    });
+
+    const FULL_PHASES = {
+      light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
+      champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
+    };
+    const phases = filterPhases(FULL_PHASES[comp.format] || [], groupCount);
+
+    const usedPhases = comp.sessions.filter(s => s.sessionId !== sessionId).map(s => s.phase);
+    let lastUsedIdx = -1;
+    for (const p of usedPhases) {
+      const idx = phases.indexOf(p);
+      if (idx > lastUsedIdx) lastUsedIdx = idx;
+    }
+    const correctPhase = lastUsedIdx < phases.length - 1 ? phases[lastUsedIdx + 1] : null;
+
+    if (correctPhase && correctPhase !== entry.phase) {
+      const newSessions = comp.sessions.map(s => s.sessionId === sessionId ? { ...s, phase: correctPhase } : s);
+      this.updateCompetition(comp.id, { sessions: newSessions, results: { ...results, groupCountOverride: groupCount } });
+      console.log(`🔄 Reassigned ${sessionId}: ${entry.phase} → ${correctPhase}`);
+    }
   },
 
   autoUnlinkSession(sessionId) {
@@ -662,6 +767,23 @@ export const storage = {
       }
     }
     return false;
+  },
+
+  getScoring() {
+    const raw = this.getSystemState('scoring');
+    return raw ? JSON.parse(raw) : null;
+  },
+
+  setScoring(data) {
+    this.setSystemState('scoring', JSON.stringify(data));
+  },
+
+  updateSessionsTrack(sessionIds, trackId) {
+    if (!sessionIds || sessionIds.length === 0) return 0;
+    const placeholders = sessionIds.map(() => '?').join(',');
+    const stmt = db.prepare(`UPDATE sessions SET track_id = ? WHERE id IN (${placeholders})`);
+    const result = stmt.run(trackId, ...sessionIds);
+    return result.changes;
   },
 
   renamePilot(sessionId, oldName, newName) {

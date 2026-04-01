@@ -6,13 +6,14 @@ The collector is a Node.js HTTP server that polls the karting timing API, stores
 **Location**: `collector/` directory
 **Runtime**: Node.js 20, no framework (plain `http` module)
 **Database**: SQLite via `better-sqlite3` at `collector/data/karting.db`
+**Current version**: 0.3.3
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `src/index.js` | HTTP server, all API endpoints, CORS |
-| `src/poller.js` | `TimingPoller` — core polling engine, session management, auto-link to competitions |
+| `src/poller.js` | `TimingPoller` — core polling engine, session management, event diffing |
 | `src/parser.js` | Parses raw JSON from timing API, defines volatile fields |
 | `src/detector.js` | `CompetitionDetector` — auto-detects competitions by schedule |
 | `src/schedule.js` | Weekly competition schedule (Mon=Gonzales, Tue=LL, Wed=CL) |
@@ -26,9 +27,9 @@ CREATE TABLE sessions (
     id TEXT PRIMARY KEY,           -- "session-{timestamp}"
     start_time INTEGER NOT NULL,   -- unix ms
     end_time INTEGER,              -- unix ms (null if active)
-    pilot_count INTEGER DEFAULT 0, -- initial count at session start
+    pilot_count INTEGER DEFAULT 0,
     track_id INTEGER DEFAULT 1,
-    race_number INTEGER,           -- from timing API
+    race_number INTEGER,
     is_race INTEGER DEFAULT 0,
     date TEXT NOT NULL              -- "YYYY-MM-DD"
 );
@@ -53,7 +54,7 @@ CREATE TABLE laps (
     pilot TEXT NOT NULL,
     kart INTEGER NOT NULL,
     lap_number INTEGER NOT NULL,
-    lap_time TEXT,                  -- "39.800" or "1:02.222"
+    lap_time TEXT,
     s1 TEXT, s2 TEXT,
     best_lap TEXT,
     position INTEGER,
@@ -65,25 +66,20 @@ CREATE TABLE laps (
 ```sql
 CREATE TABLE competitions (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,             -- "ЛЛ, 24.03.26, Тр. 1"
+    name TEXT NOT NULL,
     format TEXT,                    -- light_league, champions_league, gonzales, sprint, marathon
     date TEXT,
     sessions TEXT NOT NULL DEFAULT '[]',  -- JSON: [{sessionId, phase}]
     results TEXT,                   -- JSON: {excludedPilots:[], edits:{}}
-    uploaded_results TEXT,          -- JSON: manually uploaded final results
-    status TEXT NOT NULL DEFAULT 'live'  -- 'live' or 'finished'
+    uploaded_results TEXT,
+    status TEXT NOT NULL DEFAULT 'live'
 );
 ```
 
-**sessions format**: `[{sessionId: "session-123", phase: "qualifying_1"}]`
-Migration: old format `["session-123"]` auto-converted on read.
-
-**results format**: `{excludedPilots: ["Механік"], edits: {"pilot|1": {startPos: 5, finishPos: 3, penalties: 0}}}`
-
 ### Other tables
-- `page_views` — analytics page views
-- `visitor_sessions` — analytics visitor sessions
-- `db_stats` — key-value system state (current_track_id, active_competition)
+- `page_views` — analytics
+- `visitor_sessions` — analytics
+- `db_stats` — key-value system state
 
 ## API Endpoints
 
@@ -95,16 +91,16 @@ Migration: old format `["session-123"]` auto-converted on read.
 | GET | `/status` | Poller status + DB stats |
 | GET | `/timing` | Current timing data + competition state |
 | GET | `/track` | Current track ID |
-| GET | `/events?session=&since=` | Event log |
+| GET | `/events?session=&since=` | Event log (in-memory) |
 | GET | `/sessions` | In-memory session list |
-| GET | `/db/sessions?date=` | Sessions from DB (merged, with stats, competition info) |
+| GET | `/db/sessions?date=` | Sessions from DB (merged, with stats) |
 | GET | `/db/laps?session=` | Laps for a session |
 | GET | `/db/laps?kart=&from=&to=` | Laps for a kart in date range |
 | GET | `/db/events?session=&since=` | Events from DB |
-| GET | `/db/session-counts?from=&to=` | Session counts per date (merged+filtered) |
+| GET | `/db/session-counts?from=&to=` | Session counts per date |
 | GET | `/db/kart-stats?from=&to=` | Kart stats by date range |
-| POST | `/db/kart-stats` | Kart stats by session IDs `{sessionIds:[]}` |
-| GET | `/db/kart-session-counts?kart=` | Per-date session counts for specific kart |
+| POST | `/db/kart-stats` | Kart stats by session IDs |
+| GET | `/db/kart-session-counts?kart=` | Per-kart session counts |
 | GET | `/db/session-competition?session=` | Competition info for a session |
 | GET | `/competitions` | List all competitions |
 | GET | `/competitions/:id` | Get single competition |
@@ -115,41 +111,68 @@ Migration: old format `["session-123"]` auto-converted on read.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/track` | Change track `{trackId}` |
+| POST | `/track` | Change track |
 | GET | `/system` | Server CPU/RAM/disk stats |
 | GET | `/analytics?days=` | Visitor analytics |
 | GET | `/db/collector-log?limit=` | Recent sessions (raw) |
 | POST | `/competitions` | Create competition |
-| PATCH | `/competitions/:id` | Update competition (name, format, date, sessions, results, status) |
+| PATCH | `/competitions/:id` | Update competition |
 | DELETE | `/competitions/:id` | Delete competition |
-| POST | `/competitions/:id/link-session` | Link session to phase `{sessionId, phase}` |
-| POST | `/competitions/:id/unlink-session` | Unlink session `{sessionId}` |
+| POST | `/competitions/:id/link-session` | Link session to phase |
+| POST | `/competitions/:id/unlink-session` | Unlink session |
 | POST | `/competition/start` | Manual competition start |
 | POST | `/competition/stop` | Stop competition |
 | POST | `/competition/phase` | Mark phase |
 | POST | `/competition/reset` | Reset detection |
+| POST | `/db/rename-pilot` | Rename pilot in session laps `{sessionId, oldName, newName}` |
 
-### Auth
-Admin endpoints require `Authorization: Bearer {ADMIN_TOKEN}` header. Token set via `ADMIN_TOKEN` env var on collector. If ADMIN_TOKEN is empty, all requests pass (dev mode).
+## Event Diffing Logic (`poller.js`)
+
+The `#diff()` method compares previous and current timing data:
+
+1. **New pilot**: `pilot_join` event
+2. **Lap completed** (lapCount increased): `lap` event (includes position, s1, s2, team data)
+3. **S1 changed** (same lapCount): `s1` event (includes team with position)
+4. **Non-volatile field changed** (position, pit status, etc.): `update` event
+5. **Pilot gone**: `pilot_leave` event
+6. **No changes**: `poll_ok` event
+
+**Volatile fields** (ignored in diff): `totalOnTrack`, `secondsFromPit`, `timeFromLassPassing`, `lastPitMainTime`
+
+**Important**: Snapshots are only emitted at session start (not periodic). All position changes are captured via `update` events.
 
 ## Session Merging Logic
-When returning sessions via `/db/sessions?date=`, the collector:
-1. Enriches sessions with best_lap_pilot, best_lap_kart, competition info
+When returning sessions via `/db/sessions?date=`:
+1. Enriches sessions with best_lap_pilot, competition info
 2. Merges sessions with same `race_number` within 5-minute gap
 3. Adds `day_order` (1-based position within day)
-4. Returns `merged_session_ids` array for merged sessions
-5. Filters laps >= 38s for best lap calculation
+4. Filters laps >= 38s for best lap calculation
 
 ## Competition Auto-Linking
 In `poller.js`, when a new session starts:
-1. Calls `storage.autoLinkSessionToActiveCompetition(sessionId)`
-2. Finds the live competition, determines the next phase after the last used one
-3. Links the session to that phase
-4. On session end < 60s: calls `storage.autoUnlinkSession(sessionId)` to free the phase
+1. `storage.autoLinkSessionToActiveCompetition(sessionId)` — links to next phase
+   - Respects `groupCountOverride` from competition results
+   - Filters phases via format-specific phase list (skips group_3 if 2 groups)
+2. After first lap: `storage.recheckSessionPhase(sessionId)` — detects group count
+   - Compares new session pilots with all previous qualifying pilots
+   - If ≥50% overlap → this is a race, not another qualifying
+   - Sets `groupCountOverride` and reassigns phase accordingly
+3. On session end < 60s: `storage.autoUnlinkSession(sessionId)`
 
 ## Data Filtering (SQL level)
-`MIN_LAP_SEC = 38` applied to all statistical queries via SQL expressions:
-- `getSessionsWithStats` — best lap time
-- `getKartStats` / `getKartStatsBySessions` — kart statistics
-- `getLapsByKart` — kart detail laps
-- `getKartSessionCounts` — per-kart session counts
+`MIN_LAP_SEC = 38` applied to all statistical queries.
+
+## New Endpoints (v0.9.119)
+
+### Scoring Management
+- **GET `/scoring`** — Retrieve scoring tables from db_stats (fallback to static file)
+- **POST `/scoring`** — Save scoring tables to db_stats (admin only, requires Bearer token)
+
+### Track Management
+- **POST `/track`** — Change current track (updates `current_track_id` for all future sessions)
+- **POST `/competitions/:id/update-track`** — Update `track_id` for all sessions linked to a competition
+
+### Storage Methods
+- `storage.getScoring()` — Get scoring from db_stats
+- `storage.setScoring(data)` — Save scoring to db_stats
+- `storage.updateSessionsTrack(sessionIds, trackId)` — Batch update track_id for sessions

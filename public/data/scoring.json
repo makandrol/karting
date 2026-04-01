@@ -1,56 +1,28 @@
 {
   "positionPoints": [
-    {
-      "label": "До 13 осіб",
-      "minPilots": 1,
-      "maxPilots": 13,
-      "groups": {
-        "I": [15, 14, 13, 12, 11, 10.5, 10, 9.5, 9, 8.5, 8, 7.5, 7]
-      }
-    },
-    {
-      "label": "14-20 осіб",
-      "minPilots": 14,
-      "maxPilots": 20,
-      "groups": {
-        "I": [15, 14, 13, 12, 11, 10.5, 10, 9.5, 9, 8.5],
-        "II": [9.5, 8.5, 7.5, 6.5, 5.5, 5, 4.5, 4, 3.5, 3]
-      }
-    },
-    {
-      "label": "21-26 осіб",
-      "minPilots": 21,
-      "maxPilots": 26,
-      "groups": {
-        "I": [16, 15, 14, 13, 12, 11.5, 11, 10.5, 10, 9.5, 9, 8.5, 8],
-        "II": [9.5, 8.5, 7.5, 6.5, 5.5, 5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5]
-      }
-    },
-    {
-      "label": "27-30 осіб",
-      "minPilots": 27,
-      "maxPilots": 30,
-      "groups": {
-        "I": [17, 16, 15, 14, 13, 12.5, 12, 11.5, 11, 10.5],
-        "II": [12, 11, 10, 9, 8, 7.5, 7, 6.5, 6, 5.5],
-        "III": [6.5, 5.5, 4.5, 3.5, 2.5, 2, 1.5, 1, 0.5, 0]
-      }
-    },
-    {
-      "label": "31-39 осіб",
-      "minPilots": 31,
-      "maxPilots": 39,
-      "groups": {
-        "I": [18, 17, 16, 15, 14, 13.5, 13, 12.5, 12, 11.5, 11, 10.5, 10],
-        "II": [13, 12, 11, 10, 9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5],
-        "III": [8, 7, 6, 5, 4, 3.5, 3, 2.5, 2, 1.5, 1, 0.5, 0]
-      }
-    }
+    { "label": "6-13 осіб", "minPilots": 6, "maxPilots": 13, "groups": { "I": [16, 15, 14, 13, 12, 11.5, 11, 10.5, 10, 9.5, 9, 8.5, 8] } },
+    { "label": "14 осіб", "minPilots": 14, "maxPilots": 14, "groups": { "I": [16, 15, 14, 13, 12, 11.5, 11], "II": [12, 11, 10, 9, 8, 7.5, 7] } },
+    { "label": "15-16 осіб", "minPilots": 15, "maxPilots": 16, "groups": { "I": [16, 15, 14, 13, 12, 11.5, 11, 10.5], "II": [11.5, 10.5, 9.5, 8.5, 7.5, 7, 6.5, 6] } },
+    { "label": "17-18 осіб", "minPilots": 17, "maxPilots": 18, "groups": { "I": [16, 15, 14, 13, 12, 11.5, 11, 10.5, 10], "II": [11, 10, 9, 8, 7, 6.5, 6, 5.5, 5] } },
+    { "label": "19-20 осіб", "minPilots": 19, "maxPilots": 20, "groups": { "I": [16, 15, 14, 13, 12, 11.5, 11, 10.5, 10, 9.5], "II": [10.5, 9.5, 8.5, 7.5, 6.5, 6, 5.5, 5, 4.5, 4] } },
+    { "label": "21-22 осіб", "minPilots": 21, "maxPilots": 22, "groups": { "I": [16, 15, 14, 13, 12, 11.5, 11, 10.5, 10, 9.5, 9], "II": [10, 9, 8, 7, 6, 5.5, 5, 4.5, 4, 3.5, 3] } },
+    { "label": "23-24 осіб", "minPilots": 23, "maxPilots": 24, "groups": { "I": [16, 15, 14, 13, 12, 11.5, 11, 10.5, 10, 9.5, 9, 8.5, 8], "II": [9.5, 8.5, 7.5, 6.5, 5.5, 5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5] } },
+    { "label": "25-26 осіб", "minPilots": 25, "maxPilots": 26, "groups": { "I": [16, 15, 14, 13, 12, 11.5, 11, 10.5, 10, 9.5, 9, 8.5, 8], "II": [9.5, 8.5, 7.5, 6.5, 5.5, 5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5] } },
+    { "label": "30-36 осіб", "minPilots": 30, "maxPilots": 36, "groups": { "I": [17, 16, 15, 14, 13, 12.5, 12, 11.5, 11, 10.5, 10, 9.5, 9], "II": [12, 11, 10, 9, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4], "III": [7, 6, 5, 4, 3, 2.5, 2, 1.5, 1, 0.5, 0, 0, 0] } }
   ],
   "overtakePoints": {
-    "groupI": [
-      { "startPosMin": 11, "startPosMax": 99, "perOvertake": 1.3 },
-      { "startPosMin": 8, "startPosMax": 10, "perOvertake": 1.2 },
+    "groupI_LL": [
+      { "startPosMin": 10, "startPosMax": 99, "perOvertake": 1.2 },
+      { "startPosMin": 8, "startPosMax": 9, "perOvertake": 1.2 },
+      { "startPosMin": 7, "startPosMax": 7, "perOvertake": 1.1 },
+      { "startPosMin": 6, "startPosMax": 6, "perOvertake": 1.0 },
+      { "startPosMin": 5, "startPosMax": 5, "perOvertake": 0.9 },
+      { "startPosMin": 4, "startPosMax": 4, "perOvertake": 0.8 },
+      { "startPosMin": 2, "startPosMax": 3, "perOvertake": 0.7 }
+    ],
+    "groupI_CL": [
+      { "startPosMin": 10, "startPosMax": 99, "perOvertake": 1.3 },
+      { "startPosMin": 8, "startPosMax": 9, "perOvertake": 1.2 },
       { "startPosMin": 7, "startPosMax": 7, "perOvertake": 1.1 },
       { "startPosMin": 6, "startPosMax": 6, "perOvertake": 1.0 },
       { "startPosMin": 5, "startPosMax": 5, "perOvertake": 0.9 },

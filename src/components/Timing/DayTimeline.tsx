@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { COLLECTOR_URL } from '../../services/config';
+import { isValidSession } from '../../utils/timing';
 
 interface DbSession {
   id: string;
@@ -130,7 +131,7 @@ export default function DayTimeline({ isTimingOnline, isTimingIdle = false, idle
   const currentH = now.getHours() + now.getMinutes() / 60;
 
   const parsed = sessions
-    .filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000)
+    .filter(s => isValidSession(s))
     .map(s => ({
     ...s,
     startH: msToHour(s.start_time),

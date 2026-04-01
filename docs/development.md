@@ -10,9 +10,9 @@
 
 ### Versioning
 - **Increment version with EVERY change** (even small fixes)
-- Frontend version in `package.json` — format `0.11.X` (increment X)
+- Frontend version in `package.json` — format `0.9.X` (increment X)
 - Collector version in `collector/package.json` — format `0.3.X`
-- Current: frontend `0.11.x`, collector `0.3.x`
+- `APP_VERSION` auto-reads from package.json (no manual update needed)
 
 ## Branches
 - `main` — production, deployed to Netlify automatically
@@ -39,100 +39,137 @@
 - Components in `src/components/`, pages in `src/pages/`
 - Services in `src/services/`, utilities in `src/utils/`
 - Lazy loading for all pages via `React.lazy()`
-- All time display: use `toSeconds()` from utils (converts "1:02.222" → "62.222")
+- All time display: use `toSeconds()` for laps, `toHundredths()` for S1/S2
 - Reuse shared components: `SessionsTable`, `LapsByPilots`, `DateNavigator`, `SessionTypeChanger`
+- Color coding: purple (overall best), green (PB), yellow (slower), `getTimeColor()` utility
 
 ### Collector
 - Plain Node.js HTTP server (no Express)
 - SQLite with prepared statements
-- All write endpoints require Bearer token auth
+- All write endpoints require Bearer token auth via `isAuthorized(req)`
+- `readBody(req)` returns string — always `JSON.parse()` it
 - CORS: `Access-Control-Allow-Origin: *`
 - Body limit: 512KB
-- Session merging in `getSessionsByDate()` — always returns merged data with `day_order`
+- Session merging in `getSessionsByDate()`
 - Competition auto-linking in `poller.js` on session start/end
+- Snapshots only at session start (no periodic snapshots)
 
 ### Shared Patterns
-- `SessionsTable` — used everywhere for session lists (same format across all pages)
+- `SessionsTable` — used everywhere for session lists
 - `DateNavigator` — single-select (Sessions) or multi-select (Karts, KartDetail)
 - `SessionReplay` — used on Timing (live) and SessionDetail (replay)
-- `LapsByPilots` — used on Timing (isLive, no highlight) and SessionDetail (with highlight)
+- `LapsByPilots` — used on Timing (isLive) and SessionDetail (with highlight)
 - `SessionTypeChanger` — used on Timing and SessionDetail
 - `TrackMap` with `static` prop for replay, without for live animation
 - `mergePilotNames()` applied per-session to avoid cross-session name leaks
 - `useViewPrefs()` for persistent show/hide of UI sections
+- `parseSessionEvents()` for extracting s1Events + position timeline from raw events
+
+## How to Add New Features
+
+### Adding a new page
+1. Create component in `src/pages/Category/NewPage.tsx`
+2. Add lazy import in `src/App.tsx`
+3. Add Route inside `<Layout>` element
+4. Add to `ALL_PAGES` in `src/services/pageVisibility.tsx` (with group)
+5. Increment version in `package.json`
+
+### Adding a new API endpoint
+1. Add handler in `collector/src/index.js` (before the 404 catch-all)
+2. Use `isAuthorized(req)` for admin endpoints
+3. Parse body with `JSON.parse(await readBody(req))`
+4. Add storage method in `collector/src/storage.js` if needed
+5. Increment collector version in `collector/package.json`
+6. Deploy: `scp + pm2 restart`
+
+### Adding a new event type
+1. Emit in `poller.js` `#diff()` method
+2. Store via `storage.addEvent()`
+3. Parse in frontend's `parseSessionEvents()` in `SessionReplay.tsx`
+4. Use in replay via `snapshots` or `s1Events` prop
+
+### Adding a new competition format
+1. Add config in `src/data/competitions.ts` (`COMPETITION_CONFIGS`, `PHASE_CONFIGS`)
+2. Add scoring in `public/data/scoring.json` if needed
+3. Add rendering in `CompetitionPage.tsx` (like GonzalesLiveTable or LeagueResults)
+4. Add page config in `pageVisibility.tsx`
 
 ## Important Rules
 1. **Never delete real data** — mock data was removed, real data stays forever
 2. **Always deploy collector after backend changes** — scp + pm2 restart
 3. **Test after deploy** — `curl localhost:3001/healthz`
 4. **Session IDs format**: `session-{unix_timestamp_ms}`
-5. **Lap times**: stored as strings "42.574" or "1:02.222", always use `parseTime()` to convert
-6. **Dates**: always use local date (not UTC) — `getFullYear/getMonth/getDate`, never `toISOString().split('T')[0]`
+5. **Lap times**: stored as strings "42.574" or "1:02.222", use `parseTime()` to convert
+6. **Dates**: always use local date (not UTC)
 7. **Min valid lap**: 38 seconds (filtered at SQL level)
 8. **Min valid S1/S2**: 10 seconds (filtered at display level)
-9. **Competition sessions format**: `[{sessionId, phase}]` — NOT plain string array
-10. **Scoring data**: in `public/data/scoring.json`, editable via `/admin/scoring`
+9. **Min valid session**: 3 minutes (`isValidSession()` in `utils/timing.ts`)
+10. **Competition sessions format**: `[{sessionId, phase}]`
+11. **Scoring data**: stored on collector via `GET/POST /scoring` (persisted in db_stats), fallback to `public/data/scoring.json`
+12. **Position field**: API returns kart as string — poller converts to `Number()`
+13. **Overtake points**: separate tables for LL (`groupI_LL`, 10+ → 1.2) and CL (`groupI_CL`, 10+ → 1.3)
+14. **Excluded laps**: stored as `results.excludedLaps` array with keys `"sessionId|pilot|ts"`
+15. **Edit audit log**: `results.editLog` array with `{pilot, action, detail, user, ts}`
+16. **Group count**: `results.groupCountOverride` — auto-detected from qualifying session count by pilot overlap
+17. **Phase filtering**: `getPhasesForFormat(format, groupCount)` filters phases by group count
+18. **EditableCell**: defined OUTSIDE parent component to prevent remount on re-render (critical!)
+19. **No new hooks in LeagueResults**: adding hooks causes "more hooks than previous render" error during HMR. Use `Promise.resolve().then()` for deferred state updates to parent instead of `useEffect`.
+20. **Track sync**: Track changes from timing page sync to collector via `POST /track`, updates all future sessions
+21. **Competition track**: Track changes on competition page update all linked sessions via `POST /competitions/:id/update-track`
+22. **Tab preference**: Competition page saves tab preference (live/final) to localStorage (auth users) or sessionStorage (anon)
 
 ## File Structure
 ```
 karting/
 ├── collector/
 │   ├── src/
-│   │   ├── index.js        # HTTP server + API endpoints (incl. competition link/unlink)
-│   │   ├── poller.js        # Timing API polling + auto-link to competitions
+│   │   ├── index.js        # HTTP server + API endpoints
+│   │   ├── poller.js        # Timing API polling + event diffing
 │   │   ├── parser.js        # JSON parser + volatile fields
-│   │   ├── storage.js       # SQLite schema + CRUD + merging + competition methods
-│   │   ├── detector.js      # Competition auto-detection by schedule
+│   │   ├── storage.js       # SQLite schema + CRUD + merging + rename
+│   │   ├── detector.js      # Competition auto-detection
 │   │   └── schedule.js      # Weekly competition schedule
 │   ├── data/                # SQLite DB (not in git)
-│   ├── package.json
-│   └── Dockerfile
+│   └── package.json         # v0.3.4
 ├── src/
 │   ├── components/
-│   │   ├── Layout/          # Header (with live competition indicator), Footer, Layout
+│   │   ├── Layout/          # Header, Footer, Layout
 │   │   ├── Timing/          # SessionReplay, DayTimeline, CompetitionControl,
-│   │   │                    #   LapsByPilots, SessionTypeChanger
+│   │   │                    #   LapsByPilots, SessionTypeChanger, TimingBoard
 │   │   ├── Track/           # TrackMap
 │   │   ├── Sessions/        # DateNavigator, SessionsTable, SessionRows
 │   │   └── Results/         # LeagueResults (LL/CL scoring table)
 │   ├── pages/
-│   │   ├── Info/            # Timing, Karts, KartDetail, Tracks, Videos
+│   │   ├── Info/            # Timing, Onboard, Karts, KartDetail, Tracks, Videos
 │   │   ├── Sessions/        # SessionsList, SessionDetail
 │   │   ├── Auth/            # Login, AdminPanel, PageSettings, DatabaseStats,
 │   │   │                    #   Monitoring, CollectorLog, CompetitionManager, ScoringSettings
-│   │   ├── Results/         # CompetitionPage (list + detail + Gonzales table), CurrentRace
+│   │   ├── Results/         # CompetitionPage (list + detail + live scoring), CurrentRace
 │   │   └── Pilots/          # PilotProfile (placeholder)
 │   ├── services/
-│   │   ├── auth.tsx         # Firebase Auth + roles
-│   │   ├── timingPoller.ts  # Live timing hook
-│   │   ├── viewPrefs.ts     # Per-user view preferences persistence
+│   │   ├── auth.tsx         # Firebase Auth + roles + localhost auto-owner
+│   │   ├── timingPoller.ts  # Live timing hook (bestS1/S2 tracking, kart Number conversion)
+│   │   ├── viewPrefs.ts     # Per-user view preferences
 │   │   ├── pageVisibility.tsx # Page visibility config
 │   │   ├── config.ts        # Collector URL
 │   │   └── firebase.ts      # Firebase init
 │   ├── utils/
-│   │   └── timing.ts        # parseTime, toSeconds, getTimeColor, mergePilotNames, shortName
+│   │   └── timing.ts        # parseTime, toSeconds, toHundredths, getTimeColor,
+│   │                        #   mergePilotNames, shortName, fetchRaceStartPositions
 │   ├── data/
 │   │   ├── tracks.ts        # Track configurations
-│   │   └── competitions.ts  # Competition configs + PHASE_CONFIGS + scoring helpers
-│   ├── types/
-│   │   └── index.ts         # TypeScript interfaces (MIN_VALID_LAP_SECONDS = 38)
+│   │   ├── competitions.ts  # Competition configs + PHASE_CONFIGS + splitIntoGroups
+│   │   └── changelog.ts     # APP_VERSION (from package.json)
+│   ├── types/index.ts       # TypeScript interfaces
 │   ├── App.tsx              # Routes
 │   ├── main.tsx             # Entry point
 │   └── index.css            # Tailwind + custom styles
-├── public/
-│   └── data/
-│       ├── scoring.json     # Scoring rules (editable via /admin/scoring)
-│       └── ...              # Static JSON (2025 competition results)
-├── docs/
-│   ├── README.md            # This documentation
-│   ├── architecture.md      # System overview
-│   ├── collector.md         # Backend documentation
-│   ├── frontend.md          # Frontend documentation
-│   ├── deployment.md        # Deployment guide
-│   ├── development.md       # Development conventions
-│   └── competition-rules.md # Formal competition rules (Gonzales, LL, CL)
-├── package.json
+├── public/data/
+│   └── scoring.json         # Scoring rules (editable via /admin/scoring)
+├── docs/                    # This documentation
+├── package.json             # v0.9.106
 ├── vite.config.ts
 ├── tailwind.config.js
+├── tsconfig.json            # resolveJsonModule enabled
 └── netlify.toml
 ```

@@ -16,6 +16,7 @@ export interface LapData {
   lap_time: string | null;
   s1?: string | null;
   s2?: string | null;
+  ts?: number;
 }
 
 interface PilotLaps {
@@ -31,14 +32,19 @@ interface LapsByPilotsProps {
   currentEntries?: TimingEntry[];
   isLive?: boolean;
   onRenamePilot?: (oldName: string, newName: string) => void;
+  excludedLaps?: Set<string>;
+  onToggleLap?: (key: string) => void;
+  sessionId?: string;
 }
 
-export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
+export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sessionId?: string): PilotLaps[] {
   const map = new Map<string, { kart: number; laps: LapData[]; bestLap: number; bestS1: number; bestS2: number }>();
   for (const lap of laps) {
     if (!map.has(lap.pilot)) map.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity, bestS1: Infinity, bestS2: Infinity });
     const p = map.get(lap.pilot)!;
     p.laps.push(lap);
+    const isExcluded = sessionId && lap.ts && excludedLaps?.has(`${sessionId}|${lap.pilot}|${lap.ts}`);
+    if (isExcluded) continue;
     if (lap.lap_time) {
       const sec = parseLapTime(lap.lap_time);
       if (sec !== null && sec < p.bestLap) p.bestLap = sec;
@@ -57,7 +63,7 @@ export function buildPilotLaps(laps: LapData[]): PilotLaps[] {
     .map(([name, data]) => ({ name, ...data }));
 }
 
-export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot }: LapsByPilotsProps) {
+export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId }: LapsByPilotsProps) {
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
   const overallBestS2 = Math.min(...pilots.map(p => p.bestS2).filter(v => v < Infinity));
@@ -82,8 +88,8 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
             <tr className="table-header">
               <th className="table-cell text-center w-8">Коло</th>
               {pilots.map(p => (
-                <th key={p.name} className="table-cell text-center min-w-[80px]">
-                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors">
+                <th key={p.name} className="table-cell text-left min-w-[60px]">
+                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]">
                     {shortName(p.name)}
                   </Link>
                   {onRenamePilot && (
@@ -91,9 +97,9 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                       e.stopPropagation();
                       const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
                       if (newName && newName !== p.name) onRenamePilot(p.name, newName);
-                    }} className="ml-0.5 text-dark-500 hover:text-primary-400 text-[9px]">✎</button>
+                    }} className="ml-0.5 text-dark-500 hover:text-primary-400 text-[8px]">✎</button>
                   )}
-                  <div className="text-dark-600 text-[9px] font-normal">К{p.laps[0]?.kart}</div>
+                  <div className="text-dark-600 text-[10px] font-normal">К{p.laps[0]?.kart}</div>
                 </th>
               ))}
             </tr>
@@ -107,11 +113,13 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   const completed = completedLapsMap.get(p.name) ?? 0;
                   const isCurrent = hasReplayState && lapIdx === completed;
                   if (!lap?.lap_time) return (
-                    <td key={p.name} className={`table-cell text-center text-dark-700 ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>—</td>
+                    <td key={p.name} className={`table-cell text-left text-dark-700 ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>—</td>
                   );
+                  const lapKey = sessionId && lap.ts ? `${sessionId}|${p.name}|${lap.ts}` : '';
+                  const isExcluded = lapKey ? excludedLaps?.has(lapKey) : false;
                   const sec = parseLapTime(lap.lap_time);
-                  const isPB = sec !== null && Math.abs(sec - p.bestLap) < 0.002;
-                  const isOverall = sec !== null && Math.abs(sec - overallBest) < 0.002;
+                  const isPB = !isExcluded && sec !== null && Math.abs(sec - p.bestLap) < 0.002;
+                  const isOverall = !isExcluded && sec !== null && Math.abs(sec - overallBest) < 0.002;
 
                   const s1Val = lap.s1 ? parseLapTime(lap.s1) : null;
                   const s2Val = lap.s2 ? parseLapTime(lap.s2) : null;
@@ -121,11 +129,20 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   const s2Color = s2Val !== null && s2Val >= 10 ? getTimeColor(lap.s2!, s2Str, overallBestS2 < Infinity ? overallBestS2 : null) : 'none';
 
                   return (
-                    <td key={p.name} className={`table-cell text-center font-mono ${
+                    <td key={p.name} className={`table-cell text-left font-mono ${
+                      isExcluded ? 'opacity-40' :
                       isOverall ? 'text-purple-400 font-bold' : isPB ? 'text-green-400 font-bold' : 'text-dark-300'
                     } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>
-                      <div>{toSeconds(lap.lap_time)}</div>
-                      {(s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10) ? (
+                      <div className={`relative group ${isExcluded ? 'line-through decoration-red-400' : ''}`}>
+                        {toSeconds(lap.lap_time)}
+                        {onToggleLap && lapKey && (
+                          <button onClick={(e) => { e.stopPropagation(); onToggleLap(lapKey); }}
+                            className={`absolute -right-1 -top-1 w-3.5 h-3.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none opacity-0 group-hover:opacity-100 transition-all ${isExcluded ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30 !opacity-100' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}`}>
+                            {isExcluded ? '↩' : '✕'}
+                          </button>
+                        )}
+                      </div>
+                      {!isExcluded && ((s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10)) ? (
                         <div className="text-[8px] leading-tight mt-0.5">
                           <span className={s1Color === 'purple' ? 'text-purple-400' : s1Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s1Val !== null && s1Val >= 10 ? toHundredths(lap.s1!) : '—'}</span>
                           <span className="text-dark-700"> </span>

@@ -68,6 +68,7 @@ export default function SessionDetail() {
   const [liveEntries, setLiveEntries] = useState<any[]>([]);
   const [dbLoading, setDbLoading] = useState(true);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
+  const [excludedLaps, setExcludedLaps] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!sessionId) return;
@@ -110,6 +111,16 @@ export default function SessionDetail() {
         const compPhase = (found as any)?.competition_phase;
         const compId = (found as any)?.competition_id;
         const compFormat = (found as any)?.competition_format;
+        if (compId) {
+          try {
+            const compRes = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(compId)}`);
+            if (compRes.ok) {
+              const comp = await compRes.json();
+              const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
+              if (active && results.excludedLaps) setExcludedLaps(new Set(results.excludedLaps));
+            }
+          } catch {}
+        }
         if (compId && compPhase?.startsWith('race_') && compFormat) {
           const sp = await fetchRaceStartPositions(COLLECTOR_URL, compId, compPhase, compFormat);
           if (active) { setStartPositions(sp.positions); setTotalQualifiedPilots(sp.totalQualified); }
@@ -163,6 +174,25 @@ export default function SessionDetail() {
     window.location.reload();
   };
 
+  const compId = (dbSession as any)?.competition_id;
+  const handleToggleLap = async (lapKey: string) => {
+    if (!compId) return;
+    const next = new Set(excludedLaps);
+    next.has(lapKey) ? next.delete(lapKey) : next.add(lapKey);
+    setExcludedLaps(next);
+    try {
+      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(compId)}`);
+      if (!res.ok) return;
+      const comp = await res.json();
+      const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(compId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ results: { ...results, excludedLaps: [...next] } }),
+      });
+    } catch {}
+  };
+
   if (dbLoading) {
     return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
   }
@@ -185,6 +215,8 @@ export default function SessionDetail() {
     if (!pilotMap.has(lap.pilot)) pilotMap.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity, bestS1: Infinity, bestS2: Infinity });
     const p = pilotMap.get(lap.pilot)!;
     p.laps.push(lap);
+    const isExcluded = sessionId && excludedLaps.has(`${sessionId}|${lap.pilot}|${lap.ts}`);
+    if (isExcluded) continue;
     if (lap.lap_time) {
       const sec = parseLapTime(lap.lap_time);
       if (sec !== null && sec < p.bestLap) p.bestLap = sec;
@@ -194,8 +226,7 @@ export default function SessionDetail() {
       if (v !== null && v >= 10 && v < p.bestS1) p.bestS1 = v;
     }
     if (lap.s2) {
-      const v = parseLapTime(lap.s2);
-      if (v !== null && v >= 10 && v < p.bestS2) p.bestS2 = v;
+      const v = parseLapTime(lap.s2);      if (v !== null && v >= 10 && v < p.bestS2) p.bestS2 = v;
     }
   }
   const pilots = [...pilotMap.entries()]
@@ -386,7 +417,10 @@ export default function SessionDetail() {
                 className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
                 сховати
               </button>
-              <LapsByPilots pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined} />
+              <LapsByPilots pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
+                excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
+                onToggleLap={isOwner && compId ? handleToggleLap : undefined}
+                sessionId={sessionId} />
             </div>
           ) : (
             <button onClick={() => toggle('showLapsByPilots')}

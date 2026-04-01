@@ -12,10 +12,12 @@ React 18 SPA with TypeScript, Vite, Tailwind CSS. Firebase Auth for Google Sign-
 | Route | Component | Description |
 |-------|-----------|-------------|
 | `/` | `Timing.tsx` | Live timing with SessionReplay + TrackMap + LapsByPilots |
+| `/onboard` | `Onboard.tsx` | Fullscreen kart timing for phone on kart (landscape) |
+| `/onboard/:kartId` | `Onboard.tsx` | Onboard for specific kart |
 | `/sessions` | `SessionsList.tsx` | Date navigator + sortable session list |
-| `/sessions/:id` | `SessionDetail.tsx` | Replay + laps grid + track map (all hideable) |
+| `/sessions/:id` | `SessionDetail.tsx` | Replay + laps grid + track map |
 | `/info/karts` | `Karts.tsx` | Kart stats with multi-date filtering |
-| `/info/karts/:id` | `KartDetail.tsx` | Per-kart sessions table with kart-specific counts |
+| `/info/karts/:id` | `KartDetail.tsx` | Per-kart sessions table |
 | `/info/tracks` | `Tracks.tsx` | Track configurations |
 | `/info/videos` | `Videos.tsx` | Videos |
 | `/results/current` | `CurrentRace.tsx` | Redirects to active live competition |
@@ -33,7 +35,7 @@ React 18 SPA with TypeScript, Vite, Tailwind CSS. Firebase Auth for Google Sign-
 | `/admin/monitoring` | `Monitoring.tsx` | Server CPU/RAM/disk, analytics |
 | `/admin/collector-log` | `CollectorLog.tsx` | Raw session log from collector |
 | `/admin/competitions` | `CompetitionManager.tsx` | Competition CRUD + session linking |
-| `/admin/scoring` | `ScoringSettings.tsx` | View/edit scoring tables (position/overtake/speed points) |
+| `/admin/scoring` | `ScoringSettings.tsx` | View/edit scoring tables |
 
 ## Key Components
 
@@ -41,73 +43,102 @@ React 18 SPA with TypeScript, Vite, Tailwind CSS. Firebase Auth for Google Sign-
 The core replay component used on both Timing (live) and SessionDetail pages.
 
 **Props:**
-- `laps` — array of `{pilot, kart, lapNumber, lapTime, s1, s2, position, ts?}`
+- `laps` — lap data array with pilot, kart, lapNumber, lapTime, s1, s2, position, ts
 - `durationSec` — total duration for scrubber
-- `sessionStartTime?` — unix ms, enables real timestamp-based positioning
-- `isLive?` — pins scrubber at end (`atLive` mode), shows LIVE button
-- `liveEntries?` — live timing entries for real-time S1 display
-- `raceNumber?` — displayed as "Заїзд №X"
-- `autoPlay?` — starts playing immediately
-- `onEntriesUpdate?` — callback with TimingEntry[] for TrackMap sync
+- `sessionStartTime?` — unix ms, enables timestamp-based positioning
+- `isLive?` — pins scrubber at end, shows LIVE button
+- `liveEntries?` — live timing entries (updates every 1s)
+- `s1Events?` — S1 sector events for mid-lap S1 display
+- `snapshots?` — position snapshots for race sort (from all event types)
+- `startPositions?` — start grid positions (from competition or first snapshot)
+- `raceGroup?` — group number (1/2/3) for points calculation
+- `totalQualifiedPilots?` — for position points scoring table
+- `defaultSortMode?` — `'qualifying'` or `'race'` (auto-set from competition phase)
+- `autoPlay?`, `raceNumber?`, `onTimeUpdate?`, `onEntriesUpdate?`, `renderScrubber?`
 
-**Key behaviors:**
-- Scrubber pinned at end in live mode (`atLive` state), user can drag to scrub back
-- durationSec stored in ref to avoid RAF restart on changes
-- Live S1 shown only when different from previous lap's S1 (new sector pass)
-- S1/S2 < 10s filtered from display and best calculations
+**Exported utilities:**
+- `S1Event` interface
+- `SnapshotPosition` interface
+- `ReplaySortMode` type
+- `parseSessionEvents(rawEvents)` — parses all event types into s1Events + position timeline
 
-### `SessionsTable` (`components/Sessions/SessionsTable.tsx`)
-Shared session list component used on SessionsList, Karts, KartDetail, Timing, CompetitionPage.
+**Table columns:**
+- `#` — current position
+- Pilot name (with progress bar)
+- `+/-` — position change vs start (race mode only, green ↑ / red ↓)
+- `P` — race points: position + overtake (race mode + competition only)
+- Kart, Last lap, S1, S2, Best lap, Best S1, Best S2, TB (theoretical best = bestS1 + bestS2), L (lap count)
+- Onboard link (camera icon)
 
-**Shows per row:** day_order, time, duration/LIVE, pilots, type (Прокат X / ЛЛ · Квала 1), track, best lap
-**Props:** `sessions`, `showDate?`, `maxHeight?`
-**Features:** entire row clickable, competition sessions highlighted in purple
-
-### `SessionTypeChanger` (`components/Timing/SessionTypeChanger.tsx`)
-Dropdown for assigning sessions to competitions. Used on Timing and SessionDetail.
-
-**When unlinked (Прокат):** format → competition (or create new) → phase selection → auto-link surrounding sessions
-**When linked:** split into two buttons:
-- Competition name (links to results page)
-- Phase dropdown (change phase all/single, unlink, delete competition)
-
-**Auto-link logic:** finds free sessions before and after current, assigns phases in order.
+**Sort modes (toggle in scrubber bar):**
+- **Квала**: by best lap time
+- **Гонка**: by laps desc → progress → recorded position → snapshot position → start position
 
 ### `LapsByPilots` (`components/Timing/LapsByPilots.tsx`)
-Shared laps-by-pilots grid. Used on Timing (live, no highlight) and SessionDetail (with current lap highlight).
+Laps-by-pilots grid. Each cell shows lap time + S1/S2 (hundredths, green/purple only).
+
+**Props:** `pilots`, `currentEntries?`, `isLive?`, `onRenamePilot?`
+**Features:**
+- Kart number shown under pilot name in header
+- ✎ rename button (owner only, calls onRenamePilot callback)
+- S1/S2 in text-[8px] below lap time, space-separated, green (PB) or purple (overall best)
+- Current lap highlight (ring) during replay
 
 ### `LeagueResults` (`components/Results/LeagueResults.tsx`)
 Full scoring table for Light League / Champions League competitions.
 
+**Props:** format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits
+
 **Features:**
-- Auto-calculates: speed points (top-5), position points, overtake points
-- Start positions: reverse order from previous race/qualifying times
-- Groups: auto-split by qualifying rank
-- Editable fields (owner only): Start, Finish, Penalties — saved to server
-- Exclude/include pilots (owner only) — saved to server
-- Collapsible column groups (Qualifying, Race 1, Race 2, Race 3)
-- Multiple sort options (Total, Qualifying time, Race N time/points)
-- Max qualified pilots: LL=36, CL=24 (others get "X")
+- Auto-calculates: speed points (top-5), position points, overtake points (progressive)
+- Live timing positions override DB positions for active session (2s updates)
+- Start positions pre-filled for next race before it starts
+- `● LIVE` toggle button — pause/resume live updates
+- Active session pilots highlighted (green tint)
+- Sort preference persisted per competition in localStorage
+- Editable fields (owner): Start, Finish, Penalties (keep focus during live re-renders)
+- ✎ rename pilot (updates DB for ALL competition sessions)
+- ✕ exclude/include pilot
+- 3-row header: Race → columns + "Бали" sub-header (Позиція, Обгони, Штрафи, Сума)
+- Speed points column after Час
+- Points highlighted green, penalties red
 
-### `DateNavigator` (`components/Sessions/DateNavigator.tsx`)
-Shared date picker with multi-select mode.
+### `Onboard` (`pages/Info/Onboard.tsx`)
+Fullscreen kart timing page designed for phone mounted on kart (landscape).
 
-**Multi-select mode** (Karts, KartDetail): toggle dates, period "+" buttons, selected/total counts
-**Single-select mode** (Sessions): click to select date
-**Props:** `selectedDates?`, `onToggleDate?`, `onSelectDates?`, `overrideCounts?`
-Auto-expands previous week if selected dates are there.
+**Features:**
+- Large last lap time (clamp 4-10rem) with color coding
+- S1 / S2 with colors (hundredths)
+- Position: `4/10` during competition (computed from all qualifying/race sessions), `4` otherwise
+- Kart number button top-left → dropdown with all karts + pilots
+- Left/right arrow buttons to switch karts
+- 🔒 orientation lock button
+- ← Таймінг link, LIVE indicator
+- Competition-aware: fetches related sessions, builds cross-session ranking
 
-### `DayTimeline` (`components/Timing/DayTimeline.tsx`)
-Scrollable timeline showing session activity for a day.
+### `TimingBoard` (`components/Timing/TimingBoard.tsx`)
+Simple timing board with qualifying/race sort toggle. Used when SessionReplay has no data.
+Includes onboard link (camera icon) per kart row.
 
-### `TrackMap` (`components/Track/TrackMap.tsx`)
-SVG track map with animated kart positions.
+### Other Components
+- `SessionsTable` — shared session list (used on Sessions, Karts, KartDetail, Timing, CompetitionPage)
+- `SessionTypeChanger` — dropdown for assigning sessions to competitions, auto-links surrounding sessions, detects group count by pilot overlap
+- `DateNavigator` — single-select (Sessions) or multi-select (Karts)
+- `TrackMap` — SVG track map with animated kart positions
+- `DayTimeline` — scrollable session activity timeline
+- `CompetitionControl` — inline competition detector controls
+- `CompetitionTimeline` (`components/Results/CompetitionTimeline.tsx`) — horizontal scrubber for competition page, shows sessions as green segments with phase labels, click to navigate to session detail
+- `EditableCell` (`components/Results/LeagueResults.tsx`, top-level function) — input with focus protection, prefix support (for penalties "-"), MUST stay outside LeagueResults to prevent remount
+- `EditLog` (`components/Results/LeagueResults.tsx`) — shows audit log of all manual edits
 
 ## Services
 
 ### `timingPoller.ts`
-React hook `useTimingPoller()` — polls collector `/status` and `/timing`.
-Returns: entries, mode (live/idle/connecting), collectorStatus.
+Hook `useTimingPoller()` — polls collector `/status` and `/timing`.
+- Tracks bestS1/bestS2 per pilot across polls (ref-based)
+- Converts kart to Number (API returns string)
+- Clears bests on session change
+- Returns: entries, snapshots, mode, lastUpdate, error, collectorStatus
 
 ### `auth.tsx`
 Firebase Auth with role system:
@@ -117,45 +148,66 @@ Firebase Auth with role system:
 - Localhost auto-grants owner role
 
 ### `viewPrefs.ts`
-Persists view preferences (show/hide track, laps-by-pilots, league tables).
-Key: `karting_view_prefs_{email}` or `karting_view_prefs_anon`.
+Persists view preferences per user email in localStorage.
 
 ### `pageVisibility.tsx`
-Manages which pages are visible per role. Stored in localStorage.
-Navigation groups: main, competitions, other, admin.
+Manages which pages are visible per role. Groups: main, competitions, other, admin.
 
 ### `config.ts`
 `COLLECTOR_URL` from env var `VITE_COLLECTOR_URL` or default.
-
-## Data
-
-### `data/competitions.ts`
-Competition format configs with `PHASE_CONFIGS` defining phases per format:
-- **Gonzales**: 12 rounds
-- **Light League**: 4 qualifying + 7 race phases (3 groups × 2 races + qualifying × 4)
-- **Champions League**: 2 qualifying + 6 race phases (2 groups × 3 races)
-
-Includes `shortName` per format (ЛЛ, ЛЧ, Гонз), `getPhaseLabel()`, `getPhaseShortLabel()`.
-
-### `public/data/scoring.json`
-Scoring rules for leagues:
-- `positionPoints`: 5 categories by pilot count, up to 3 groups each
-- `overtakePoints`: per-overtake rates by group and start position
-- `speedPoints`: [2.5, 2.0, 1.5, 1.0, 0.5] for top-5 fastest
 
 ## Utilities
 
 ### `utils/timing.ts`
 - `parseTime(str)` — "42.574" → 42.574, "1:02.222" → 62.222
-- `toSeconds(str)` — converts any format to seconds string
+- `toSeconds(str)` — converts to seconds string (3 decimals)
+- `toHundredths(str)` — converts to seconds string (2 decimals, for S1/S2)
 - `getTimeColor(value, personalBest, overallBest)` — purple/green/yellow/none
-- `mergePilotNames(laps)` — replaces "Карт X" with real pilot name on same kart
-- `shortName(name)` — "Апанасенко Олексій" → "Апанасенко О." (keeps names ≤10 chars and "Карт X")
+- `mergePilotNames(laps)` — replaces "Карт X" with real name on same kart
+- `shortName(name)` — "Апанасенко Олексій" → "Апанасенко О."
 - `fmtBytes(n)` — human-readable bytes
+- `fetchRaceStartPositions(collectorUrl, competitionId, phase, format)` — computes start positions from qualifying/previous race, returns `{positions, totalQualified}`
+- `isValidSession(session)` — returns false for sessions < 3 minutes (MIN_SESSION_DURATION_MS = 180000). Used across all pages for filtering.
+
+### `data/competitions.ts`
+Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseLabel()`, `getPhasesForFormat(format, groupCount)`.
+- `getPhasesForFormat()` — filters phases by group count (e.g. with 2 groups, skips qualifying_3/4 and group_3 phases)
+
+### `data/changelog.ts`
+`APP_VERSION` — auto-imported from package.json.
 
 ## Styling
 - Dark theme with Tailwind CSS custom colors (`dark-*`, `primary-*`)
-- Custom classes: `.nav-link`, `.card`, `.table-header`, `.table-row`, `.table-cell`
-- `.scrollbar-none` for hidden scrollbars
-- `.table-cell` uses `px-2.5 py-2` padding
-- Header: `sticky top-0 z-[100]`
+- Header: NOT sticky (scrolls with page)
+- Footer: version + links only (no logo)
+- SessionReplay table: tight padding (`px-0.5 py-0.5`), narrow pilot column, thin progress bar
+- Color coding: `text-purple-400` (overall best), `text-green-400` (PB), `text-yellow-400` (slower)
+
+## Recent Changes (v0.9.119)
+
+### Scoring
+- Scoring data now loaded from collector API (`GET /scoring`) with fallback to static file
+- `ScoringSettings` saves to collector via `POST /scoring`
+- `LeagueResults` loads from collector API
+
+### Track Management
+- `trackContext` now sends track changes to collector via `POST /track`
+- Track selector on competition page narrower (w-10), no label
+- Track changes update all linked sessions via `POST /competitions/:id/update-track`
+
+### Competition Page
+- Always opens "Live результати" tab by default
+- Tab preference (live/final) saved to localStorage (auth users) or sessionStorage (anon)
+- Competition params redesigned:
+  - Separate "А" (Auto) buttons for pilots and groups
+  - Pilots and groups use input fields (not dropdowns)
+  - Auto-detected values shown when auto is on (disabled input)
+  - Icons: 👥 for pilots, 🎯 for groups
+  - Bordered boxes for visual grouping
+
+### Laps-by-Pilots
+- Table aligned left instead of center
+- Column width reduced to 60px
+- Pilot name font: `text-[9px]`
+- Kart number font: `text-[10px]`
+- Rename button font: `text-[8px]`

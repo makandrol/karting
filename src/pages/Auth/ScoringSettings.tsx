@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import { COLLECTOR_URL } from '../../services/config';
+
+const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
 interface OvertakeRule {
   startPosMin: number;
@@ -14,11 +17,19 @@ interface ScoringData {
     groups: Record<string, number[]>;
   }[];
   overtakePoints: {
-    groupI: OvertakeRule[];
+    groupI_LL: OvertakeRule[];
+    groupI_CL: OvertakeRule[];
     groupII: number;
     groupIII: number;
   };
   speedPoints: number[];
+}
+
+async function loadScoring(): Promise<ScoringData> {
+  const res = await fetch(`${COLLECTOR_URL}/scoring`);
+  if (res.ok) return res.json();
+  const fallback = await fetch('/data/scoring.json');
+  return fallback.json();
 }
 
 export default function ScoringSettings() {
@@ -26,12 +37,10 @@ export default function ScoringSettings() {
   const [editing, setEditing] = useState(false);
   const [jsonText, setJsonText] = useState('');
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch('/data/scoring.json')
-      .then(r => r.json())
-      .then(setData)
-      .catch(() => {});
+    loadScoring().then(setData).catch(() => {});
   }, []);
 
   const startEdit = () => {
@@ -40,15 +49,24 @@ export default function ScoringSettings() {
     setError('');
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     try {
       const parsed = JSON.parse(jsonText);
       if (!parsed.positionPoints || !parsed.speedPoints || !parsed.overtakePoints) throw new Error('Invalid format');
+      setSaving(true);
+      const res = await fetch(`${COLLECTOR_URL}/scoring`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: jsonText,
+      });
+      if (!res.ok) throw new Error('Server error');
       setData(parsed);
       setEditing(false);
       setError('');
     } catch (e: any) {
       setError(e.message || 'Invalid JSON');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -64,7 +82,7 @@ export default function ScoringSettings() {
           </button>
         ) : (
           <div className="flex gap-2">
-            <button onClick={saveEdit} className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-500 transition-colors">Зберегти</button>
+            <button onClick={saveEdit} disabled={saving} className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-500 transition-colors disabled:opacity-50">{saving ? 'Зберігаю...' : 'Зберегти'}</button>
             <button onClick={() => setEditing(false)} className="px-3 py-1.5 bg-dark-700 text-dark-300 text-xs rounded-lg hover:bg-dark-600 transition-colors">Скасувати</button>
           </div>
         )}
@@ -111,9 +129,9 @@ export default function ScoringSettings() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.positionPoints.map(cat =>
+                  {data.positionPoints.map((cat, ci) =>
                     Object.entries(cat.groups).map(([group, points], gi) => (
-                      <tr key={`${cat.label}-${group}`} className="border-b border-dark-800/50">
+                      <tr key={`${cat.label}-${group}`} className={`border-b border-dark-800/50 ${gi === 0 && ci > 0 ? 'border-t-2 border-t-dark-600' : ''}`}>
                         {gi === 0 && (
                           <td rowSpan={Object.keys(cat.groups).length} className="px-2 py-1 text-dark-300 border-r border-dark-700 whitespace-nowrap">
                             {cat.label}
@@ -137,23 +155,23 @@ export default function ScoringSettings() {
           <div className="card p-4 space-y-4">
             <h3 className="text-white font-semibold text-sm">Бали за обгони</h3>
 
-            <div>
-              <h4 className="text-dark-400 text-xs mb-2">Група I (за 1 обгон)</h4>
-              <div className="overflow-x-auto">
+            <div className="flex gap-6 flex-wrap">
+              <div>
+                <h4 className="text-dark-400 text-xs mb-2">Група I <span className="text-dark-600">(Лайт Ліга)</span></h4>
                 <table className="text-[10px]">
                   <thead>
                     <tr className="bg-dark-800/50">
-                      <th className="px-2 py-1 text-left text-dark-300">Стартова позиція</th>
-                      <th className="px-2 py-1 text-center text-dark-300">Бали за обгон</th>
+                      <th className="px-2 py-1 text-left text-dark-300">Позиція</th>
+                      <th className="px-2 py-1 text-center text-dark-300">За 1 обгін</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.overtakePoints.groupI.map((rule, i) => (
+                    {data.overtakePoints.groupI_LL.map((rule, i) => (
                       <tr key={i} className="border-b border-dark-800/50">
                         <td className="px-2 py-1 text-dark-300">
-                          {rule.startPosMin === rule.startPosMax ? `${rule.startPosMin} місце` :
-                           rule.startPosMax >= 99 ? `${rule.startPosMin}+ місце` :
-                           `${rule.startPosMin}-${rule.startPosMax} місце`}
+                          {rule.startPosMin === rule.startPosMax ? `${rule.startPosMin}` :
+                           rule.startPosMax >= 99 ? `${rule.startPosMin}+` :
+                           `${rule.startPosMin}-${rule.startPosMax}`}
                         </td>
                         <td className="px-2 py-1 text-center font-mono text-green-400 font-bold">{rule.perOvertake}</td>
                       </tr>
@@ -161,16 +179,41 @@ export default function ScoringSettings() {
                   </tbody>
                 </table>
               </div>
-            </div>
 
-            <div className="flex gap-8">
               <div>
-                <h4 className="text-dark-400 text-xs mb-1">Група II</h4>
-                <div className="text-green-400 font-mono font-bold text-lg">{data.overtakePoints.groupII} за обгон</div>
+                <h4 className="text-dark-400 text-xs mb-2">Група I <span className="text-dark-600">(Ліга Чемпіонів)</span></h4>
+                <table className="text-[10px]">
+                  <thead>
+                    <tr className="bg-dark-800/50">
+                      <th className="px-2 py-1 text-left text-dark-300">Позиція</th>
+                      <th className="px-2 py-1 text-center text-dark-300">За 1 обгін</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.overtakePoints.groupI_CL.map((rule, i) => (
+                      <tr key={i} className="border-b border-dark-800/50">
+                        <td className="px-2 py-1 text-dark-300">
+                          {rule.startPosMin === rule.startPosMax ? `${rule.startPosMin}` :
+                           rule.startPosMax >= 99 ? `${rule.startPosMin}+` :
+                           `${rule.startPosMin}-${rule.startPosMax}`}
+                        </td>
+                        <td className="px-2 py-1 text-center font-mono text-green-400 font-bold">{rule.perOvertake}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+
               <div>
-                <h4 className="text-dark-400 text-xs mb-1">Група III</h4>
-                <div className="text-green-400 font-mono font-bold text-lg">{data.overtakePoints.groupIII} за обгон</div>
+                <h4 className="text-dark-400 text-xs mb-2">Група II</h4>
+                <div className="text-green-400 font-mono font-bold text-lg mt-2">{data.overtakePoints.groupII}</div>
+                <div className="text-dark-500 text-[10px]">за 1 обгін</div>
+              </div>
+
+              <div>
+                <h4 className="text-dark-400 text-xs mb-2">Група III</h4>
+                <div className="text-green-400 font-mono font-bold text-lg mt-2">{data.overtakePoints.groupIII}</div>
+                <div className="text-dark-500 text-[10px]">за 1 обгін</div>
               </div>
             </div>
           </div>

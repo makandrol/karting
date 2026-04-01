@@ -34,6 +34,7 @@ export class TimingPoller {
   #pollCount = 0;
   #errorCount = 0;
   #sessionId = null;
+  #groupChecked = false;
   #currentRaceNumber = null;
   #sessions = [];
   #events = [];
@@ -170,6 +171,7 @@ export class TimingPoller {
       console.log(`✅ Timing ONLINE — ${entries.length} pilots, race #${meta.raceNumber ?? '?'}`);
       this.#online = true;
       this.#sessionId = `session-${Date.now()}`;
+      this.#groupChecked = false;
       this.#sessions.push({
         id: this.#sessionId,
         startTime: now,
@@ -216,6 +218,7 @@ export class TimingPoller {
       if (this.onSessionEnd) this.onSessionEnd(this.#sessionId);
       this.#online = false;
       this.#sessionId = null;
+      this.#groupChecked = false;
       this.#entries = [];
       this.#previousEntries = [];
       this.#previousTeams = [];
@@ -328,6 +331,10 @@ export class TimingPoller {
       storage.addEvent(this.#sessionId, type, ts, data);
       if (type === 'lap' && data) {
         storage.addLap(this.#sessionId, { ...data, ts });
+        if (!this.#groupChecked) {
+          this.#groupChecked = true;
+          storage.recheckSessionPhase(this.#sessionId);
+        }
       }
     }
 

@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds } from '../../utils/timing';
+import { toSeconds, isValidSession } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 
@@ -113,7 +113,7 @@ export default function Karts() {
           const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
           if (res.ok) {
             const data: DbSession[] = await res.json();
-            allSessions.push(...data.filter(s => s.end_time && (s.end_time - s.start_time) >= 60000));
+            allSessions.push(...data.filter(s => s.end_time && isValidSession(s)));
           }
         } catch {}
       }

@@ -1,11 +1,13 @@
 import { useParams, Link, Navigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel } from '../../data/competitions';
-import { toSeconds } from '../../utils/timing';
+import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat } from '../../data/competitions';
+import { toSeconds, isValidSession } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
+import { TRACK_CONFIGS } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 import LeagueResults from '../../components/Results/LeagueResults';
+import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -32,14 +34,30 @@ interface SessionLap {
 
 export default function CompetitionPage() {
   const { type, eventId } = useParams<{ type: string; eventId?: string }>();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const canManage = hasPermission('manage_results');
 
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'live' | 'final'>('live');
+  
+  // Load saved tab preference or default to 'live'
+  const [tab, setTab] = useState<'live' | 'final'>(() => {
+    const storage = user ? localStorage : sessionStorage;
+    const saved = storage.getItem('competition_tab_preference');
+    return (saved === 'final' ? 'final' : 'live') as 'live' | 'final';
+  });
+  
+  // Save tab preference when it changes
+  useEffect(() => {
+    const storage = user ? localStorage : sessionStorage;
+    storage.setItem('competition_tab_preference', tab);
+  }, [tab, user]);
+  
   const [compSessions, setCompSessions] = useState<SessionTableRow[]>([]);
+  const [allSessionsEnded, setAllSessionsEnded] = useState(false);
+  const [pilotCount, setPilotCount] = useState(0);
+  const [autoGroups, setAutoGroups] = useState(1);
 
   const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[]) => {
     const dates = new Set<string>();
@@ -59,6 +77,9 @@ export default function CompetitionPage() {
       } catch {}
     }
     setCompSessions(all);
+    if (all.length > 0 && all.every(s => s.end_time !== null && s.end_time !== undefined)) {
+      setAllSessionsEnded(true);
+    }
   };
 
   useEffect(() => {
@@ -67,7 +88,6 @@ export default function CompetitionPage() {
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           setCompetition(data);
-          if (data?.status === 'finished') setTab('final');
           if (data?.sessions?.length > 0) fetchCompSessions(data.sessions);
           setLoading(false);
         })
@@ -139,27 +159,110 @@ export default function CompetitionPage() {
 
   const config = COMPETITION_CONFIGS[competition.format as keyof typeof COMPETITION_CONFIGS];
 
+  const trackId = competition.results?.trackId ?? null;
+  const trackConfig = trackId ? TRACK_CONFIGS.find(t => t.id === trackId) : null;
+  const trackLabel = trackConfig ? `Траса ${trackConfig.id}` : null;
+
+  const changeTrack = async (newTrackId: number) => {
+    try {
+      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+      if (!res.ok) return;
+      const comp = await res.json();
+      const currentResults = comp.results || {};
+      
+      // Update competition results with new trackId
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ results: { ...currentResults, trackId: newTrackId } }),
+      });
+      
+      // Update track_id for all sessions in this competition
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}/update-track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ trackId: newTrackId }),
+      });
+      
+      setCompetition({ ...competition, results: { ...competition.results, trackId: newTrackId } });
+    } catch {}
+  };
+
+  const groupCount = competition.results?.groupCountOverride ?? null;
+  const effectivePhases = getPhasesForFormat(competition.format, groupCount);
+  const totalPhases = effectivePhases.length;
+  const linkedPhases = competition.sessions.filter(s => s.phase).length;
+  const allPhasesLinked = totalPhases > 0 && linkedPhases >= totalPhases;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link to={`/results/${competition.format}`} className="text-dark-500 text-sm hover:text-dark-300 transition-colors">
-            ← {config?.name || competition.format}
-          </Link>
-          <h1 className="text-xl font-bold text-white">{competition.name}</h1>
-          <p className="text-dark-400 text-sm">{competition.sessions.length} заїздів</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-bold text-white">{competition.name.replace(/,?\s*Тр\.\s*\d+/, '')}</h1>
+            <select
+              value={trackId ?? ''}
+              onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
+              disabled={!canManage}
+              className={`bg-dark-800 text-dark-300 text-xs rounded px-0.5 py-0.5 border border-dark-700 outline-none focus:border-primary-500 w-10 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
+            >
+              <option value=""></option>
+              {TRACK_CONFIGS.map(t => (
+                <option key={t.id} value={t.id}>{t.id}</option>
+              ))}
+            </select>
+            {(competition.format === 'light_league' || competition.format === 'champions_league') && (
+              <CompetitionParams
+                pilotCount={pilotCount}
+                pilotOverride={competition.results?.totalPilotsOverride ?? null}
+                pilotLocked={competition.results?.totalPilotsLocked ?? false}
+                groupOverride={competition.results?.groupCountOverride ?? null}
+                autoGroups={autoGroups}
+                maxGroups={competition.format === 'champions_league' ? 2 : 3}
+                canManage={canManage}
+                onSave={async (partial) => {
+                  try {
+                    const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+                    if (!res.ok) return;
+                    const comp = await res.json();
+                    const currentResults = comp.results || {};
+                    await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                      body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+                    });
+                    setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+                  } catch {}
+                }}
+              />
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-            competition.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
-          }`}>
-            {competition.status === 'finished' ? 'Завершено' : 'Live'}
-          </span>
-          {canManage && (
-            <button onClick={toggleStatus}
-              className="px-2 py-0.5 rounded text-[10px] bg-dark-800 text-dark-400 hover:text-white transition-colors">
-              {competition.status === 'finished' ? 'Відкрити' : 'Завершити'}
-            </button>
+        <div className="flex flex-col items-end gap-1">
+          {competition.status === 'live' && allSessionsEnded && allPhasesLinked ? (
+            <>
+              <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-yellow-500/15 text-yellow-400">Очікує завершення</span>
+              {canManage && (
+                <button onClick={toggleStatus}
+                  className="px-2 py-0.5 rounded text-[10px] bg-dark-800 text-dark-400 hover:text-white transition-colors">
+                  Завершити
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                competition.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
+              }`}>
+                {competition.status === 'finished' ? 'Завершено' : 'Live'}
+              </span>
+              {canManage && (
+                <button onClick={toggleStatus}
+                  className="px-2 py-0.5 rounded text-[10px] bg-dark-800 text-dark-400 hover:text-white transition-colors">
+                  {competition.status === 'finished' ? 'Відкрити' : 'Завершити'}
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -178,7 +281,7 @@ export default function CompetitionPage() {
       {tab === 'final' ? (
         <FinalResults competition={competition} />
       ) : (
-        <LiveResults competition={competition} />
+        <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
       )}
 
       {compSessions.length > 0 && (
@@ -230,13 +333,53 @@ function FinalResults({ competition }: { competition: Competition }) {
   return <div className="card p-4"><pre className="text-dark-300 text-xs overflow-auto">{JSON.stringify(results, null, 2)}</pre></div>;
 }
 
-function LiveResults({ competition: initialCompetition }: { competition: Competition }) {
+function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void }) {
   const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [livePositions, setLivePositions] = useState<{ pilot: string; position: number }[]>([]);
   const [liveEnabled, setLiveEnabled] = useState(true);
+  const [scrubTime, setScrubTime] = useState<number | null>(null);
+
+  const sessionTimes = useMemo(() => {
+    return compSessions
+      .filter(s => {
+        const hasLaps = sessionLaps.has(s.id) && (sessionLaps.get(s.id)?.length ?? 0) > 0;
+        return hasLaps && isValidSession(s);
+      })
+      .map(s => {
+        const compSession = competition.sessions.find(cs => cs.sessionId === s.id);
+        return { sessionId: s.id, phase: compSession?.phase ?? null, startTime: s.start_time, endTime: s.end_time };
+      }).sort((a, b) => a.startTime - b.startTime);
+  }, [compSessions, competition.sessions, sessionLaps]);
+
+  const filteredSessionLaps = useMemo(() => {
+    if (scrubTime === null) return sessionLaps;
+    const filtered = new Map<string, SessionLap[]>();
+    for (const [sessionId, laps] of sessionLaps) {
+      const st = sessionTimes.find(s => s.sessionId === sessionId);
+      if (!st || st.startTime > scrubTime) continue;
+      filtered.set(sessionId, laps.filter(l => l.ts <= scrubTime));
+    }
+    return filtered;
+  }, [sessionLaps, scrubTime, sessionTimes]);
+
+  const scrubSessionId = useMemo(() => {
+    if (scrubTime === null) return null;
+    const active = sessionTimes.find(s => s.startTime <= scrubTime && (s.endTime === null || s.endTime >= scrubTime));
+    return active?.sessionId ?? null;
+  }, [scrubTime, sessionTimes]);
+
+  const scrubPilots = useMemo(() => {
+    if (scrubTime === null || !scrubSessionId) return [];
+    const laps = sessionLaps.get(scrubSessionId) || [];
+    const pilots = new Set<string>();
+    for (const l of laps) {
+      if (l.ts <= scrubTime) pilots.add(l.pilot);
+    }
+    return [...pilots];
+  }, [scrubTime, scrubSessionId, sessionLaps]);
 
   const fetchAllLaps = async (comp: Competition) => {
     if (comp.sessions.length === 0) return new Map<string, SessionLap[]>();
@@ -303,19 +446,55 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
   }
 
   if (competition.format === 'light_league' || competition.format === 'champions_league') {
-    return <LeagueResults
-      format={competition.format}
-      competitionId={competition.id}
-      sessions={competition.sessions}
-      sessionLaps={sessionLaps}
-      liveSessionId={liveSessionId}
-      livePositions={livePositions}
-      livePilots={livePositions.map(p => p.pilot)}
-      liveEnabled={liveEnabled}
-      onToggleLive={() => setLiveEnabled(v => !v)}
-      initialExcludedPilots={competition.results?.excludedPilots}
-      initialEdits={competition.results?.edits}
-    />;
+    const isScrubbing = scrubTime !== null;
+    return (
+      <div className="space-y-4">
+        {sessionTimes.length > 0 && (
+          <CompetitionTimeline
+            format={competition.format}
+            sessions={competition.sessions}
+            sessionTimes={sessionTimes}
+            currentTime={scrubTime}
+            onTimeChange={(t) => { setScrubTime(t); if (t !== null) setLiveEnabled(false); else setLiveEnabled(true); }}
+            isLive={competition.status === 'live' && !allSessionsEnded}
+          />
+        )}
+        <LeagueResults
+          format={competition.format}
+          competitionId={competition.id}
+          sessions={competition.sessions}
+          sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+          liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+          livePositions={isScrubbing ? [] : livePositions}
+          livePilots={isScrubbing ? scrubPilots : livePositions.map(p => p.pilot)}
+          liveEnabled={!isScrubbing && liveEnabled}
+          onToggleLive={() => { if (isScrubbing) { setScrubTime(null); setLiveEnabled(true); } else setLiveEnabled(v => !v); }}
+          initialExcludedPilots={competition.results?.excludedPilots}
+          initialEdits={competition.results?.edits}
+          excludedLapKeys={competition.results?.excludedLaps}
+          allSessionsEnded={allSessionsEnded}
+          totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
+          totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
+          groupCountOverride={competition.results?.groupCountOverride ?? null}
+          onPilotCount={onPilotCount}
+          onAutoGroups={onAutoGroups}
+          onSaveResults={async (partial) => {
+            try {
+              const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+              if (!res.ok) return;
+              const comp = await res.json();
+              const currentResults = comp.results || {};
+              await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+              });
+              setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+            } catch {}
+          }}
+        />
+      </div>
+    );
   }
 
   const phases = PHASE_CONFIGS[competition.format]?.phases || [];
@@ -372,6 +551,63 @@ function LiveResults({ competition: initialCompetition }: { competition: Competi
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverride, autoGroups, maxGroups, canManage, onSave }: {
+  pilotCount: number; pilotOverride: number | null; pilotLocked: boolean;
+  groupOverride: number | null; autoGroups: number; maxGroups: number; canManage: boolean;
+  onSave: (partial: Record<string, any>) => Promise<void>;
+}) {
+  const effectivePilots = (pilotLocked && pilotOverride !== null) ? pilotOverride : pilotCount;
+  const effectiveGroups = groupOverride ?? autoGroups;
+  const pilotsAuto = pilotOverride === null;
+  const groupsAuto = groupOverride === null;
+
+  return (
+    <div className="flex items-center gap-3 text-xs">
+      {/* Pilots */}
+      <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
+        <span title="Пілоти">👥</span>
+        {canManage ? (
+          <input type="text" inputMode="numeric"
+            value={effectivePilots}
+            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) onSave({ totalPilotsOverride: v, totalPilotsLocked: true }); }}
+            disabled={pilotsAuto}
+            className={`w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
+        ) : (
+          <span className="text-dark-300 font-mono">{effectivePilots || '—'}</span>
+        )}
+        {canManage && (
+          <button onClick={() => onSave({ totalPilotsOverride: pilotsAuto ? effectivePilots : null, totalPilotsLocked: pilotsAuto })} 
+            className={`text-[10px] font-bold transition-colors ${pilotsAuto ? 'bg-red-600 text-white px-1 rounded' : 'text-dark-500 hover:text-dark-300'}`}
+            title={pilotsAuto ? 'Вимкнути авто' : 'Включити авто'}>
+            А
+          </button>
+        )}
+      </div>
+
+      {/* Groups */}
+      <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
+        <span title="Групи">🎯</span>
+        {canManage ? (
+          <input type="text" inputMode="numeric"
+            value={effectiveGroups}
+            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0 && v <= maxGroups) onSave({ groupCountOverride: v }); }}
+            disabled={groupsAuto}
+            className={`w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${groupsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
+        ) : (
+          <span className="text-dark-300 font-mono">{effectiveGroups}</span>
+        )}
+        {canManage && (
+          <button onClick={() => onSave({ groupCountOverride: groupsAuto ? effectiveGroups : null })} 
+            className={`text-[10px] font-bold transition-colors ${groupsAuto ? 'bg-red-600 text-white px-1 rounded' : 'text-dark-500 hover:text-dark-300'}`}
+            title={groupsAuto ? 'Вимкнути авто' : 'Включити авто'}>
+            А
+          </button>
+        )}
+      </div>
     </div>
   );
 }
