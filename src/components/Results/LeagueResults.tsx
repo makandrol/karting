@@ -280,6 +280,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
     // 3. Build race data
     let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
 
+    // Determine active phase from liveSessionId
+    let activePhase: string | null = null;
+    if (liveSessionId) {
+      const liveSession = sessions.find(s => s.sessionId === liveSessionId);
+      activePhase = liveSession?.phase || null;
+    }
+
     const raceResults: Map<string, PilotRaceData>[] = [];
     for (let r = 1; r <= raceCount; r++) {
       const rData = new Map<string, PilotRaceData>();
@@ -298,6 +305,23 @@ export default function LeagueResults({ format, competitionId, sessions, session
           startPositions.set(p, { group: gNum, startPos: g.pilots.length - pi });
         });
       });
+
+      // Only show start positions for the next race after active phase
+      // If qualifying is active: show start positions for race 1
+      // If race N is active: show start positions for race N+1
+      let shouldShowStartPositions = false;
+      if (activePhase?.startsWith('qualifying')) {
+        shouldShowStartPositions = r === 1;
+      } else if (activePhase?.startsWith('race_')) {
+        const activeRaceMatch = activePhase.match(/race_(\d+)_/);
+        if (activeRaceMatch) {
+          const activeRaceNum = parseInt(activeRaceMatch[1]);
+          shouldShowStartPositions = r === activeRaceNum + 1;
+        }
+      } else {
+        // No active phase: show start positions for all races (default behavior)
+        shouldShowStartPositions = true;
+      }
 
       // Get finish positions from timing data (use position from last lap — set by timing system)
       const raceTimes: { pilot: string; time: number }[] = [];
@@ -381,13 +405,16 @@ export default function LeagueResults({ format, competitionId, sessions, session
       if (raceTimes.length > 0) prevRaceTimes = raceTimes.filter(r => !excludedPilots.has(r.pilot));
 
       // Fill start positions for pilots without race data yet (race hasn't started or pilot not in this race's groups yet)
-      for (const [pilot, sp] of startPositions) {
-        if (!rData.has(pilot) && !excludedPilots.has(pilot)) {
-          rData.set(pilot, {
-            kart: 0, bestTime: Infinity, bestTimeStr: '',
-            group: sp.group, startPos: sp.startPos, finishPos: 0,
-            positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
-          });
+      // Only fill if this race should show start positions
+      if (shouldShowStartPositions) {
+        for (const [pilot, sp] of startPositions) {
+          if (!rData.has(pilot) && !excludedPilots.has(pilot)) {
+            rData.set(pilot, {
+              kart: 0, bestTime: Infinity, bestTimeStr: '',
+              group: sp.group, startPos: sp.startPos, finishPos: 0,
+              positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
+            });
+          }
         }
       }
     }
@@ -587,8 +614,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   {sortedData.map((row, i) => {
                     const isExcluded = excludedPilots.has(row.pilot);
                     const isOnTrack = livePilots?.includes(row.pilot);
+                    // Check if next row is in a different group (for group separator line)
+                    const nextRow = i + 1 < sortedData.length ? sortedData[i + 1] : null;
+                    const currentGroup = row.races[0]?.group || 0;
+                    const nextGroup = nextRow?.races[0]?.group || 0;
+                    const isGroupEnd = currentGroup > 0 && currentGroup !== nextGroup;
                     return (
-                    <tr key={row.pilot} className={`border-b border-dark-800/50 ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : 'hover:bg-dark-700/30'}`}>
+                    <tr key={row.pilot} className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : 'hover:bg-dark-700/30'}`}>
                       <td className="px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700">{isExcluded ? '—' : i + 1}</td>
                       <td className="px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap">
                         {renamingPilot === row.pilot ? (
