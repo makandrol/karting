@@ -420,6 +420,26 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /competitions/:id/update-track — оновити трасу для всіх сесій (admin only)
+    if (req.method === 'POST' && url.pathname.match(/^\/competitions\/[^/]+\/update-track$/)) {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      const id = decodeURIComponent(url.pathname.split('/')[2]);
+      try {
+        const body = await readBody(req);
+        const { trackId } = JSON.parse(body);
+        if (typeof trackId !== 'number' || trackId < 1 || trackId > 20) {
+          sendJson(res, 400, { error: 'Invalid trackId' });
+          return;
+        }
+        const comp = storage.getCompetition(id);
+        if (!comp) { sendJson(res, 404, { error: 'Competition not found' }); return; }
+        const sessionIds = comp.sessions.map(s => s.sessionId);
+        const changes = storage.updateSessionsTrack(sessionIds, trackId);
+        sendJson(res, 200, { ok: true, changes });
+      } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
+      return;
+    }
+
     // POST /competitions/:id/unlink-session — відв'язати заїзд (admin only)
     if (req.method === 'POST' && url.pathname.match(/^\/competitions\/[^/]+\/unlink-session$/)) {
       if (!isAuthorized(req)) { sendUnauthorized(res); return; }

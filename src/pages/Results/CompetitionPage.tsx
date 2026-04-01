@@ -157,11 +157,21 @@ export default function CompetitionPage() {
       if (!res.ok) return;
       const comp = await res.json();
       const currentResults = comp.results || {};
+      
+      // Update competition results with new trackId
       await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
         body: JSON.stringify({ results: { ...currentResults, trackId: newTrackId } }),
       });
+      
+      // Update track_id for all sessions in this competition
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}/update-track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ trackId: newTrackId }),
+      });
+      
       setCompetition({ ...competition, results: { ...competition.results, trackId: newTrackId } });
     } catch {}
   };

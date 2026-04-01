@@ -778,6 +778,14 @@ export const storage = {
     this.setSystemState('scoring', JSON.stringify(data));
   },
 
+  updateSessionsTrack(sessionIds, trackId) {
+    if (!sessionIds || sessionIds.length === 0) return 0;
+    const placeholders = sessionIds.map(() => '?').join(',');
+    const stmt = db.prepare(`UPDATE sessions SET track_id = ? WHERE id IN (${placeholders})`);
+    const result = stmt.run(trackId, ...sessionIds);
+    return result.changes;
+  },
+
   renamePilot(sessionId, oldName, newName) {
     const updLaps = db.prepare('UPDATE laps SET pilot = ? WHERE session_id = ? AND pilot = ?');
     const result = updLaps.run(newName, sessionId, oldName);
