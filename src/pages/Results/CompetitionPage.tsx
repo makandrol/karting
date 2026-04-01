@@ -34,13 +34,26 @@ interface SessionLap {
 
 export default function CompetitionPage() {
   const { type, eventId } = useParams<{ type: string; eventId?: string }>();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const canManage = hasPermission('manage_results');
 
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'live' | 'final'>('live');
+  
+  // Load saved tab preference or default to 'live'
+  const [tab, setTab] = useState<'live' | 'final'>(() => {
+    const storage = user ? localStorage : sessionStorage;
+    const saved = storage.getItem('competition_tab_preference');
+    return (saved === 'final' ? 'final' : 'live') as 'live' | 'final';
+  });
+  
+  // Save tab preference when it changes
+  useEffect(() => {
+    const storage = user ? localStorage : sessionStorage;
+    storage.setItem('competition_tab_preference', tab);
+  }, [tab, user]);
+  
   const [compSessions, setCompSessions] = useState<SessionTableRow[]>([]);
   const [allSessionsEnded, setAllSessionsEnded] = useState(false);
   const [pilotCount, setPilotCount] = useState(0);
@@ -75,7 +88,6 @@ export default function CompetitionPage() {
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           setCompetition(data);
-          if (data?.status === 'finished') setTab('final');
           if (data?.sessions?.length > 0) fetchCompSessions(data.sessions);
           setLoading(false);
         })
