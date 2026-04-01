@@ -105,7 +105,7 @@
 8. **Min valid S1/S2**: 10 seconds (filtered at display level)
 9. **Min valid session**: 3 minutes (`isValidSession()` in `utils/timing.ts`)
 10. **Competition sessions format**: `[{sessionId, phase}]`
-11. **Scoring data**: in `public/data/scoring.json`, editable via `/admin/scoring`
+11. **Scoring data**: stored on collector via `GET/POST /scoring` (persisted in db_stats), fallback to `public/data/scoring.json`
 12. **Position field**: API returns kart as string — poller converts to `Number()`
 13. **Overtake points**: separate tables for LL (`groupI_LL`, 10+ → 1.2) and CL (`groupI_CL`, 10+ → 1.3)
 14. **Excluded laps**: stored as `results.excludedLaps` array with keys `"sessionId|pilot|ts"`
@@ -114,6 +114,9 @@
 17. **Phase filtering**: `getPhasesForFormat(format, groupCount)` filters phases by group count
 18. **EditableCell**: defined OUTSIDE parent component to prevent remount on re-render (critical!)
 19. **No new hooks in LeagueResults**: adding hooks causes "more hooks than previous render" error during HMR. Use `Promise.resolve().then()` for deferred state updates to parent instead of `useEffect`.
+20. **Track sync**: Track changes from timing page sync to collector via `POST /track`, updates all future sessions
+21. **Competition track**: Track changes on competition page update all linked sessions via `POST /competitions/:id/update-track`
+22. **Tab preference**: Competition page saves tab preference (live/final) to localStorage (auth users) or sessionStorage (anon)
 
 ## File Structure
 ```

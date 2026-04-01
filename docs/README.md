@@ -15,7 +15,22 @@
 
 A real-time karting timing dashboard for the "Жага Швидкості" karting track. Collects live timing data, stores it in SQLite, and provides a web interface for viewing sessions, replays, kart statistics, and managing competitions with live scoring.
 
-## Current State (v0.9.106)
+## Current State (v0.9.119)
+
+### Recent Changes (Session with Agent)
+- **Scoring persistence**: Scoring data now stored on collector (GET/POST `/scoring`) instead of static file
+- **Track sync**: Track changes from timing page sync to collector and update all sessions
+- **Competition track**: Track changes on competition page update all linked sessions
+- **Live results default**: Competition pages always open "Live результати" tab by default, preference saved per user
+- **Laps-by-pilots alignment**: Table aligned left instead of center, narrower columns (60px), smaller fonts
+- **Competition params UI redesign**:
+  - Separate "А" (Auto) buttons for pilots and groups (red background when active)
+  - Pilots and groups use input fields (not dropdowns)
+  - Auto-detected values shown when auto is on (disabled input)
+  - Manual input when auto is off
+  - Track selector narrower (w-10), no label
+  - Icons: 👥 for pilots, 🎯 for groups
+  - Bordered boxes for visual grouping
 
 ### Working Features
 - **Live timing**: real-time data from karting timing API with 1s polling

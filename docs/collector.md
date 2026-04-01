@@ -161,3 +161,18 @@ In `poller.js`, when a new session starts:
 
 ## Data Filtering (SQL level)
 `MIN_LAP_SEC = 38` applied to all statistical queries.
+
+## New Endpoints (v0.9.119)
+
+### Scoring Management
+- **GET `/scoring`** — Retrieve scoring tables from db_stats (fallback to static file)
+- **POST `/scoring`** — Save scoring tables to db_stats (admin only, requires Bearer token)
+
+### Track Management
+- **POST `/track`** — Change current track (updates `current_track_id` for all future sessions)
+- **POST `/competitions/:id/update-track`** — Update `track_id` for all sessions linked to a competition
+
+### Storage Methods
+- `storage.getScoring()` — Get scoring from db_stats
+- `storage.setScoring(data)` — Save scoring to db_stats
+- `storage.updateSessionsTrack(sessionIds, trackId)` — Batch update track_id for sessions

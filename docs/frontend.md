@@ -182,3 +182,32 @@ Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseL
 - Footer: version + links only (no logo)
 - SessionReplay table: tight padding (`px-0.5 py-0.5`), narrow pilot column, thin progress bar
 - Color coding: `text-purple-400` (overall best), `text-green-400` (PB), `text-yellow-400` (slower)
+
+## Recent Changes (v0.9.119)
+
+### Scoring
+- Scoring data now loaded from collector API (`GET /scoring`) with fallback to static file
+- `ScoringSettings` saves to collector via `POST /scoring`
+- `LeagueResults` loads from collector API
+
+### Track Management
+- `trackContext` now sends track changes to collector via `POST /track`
+- Track selector on competition page narrower (w-10), no label
+- Track changes update all linked sessions via `POST /competitions/:id/update-track`
+
+### Competition Page
+- Always opens "Live результати" tab by default
+- Tab preference (live/final) saved to localStorage (auth users) or sessionStorage (anon)
+- Competition params redesigned:
+  - Separate "А" (Auto) buttons for pilots and groups
+  - Pilots and groups use input fields (not dropdowns)
+  - Auto-detected values shown when auto is on (disabled input)
+  - Icons: 👥 for pilots, 🎯 for groups
+  - Bordered boxes for visual grouping
+
+### Laps-by-Pilots
+- Table aligned left instead of center
+- Column width reduced to 60px
+- Pilot name font: `text-[9px]`
+- Kart number font: `text-[10px]`
+- Rename button font: `text-[8px]`
