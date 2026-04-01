@@ -586,14 +586,20 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
         <span className="text-dark-500">Груп:</span>
         {canManage ? (
           <select value={groupOverride ?? ''} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; onSave({ groupCountOverride: v }); }}
-            className="bg-dark-800 text-dark-300 text-xs rounded px-1 py-0 border border-dark-700 outline-none focus:border-primary-500 cursor-pointer font-mono">
-            <option value="">авто ({autoGroups})</option>
+            className="w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 cursor-pointer text-dark-300">
+            <option value="">авто</option>
             {Array.from({ length: maxGroups }, (_, i) => (
               <option key={i + 1} value={i + 1}>{i + 1}</option>
             ))}
           </select>
         ) : (
           <span className="text-dark-300 font-mono">{effectiveGroups}</span>
+        )}
+        {canManage && groupOverride !== null && (
+          <button onClick={() => onSave({ groupCountOverride: null })} className="text-[9px] text-yellow-400/70 hover:text-yellow-400" title="Автовизначення">🔒</button>
+        )}
+        {canManage && groupOverride === null && (
+          <button onClick={() => onSave({ groupCountOverride: effectiveGroups })} className="text-[9px] text-dark-600 hover:text-dark-400" title="Зафіксувати">🔓</button>
         )}
       </span>
     </span>
