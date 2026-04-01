@@ -204,9 +204,9 @@ export default function CompetitionPage() {
               value={trackId ?? ''}
               onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
               disabled={!canManage}
-              className={`bg-dark-800 text-dark-300 text-xs rounded px-1.5 py-0.5 border border-dark-700 outline-none focus:border-primary-500 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
+              className={`bg-dark-800 text-dark-300 text-xs rounded px-1 py-0.5 border border-dark-700 outline-none focus:border-primary-500 w-12 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
             >
-              <option value="">Траса</option>
+              <option value="">Тр.</option>
               {TRACK_CONFIGS.map(t => (
                 <option key={t.id} value={t.id}>{t.id}</option>
               ))}
@@ -562,45 +562,29 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
 }) {
   const effectivePilots = (pilotLocked && pilotOverride !== null) ? pilotOverride : pilotCount;
   const effectiveGroups = groupOverride ?? autoGroups;
-  const isAutoMode = groupOverride === null && pilotOverride === null;
+  const pilotsAuto = pilotOverride === null;
+  const groupsAuto = groupOverride === null;
 
   return (
     <div className="flex items-center gap-3 text-xs">
-      {/* Auto button */}
-      {canManage && (
-        <button
-          onClick={() => {
-            if (isAutoMode) {
-              onSave({ totalPilotsOverride: effectivePilots, totalPilotsLocked: true, groupCountOverride: effectiveGroups });
-            } else {
-              onSave({ totalPilotsOverride: null, totalPilotsLocked: false, groupCountOverride: null });
-            }
-          }}
-          className={`px-2 py-1 rounded font-bold transition-colors ${
-            isAutoMode ? 'bg-red-600 text-white' : 'bg-dark-800 text-dark-500 hover:text-dark-300'
-          }`}
-          title={isAutoMode ? 'Вимкнути авто' : 'Включити авто'}
-        >
-          А
-        </button>
-      )}
-
       {/* Pilots */}
       <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
         <span title="Пілоти">👥</span>
         {canManage ? (
           <input type="text" inputMode="numeric"
-            value={pilotLocked ? (pilotOverride ?? effectivePilots) : effectivePilots}
+            value={effectivePilots}
             onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) onSave({ totalPilotsOverride: v, totalPilotsLocked: true }); }}
-            className={`w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotLocked ? 'text-yellow-400' : 'text-dark-300'}`} />
+            disabled={pilotsAuto}
+            className={`w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
         ) : (
           <span className="text-dark-300 font-mono">{effectivePilots || '—'}</span>
         )}
-        {canManage && pilotLocked && (
-          <button onClick={() => onSave({ totalPilotsOverride: null, totalPilotsLocked: false })} className="text-[9px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">✓</button>
-        )}
-        {canManage && !pilotLocked && (
-          <button onClick={() => onSave({ totalPilotsOverride: effectivePilots, totalPilotsLocked: true })} className="text-[9px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">○</button>
+        {canManage && (
+          <button onClick={() => onSave({ totalPilotsOverride: pilotsAuto ? effectivePilots : null, totalPilotsLocked: pilotsAuto })} 
+            className={`text-[10px] font-bold transition-colors ${pilotsAuto ? 'bg-red-600 text-white px-1 rounded' : 'text-dark-500 hover:text-dark-300'}`}
+            title={pilotsAuto ? 'Вимкнути авто' : 'Включити авто'}>
+            А
+          </button>
         )}
       </div>
 
@@ -608,21 +592,20 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
       <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
         <span title="Групи">🎯</span>
         {canManage ? (
-          <select value={groupOverride ?? ''} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; onSave({ groupCountOverride: v }); }}
-            className="w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 cursor-pointer text-dark-300">
-            <option value="">авто</option>
-            {Array.from({ length: maxGroups }, (_, i) => (
-              <option key={i + 1} value={i + 1}>{i + 1}</option>
-            ))}
-          </select>
+          <input type="text" inputMode="numeric"
+            value={effectiveGroups}
+            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0 && v <= maxGroups) onSave({ groupCountOverride: v }); }}
+            disabled={groupsAuto}
+            className={`w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${groupsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
         ) : (
           <span className="text-dark-300 font-mono">{effectiveGroups}</span>
         )}
-        {canManage && groupOverride !== null && (
-          <button onClick={() => onSave({ groupCountOverride: null })} className="text-[9px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">✓</button>
-        )}
-        {canManage && groupOverride === null && (
-          <button onClick={() => onSave({ groupCountOverride: effectiveGroups })} className="text-[9px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">○</button>
+        {canManage && (
+          <button onClick={() => onSave({ groupCountOverride: groupsAuto ? effectiveGroups : null })} 
+            className={`text-[10px] font-bold transition-colors ${groupsAuto ? 'bg-red-600 text-white px-1 rounded' : 'text-dark-500 hover:text-dark-300'}`}
+            title={groupsAuto ? 'Вимкнути авто' : 'Включити авто'}>
+            А
+          </button>
         )}
       </div>
     </div>
