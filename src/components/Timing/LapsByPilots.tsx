@@ -88,8 +88,8 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
             <tr className="table-header">
               <th className="table-cell text-center w-8">Коло</th>
               {pilots.map(p => (
-                <th key={p.name} className="table-cell text-left min-w-[80px]">
-                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors">
+                <th key={p.name} className="table-cell text-left min-w-[60px]">
+                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]">
                     {shortName(p.name)}
                   </Link>
                   {onRenamePilot && (
@@ -97,9 +97,9 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                       e.stopPropagation();
                       const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
                       if (newName && newName !== p.name) onRenamePilot(p.name, newName);
-                    }} className="ml-0.5 text-dark-500 hover:text-primary-400 text-[9px]">✎</button>
+                    }} className="ml-0.5 text-dark-500 hover:text-primary-400 text-[8px]">✎</button>
                   )}
-                  <div className="text-dark-600 text-[9px] font-normal">К{p.laps[0]?.kart}</div>
+                  <div className="text-dark-600 text-[10px] font-normal">К{p.laps[0]?.kart}</div>
                 </th>
               ))}
             </tr>
