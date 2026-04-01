@@ -48,7 +48,7 @@ interface LeagueResultsProps {
 
 interface ScoringData {
   positionPoints: { label: string; minPilots: number; maxPilots: number; groups: Record<string, number[]> }[];
-  overtakePoints: { groupI: { startPosMin: number; startPosMax: number; perOvertake: number }[]; groupILarge?: { startPosMin: number; startPosMax: number; perOvertake: number }[]; groupII: number; groupIII: number };
+  overtakePoints: { groupI_LL: { startPosMin: number; startPosMax: number; perOvertake: number }[]; groupI_CL: { startPosMin: number; startPosMax: number; perOvertake: number }[]; groupII: number; groupIII: number };
   speedPoints: number[];
 }
 
@@ -96,21 +96,21 @@ function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
   );
 }
 
-function getOvertakeRate(scoring: ScoringData, group: number, pos: number, groupSize: number, useGroupILarge: boolean): number {
+function getOvertakeRate(scoring: ScoringData, group: number, pos: number, isCL: boolean): number {
   if (group === 3) return scoring.overtakePoints.groupIII;
   if (group === 2) return scoring.overtakePoints.groupII;
-  const rules = (useGroupILarge && groupSize > 10 && scoring.overtakePoints.groupILarge) ? scoring.overtakePoints.groupILarge : scoring.overtakePoints.groupI;
+  const rules = isCL ? scoring.overtakePoints.groupI_CL : scoring.overtakePoints.groupI_LL;
   for (const rule of rules) {
     if (pos >= rule.startPosMin && pos <= rule.startPosMax) return rule.perOvertake;
   }
   return 0;
 }
 
-function calcOvertakePoints(scoring: ScoringData, group: number, startPos: number, finishPos: number, groupSize: number, useGroupILarge: boolean): number {
+function calcOvertakePoints(scoring: ScoringData, group: number, startPos: number, finishPos: number, isCL: boolean): number {
   if (startPos <= finishPos) return 0;
   let total = 0;
   for (let pos = startPos; pos > finishPos; pos--) {
-    total += getOvertakeRate(scoring, group, pos, groupSize, useGroupILarge);
+    total += getOvertakeRate(scoring, group, pos, isCL);
   }
   return Math.round(total * 10) / 10;
 }
@@ -288,10 +288,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
         .slice(0, maxQualified);
       const rGroups = splitIntoGroups(prevSorted.map(p => p.pilot), maxGroups);
       const startPositions = new Map<string, { group: number; startPos: number }>();
-      const groupSizes = new Map<number, number>();
       rGroups.forEach((g, gi) => {
         const gNum = gi + 1;
-        groupSizes.set(gNum, g.pilots.length);
         g.pilots.forEach((p, pi) => {
           startPositions.set(p, { group: gNum, startPos: g.pilots.length - pi });
         });
@@ -344,7 +342,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
           const group = isDisqualified ? 0 : (sp?.group ?? groupNum);
           const penalties = edit?.penalties ?? 0;
 
-          const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos, groupSizes.get(group) ?? 0, format === 'champions_league');
+          const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos, format === 'champions_league');
           const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
           const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos);
 

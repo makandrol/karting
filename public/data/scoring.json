@@ -11,8 +11,8 @@
     { "label": "30-36 осіб", "minPilots": 30, "maxPilots": 36, "groups": { "I": [17, 16, 15, 14, 13, 12.5, 12, 11.5, 11, 10.5, 10, 9.5, 9], "II": [12, 11, 10, 9, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4], "III": [7, 6, 5, 4, 3, 2.5, 2, 1.5, 1, 0.5, 0, 0, 0] } }
   ],
   "overtakePoints": {
-    "groupI": [
-      { "startPosMin": 10, "startPosMax": 99, "perOvertake": 1.3 },
+    "groupI_LL": [
+      { "startPosMin": 10, "startPosMax": 99, "perOvertake": 1.2 },
       { "startPosMin": 8, "startPosMax": 9, "perOvertake": 1.2 },
       { "startPosMin": 7, "startPosMax": 7, "perOvertake": 1.1 },
       { "startPosMin": 6, "startPosMax": 6, "perOvertake": 1.0 },
@@ -20,16 +20,14 @@
       { "startPosMin": 4, "startPosMax": 4, "perOvertake": 0.8 },
       { "startPosMin": 2, "startPosMax": 3, "perOvertake": 0.7 }
     ],
-    "groupILarge": [
-      { "startPosMin": 12, "startPosMax": 99, "perOvertake": 1.3 },
-      { "startPosMin": 11, "startPosMax": 11, "perOvertake": 1.2 },
-      { "startPosMin": 10, "startPosMax": 10, "perOvertake": 1.1 },
-      { "startPosMin": 9, "startPosMax": 9, "perOvertake": 1.0 },
-      { "startPosMin": 8, "startPosMax": 8, "perOvertake": 0.9 },
-      { "startPosMin": 7, "startPosMax": 7, "perOvertake": 0.8 },
-      { "startPosMin": 6, "startPosMax": 6, "perOvertake": 0.7 },
-      { "startPosMin": 4, "startPosMax": 5, "perOvertake": 0.6 },
-      { "startPosMin": 2, "startPosMax": 3, "perOvertake": 0.5 }
+    "groupI_CL": [
+      { "startPosMin": 10, "startPosMax": 99, "perOvertake": 1.3 },
+      { "startPosMin": 8, "startPosMax": 9, "perOvertake": 1.2 },
+      { "startPosMin": 7, "startPosMax": 7, "perOvertake": 1.1 },
+      { "startPosMin": 6, "startPosMax": 6, "perOvertake": 1.0 },
+      { "startPosMin": 5, "startPosMax": 5, "perOvertake": 0.9 },
+      { "startPosMin": 4, "startPosMax": 4, "perOvertake": 0.8 },
+      { "startPosMin": 2, "startPosMax": 3, "perOvertake": 0.7 }
     ],
     "groupII": 0.7,
     "groupIII": 0.5
