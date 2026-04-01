@@ -576,10 +576,10 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
           <span className="text-dark-300 font-mono">{effectivePilots || '—'}</span>
         )}
         {canManage && pilotLocked && (
-          <button onClick={() => onSave({ totalPilotsOverride: null, totalPilotsLocked: false })} className="text-[10px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">🔒</button>
+          <button onClick={() => onSave({ totalPilotsOverride: null, totalPilotsLocked: false })} className="text-[10px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">фіксовано</button>
         )}
         {canManage && !pilotLocked && (
-          <button onClick={() => onSave({ totalPilotsOverride: effectivePilots, totalPilotsLocked: true })} className="text-[10px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">🔓</button>
+          <button onClick={() => onSave({ totalPilotsOverride: effectivePilots, totalPilotsLocked: true })} className="text-[10px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">авто</button>
         )}
       </span>
       <span className="flex items-center gap-1">
@@ -596,10 +596,10 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
           <span className="text-dark-300 font-mono">{effectiveGroups}</span>
         )}
         {canManage && groupOverride !== null && (
-          <button onClick={() => onSave({ groupCountOverride: null })} className="text-[10px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">🔒</button>
+          <button onClick={() => onSave({ groupCountOverride: null })} className="text-[10px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">фіксовано</button>
         )}
         {canManage && groupOverride === null && (
-          <button onClick={() => onSave({ groupCountOverride: effectiveGroups })} className="text-[10px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">🔓</button>
+          <button onClick={() => onSave({ groupCountOverride: effectiveGroups })} className="text-[10px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">авто</button>
         )}
       </span>
     </span>
