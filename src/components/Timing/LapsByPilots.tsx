@@ -88,7 +88,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
             <tr className="table-header">
               <th className="table-cell text-center w-8">Коло</th>
               {pilots.map(p => (
-                <th key={p.name} className="table-cell text-center min-w-[80px]">
+                <th key={p.name} className="table-cell text-left min-w-[80px]">
                   <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors">
                     {shortName(p.name)}
                   </Link>
@@ -113,7 +113,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   const completed = completedLapsMap.get(p.name) ?? 0;
                   const isCurrent = hasReplayState && lapIdx === completed;
                   if (!lap?.lap_time) return (
-                    <td key={p.name} className={`table-cell text-center text-dark-700 ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>—</td>
+                    <td key={p.name} className={`table-cell text-left text-dark-700 ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>—</td>
                   );
                   const lapKey = sessionId && lap.ts ? `${sessionId}|${p.name}|${lap.ts}` : '';
                   const isExcluded = lapKey ? excludedLaps?.has(lapKey) : false;
@@ -129,7 +129,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   const s2Color = s2Val !== null && s2Val >= 10 ? getTimeColor(lap.s2!, s2Str, overallBestS2 < Infinity ? overallBestS2 : null) : 'none';
 
                   return (
-                    <td key={p.name} className={`table-cell text-center font-mono ${
+                    <td key={p.name} className={`table-cell text-left font-mono ${
                       isExcluded ? 'opacity-40' :
                       isOverall ? 'text-purple-400 font-bold' : isPB ? 'text-green-400 font-bold' : 'text-dark-300'
                     } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>
