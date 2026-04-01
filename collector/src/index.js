@@ -446,6 +446,30 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /scoring — отримати таблицю балів
+    if (req.method === 'GET' && url.pathname === '/scoring') {
+      const data = storage.getScoring();
+      if (!data) { sendJson(res, 404, { error: 'Scoring not configured' }); return; }
+      sendJson(res, 200, data);
+      return;
+    }
+
+    // POST /scoring — зберегти таблицю балів (admin only)
+    if (req.method === 'POST' && url.pathname === '/scoring') {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      try {
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        if (!data.positionPoints || !data.speedPoints || !data.overtakePoints) {
+          sendJson(res, 400, { error: 'Invalid scoring format' });
+          return;
+        }
+        storage.setScoring(data);
+        sendJson(res, 200, { ok: true });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
     // POST /db/rename-pilot — перейменувати пілота в заїзді (admin only)
     if (req.method === 'POST' && url.pathname === '/db/rename-pilot') {
       if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }

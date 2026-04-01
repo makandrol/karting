@@ -151,7 +151,11 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const [pilotsLocked, setPilotsLocked] = useState(initialLocked ?? false);
 
   const [scoring, setScoring] = useState<ScoringData | null>(null);
-  useEffect(() => { fetch('/data/scoring.json').then(r => r.json()).then(setScoring).catch(() => {}); }, []);
+  useEffect(() => {
+    fetch(`${COLLECTOR_URL}/scoring`).then(r => r.ok ? r.json() : fetch('/data/scoring.json').then(r2 => r2.json())).then(setScoring).catch(() => {
+      fetch('/data/scoring.json').then(r => r.json()).then(setScoring).catch(() => {});
+    });
+  }, []);
 
   // --- Persist view settings per user+competition ---
   const settingsKey = `karting_league_${competitionId}_${user?.email || 'anon'}`;

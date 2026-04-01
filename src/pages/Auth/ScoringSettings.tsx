@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import { COLLECTOR_URL } from '../../services/config';
+
+const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
 interface OvertakeRule {
   startPosMin: number;
@@ -22,17 +25,22 @@ interface ScoringData {
   speedPoints: number[];
 }
 
+async function loadScoring(): Promise<ScoringData> {
+  const res = await fetch(`${COLLECTOR_URL}/scoring`);
+  if (res.ok) return res.json();
+  const fallback = await fetch('/data/scoring.json');
+  return fallback.json();
+}
+
 export default function ScoringSettings() {
   const [data, setData] = useState<ScoringData | null>(null);
   const [editing, setEditing] = useState(false);
   const [jsonText, setJsonText] = useState('');
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch('/data/scoring.json')
-      .then(r => r.json())
-      .then(setData)
-      .catch(() => {});
+    loadScoring().then(setData).catch(() => {});
   }, []);
 
   const startEdit = () => {
@@ -41,15 +49,24 @@ export default function ScoringSettings() {
     setError('');
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     try {
       const parsed = JSON.parse(jsonText);
       if (!parsed.positionPoints || !parsed.speedPoints || !parsed.overtakePoints) throw new Error('Invalid format');
+      setSaving(true);
+      const res = await fetch(`${COLLECTOR_URL}/scoring`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: jsonText,
+      });
+      if (!res.ok) throw new Error('Server error');
       setData(parsed);
       setEditing(false);
       setError('');
     } catch (e: any) {
       setError(e.message || 'Invalid JSON');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -65,7 +82,7 @@ export default function ScoringSettings() {
           </button>
         ) : (
           <div className="flex gap-2">
-            <button onClick={saveEdit} className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-500 transition-colors">Зберегти</button>
+            <button onClick={saveEdit} disabled={saving} className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-500 transition-colors disabled:opacity-50">{saving ? 'Зберігаю...' : 'Зберегти'}</button>
             <button onClick={() => setEditing(false)} className="px-3 py-1.5 bg-dark-700 text-dark-300 text-xs rounded-lg hover:bg-dark-600 transition-colors">Скасувати</button>
           </div>
         )}

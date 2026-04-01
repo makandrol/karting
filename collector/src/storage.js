@@ -769,6 +769,15 @@ export const storage = {
     return false;
   },
 
+  getScoring() {
+    const raw = this.getSystemState('scoring');
+    return raw ? JSON.parse(raw) : null;
+  },
+
+  setScoring(data) {
+    this.setSystemState('scoring', JSON.stringify(data));
+  },
+
   renamePilot(sessionId, oldName, newName) {
     const updLaps = db.prepare('UPDATE laps SET pilot = ? WHERE session_id = ? AND pilot = ?');
     const result = updLaps.run(newName, sessionId, oldName);
