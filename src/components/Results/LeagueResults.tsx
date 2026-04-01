@@ -96,21 +96,21 @@ function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
   );
 }
 
-function getOvertakeRate(scoring: ScoringData, group: number, pos: number, groupSize: number): number {
+function getOvertakeRate(scoring: ScoringData, group: number, pos: number, groupSize: number, useGroupILarge: boolean): number {
   if (group === 3) return scoring.overtakePoints.groupIII;
   if (group === 2) return scoring.overtakePoints.groupII;
-  const rules = (groupSize > 10 && scoring.overtakePoints.groupILarge) ? scoring.overtakePoints.groupILarge : scoring.overtakePoints.groupI;
+  const rules = (useGroupILarge && groupSize > 10 && scoring.overtakePoints.groupILarge) ? scoring.overtakePoints.groupILarge : scoring.overtakePoints.groupI;
   for (const rule of rules) {
     if (pos >= rule.startPosMin && pos <= rule.startPosMax) return rule.perOvertake;
   }
   return 0;
 }
 
-function calcOvertakePoints(scoring: ScoringData, group: number, startPos: number, finishPos: number, groupSize: number): number {
+function calcOvertakePoints(scoring: ScoringData, group: number, startPos: number, finishPos: number, groupSize: number, useGroupILarge: boolean): number {
   if (startPos <= finishPos) return 0;
   let total = 0;
   for (let pos = startPos; pos > finishPos; pos--) {
-    total += getOvertakeRate(scoring, group, pos, groupSize);
+    total += getOvertakeRate(scoring, group, pos, groupSize, useGroupILarge);
   }
   return Math.round(total * 10) / 10;
 }
@@ -344,7 +344,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
           const group = isDisqualified ? 0 : (sp?.group ?? groupNum);
           const penalties = edit?.penalties ?? 0;
 
-          const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos, groupSizes.get(group) ?? 0);
+          const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos, groupSizes.get(group) ?? 0, format === 'champions_league');
           const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
           const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos);
 

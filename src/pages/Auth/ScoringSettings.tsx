@@ -140,7 +140,7 @@ export default function ScoringSettings() {
 
             <div className="flex gap-6 flex-wrap">
               <div>
-                <h4 className="text-dark-400 text-xs mb-2">Група I</h4>
+                <h4 className="text-dark-400 text-xs mb-2">Група I <span className="text-dark-600">(ЛЛ, ЛЧ ≤10)</span></h4>
                 <table className="text-[10px]">
                   <thead>
                     <tr className="bg-dark-800/50">
@@ -177,7 +177,7 @@ export default function ScoringSettings() {
 
               {data.overtakePoints.groupILarge && (
                 <div>
-                  <h4 className="text-dark-400 text-xs mb-2">Група I (більше 10 осіб)</h4>
+                  <h4 className="text-dark-400 text-xs mb-2">Група I <span className="text-dark-600">(тільки ЛЧ, &gt;10)</span></h4>
                   <table className="text-[10px]">
                     <thead>
                       <tr className="bg-dark-800/50">
