@@ -107,6 +107,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
   const [speed, setSpeed] = useState(1);
   const [atLive, setAtLive] = useState(!!isLive && !!autoPlay);
   const [sortMode, setSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
+  const [columnFilter, setColumnFilter] = useState<'all' | 'main'>('all');
 
   useEffect(() => { if (defaultSortMode) setSortMode(defaultSortMode); }, [defaultSortMode]);
 
@@ -527,6 +528,15 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         </button>
       </div>
 
+      <div className="flex items-center gap-1.5">
+        <span className="text-dark-500 text-[9px]">Вид:</span>
+        <span className="flex rounded overflow-hidden">
+          <button onClick={() => setColumnFilter('all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
+          <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+          <button onClick={() => setColumnFilter('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
+        </span>
+      </div>
+
       <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
         {isLive ? formatTimeSec(currentTime) : `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
       </span>
@@ -560,14 +570,13 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
               {sortMode === 'race' && raceGroup && <th className="table-cell text-center text-dark-500 w-6">P</th>}
               <th className="table-cell text-center">Kart</th>
               <th className="table-cell text-right">Last</th>
-              <th className="table-cell text-right">S1</th>
-              <th className="table-cell text-right">S2</th>
+              {columnFilter === 'all' && <th className="table-cell text-right">S1</th>}
+              {columnFilter === 'all' && <th className="table-cell text-right">S2</th>}
               <th className="table-cell text-right">Best</th>
-              <th className="table-cell text-right">B.S1</th>
-              <th className="table-cell text-right">B.S2</th>
-              <th className="table-cell text-right">TB</th>
+              {columnFilter === 'all' && <th className="table-cell text-right">B.S1</th>}
+              {columnFilter === 'all' && <th className="table-cell text-right">B.S2</th>}
+              {columnFilter === 'all' && <th className="table-cell text-right">TB</th>}
               <th className="table-cell text-center">L</th>
-              <th className="table-cell w-6"></th>
             </tr>
           </thead>
           <tbody>
@@ -633,22 +642,22 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
                     {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
                   </td>
-                  <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
+                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
                     {notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toHundredths(e.s1) : '—')}
-                  </td>
-                  <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
+                  </td>}
+                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
                     {notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toHundredths(e.s2) : '—')}
-                  </td>
+                  </td>}
                   <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>
                     {notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}
                   </td>
-                  <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
+                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
                     {notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toHundredths(e.bestS1) : '—')}
-                  </td>
-                  <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
+                  </td>}
+                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
                     {notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toHundredths(e.bestS2) : '—')}
-                  </td>
-                  <td className="table-cell text-right font-mono text-[11px] text-dark-400">
+                  </td>}
+                  {columnFilter === 'all' && <td className="table-cell text-right font-mono text-[11px] text-dark-400">
                     {(() => {
                       if (notStarted) return '';
                       const s1 = parseTime(e.bestS1);
@@ -656,18 +665,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                       if (s1 === null || s1 < 10 || s2 === null || s2 < 10) return '—';
                       return (s1 + s2).toFixed(3);
                     })()}
-                  </td>
+                  </td>}
                   <td className="table-cell text-center font-mono text-dark-500">
                     {notStarted ? '' : e.lapNumber}
-                  </td>
-                  <td className="table-cell text-center px-0.5">
-                    {!notStarted && e.kart ? (
-                      <Link to={`/onboard/${e.kart}`} className="text-dark-700 hover:text-primary-400 transition-colors">
-                        <svg className="w-3.5 h-3.5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      </Link>
-                    ) : null}
                   </td>
                 </tr>
               );
