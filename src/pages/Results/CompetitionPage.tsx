@@ -576,10 +576,10 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
           <span className="text-dark-300 font-mono">{effectivePilots || '—'}</span>
         )}
         {canManage && pilotLocked && (
-          <button onClick={() => onSave({ totalPilotsOverride: null, totalPilotsLocked: false })} className="text-[9px] text-yellow-400/70 hover:text-yellow-400" title="Автовизначення">🔒</button>
+          <button onClick={() => onSave({ totalPilotsOverride: null, totalPilotsLocked: false })} className="text-[10px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">🔒</button>
         )}
         {canManage && !pilotLocked && (
-          <button onClick={() => onSave({ totalPilotsOverride: effectivePilots, totalPilotsLocked: true })} className="text-[9px] text-dark-600 hover:text-dark-400" title="Зафіксувати">🔓</button>
+          <button onClick={() => onSave({ totalPilotsOverride: effectivePilots, totalPilotsLocked: true })} className="text-[10px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">🔓</button>
         )}
       </span>
       <span className="flex items-center gap-1">
@@ -587,7 +587,7 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
         {canManage ? (
           <select value={groupOverride ?? ''} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; onSave({ groupCountOverride: v }); }}
             className="w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 cursor-pointer text-dark-300">
-            <option value="">авто</option>
+            <option value="">авто ({autoGroups})</option>
             {Array.from({ length: maxGroups }, (_, i) => (
               <option key={i + 1} value={i + 1}>{i + 1}</option>
             ))}
@@ -596,10 +596,10 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
           <span className="text-dark-300 font-mono">{effectiveGroups}</span>
         )}
         {canManage && groupOverride !== null && (
-          <button onClick={() => onSave({ groupCountOverride: null })} className="text-[9px] text-yellow-400/70 hover:text-yellow-400" title="Автовизначення">🔒</button>
+          <button onClick={() => onSave({ groupCountOverride: null })} className="text-[10px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">🔒</button>
         )}
         {canManage && groupOverride === null && (
-          <button onClick={() => onSave({ groupCountOverride: effectiveGroups })} className="text-[9px] text-dark-600 hover:text-dark-400" title="Зафіксувати">🔓</button>
+          <button onClick={() => onSave({ groupCountOverride: effectiveGroups })} className="text-[10px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">🔓</button>
         )}
       </span>
     </span>
