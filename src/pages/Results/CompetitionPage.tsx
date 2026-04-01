@@ -204,9 +204,9 @@ export default function CompetitionPage() {
               value={trackId ?? ''}
               onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
               disabled={!canManage}
-              className={`bg-dark-800 text-dark-300 text-xs rounded px-1 py-0.5 border border-dark-700 outline-none focus:border-primary-500 w-12 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
+              className={`bg-dark-800 text-dark-300 text-xs rounded px-0.5 py-0.5 border border-dark-700 outline-none focus:border-primary-500 w-10 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
             >
-              <option value="">Тр.</option>
+              <option value=""></option>
               {TRACK_CONFIGS.map(t => (
                 <option key={t.id} value={t.id}>{t.id}</option>
               ))}
