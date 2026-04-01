@@ -208,7 +208,7 @@ export default function CompetitionPage() {
             >
               <option value="">Траса</option>
               {TRACK_CONFIGS.map(t => (
-                <option key={t.id} value={t.id}>Траса {t.id}</option>
+                <option key={t.id} value={t.id}>{t.id}</option>
               ))}
             </select>
             {(competition.format === 'light_league' || competition.format === 'champions_league') && (
@@ -562,32 +562,55 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
 }) {
   const effectivePilots = (pilotLocked && pilotOverride !== null) ? pilotOverride : pilotCount;
   const effectiveGroups = groupOverride ?? autoGroups;
+  const isAutoMode = groupOverride === null && pilotOverride === null;
 
   return (
-    <span className="flex items-center gap-2 text-xs">
-      <span className="flex items-center gap-1">
-        <span className="text-dark-500">Пілотів:</span>
+    <div className="flex items-center gap-3 text-xs">
+      {/* Auto button */}
+      {canManage && (
+        <button
+          onClick={() => {
+            if (isAutoMode) {
+              onSave({ totalPilotsOverride: effectivePilots, totalPilotsLocked: true, groupCountOverride: effectiveGroups });
+            } else {
+              onSave({ totalPilotsOverride: null, totalPilotsLocked: false, groupCountOverride: null });
+            }
+          }}
+          className={`px-2 py-1 rounded font-bold transition-colors ${
+            isAutoMode ? 'bg-red-600 text-white' : 'bg-dark-800 text-dark-500 hover:text-dark-300'
+          }`}
+          title={isAutoMode ? 'Вимкнути авто' : 'Включити авто'}
+        >
+          А
+        </button>
+      )}
+
+      {/* Pilots */}
+      <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
+        <span title="Пілоти">👥</span>
         {canManage ? (
           <input type="text" inputMode="numeric"
             value={pilotLocked ? (pilotOverride ?? effectivePilots) : effectivePilots}
             onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) onSave({ totalPilotsOverride: v, totalPilotsLocked: true }); }}
-            className={`w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotLocked ? 'text-yellow-400' : 'text-dark-300'}`} />
+            className={`w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotLocked ? 'text-yellow-400' : 'text-dark-300'}`} />
         ) : (
           <span className="text-dark-300 font-mono">{effectivePilots || '—'}</span>
         )}
         {canManage && pilotLocked && (
-          <button onClick={() => onSave({ totalPilotsOverride: null, totalPilotsLocked: false })} className="text-[10px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">фіксовано</button>
+          <button onClick={() => onSave({ totalPilotsOverride: null, totalPilotsLocked: false })} className="text-[9px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">✓</button>
         )}
         {canManage && !pilotLocked && (
-          <button onClick={() => onSave({ totalPilotsOverride: effectivePilots, totalPilotsLocked: true })} className="text-[10px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">авто</button>
+          <button onClick={() => onSave({ totalPilotsOverride: effectivePilots, totalPilotsLocked: true })} className="text-[9px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">○</button>
         )}
-      </span>
-      <span className="flex items-center gap-1">
-        <span className="text-dark-500">Груп:</span>
+      </div>
+
+      {/* Groups */}
+      <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
+        <span title="Групи">🎯</span>
         {canManage ? (
           <select value={groupOverride ?? ''} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; onSave({ groupCountOverride: v }); }}
-            className="w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 cursor-pointer text-dark-300">
-            <option value="">авто ({autoGroups})</option>
+            className="w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 cursor-pointer text-dark-300">
+            <option value="">авто</option>
             {Array.from({ length: maxGroups }, (_, i) => (
               <option key={i + 1} value={i + 1}>{i + 1}</option>
             ))}
@@ -596,13 +619,13 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
           <span className="text-dark-300 font-mono">{effectiveGroups}</span>
         )}
         {canManage && groupOverride !== null && (
-          <button onClick={() => onSave({ groupCountOverride: null })} className="text-[10px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">фіксовано</button>
+          <button onClick={() => onSave({ groupCountOverride: null })} className="text-[9px] text-yellow-400 hover:text-yellow-300 font-bold" title="Автовизначення">✓</button>
         )}
         {canManage && groupOverride === null && (
-          <button onClick={() => onSave({ groupCountOverride: effectiveGroups })} className="text-[10px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">авто</button>
+          <button onClick={() => onSave({ groupCountOverride: effectiveGroups })} className="text-[9px] text-dark-500 hover:text-dark-300 font-bold" title="Зафіксувати">○</button>
         )}
-      </span>
-    </span>
+      </div>
+    </div>
   );
 }
 
