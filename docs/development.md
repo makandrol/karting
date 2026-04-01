@@ -103,10 +103,17 @@
 6. **Dates**: always use local date (not UTC)
 7. **Min valid lap**: 38 seconds (filtered at SQL level)
 8. **Min valid S1/S2**: 10 seconds (filtered at display level)
-9. **Competition sessions format**: `[{sessionId, phase}]`
-10. **Scoring data**: in `public/data/scoring.json`, editable via `/admin/scoring`
-11. **Position field**: API returns kart as string — poller converts to `Number()`
-12. **Overtake points**: calculated progressively (each position has own rate)
+9. **Min valid session**: 3 minutes (`isValidSession()` in `utils/timing.ts`)
+10. **Competition sessions format**: `[{sessionId, phase}]`
+11. **Scoring data**: in `public/data/scoring.json`, editable via `/admin/scoring`
+12. **Position field**: API returns kart as string — poller converts to `Number()`
+13. **Overtake points**: separate tables for LL (`groupI_LL`, 10+ → 1.2) and CL (`groupI_CL`, 10+ → 1.3)
+14. **Excluded laps**: stored as `results.excludedLaps` array with keys `"sessionId|pilot|ts"`
+15. **Edit audit log**: `results.editLog` array with `{pilot, action, detail, user, ts}`
+16. **Group count**: `results.groupCountOverride` — auto-detected from qualifying session count by pilot overlap
+17. **Phase filtering**: `getPhasesForFormat(format, groupCount)` filters phases by group count
+18. **EditableCell**: defined OUTSIDE parent component to prevent remount on re-render (critical!)
+19. **No new hooks in LeagueResults**: adding hooks causes "more hooks than previous render" error during HMR. Use `Promise.resolve().then()` for deferred state updates to parent instead of `useEffect`.
 
 ## File Structure
 ```
@@ -120,7 +127,7 @@ karting/
 │   │   ├── detector.js      # Competition auto-detection
 │   │   └── schedule.js      # Weekly competition schedule
 │   ├── data/                # SQLite DB (not in git)
-│   └── package.json         # v0.3.3
+│   └── package.json         # v0.3.4
 ├── src/
 │   ├── components/
 │   │   ├── Layout/          # Header, Footer, Layout
@@ -157,7 +164,7 @@ karting/
 ├── public/data/
 │   └── scoring.json         # Scoring rules (editable via /admin/scoring)
 ├── docs/                    # This documentation
-├── package.json             # v0.9.60
+├── package.json             # v0.9.106
 ├── vite.config.ts
 ├── tailwind.config.js
 ├── tsconfig.json            # resolveJsonModule enabled

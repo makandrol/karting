@@ -150,8 +150,14 @@ When returning sessions via `/db/sessions?date=`:
 
 ## Competition Auto-Linking
 In `poller.js`, when a new session starts:
-1. `storage.autoLinkSessionToActiveCompetition(sessionId)`
-2. On session end < 60s: `storage.autoUnlinkSession(sessionId)`
+1. `storage.autoLinkSessionToActiveCompetition(sessionId)` — links to next phase
+   - Respects `groupCountOverride` from competition results
+   - Filters phases via format-specific phase list (skips group_3 if 2 groups)
+2. After first lap: `storage.recheckSessionPhase(sessionId)` — detects group count
+   - Compares new session pilots with all previous qualifying pilots
+   - If ≥50% overlap → this is a race, not another qualifying
+   - Sets `groupCountOverride` and reassigns phase accordingly
+3. On session end < 60s: `storage.autoUnlinkSession(sessionId)`
 
 ## Data Filtering (SQL level)
 `MIN_LAP_SEC = 38` applied to all statistical queries.

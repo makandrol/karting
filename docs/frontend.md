@@ -122,11 +122,14 @@ Includes onboard link (camera icon) per kart row.
 
 ### Other Components
 - `SessionsTable` — shared session list (used on Sessions, Karts, KartDetail, Timing, CompetitionPage)
-- `SessionTypeChanger` — dropdown for assigning sessions to competitions
+- `SessionTypeChanger` — dropdown for assigning sessions to competitions, auto-links surrounding sessions, detects group count by pilot overlap
 - `DateNavigator` — single-select (Sessions) or multi-select (Karts)
 - `TrackMap` — SVG track map with animated kart positions
 - `DayTimeline` — scrollable session activity timeline
 - `CompetitionControl` — inline competition detector controls
+- `CompetitionTimeline` (`components/Results/CompetitionTimeline.tsx`) — horizontal scrubber for competition page, shows sessions as green segments with phase labels, click to navigate to session detail
+- `EditableCell` (`components/Results/LeagueResults.tsx`, top-level function) — input with focus protection, prefix support (for penalties "-"), MUST stay outside LeagueResults to prevent remount
+- `EditLog` (`components/Results/LeagueResults.tsx`) — shows audit log of all manual edits
 
 ## Services
 
@@ -164,9 +167,11 @@ Manages which pages are visible per role. Groups: main, competitions, other, adm
 - `shortName(name)` — "Апанасенко Олексій" → "Апанасенко О."
 - `fmtBytes(n)` — human-readable bytes
 - `fetchRaceStartPositions(collectorUrl, competitionId, phase, format)` — computes start positions from qualifying/previous race, returns `{positions, totalQualified}`
+- `isValidSession(session)` — returns false for sessions < 3 minutes (MIN_SESSION_DURATION_MS = 180000). Used across all pages for filtering.
 
 ### `data/competitions.ts`
-Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseLabel()`.
+Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseLabel()`, `getPhasesForFormat(format, groupCount)`.
+- `getPhasesForFormat()` — filters phases by group count (e.g. with 2 groups, skips qualifying_3/4 and group_3 phases)
 
 ### `data/changelog.ts`
 `APP_VERSION` — auto-imported from package.json.
