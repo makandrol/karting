@@ -1,11 +1,12 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { TRACK_CONFIGS, type TrackConfig } from '../data/tracks';
+import { COLLECTOR_URL } from './config';
 
 const LS_CURRENT_TRACK = 'karting_current_track';
 
 interface TrackContextValue {
   currentTrack: TrackConfig;
-  setCurrentTrack: (id: number) => void;
+  setCurrentTrack: (id: number) => Promise<void>;
   allTracks: TrackConfig[];
 }
 
@@ -28,9 +29,21 @@ export function TrackProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(LS_CURRENT_TRACK, String(currentTrack.id));
   }, [currentTrack]);
 
-  const setCurrentTrack = (id: number) => {
+  const setCurrentTrack = async (id: number) => {
     const found = TRACK_CONFIGS.find((t) => t.id === id);
-    if (found) setCurrentTrackState(found);
+    if (!found) return;
+    
+    // Update local state
+    setCurrentTrackState(found);
+    
+    // Send to collector
+    try {
+      await fetch(`${COLLECTOR_URL}/track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackId: id }),
+      });
+    } catch { /* ignore */ }
   };
 
   return (
