@@ -130,10 +130,7 @@ export default function CompetitionPage() {
               <Link key={c.id} to={`/results/${type}/${c.id}`}
                 className="card p-4 block hover:bg-dark-700/50 transition-colors">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-white font-medium">{c.name}</div>
-                    <div className="text-dark-400 text-sm">{c.date} · {c.sessions.length} заїздів</div>
-                  </div>
+                  <div className="text-white font-medium">{c.name.replace(/Тр\.\s*/g, 'Траса ')}</div>
                   <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
                     c.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
                   }`}>
