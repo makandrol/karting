@@ -28,6 +28,7 @@ interface LeagueResultsProps {
   sessions: CompSession[];
   sessionLaps: Map<string, SessionLap[]>;
   liveSessionId?: string | null;
+  livePhase?: string | null;
   livePositions?: { pilot: string; position: number }[];
   livePilots?: string[];
   liveEnabled?: boolean;
@@ -123,7 +124,7 @@ function getPositionPoints(scoring: ScoringData, totalPilots: number, group: str
   return pts[finishPos - 1];
 }
 
-export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePhase, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
   const { prefs, toggle } = useViewPrefs();
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
@@ -280,11 +281,14 @@ export default function LeagueResults({ format, competitionId, sessions, session
     // 3. Build race data
     let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
 
-    // Determine active phase from liveSessionId
+    // Determine active phase from liveSessionId or livePhase (for scrubbing)
     let activePhase: string | null = null;
     if (liveSessionId) {
       const liveSession = sessions.find(s => s.sessionId === liveSessionId);
       activePhase = liveSession?.phase || null;
+    } else if (livePhase) {
+      // Use livePhase when scrubbing between sessions
+      activePhase = livePhase;
     }
 
     const raceResults: Map<string, PilotRaceData>[] = [];
@@ -432,7 +436,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     });
 
     return rows;
-  }, [sessions, effectiveLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePositions, pilotsOverride, pilotsLocked]);
+  }, [sessions, effectiveLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePhase, livePositions, pilotsOverride, pilotsLocked]);
 
   const sortedDataRef = useRef<PilotRow[]>([]);
   const sortedData = useMemo(() => {
