@@ -476,7 +476,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const showEditsOnly = hiddenGroups.has('__positions_only');
   const showPointsOnly = hiddenGroups.has('__points_only');
   const showTimeOnly = hiddenGroups.has('__time_only');
-  const rc = showEditsOnly ? 4 : showPointsOnly ? 5 : showTimeOnly ? 3 : 10;
+  const rc = showEditsOnly ? 4 : showPointsOnly ? 5 : showTimeOnly ? 2 : 10;
 
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
   Promise.resolve().then(() => { onPilotCount?.(autoTotalPilots); onAutoGroups?.(autoGroupsByQuali); });
@@ -572,7 +572,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   {(showAll || showPointsOnly || showTimeOnly || (!showEditsOnly && showQuali)) && (<>
                     {!showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>}
                     {!showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>}
-                    {!showTimeOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Бали</span></th>}
+                    {!showTimeOnly && !showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Бали</span></th>}
                   </>)}
                   {Array.from({ length: raceCount }, (_, i) => {
                     const visible = showAll || showEditsOnly || showPointsOnly || showTimeOnly || showRace(i + 1);
