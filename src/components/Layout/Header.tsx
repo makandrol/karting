@@ -16,6 +16,7 @@ export default function Header() {
   const { getVisiblePages } = usePageVisibility();
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const dropdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dropdownPosRef = useRef<{ top: number; left: number; right: number }>({ top: 0, left: 0, right: 0 });
 
   const role = user?.role ?? 'user';
   const mainPages = getVisiblePages('main', role);
@@ -70,19 +71,19 @@ export default function Header() {
     if (items.length === 0) return null;
     const active = isGroupActive(items.map(i => i.path));
     const btnRef = useRef<HTMLButtonElement>(null);
-    const posRef = useRef({ top: 0, left: 0, right: 0 });
     const isOpen = openDropdown === id;
-    const updatePos = () => {
+    const handleOpen = (opener: (id: string) => void) => {
       if (btnRef.current) {
         const r = btnRef.current.getBoundingClientRect();
-        posRef.current = { top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right };
+        dropdownPosRef.current = { top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right };
       }
+      opener(id);
     };
     return (
-      <div data-dropdown onMouseEnter={() => { updatePos(); openDd(id); }} onMouseLeave={closeDd}>
+      <div data-dropdown onMouseEnter={() => handleOpen(openDd)} onMouseLeave={closeDd}>
         <button
           ref={btnRef}
-          onClick={() => { updatePos(); toggleDd(id); }}
+          onClick={() => handleOpen(toggleDd)}
           className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
             active ? 'text-white bg-primary-600' : 'text-dark-300 hover:text-white hover:bg-dark-800'
           }`}
@@ -92,7 +93,7 @@ export default function Header() {
         </button>
         {isOpen && (
           <div className="fixed w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
-            style={align === 'right' ? { top: posRef.current.top, right: posRef.current.right } : { top: posRef.current.top, left: posRef.current.left }}>
+            style={align === 'right' ? { top: dropdownPosRef.current.top, right: dropdownPosRef.current.right } : { top: dropdownPosRef.current.top, left: dropdownPosRef.current.left }}>
             {items.map(item => {
               const isLiveItem = item.path === '/results/current';
               const hasActiveLive = !!activeCompName;
@@ -165,7 +166,7 @@ export default function Header() {
           {/* Auth — always visible */}
           <div className="flex items-center flex-shrink-0">
             {user ? (
-              <UserDropdown user={user} openDropdown={openDropdown} openDd={openDd} closeDd={closeDd} toggleDd={toggleDd} logout={logout} />
+              <UserDropdown user={user} openDropdown={openDropdown} openDd={openDd} closeDd={closeDd} toggleDd={toggleDd} logout={logout} dropdownPosRef={dropdownPosRef} />
             ) : (
               <Link to="/login" className="px-2 py-1.5 rounded-lg text-xs text-dark-400 hover:text-white whitespace-nowrap">
                 Вхід
@@ -178,24 +179,25 @@ export default function Header() {
   );
 }
 
-function UserDropdown({ user, openDropdown, openDd, closeDd, toggleDd, logout }: {
+function UserDropdown({ user, openDropdown, openDd, closeDd, toggleDd, logout, dropdownPosRef }: {
   user: { photo?: string | null; name: string; role: string };
   openDropdown: string | null;
   openDd: (id: string) => void; closeDd: () => void; toggleDd: (id: string) => void;
   logout: () => void;
+  dropdownPosRef: React.MutableRefObject<{ top: number; left: number; right: number }>;
 }) {
   const btnRef = useRef<HTMLButtonElement>(null);
-  const posRef = useRef({ top: 0, right: 0 });
   const isOpen = openDropdown === 'user';
-  const updatePos = () => {
+  const handleOpen = (opener: (id: string) => void) => {
     if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      posRef.current = { top: r.bottom + 4, right: window.innerWidth - r.right };
+      dropdownPosRef.current = { top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right };
     }
+    opener('user');
   };
   return (
-    <div data-dropdown onMouseEnter={() => { updatePos(); openDd('user'); }} onMouseLeave={closeDd}>
-      <button ref={btnRef} onClick={() => { updatePos(); toggleDd('user'); }}
+    <div data-dropdown onMouseEnter={() => handleOpen(openDd)} onMouseLeave={closeDd}>
+      <button ref={btnRef} onClick={() => handleOpen(toggleDd)}
         className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-dark-300 hover:text-white hover:bg-dark-800 transition-colors whitespace-nowrap">
         {user.photo ? (
           <img src={user.photo} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
@@ -206,7 +208,7 @@ function UserDropdown({ user, openDropdown, openDd, closeDd, toggleDd, logout }:
       </button>
       {isOpen && (
         <div className="fixed w-44 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
-          style={{ top: posRef.current.top, right: posRef.current.right }}>
+          style={{ top: dropdownPosRef.current.top, right: dropdownPosRef.current.right }}>
           <Link to="/login" className="block px-4 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
             Профіль
           </Link>
