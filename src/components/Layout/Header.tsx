@@ -70,12 +70,12 @@ export default function Header() {
     if (items.length === 0) return null;
     const active = isGroupActive(items.map(i => i.path));
     const btnRef = useRef<HTMLButtonElement>(null);
-    const [pos, setPos] = useState<{ top: number; left: number; right: number }>({ top: 0, left: 0, right: 0 });
+    const posRef = useRef({ top: 0, left: 0, right: 0 });
     const isOpen = openDropdown === id;
     const updatePos = () => {
       if (btnRef.current) {
         const r = btnRef.current.getBoundingClientRect();
-        setPos({ top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right });
+        posRef.current = { top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right };
       }
     };
     return (
@@ -92,7 +92,7 @@ export default function Header() {
         </button>
         {isOpen && (
           <div className="fixed w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
-            style={align === 'right' ? { top: pos.top, right: pos.right } : { top: pos.top, left: pos.left }}>
+            style={align === 'right' ? { top: posRef.current.top, right: posRef.current.right } : { top: posRef.current.top, left: posRef.current.left }}>
             {items.map(item => {
               const isLiveItem = item.path === '/results/current';
               const hasActiveLive = !!activeCompName;
@@ -185,12 +185,12 @@ function UserDropdown({ user, openDropdown, openDd, closeDd, toggleDd, logout }:
   logout: () => void;
 }) {
   const btnRef = useRef<HTMLButtonElement>(null);
-  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const posRef = useRef({ top: 0, right: 0 });
   const isOpen = openDropdown === 'user';
   const updatePos = () => {
     if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+      posRef.current = { top: r.bottom + 4, right: window.innerWidth - r.right };
     }
   };
   return (
@@ -206,7 +206,7 @@ function UserDropdown({ user, openDropdown, openDd, closeDd, toggleDd, logout }:
       </button>
       {isOpen && (
         <div className="fixed w-44 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
-          style={{ top: pos.top, right: pos.right }}>
+          style={{ top: posRef.current.top, right: posRef.current.right }}>
           <Link to="/login" className="block px-4 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
             Профіль
           </Link>
