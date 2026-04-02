@@ -1,26 +1,15 @@
 import { useMemo, Fragment, useState, useEffect, useCallback, useRef } from 'react';
 import { toSeconds } from '../../utils/timing';
-import { PHASE_CONFIGS, splitIntoGroups } from '../../data/competitions';
 import { useViewPrefs } from '../../services/viewPrefs';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
+import {
+  type SessionLap, type CompSession, type ScoringData,
+  type PilotQualiData, type PilotRaceData, type PilotRow, type ManualEdits,
+  computeStandings, rowsToStandings,
+} from '../../utils/scoring';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
-
-interface SessionLap {
-  pilot: string;
-  kart: number;
-  lap_time: string | null;
-  s1: string | null;
-  s2: string | null;
-  position: number | null;
-  ts: number;
-}
-
-interface CompSession {
-  sessionId: string;
-  phase: string | null;
-}
 
 interface LeagueResultsProps {
   format: string;
@@ -47,34 +36,6 @@ interface LeagueResultsProps {
   onAutoGroups?: (n: number) => void;
 }
 
-interface ScoringData {
-  positionPoints: { label: string; minPilots: number; maxPilots: number; groups: Record<string, number[]> }[];
-  overtakePoints: { groupI_LL: { startPosMin: number; startPosMax: number; perOvertake: number }[]; groupI_CL: { startPosMin: number; startPosMax: number; perOvertake: number }[]; groupII: number; groupIII: number };
-  speedPoints: number[];
-}
-
-function parseLapSec(t: string | null): number | null {
-  if (!t) return null;
-  const m = t.match(/^(\d+):(\d+\.\d+)$/);
-  if (m) return parseInt(m[1]) * 60 + parseFloat(m[2]);
-  const s = t.match(/^\d+\.\d+$/);
-  if (s) return parseFloat(t);
-  return null;
-}
-
-interface PilotQualiData { bestTime: number; bestTimeStr: string; kart: number; speedPoints: number }
-interface PilotRaceData {
-  kart: number; bestTime: number; bestTimeStr: string;
-  group: number; startPos: number; finishPos: number;
-  positionPoints: number; overtakePoints: number; speedPoints: number; penalties: number; totalRacePoints: number;
-}
-interface PilotRow {
-  pilot: string; quali: PilotQualiData | null; races: (PilotRaceData | null)[];
-  totalPoints: number;
-}
-
-type ManualEdits = Record<string, { startPos?: number; finishPos?: number; penalties?: number }>;
-
 const TH_V = "px-1 py-1 text-center text-dark-500 border-r border-dark-700/30";
 const TH_R = "[writing-mode:vertical-lr] rotate-180 text-[9px]";
 
@@ -95,33 +56,6 @@ function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
       className={`w-7 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${colorClass || 'text-dark-300'}`} />
   );
-}
-
-function getOvertakeRate(scoring: ScoringData, group: number, pos: number, isCL: boolean): number {
-  if (group === 3) return scoring.overtakePoints.groupIII;
-  if (group === 2) return scoring.overtakePoints.groupII;
-  const rules = isCL ? scoring.overtakePoints.groupI_CL : scoring.overtakePoints.groupI_LL;
-  for (const rule of rules) {
-    if (pos >= rule.startPosMin && pos <= rule.startPosMax) return rule.perOvertake;
-  }
-  return 0;
-}
-
-function calcOvertakePoints(scoring: ScoringData, group: number, startPos: number, finishPos: number, isCL: boolean): number {
-  if (startPos <= finishPos) return 0;
-  let total = 0;
-  for (let pos = startPos; pos > finishPos; pos--) {
-    total += getOvertakeRate(scoring, group, pos, isCL);
-  }
-  return Math.round(total * 10) / 10;
-}
-
-function getPositionPoints(scoring: ScoringData, totalPilots: number, group: string, finishPos: number): number {
-  const cat = scoring.positionPoints.find(c => totalPilots >= c.minPilots && totalPilots <= c.maxPilots);
-  if (!cat) return 0;
-  const pts = cat.groups[group];
-  if (!pts || finishPos < 1 || finishPos > pts.length) return 0;
-  return pts[finishPos - 1];
 }
 
 export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePhase, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
@@ -147,6 +81,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const editingRef = useRef(false);
+  const lastStandingsJsonRef = useRef('');
+  const lastStandingsPushTsRef = useRef(0);
   const [selectedPilot, setSelectedPilot] = useState<string | null>(null);
 
   const [pilotsOverride, setPilotsOverride] = useState<number | null>(totalPilotsOverride ?? null);
@@ -258,206 +194,14 @@ export default function LeagueResults({ format, competitionId, sessions, session
     saveSettings({ sortKey: newKey, sortDir: newDir });
   };
 
-  const getRaceSessions = (raceNum: number) => sessions.filter(s => s.phase?.startsWith(`race_${raceNum}_`));
 
   const data = useMemo(() => {
     if (!scoring) return [];
-
-    // 1. Qualifying: best time per pilot
-    const qualiData = new Map<string, PilotQualiData>();
-    for (const qs of qualiSessions) {
-      for (const l of (effectiveLaps.get(qs.sessionId) || [])) {
-        const sec = parseLapSec(l.lap_time);
-        if (sec === null || sec < 38) continue;
-        const ex = qualiData.get(l.pilot);
-        if (!ex || sec < ex.bestTime) qualiData.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart, speedPoints: 0 });
-      }
-    }
-
-    // Sort by qualifying time
-    const qualiSorted = [...qualiData.entries()]
-      .filter(([p]) => !excludedPilots.has(p))
-      .sort((a, b) => a[1].bestTime - b[1].bestTime);
-    const maxQualified = format === 'champions_league' ? 24 : 36;
-    const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
-    const disqualifiedPilots = new Set(qualiSorted.slice(maxQualified).map(([p]) => p));
-    const autoTotalPilots = qualifiedPilots.length;
-    const totalPilots = (pilotsLocked && pilotsOverride !== null) ? pilotsOverride : autoTotalPilots;
-
-    // Qualifying speed points (top 5 fastest)
-    qualiSorted.slice(0, 5).forEach(([pilot], i) => {
-      const q = qualiData.get(pilot)!;
-      q.speedPoints = scoring.speedPoints[i] || 0;
+    return computeStandings({
+      format, sessions, sessionLaps: effectiveLaps, scoring, edits,
+      excludedPilots, maxGroups, pilotsOverride, pilotsLocked,
+      liveSessionId, livePhase, livePositions,
     });
-
-    // 2. Determine groups from qualifying (reverse order: best = group 1 last position)
-    const groups = splitIntoGroups(qualifiedPilots, maxGroups);
-    const pilotGroup = new Map<string, { group: number; posInGroup: number }>();
-    groups.forEach((g, gi) => {
-      const groupNum = gi + 1; // group 1 = best (fastest from qualifying)
-      g.pilots.forEach((p, pi) => {
-        pilotGroup.set(p, { group: groupNum, posInGroup: g.pilots.length - pi }); // reverse: best gets highest pos
-      });
-    });
-
-    // 3. Build race data
-    let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
-
-    // Determine active phase from liveSessionId or livePhase (for scrubbing)
-    let activePhase: string | null = null;
-    if (liveSessionId) {
-      const liveSession = sessions.find(s => s.sessionId === liveSessionId);
-      activePhase = liveSession?.phase || null;
-    } else if (livePhase) {
-      // Use livePhase when scrubbing between sessions
-      activePhase = livePhase;
-    }
-
-    const raceResults: Map<string, PilotRaceData>[] = [];
-    for (let r = 1; r <= raceCount; r++) {
-      const rData = new Map<string, PilotRaceData>();
-      const rSessions = getRaceSessions(r);
-
-      // Determine start positions from previous race/quali times (reverse order per group)
-      const prevSorted = [...prevRaceTimes]
-        .filter(p => !excludedPilots.has(p.pilot) && !disqualifiedPilots.has(p.pilot))
-        .sort((a, b) => a.time - b.time)
-        .slice(0, maxQualified);
-      const rGroups = splitIntoGroups(prevSorted.map(p => p.pilot), maxGroups);
-      const startPositions = new Map<string, { group: number; startPos: number }>();
-      rGroups.forEach((g, gi) => {
-        const gNum = gi + 1;
-        g.pilots.forEach((p, pi) => {
-          startPositions.set(p, { group: gNum, startPos: g.pilots.length - pi });
-        });
-      });
-
-      // Only show start positions for the next race after active phase
-      // If qualifying is active: show start positions for race 1
-      // If race N is active: show start positions for race N+1
-      let shouldShowStartPositions = false;
-      if (activePhase?.startsWith('qualifying')) {
-        shouldShowStartPositions = r === 1;
-      } else if (activePhase?.startsWith('race_')) {
-        const activeRaceMatch = activePhase.match(/race_(\d+)_/);
-        if (activeRaceMatch) {
-          const activeRaceNum = parseInt(activeRaceMatch[1]);
-          shouldShowStartPositions = r === activeRaceNum + 1;
-        }
-      } else {
-        // No active phase: show start positions for all races (default behavior)
-        shouldShowStartPositions = true;
-      }
-
-      // Get finish positions from timing data (use position from last lap — set by timing system)
-      const raceTimes: { pilot: string; time: number }[] = [];
-      for (const rs of rSessions) {
-        const groupMatch = rs.phase?.match(/group_(\d+)/);
-        const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
-        const laps = effectiveLaps.get(rs.sessionId) || [];
-        const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; kart: number; lapCount: number; lastTs: number; lastPosition: number }>();
-        for (const l of laps) {
-          const sec = parseLapSec(l.lap_time);
-          if (sec === null || sec < 38) continue;
-          const ex = pilotStats.get(l.pilot);
-          if (!ex) {
-            pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart, lapCount: 1, lastTs: l.ts, lastPosition: l.position ?? 99 });
-          } else {
-            ex.lapCount++;
-            if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPosition = l.position ?? 99; }
-            if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
-          }
-        }
-        // Override positions with live timing data if this is the active session
-        const isActiveSession = rs.sessionId === liveSessionId && livePositions && livePositions.length > 0;
-        if (isActiveSession) {
-          for (const lp of livePositions!) {
-            const ps = pilotStats.get(lp.pilot);
-            if (ps) ps.lastPosition = lp.position;
-          }
-        }
-
-        // Race finish: by position from timing system
-        const sorted = [...pilotStats.entries()]
-          .filter(([p]) => !excludedPilots.has(p))
-          .sort((a, b) => {
-            if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
-            if (a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
-            return a[1].lastTs - b[1].lastTs;
-          });
-        const excludedEntries = [...pilotStats.entries()].filter(([p]) => excludedPilots.has(p));
-        sorted.forEach(([pilot, pData], i) => {
-          const editKey = `${pilot}|${r}`;
-          const edit = edits[editKey];
-          const sp = startPositions.get(pilot);
-          const isDisqualified = disqualifiedPilots.has(pilot);
-          const startPos = isDisqualified ? -1 : (edit?.startPos ?? sp?.startPos ?? 0);
-          const finishPos = edit?.finishPos ?? (i + 1);
-          const group = isDisqualified ? 0 : (sp?.group ?? groupNum);
-          const penalties = edit?.penalties ?? 0;
-
-          const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos, format === 'champions_league');
-          const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
-          const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos);
-
-          rData.set(pilot, {
-            kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
-            group, startPos, finishPos,
-            positionPoints: posPoints, overtakePoints, speedPoints: 0, penalties,
-            totalRacePoints: Math.round((posPoints + overtakePoints - penalties) * 10) / 10,
-          });
-          raceTimes.push({ pilot, time: pData.bestTime });
-        });
-        excludedEntries.forEach(([pilot, pData]) => {
-          rData.set(pilot, {
-            kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
-            group: 0, startPos: 0, finishPos: 0,
-            positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
-          });
-        });
-      }
-
-      // Speed points for this race (top 5 by time across all groups)
-      raceTimes.sort((a, b) => a.time - b.time);
-      raceTimes.filter(r => !excludedPilots.has(r.pilot)).slice(0, 5).forEach(({ pilot }, i) => {
-        const rd = rData.get(pilot);
-        if (rd) {
-          rd.speedPoints = scoring.speedPoints[i] || 0;
-          rd.totalRacePoints = Math.round((rd.positionPoints + rd.overtakePoints + rd.speedPoints - rd.penalties) * 10) / 10;
-        }
-      });
-
-      raceResults.push(rData);
-      if (raceTimes.length > 0) prevRaceTimes = raceTimes.filter(r => !excludedPilots.has(r.pilot));
-
-      // Fill start positions for pilots without race data yet (race hasn't started or pilot not in this race's groups yet)
-      // Only fill if this race should show start positions
-      if (shouldShowStartPositions) {
-        for (const [pilot, sp] of startPositions) {
-          if (!rData.has(pilot) && !excludedPilots.has(pilot)) {
-            rData.set(pilot, {
-              kart: 0, bestTime: Infinity, bestTimeStr: '',
-              group: sp.group, startPos: sp.startPos, finishPos: 0,
-              positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
-            });
-          }
-        }
-      }
-    }
-
-    // 4. Build rows
-    const allPilots = new Set<string>([...qualiData.keys()]);
-    for (const rd of raceResults) for (const p of rd.keys()) allPilots.add(p);
-
-    const rows: PilotRow[] = [...allPilots].map(pilot => {
-      const q = qualiData.get(pilot) || null;
-      const races = raceResults.map(rd => rd.get(pilot) || null);
-      const qualiPts = q?.speedPoints ?? 0;
-      const racePts = races.reduce((s, r) => s + (r?.totalRacePoints ?? 0), 0);
-      return { pilot, quali: q, races, totalPoints: Math.round((qualiPts + racePts) * 10) / 10 };
-    });
-
-    return rows;
   }, [sessions, effectiveLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePhase, livePositions, pilotsOverride, pilotsLocked]);
 
   const sortedDataRef = useRef<PilotRow[]>([]);
@@ -539,7 +283,21 @@ export default function LeagueResults({ format, competitionId, sessions, session
     `${base}${isCustomMode ? ' cursor-pointer hover:bg-dark-600/30' : ''}`;
 
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
-  Promise.resolve().then(() => { onPilotCount?.(autoTotalPilots); onAutoGroups?.(autoGroupsByQuali); });
+  Promise.resolve().then(() => {
+    onPilotCount?.(autoTotalPilots);
+    onAutoGroups?.(autoGroupsByQuali);
+
+    if (data.length > 0 && onSaveResults) {
+      const standings = rowsToStandings(data, excludedPilots);
+      const json = JSON.stringify(standings.pilots);
+      const now = Date.now();
+      if (json !== lastStandingsJsonRef.current && now - lastStandingsPushTsRef.current > 10_000) {
+        lastStandingsJsonRef.current = json;
+        lastStandingsPushTsRef.current = now;
+        onSaveResults({ standings });
+      }
+    }
+  });
 
   const handlePilotsOverrideChange = (val: number) => {
     setPilotsOverride(val);

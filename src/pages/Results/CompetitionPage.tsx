@@ -127,17 +127,7 @@ export default function CompetitionPage() {
         ) : (
           <div className="space-y-2">
             {competitions.map(c => (
-              <Link key={c.id} to={`/results/${type}/${c.id}`}
-                className="card p-4 block hover:bg-dark-700/50 transition-colors">
-                <div className="flex items-center justify-between">
-                  <div className="text-white font-medium">{c.name.replace(/Тр\.\s*/g, 'Траса ')}</div>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                    c.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
-                  }`}>
-                    {c.status === 'finished' ? 'Завершено' : 'Live'}
-                  </span>
-                </div>
-              </Link>
+              <CompetitionListItem key={c.id} competition={c} type={type} />
             ))}
           </div>
         )}
@@ -732,5 +722,41 @@ function GonzalesLiveTable({ competition, sessionLaps }: { competition: Competit
         </table>
       </div>
     </div>
+  );
+}
+
+function CompetitionListItem({ competition: c, type }: { competition: Competition; type: string }) {
+  let top3: { pilot: string; totalPoints: number }[] = [];
+  try {
+    const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
+    const pilots = results?.standings?.pilots;
+    if (Array.isArray(pilots)) {
+      top3 = pilots.slice(0, 3).map((p: any) => ({ pilot: p.pilot, totalPoints: p.totalPoints }));
+    }
+  } catch {}
+
+  return (
+    <Link to={`/results/${type}/${c.id}`}
+      className="card p-4 block hover:bg-dark-700/50 transition-colors">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="text-white font-medium truncate">{c.name.replace(/Тр\.\s*/g, 'Траса ')}</div>
+          {top3.length > 0 && (
+            <div className="flex flex-col shrink-0">
+              {top3.map((p, i) => (
+                <span key={p.pilot} className="text-dark-400 text-[10px] leading-tight whitespace-nowrap">
+                  {i + 1}. {p.pilot} — {p.totalPoints}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <span className={`px-2 py-0.5 rounded text-[10px] font-medium shrink-0 ${
+          c.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
+        }`}>
+          {c.status === 'finished' ? 'Завершено' : 'Live'}
+        </span>
+      </div>
+    </Link>
   );
 }
