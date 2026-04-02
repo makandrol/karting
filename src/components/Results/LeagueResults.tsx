@@ -670,7 +670,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         {show('start') && <th rowSpan={2} className={thClass(TH_V, raceColId(rn, 'start'))} onClick={thClick(raceColId(rn, 'start'))}><span className={TH_R}>Старт</span></th>}
                         {show('finish') && <th rowSpan={2} className={thClass(TH_V, raceColId(rn, 'finish'))} onClick={thClick(raceColId(rn, 'finish'))}><span className={TH_R}>Фініш</span></th>}
                         {needsSubRow && visibleSubCols.length > 0 && (
-                          <th colSpan={visibleSubCols.length} className="px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30">Бали</th>
+                          <th colSpan={visibleSubCols.length}
+                            className={`px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30${isCustomMode ? ' cursor-pointer hover:bg-dark-600/30' : ''}`}
+                            onClick={thGroupClick(`r${rn}_pts`, ['pos_pts', 'overtake', 'penalties', 'sum'].map(c => raceColId(rn, c)))}>Бали</th>
                         )}
                       </Fragment>
                     );
