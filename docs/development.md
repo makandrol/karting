@@ -117,6 +117,12 @@
 20. **Track sync**: Track changes from timing page sync to collector via `POST /track`, updates all future sessions
 21. **Competition track**: Track changes on competition page update all linked sessions via `POST /competitions/:id/update-track`
 22. **Tab preference**: Competition page saves tab preference (live/final) to localStorage (auth users) or sessionStorage (anon)
+23. **Scoring module**: All scoring logic in `src/utils/scoring.ts` — `computeStandings()`, `rowsToStandings()`, pure functions reusable by any component
+24. **Standings storage**: LeagueResults pushes `results.standings` to collector every 10s (debounced). Competition list reads for top-3 display.
+25. **Competition date**: Derived from first session timestamp, NOT from stored `date` field. Use `getCompRealDate(competition)`.
+26. **Settings expiry**: Competition filters and kart date selections expire at end of day. Use `loadWithExpiry()`/`saveWithExpiry()`.
+27. **Mobile**: `html, body { overflow-x: hidden }`, header dropdowns use `position: fixed`, Tailwind `hoverOnlyWhenSupported: true`, today highlighted green
+28. **Competitions page**: `/results` shows unified list with date navigator + type filters. "Змагання" is a direct Link in header (not dropdown).
 
 ## File Structure
 ```
@@ -130,32 +136,34 @@ karting/
 │   │   ├── detector.js      # Competition auto-detection
 │   │   └── schedule.js      # Weekly competition schedule
 │   ├── data/                # SQLite DB (not in git)
-│   └── package.json         # v0.3.4
+│   └── package.json         # v0.3.6
 ├── src/
 │   ├── components/
-│   │   ├── Layout/          # Header, Footer, Layout
+│   │   ├── Layout/          # Header (fixed dropdowns, UserDropdown), Footer, Layout
 │   │   ├── Timing/          # SessionReplay, DayTimeline, CompetitionControl,
 │   │   │                    #   LapsByPilots, SessionTypeChanger, TimingBoard
 │   │   ├── Track/           # TrackMap
-│   │   ├── Sessions/        # DateNavigator, SessionsTable, SessionRows
-│   │   └── Results/         # LeagueResults (LL/CL scoring table)
+│   │   ├── Sessions/        # DateNavigator (green today), SessionsTable, SessionRows
+│   │   └── Results/         # LeagueResults (unified view modes, standings push)
 │   ├── pages/
-│   │   ├── Info/            # Timing, Onboard, Karts, KartDetail, Tracks, Videos
+│   │   ├── Info/            # Timing, Onboard, Karts (date expiry), KartDetail, Tracks, Videos
 │   │   ├── Sessions/        # SessionsList, SessionDetail
 │   │   ├── Auth/            # Login, AdminPanel, PageSettings, DatabaseStats,
 │   │   │                    #   Monitoring, CollectorLog, CompetitionManager, ScoringSettings
-│   │   ├── Results/         # CompetitionPage (list + detail + live scoring), CurrentRace
+│   │   ├── Results/         # CompetitionPage (unified list + detail + live), CurrentRace
 │   │   └── Pilots/          # PilotProfile (placeholder)
 │   ├── services/
 │   │   ├── auth.tsx         # Firebase Auth + roles + localhost auto-owner
 │   │   ├── timingPoller.ts  # Live timing hook (bestS1/S2 tracking, kart Number conversion)
 │   │   ├── viewPrefs.ts     # Per-user view preferences
-│   │   ├── pageVisibility.tsx # Page visibility config
+│   │   ├── pageVisibility.tsx # Page visibility config (competitions in main group)
 │   │   ├── config.ts        # Collector URL
 │   │   └── firebase.ts      # Firebase init
 │   ├── utils/
-│   │   └── timing.ts        # parseTime, toSeconds, toHundredths, getTimeColor,
-│   │                        #   mergePilotNames, shortName, fetchRaceStartPositions
+│   │   ├── timing.ts        # parseTime, toSeconds, toHundredths, getTimeColor,
+│   │   │                    #   mergePilotNames, shortName, fetchRaceStartPositions
+│   │   └── scoring.ts       # computeStandings, rowsToStandings, calcOvertakePoints,
+│   │                        #   getPositionPoints, parseLapSec (shared scoring module)
 │   ├── data/
 │   │   ├── tracks.ts        # Track configurations
 │   │   ├── competitions.ts  # Competition configs + PHASE_CONFIGS + splitIntoGroups
@@ -167,9 +175,9 @@ karting/
 ├── public/data/
 │   └── scoring.json         # Scoring rules (editable via /admin/scoring)
 ├── docs/                    # This documentation
-├── package.json             # v0.9.106
+├── package.json             # v0.9.161
 ├── vite.config.ts
-├── tailwind.config.js
+├── tailwind.config.js       # hoverOnlyWhenSupported: true
 ├── tsconfig.json            # resolveJsonModule enabled
 └── netlify.toml
 ```

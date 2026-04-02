@@ -152,6 +152,7 @@ sequenceDiagram
     participant LR as LiveResults
     participant API as Collector API
     participant League as LeagueResults
+    participant Scoring as scoring.ts
 
     loop Every 3s (slow poll)
         LR->>API: GET /competitions/:id
@@ -164,14 +165,75 @@ sequenceDiagram
         LR-->>League: liveSessionId + livePositions + livePilots
     end
 
-    League->>League: Build qualifying data (best times)
-    League->>League: Split into groups (1-3)
+    League->>Scoring: computeStandings(params)
+    Scoring->>Scoring: Build qualifying data (best times, speed points)
+    Scoring->>Scoring: Split into groups (1-3)
     loop For each race
-        League->>League: Compute start positions (reverse prev race/quali)
-        League->>League: Compute finish positions (race mode + live positions)
-        League->>League: Calculate points (position + overtakes progressive)
+        Scoring->>Scoring: Compute start positions (reverse prev race/quali)
+        Scoring->>Scoring: Compute finish positions (race mode + live positions)
+        Scoring->>Scoring: Calculate points (position + overtakes progressive)
     end
-    League->>League: Pre-fill start positions for next race
+    Scoring-->>League: PilotRow[] with all computed data
+
+    loop Every 10s (debounced)
+        League->>League: rowsToStandings(rows, excludedPilots)
+        League->>API: onSaveResults({ standings })
+        API->>API: Store in competition results.standings
+    end
+```
+
+## Scoring Module (`src/utils/scoring.ts`)
+
+Shared pure-function module extracted from LeagueResults for reuse across components.
+
+### Exported Functions
+| Function | Purpose |
+|----------|---------|
+| `parseLapSec(lapTime)` | Parse lap time string to seconds |
+| `getOvertakeRate(position, format)` | Get overtake multiplier for a position |
+| `calcOvertakePoints(startPos, finishPos, format)` | Calculate progressive overtake points |
+| `getPositionPoints(position, totalPilots, scoring)` | Look up position points from scoring table |
+| `computeStandings(params)` | Main function: full scoring computation |
+| `rowsToStandings(rows, excludedPilots)` | Convert PilotRow[] to CompetitionStandings for storage |
+
+### Exported Types
+`SessionLap`, `CompSession`, `ScoringData`, `PilotQualiData`, `PilotRaceData`, `PilotRow`, `ManualEdits`, `StandingsPilot`, `CompetitionStandings`, `ComputeStandingsParams`
+
+## Standings Storage
+
+```mermaid
+sequenceDiagram
+    participant LR as LeagueResults
+    participant API as Collector
+    participant List as Competition List
+
+    LR->>LR: computeStandings() every render
+    LR->>LR: rowsToStandings(rows, excludedPilots)
+    LR->>API: onSaveResults({ standings }) [debounced 10s]
+    API->>API: Store in competition.results.standings
+    List->>API: GET /competitions
+    API-->>List: competitions with results.standings
+    List->>List: Display top-3 pilots with points
+```
+
+### Standings Format
+```json
+{
+  "updatedAt": 1712000000000,
+  "pilots": [
+    {
+      "pilot": "Апанасенко Олексій",
+      "totalPoints": 42.5,
+      "qualiTime": "40.823",
+      "qualiKart": 7,
+      "qualiSpeedPoints": 2.5,
+      "group": 1,
+      "races": [
+        { "startPos": 12, "finishPos": 1, "positionPoints": 12, "overtakePoints": 8.5, "speedPoints": 2.5, "penalties": 0 }
+      ]
+    }
+  ]
+}
 ```
 
 ## Key Design Decisions
@@ -192,6 +254,39 @@ The timing system sometimes shows "Карт X" for initial laps. `mergePilotName
 - Active session pilots highlighted (green tint)
 - EditableCell keeps focus during re-renders (skips value sync while focused)
 - Overtake points use progressive calculation (each position has own rate)
+- Standings auto-pushed to collector every 10s (debounced) via `onSaveResults({ standings })`
+
+### View Modes (LeagueResults)
+- Все/Бали/Час/Поз/Ост — unified column visibility system via `PRESET_COLS`
+- "Ост" (custom): user clicks column headers to toggle visibility
+- Clicking group headers (Квала, Гонка N) toggles all sub-columns
+- Clicking "Бали" sub-header toggles all 4 point columns
+- Custom column set persisted per user+competition in localStorage
+- Tap-to-select pilot rows (stays highlighted until tapped again)
+
+### Competition Page (Unified)
+- Single `/results` route shows ALL competitions
+- Date navigator with this week default, previous week collapsible
+- Type filter buttons (Все | Гонзалес | ЛЛ | ЛЧ | Спринти | Марафони)
+- Competition date derived from first session timestamp
+- Top-3 pilots with points shown (from stored standings)
+- "Змагання" moved from dropdown to direct Link in header nav
+
+### Mobile Optimizations
+- `html, body { overflow-x: hidden }` prevents horizontal page scroll
+- Header nav: `overflow-x-auto scrollbar-none` for horizontal scrolling
+- All dropdowns: `position: fixed` with parent-level ref (no flicker)
+- `UserDropdown` as separate component
+- Tailwind `hoverOnlyWhenSupported: true` — hover only on pointer devices
+- `-webkit-tap-highlight-color: transparent` on body
+- `active:bg-dark-700/30` for touch feedback on table rows
+- Today's date highlighted green (`bg-green-600/20`) on date navigators
+
+### Settings Persistence
+- Filter settings (competitions + karts dates) expire at end of day
+- `loadWithExpiry(storage, key)` / `saveWithExpiry(storage, key, value)` utility functions
+- Next day opens with default selections (current week for competitions, today for karts)
+- Competition type filters, date selection, sort direction all persisted with expiry
 
 ### View Preferences
 User view preferences (show/hide track, laps-by-pilots, league tables) persisted in localStorage by user email.

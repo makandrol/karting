@@ -15,22 +15,61 @@
 
 A real-time karting timing dashboard for the "Жага Швидкості" karting track. Collects live timing data, stores it in SQLite, and provides a web interface for viewing sessions, replays, kart statistics, and managing competitions with live scoring.
 
-## Current State (v0.9.119)
+## Current State (v0.9.161)
 
-### Recent Changes (Session with Agent)
-- **Scoring persistence**: Scoring data now stored on collector (GET/POST `/scoring`) instead of static file
-- **Track sync**: Track changes from timing page sync to collector and update all sessions
-- **Competition track**: Track changes on competition page update all linked sessions
-- **Live results default**: Competition pages always open "Live результати" tab by default, preference saved per user
-- **Laps-by-pilots alignment**: Table aligned left instead of center, narrower columns (60px), smaller fonts
-- **Competition params UI redesign**:
-  - Separate "А" (Auto) buttons for pilots and groups (red background when active)
-  - Pilots and groups use input fields (not dropdowns)
-  - Auto-detected values shown when auto is on (disabled input)
-  - Manual input when auto is off
-  - Track selector narrower (w-10), no label
-  - Icons: 👥 for pilots, 🎯 for groups
-  - Bordered boxes for visual grouping
+### Recent Changes (v0.9.119 → v0.9.161)
+
+#### Scoring Module (NEW)
+- Extracted scoring logic from LeagueResults into `src/utils/scoring.ts`
+- Pure functions: `parseLapSec()`, `getOvertakeRate()`, `calcOvertakePoints()`, `getPositionPoints()`
+- `computeStandings(params)` — main function computing full competition scoring (qualifying, groups, races, points)
+- `rowsToStandings(rows, excludedPilots)` — converts PilotRow[] to CompetitionStandings for storage
+- Types exported: `SessionLap`, `CompSession`, `ScoringData`, `PilotQualiData`, `PilotRaceData`, `PilotRow`, `ManualEdits`, `StandingsPilot`, `CompetitionStandings`, `ComputeStandingsParams`
+- Used by LeagueResults, will be used by future Onboard scoring
+
+#### Standings Storage
+- LeagueResults pushes computed standings to collector via `onSaveResults({ standings })` every 10s (debounced)
+- Standings stored in competition's `results.standings` field on collector
+- Format: `{ updatedAt, pilots: [{ pilot, totalPoints, qualiTime, qualiKart, qualiSpeedPoints, group, races: [...] }] }`
+- Competition list reads standings to show top-3 pilots next to each competition
+
+#### Competition Page Redesign
+- "Змагання" in header: changed from dropdown to direct Link to `/results`
+- `/results` shows ALL competitions (unified page) with:
+  - Date navigator (this week selected by default, previous week collapsible, year/month sections)
+  - Type filter buttons: Все | Гонзалес | ЛЛ | ЛЧ | Спринти | Марафони
+  - Sort button (date ascending/descending)
+  - "+X" buttons to select all dates in a period
+  - Days show competition short names (ЛЧ, ЛЛ, Гонз) or "–" if none
+  - Top-3 pilots with points shown next to each competition
+- Competition date derived from first session timestamp (not stored date field)
+- "Тр." expanded to "Траса" in display names
+- Old URLs `/results/:type` still work (pre-filtered)
+- `pageVisibility`: competitions moved from dropdown group to main nav
+
+#### LeagueResults View Modes
+- Added "Ост" (custom) view mode — user can click column headers to hide/show individual columns
+- All view modes (Все/Бали/Час/Поз/Ост) unified to use single column visibility system via `PRESET_COLS`
+- Clicking group headers (Квала, Гонка N) toggles all sub-columns
+- Clicking "Бали" sub-header toggles all 4 point columns
+- Custom column set persisted per user+competition in localStorage
+- Added tap-to-select pilot rows (stays highlighted until tapped again)
+
+#### Mobile Fixes
+- `html, body { overflow-x: hidden }` prevents horizontal page scroll
+- Header nav uses `overflow-x-auto scrollbar-none` for horizontal scrolling
+- All dropdowns use `position: fixed` with parent-level ref for positioning (no flicker)
+- `UserDropdown` extracted as separate component
+- Tailwind `hoverOnlyWhenSupported: true` — hover styles only on devices with pointer
+- `-webkit-tap-highlight-color: transparent` on body
+- `active:bg-dark-700/30` for touch feedback on table rows
+- Today's date highlighted green (`bg-green-600/20`) on all date navigators
+
+#### Settings & Persistence
+- Filter settings (competitions + karts dates) expire at end of day
+- `loadWithExpiry(storage, key)` / `saveWithExpiry(storage, key, value)` utility functions
+- Next day opens with default selections (current week for competitions, today for karts)
+- Competition type filters, date selection, sort direction all persisted with expiry
 
 ### Working Features
 - **Live timing**: real-time data from karting timing API with 1s polling
@@ -38,11 +77,13 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
 - **Sessions list**: date navigation, merged sessions, best lap/pilot, sortable, filters sessions < 3min
 - **Session detail**: replay, laps-by-pilots grid (with S1/S2), live updates, lap exclusion for competitions
 - **Onboard page**: fullscreen kart timing for phone on kart mount (landscape)
-- **Kart statistics**: per-kart top laps, multi-date filtering
+- **Kart statistics**: per-kart top laps, multi-date filtering with end-of-day expiry
 - **Day timeline**: scrollable 6h window, 3 colors (offline/idle/session), unified `isValidSession()` filter
 - **Competition system**: full CRUD, session linking with auto-numbering of phases
 - **Competition results**: live scoring for LL/CL, Gonzales table
   - Position points, overtake points (progressive, separate tables for LL/CL), speed points — all auto-calculated
+  - Scoring logic extracted to shared `src/utils/scoring.ts` module
+  - Standings pushed to collector every 10s (debounced) for persistence
   - Live positions from timing API (2s polling) for real-time overtake tracking
   - Start positions always pre-filled for next race (even during live)
   - Manual override: Start, Finish, Penalties (owner/moderator with manage_results)
@@ -54,6 +95,7 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
   - Live toggle (pause/resume live updates) on competition timeline
   - Active session pilot highlighting (green tint)
   - Edit audit log (timestamp, user, pilot, action)
+- **Competition list**: unified `/results` page with date navigator, type filters, sort, top-3 pilots display
 - **Competition timeline**: horizontal scrubber from first to last session
   - Green = session (with phase labels like "1-2"), yellow = idle gap
   - Click/drag to scrub through time — table recalculates with data up to that point
@@ -63,11 +105,14 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
   - Track: editable dropdown (admin), readonly for users
   - Pilot count: editable with lock/unlock (admin), auto-determined from qualifying data
   - Group count: dropdown (авто/1/2/3), auto-detected from qualifying session count
-- **View modes**: Все/Бали/Ред. toggle group for table columns
+- **View modes**: Все/Бали/Час/Поз/Ост toggle group for table columns
   - Все: all columns (Карт, Час, Швидк., Група, Старт, Фініш, all points)
   - Бали: speed + position/overtake/penalties/sum per race, quali speed points
-  - Ред.: Start, Finish, Penalties, Sum only
-  - Квала/Г1/Г2/Г3 individual toggles
+  - Час/Поз: time/position focused views
+  - Ост (custom): user clicks column headers to hide/show, persisted per user+competition
+  - Clicking group headers (Квала, Гонка N) toggles all sub-columns
+  - Clicking "Бали" sub-header toggles all 4 point columns
+  - Tap-to-select pilot rows (highlighted until tapped again)
 - **Toolbar**: 3 rows — title, "Сорт:" buttons, "Вид:" toggles
 - **Sort**: by total, quali time, race times; tiebreaker by qualifying time
 - **Session type management**: dropdown to assign sessions to competitions
@@ -80,6 +125,7 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
 - **Scoring settings**: separate overtake tables for LL/CL, position points by pilot count (9 categories)
 - **Position tracking**: positions extracted from all event types (snapshot, lap, s1, update)
 - **View preferences**: all settings persisted per user+competition in localStorage
+- **Mobile-optimized**: no horizontal scroll, fixed dropdowns, touch feedback, hover-only on pointer devices
 
 ### Data Flow
 - Collector polls timing API every 1s when online
@@ -87,6 +133,8 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
 - Frontend replay uses events for exact S1 timing and position changes
 - Live competition results poll every 2-3s
 - Competition timeline scrubber filters sessionLaps by timestamp
+- Standings pushed to collector every 10s (debounced) and stored in `results.standings`
+- Competition list reads stored standings for top-3 display
 
 ### Data Filtering
 - Laps < 38 seconds filtered from all statistics (SQL level)
@@ -113,4 +161,5 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
 - **Branches**: `main` (production), `dev` (development)
 - **Merge flow**: dev → main (no-ff merge) **ONLY when user explicitly asks**
 - **Versions**: Frontend `0.9.x` in package.json, Collector `0.3.x` in collector/package.json
+- **Current**: Frontend `0.9.161`, Collector `0.3.6`
 - **APP_VERSION**: auto-read from package.json (displayed in footer)

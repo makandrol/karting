@@ -20,8 +20,9 @@ React 18 SPA with TypeScript, Vite, Tailwind CSS. Firebase Auth for Google Sign-
 | `/info/karts/:id` | `KartDetail.tsx` | Per-kart sessions table |
 | `/info/tracks` | `Tracks.tsx` | Track configurations |
 | `/info/videos` | `Videos.tsx` | Videos |
+| `/results` | `CompetitionPage.tsx` | Unified competition list (all types, date navigator, filters) |
 | `/results/current` | `CurrentRace.tsx` | Redirects to active live competition |
-| `/results/:type` | `CompetitionPage.tsx` | Competition list for format |
+| `/results/:type` | `CompetitionPage.tsx` | Pre-filtered competition list for format |
 | `/results/:type/:eventId` | `CompetitionPage.tsx` | Competition detail with Live/Final tabs |
 | `/pilots/:name` | `PilotProfile.tsx` | Pilot profile (placeholder) |
 | `/login` | `Login.tsx` | Google Sign-In |
@@ -85,11 +86,12 @@ Laps-by-pilots grid. Each cell shows lap time + S1/S2 (hundredths, green/purple 
 - Current lap highlight (ring) during replay
 
 ### `LeagueResults` (`components/Results/LeagueResults.tsx`)
-Full scoring table for Light League / Champions League competitions.
+Full scoring table for Light League / Champions League competitions. Uses shared `scoring.ts` module for all calculations.
 
-**Props:** format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits
+**Props:** format, competitionId, sessions, sessionLaps, liveSessionId, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, onSaveResults
 
 **Features:**
+- Scoring logic delegated to `src/utils/scoring.ts` (`computeStandings()`)
 - Auto-calculates: speed points (top-5), position points, overtake points (progressive)
 - Live timing positions override DB positions for active session (2s updates)
 - Start positions pre-filled for next race before it starts
@@ -102,6 +104,14 @@ Full scoring table for Light League / Champions League competitions.
 - 3-row header: Race → columns + "Бали" sub-header (Позиція, Обгони, Штрафи, Сума)
 - Speed points column after Час
 - Points highlighted green, penalties red
+- **Standings push**: calls `onSaveResults({ standings })` every 10s (debounced) to persist standings on collector
+- **View modes** (Все/Бали/Час/Поз/Ост): unified column visibility via `PRESET_COLS`
+  - "Ост" (custom): user clicks column headers to hide/show individual columns
+  - Clicking group headers (Квала, Гонка N) toggles all sub-columns
+  - Clicking "Бали" sub-header toggles all 4 point columns
+  - Custom column set persisted per user+competition in localStorage
+- **Tap-to-select**: pilot rows stay highlighted until tapped again
+- **Touch feedback**: `active:bg-dark-700/30` on table rows
 
 ### `Onboard` (`pages/Info/Onboard.tsx`)
 Fullscreen kart timing page designed for phone mounted on kart (landscape).
@@ -123,11 +133,13 @@ Includes onboard link (camera icon) per kart row.
 ### Other Components
 - `SessionsTable` — shared session list (used on Sessions, Karts, KartDetail, Timing, CompetitionPage)
 - `SessionTypeChanger` — dropdown for assigning sessions to competitions, auto-links surrounding sessions, detects group count by pilot overlap
-- `DateNavigator` — single-select (Sessions) or multi-select (Karts)
+- `DateNavigator` — single-select (Sessions) or multi-select (Karts); today's date highlighted green (`bg-green-600/20`)
 - `TrackMap` — SVG track map with animated kart positions
 - `DayTimeline` — scrollable session activity timeline
 - `CompetitionControl` — inline competition detector controls
 - `CompetitionTimeline` (`components/Results/CompetitionTimeline.tsx`) — horizontal scrubber for competition page, shows sessions as green segments with phase labels, click to navigate to session detail
+- `CompetitionList` / `CompetitionListItem` (`pages/Results/CompetitionPage.tsx`) — unified list with date navigator, type filters, sort, top-3 pilots from stored standings
+- `UserDropdown` (`components/Layout/Header.tsx`) — extracted user menu dropdown component with `position: fixed` positioning
 - `EditableCell` (`components/Results/LeagueResults.tsx`, top-level function) — input with focus protection, prefix support (for penalties "-"), MUST stay outside LeagueResults to prevent remount
 - `EditLog` (`components/Results/LeagueResults.tsx`) — shows audit log of all manual edits
 
@@ -151,12 +163,23 @@ Firebase Auth with role system:
 Persists view preferences per user email in localStorage.
 
 ### `pageVisibility.tsx`
-Manages which pages are visible per role. Groups: main, competitions, other, admin.
+Manages which pages are visible per role. Groups: main, other, admin. Competitions moved from dropdown group to main nav as a direct Link to `/results`.
 
 ### `config.ts`
 `COLLECTOR_URL` from env var `VITE_COLLECTOR_URL` or default.
 
 ## Utilities
+
+### `utils/scoring.ts` (NEW — shared scoring module)
+Pure functions extracted from LeagueResults for reuse:
+- `parseLapSec(lapTime)` — parse lap time string to seconds
+- `getOvertakeRate(position, format)` — get overtake multiplier for a position
+- `calcOvertakePoints(startPos, finishPos, format)` — calculate progressive overtake points
+- `getPositionPoints(position, totalPilots, scoring)` — look up position points from scoring table
+- `computeStandings(params: ComputeStandingsParams)` — main function: builds qualifying data, splits groups, computes race results with all points
+- `rowsToStandings(rows, excludedPilots)` — converts PilotRow[] to CompetitionStandings for storage on collector
+
+**Types exported:** `SessionLap`, `CompSession`, `ScoringData`, `PilotQualiData`, `PilotRaceData`, `PilotRow`, `ManualEdits`, `StandingsPilot`, `CompetitionStandings`, `ComputeStandingsParams`
 
 ### `utils/timing.ts`
 - `parseTime(str)` — "42.574" → 42.574, "1:02.222" → 62.222
@@ -168,6 +191,8 @@ Manages which pages are visible per role. Groups: main, competitions, other, adm
 - `fmtBytes(n)` — human-readable bytes
 - `fetchRaceStartPositions(collectorUrl, competitionId, phase, format)` — computes start positions from qualifying/previous race, returns `{positions, totalQualified}`
 - `isValidSession(session)` — returns false for sessions < 3 minutes (MIN_SESSION_DURATION_MS = 180000). Used across all pages for filtering.
+- `loadWithExpiry(storage, key)` — load value from storage, returns null if expired (end of day)
+- `saveWithExpiry(storage, key, value)` — save value to storage with end-of-day expiry timestamp
 
 ### `data/competitions.ts`
 Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseLabel()`, `getPhasesForFormat(format, groupCount)`.
