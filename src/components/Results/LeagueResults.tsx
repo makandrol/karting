@@ -561,11 +561,11 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   <th rowSpan={3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-6">#</th>
                   <th rowSpan={3} className="px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px]">Пілот</th>
                   <th rowSpan={3} className="px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10"><span className={TH_R}>Сума</span></th>
-                  {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && <th colSpan={showPointsOnly ? 1 : showTimeOnly ? 2 : 3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Квала</th>}
+                  {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && <th colSpan={showPointsOnly ? 1 : showTimeOnly ? 2 : 3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r-2 border-dark-600">Квала</th>}
                   {Array.from({ length: raceCount }, (_, i) => {
                     const visible = showAll || showEditsOnly || showPointsOnly || showTimeOnly || showRace(i + 1);
                     if (!visible) return null;
-                    return <th key={i} colSpan={rc} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Гонка {i + 1}</th>;
+                    return <th key={i} colSpan={rc} className="px-2 py-1 text-center text-dark-300 font-semibold border-r-2 border-dark-600">Гонка {i + 1}</th>;
                   })}
                 </tr>
                 <tr className="bg-dark-800/30">
