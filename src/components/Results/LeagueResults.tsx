@@ -511,7 +511,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   };
 
   const activeMode = showAll ? 'all' : showPointsOnly ? 'points' : showTimeOnly ? 'time' : showEditsOnly ? 'positions' : showCustom ? 'custom' : null;
-  const effectiveHidden = useMemo(() => {
+  const effectiveHidden = (() => {
     if (showCustom) return hiddenCols;
     const preset = PRESET_COLS[activeMode || 'all'] || PRESET_COLS.all;
     const hidden = new Set<string>();
@@ -520,7 +520,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
       RACE_COLS.forEach(c => { if (!preset.race.includes(c)) hidden.add(raceColId(r, c)); });
     }
     return hidden;
-  }, [activeMode, showCustom, hiddenCols, raceCount]);
+  })();
 
   const colVisible = (colId: string) => !effectiveHidden.has(colId);
   const qualiVisible = () => {
