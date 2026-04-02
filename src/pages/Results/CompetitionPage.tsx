@@ -855,12 +855,25 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
       return (compDates.get(b.id) || '').localeCompare(compDates.get(a.id) || '');
     });
 
+  const dateCompNames = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const c of competitions) {
+      const d = compDates.get(c.id) || '';
+      if (!d) continue;
+      const cfg = COMPETITION_CONFIGS[c.format as keyof typeof COMPETITION_CONFIGS];
+      const name = cfg?.shortName || c.format;
+      if (!map[d]) map[d] = [];
+      if (!map[d].includes(name)) map[d].push(name);
+    }
+    return map;
+  }, [competitions, compDates]);
+
   const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
 
   const DateBtn = ({ d }: { d: string }) => {
     const isToday = d === todayStr;
-    const count = dateCounts[d] || 0;
-    const hasData = count > 0;
+    const names = dateCompNames[d] || [];
+    const hasData = names.length > 0;
     const isActive = selectedDates.has(d);
     const dayDate = new Date(d + 'T00:00:00');
     const label = `${DAY_NAMES[dayDate.getDay()]} ${String(dayDate.getDate()).padStart(2, '0')}.${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
@@ -869,13 +882,13 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
         onClick={() => hasData && toggleDate(d)}
         className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
           isActive ? 'bg-primary-600 text-white ring-1 ring-primary-400' :
-          isToday ? 'bg-primary-600/20 text-primary-400' :
+          isToday ? 'bg-green-600/20 text-green-400' :
           hasData ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
           'bg-dark-900 text-dark-700 cursor-default'
         }`}
       >
         <span>{label}</span>
-        {hasData && <span className={`text-[9px] font-mono ${isActive ? 'text-white/70' : 'text-dark-500'}`}>{count}</span>}
+        {hasData && <span className={`text-[9px] ${isActive ? 'text-white/70' : 'text-dark-500'}`}>{names.join(', ')}</span>}
       </button>
     );
   };
