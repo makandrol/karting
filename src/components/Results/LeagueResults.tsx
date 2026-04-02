@@ -478,20 +478,21 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const showTimeOnly = hiddenGroups.has('__time_only');
   const rc = showEditsOnly ? 4 : showPointsOnly ? 5 : showTimeOnly ? 2 : 10;
 
+  // Check if all groups are visible
+  const allGroupsVisible = !hiddenGroups.has('quali') && 
+    Array.from({ length: raceCount }, (_, i) => !hiddenGroups.has(`race_${i + 1}`)).every(v => v) &&
+    !hiddenGroups.has('__show_all') &&
+    !hiddenGroups.has('__positions_only') &&
+    !hiddenGroups.has('__points_only') &&
+    !hiddenGroups.has('__time_only');
+
   // Auto-enable "Все" if all groups are visible
   useEffect(() => {
-    const allGroupsVisible = !hiddenGroups.has('quali') && 
-      Array.from({ length: raceCount }, (_, i) => !hiddenGroups.has(`race_${i + 1}`)).every(v => v) &&
-      !hiddenGroups.has('__show_all') &&
-      !hiddenGroups.has('__positions_only') &&
-      !hiddenGroups.has('__points_only') &&
-      !hiddenGroups.has('__time_only');
-    
     if (allGroupsVisible && hiddenGroups.size > 0) {
       setHiddenGroups(new Set(['__show_all']));
       saveSettings({ hiddenGroups: ['__show_all'] });
     }
-  }, [hiddenGroups, raceCount]);
+  }, [allGroupsVisible, hiddenGroups.size]);
 
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
   Promise.resolve().then(() => { onPilotCount?.(autoTotalPilots); onAutoGroups?.(autoGroupsByQuali); });
