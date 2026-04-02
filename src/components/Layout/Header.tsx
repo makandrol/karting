@@ -122,10 +122,10 @@ export default function Header() {
   }
 
   return (
-    <header className="bg-dark-900/80 backdrop-blur-md border-b border-dark-800 z-[100]">
+    <header className="bg-dark-900/80 backdrop-blur-md border-b border-dark-800 z-[100] overflow-x-hidden">
       <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
-        <div className="flex items-center h-12 gap-1">
-          {/* Nav items — always visible, scrollable on small screens */}
+        <div className="flex items-center h-12 gap-1 overflow-x-auto scrollbar-none">
+          {/* Nav items — scrollable on small screens */}
           <nav className="flex items-center gap-0.5 flex-shrink-0">
             {mainPages.map(page => (
               <Link
