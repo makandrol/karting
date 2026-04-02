@@ -601,7 +601,7 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
 
       {/* Groups */}
       <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
-        <span title="Групи">🎯</span>
+        <span title="Групи">🔢</span>
         {canManage ? (
           <input type="text" inputMode="numeric"
             value={effectiveGroups}
