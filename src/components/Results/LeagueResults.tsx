@@ -615,8 +615,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 </tr>
                 <tr className="bg-dark-800/20">
                   {Array.from({ length: raceCount }, (_, i) => {
-                    const visible = showAll || showEditsOnly || showPointsOnly || showRace(i + 1);
-                    if (!visible || showEditsOnly || showPointsOnly) return null;
+                    const visible = showAll || showEditsOnly || showPointsOnly || showTimeOnly || showRace(i + 1);
+                    if (!visible || showEditsOnly || showPointsOnly || showTimeOnly) return null;
                     return (
                       <Fragment key={i}>
                         <th className={TH_V}><span className={TH_R}>Позиція</span></th>
