@@ -570,7 +570,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 </tr>
                 <tr className="bg-dark-800/30">
                   {(showAll || showPointsOnly || showTimeOnly || (!showEditsOnly && showQuali)) && (<>
-                    {!showPointsOnly && !showTimeOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>}
+                    {!showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>}
                     {!showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>}
                     {!showTimeOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Бали</span></th>}
                   </>)}
