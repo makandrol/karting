@@ -571,7 +571,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 <tr className="bg-dark-800/30">
                   {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && (<>
                     {!showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>}
-                    {!showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>}
+                    {!showPointsOnly && <th rowSpan={2} className={`${TH_V} ${showTimeOnly ? 'border-r-2 border-dark-600' : ''}`}><span className={TH_R}>Час</span></th>}
                     {!showTimeOnly && !showPointsOnly && <th rowSpan={2} className={`${TH_V} border-r-2 border-dark-600`}><span className={TH_R}>Бали</span></th>}
                   </>)}
                   {Array.from({ length: raceCount }, (_, i) => {
