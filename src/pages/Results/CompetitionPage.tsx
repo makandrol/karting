@@ -179,7 +179,7 @@ export default function CompetitionPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-white">{competition.name.replace(/,?\s*Тр\.\s*\d+/, '')}</h1>
+            <h1 className="text-xl font-bold text-white">{getCompetitionDisplayName(competition).replace(/,?\s*Траса\s*\d+/, '')}</h1>
             <select
               value={trackId ?? ''}
               onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
@@ -802,6 +802,20 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
   );
 }
 
+function getCompetitionDisplayName(c: Competition): string {
+  let name = c.name.replace(/Тр\.\s*/g, 'Траса ');
+  if (c.sessions.length > 0) {
+    const firstSid = c.sessions[0].sessionId;
+    const m = firstSid.match(/session-(\d+)/);
+    if (m) {
+      const d = new Date(parseInt(m[1]));
+      const realDate = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getFullYear()).slice(2)}`;
+      name = name.replace(/\d{2}\.\d{2}\.\d{2}/, realDate);
+    }
+  }
+  return name;
+}
+
 function CompetitionListItem({ competition: c, type }: { competition: Competition; type: string }) {
   let top3: { pilot: string; totalPoints: number }[] = [];
   try {
@@ -817,7 +831,7 @@ function CompetitionListItem({ competition: c, type }: { competition: Competitio
       className="card p-4 block hover:bg-dark-700/50 transition-colors">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="text-white font-medium truncate">{c.name.replace(/Тр\.\s*/g, 'Траса ')}</div>
+          <div className="text-white font-medium truncate">{getCompetitionDisplayName(c)}</div>
           {top3.length > 0 && (
             <div className="flex flex-col shrink-0">
               {top3.map((p, i) => (
