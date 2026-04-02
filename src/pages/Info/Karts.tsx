@@ -33,7 +33,15 @@ function loadFilters() {
   try { const s = localStorage.getItem(LS_KARTS_FILTERS); if (s) return JSON.parse(s); } catch {} return null;
 }
 function loadSelectedDates(): Set<string> {
-  try { const s = localStorage.getItem(LS_KARTS_SELECTED_DATES); if (s) return new Set(JSON.parse(s)); } catch {} return new Set();
+  try {
+    const s = localStorage.getItem(LS_KARTS_SELECTED_DATES);
+    if (s) {
+      const { value, expiresAt } = JSON.parse(s);
+      if (expiresAt && Date.now() > expiresAt) { localStorage.removeItem(LS_KARTS_SELECTED_DATES); return new Set(); }
+      if (Array.isArray(value)) return new Set(value);
+      if (Array.isArray(JSON.parse(s))) return new Set(JSON.parse(s));
+    }
+  } catch {} return new Set();
 }
 
 function fmtTime(ms: number): string {
@@ -72,7 +80,8 @@ export default function Karts() {
   });
 
   useEffect(() => {
-    localStorage.setItem(LS_KARTS_SELECTED_DATES, JSON.stringify([...selectedDates]));
+    const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+    localStorage.setItem(LS_KARTS_SELECTED_DATES, JSON.stringify({ value: [...selectedDates], expiresAt: endOfDay.getTime() }));
   }, [selectedDates]);
 
   const handleToggleDate = useCallback((date: string) => {

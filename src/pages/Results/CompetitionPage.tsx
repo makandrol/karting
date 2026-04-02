@@ -754,21 +754,59 @@ function getWeekDays(monday: Date): string[] {
   }).filter(d => d <= todayStr);
 }
 
+const MONTH_NAMES = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
+
+function getWeeksInMonth(year: number, month: number): string[][] {
+  const todayStr = localDateStr(new Date());
+  const firstDay = new Date(year, month, 1);
+  const monday = getMonday(firstDay);
+  const weeks: string[][] = [];
+  for (let w = 0; w < 6; w++) {
+    const weekStart = new Date(monday);
+    weekStart.setDate(weekStart.getDate() + w * 7);
+    const days = getWeekDays(weekStart).filter(d => {
+      const dd = new Date(d + 'T00:00:00');
+      return dd.getMonth() === month && d <= todayStr;
+    });
+    if (days.length > 0) weeks.push(days);
+  }
+  return weeks;
+}
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function loadWithExpiry(storage: Storage, key: string): any {
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return null;
+    const { value, expiresAt } = JSON.parse(raw);
+    if (expiresAt && Date.now() > expiresAt) { storage.removeItem(key); return null; }
+    return value;
+  } catch { return null; }
+}
+
+function saveWithExpiry(storage: Storage, key: string, value: any) {
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+  try { storage.setItem(key, JSON.stringify({ value, expiresAt: endOfDay.getTime() })); } catch {}
+}
+
 function CompetitionList({ competitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
   const { user } = useAuth();
   const storage = user ? localStorage : sessionStorage;
-  const STORAGE_KEY = 'karting_competition_filters';
 
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => {
     if (initialFilter) return new Set([initialFilter]);
-    try {
-      const saved = storage.getItem(STORAGE_KEY);
-      if (saved) {
-        const arr = JSON.parse(saved);
-        if (Array.isArray(arr) && arr.length > 0) return new Set(arr);
-      }
-    } catch {}
+    const saved = loadWithExpiry(storage, 'karting_comp_filters');
+    if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
     return new Set(FORMAT_FILTERS.map(f => f.key));
+  });
+
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>(() => {
+    const saved = loadWithExpiry(storage, 'karting_comp_sort');
+    return saved === 'asc' ? 'asc' : 'desc';
   });
 
   const compDates = useMemo(() => {
@@ -776,84 +814,6 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
     for (const c of competitions) map.set(c.id, getCompRealDate(c));
     return map;
   }, [competitions]);
-
-  const dateCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const c of competitions) {
-      const d = compDates.get(c.id) || '';
-      if (d) counts[d] = (counts[d] || 0) + 1;
-    }
-    return counts;
-  }, [competitions, compDates]);
-
-  const thisMonday = getMonday(new Date());
-  const prevMonday = new Date(thisMonday);
-  prevMonday.setDate(prevMonday.getDate() - 7);
-  const thisWeekDays = getWeekDays(thisMonday);
-  const prevWeekDays = getWeekDays(prevMonday);
-
-  const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
-    try {
-      const saved = storage.getItem('karting_competition_dates');
-      if (saved) {
-        const arr = JSON.parse(saved);
-        if (Array.isArray(arr) && arr.length > 0) return new Set(arr);
-      }
-    } catch {}
-    return new Set(thisWeekDays.filter(d => dateCounts[d]));
-  });
-
-  useEffect(() => {
-    if (selectedDates.size === 0 && Object.keys(dateCounts).length > 0) {
-      const withData = thisWeekDays.filter(d => dateCounts[d]);
-      if (withData.length > 0) setSelectedDates(new Set(withData));
-    }
-  }, [dateCounts]);
-
-  const saveDates = (dates: Set<string>) => {
-    try { storage.setItem('karting_competition_dates', JSON.stringify([...dates])); } catch {}
-  };
-
-  const toggleDate = (d: string) => {
-    setSelectedDates(prev => {
-      const n = new Set(prev);
-      n.has(d) ? n.delete(d) : n.add(d);
-      saveDates(n);
-      return n;
-    });
-  };
-
-  const [prevWeekOpen, setPrevWeekOpen] = useState(() => [...selectedDates].some(d => new Set(prevWeekDays).has(d)));
-
-  const saveFilters = (filters: Set<string>) => {
-    try { storage.setItem(STORAGE_KEY, JSON.stringify([...filters])); } catch {}
-  };
-
-  const toggleFilter = (key: string) => {
-    setActiveFilters(prev => {
-      const n = new Set(prev);
-      if (n.has(key)) {
-        n.delete(key);
-        if (n.size === 0) { saveFilters(new Set(FORMAT_FILTERS.map(f => f.key))); return new Set(FORMAT_FILTERS.map(f => f.key)); }
-      } else {
-        n.add(key);
-      }
-      saveFilters(n);
-      return n;
-    });
-  };
-
-  const allActive = activeFilters.size === FORMAT_FILTERS.length;
-  const toggleAll = () => { const all = new Set(FORMAT_FILTERS.map(f => f.key)); setActiveFilters(all); saveFilters(all); };
-
-  const filtered = competitions
-    .filter(c => activeFilters.has(c.format))
-    .filter(c => selectedDates.size === 0 || selectedDates.has(compDates.get(c.id) || ''))
-    .sort((a, b) => {
-      if (a.status === 'live' && b.status !== 'live') return -1;
-      if (a.status !== 'live' && b.status === 'live') return 1;
-      return (compDates.get(b.id) || '').localeCompare(compDates.get(a.id) || '');
-    });
 
   const dateCompNames = useMemo(() => {
     const map: Record<string, string[]> = {};
@@ -868,7 +828,63 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
     return map;
   }, [competitions, compDates]);
 
-  const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+  const allCompDates = useMemo(() => [...new Set(competitions.map(c => compDates.get(c.id) || '').filter(Boolean))].sort().reverse(), [competitions, compDates]);
+
+  const thisMonday = getMonday(new Date());
+  const prevMonday = new Date(thisMonday);
+  prevMonday.setDate(prevMonday.getDate() - 7);
+  const thisWeekDays = getWeekDays(thisMonday);
+  const prevWeekDays = getWeekDays(prevMonday);
+  const todayStr = localDateStr(new Date());
+
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
+    const saved = loadWithExpiry(storage, 'karting_comp_dates');
+    if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
+    const withData = thisWeekDays.filter(d => dateCompNames[d]);
+    return new Set(withData.length > 0 ? withData : []);
+  });
+
+  useEffect(() => {
+    if (selectedDates.size === 0 && allCompDates.length > 0) {
+      const withData = thisWeekDays.filter(d => dateCompNames[d]);
+      if (withData.length > 0) setSelectedDates(new Set(withData));
+    }
+  }, [dateCompNames]);
+
+  const saveDates = (dates: Set<string>) => saveWithExpiry(storage, 'karting_comp_dates', [...dates]);
+  const toggleDate = (d: string) => {
+    setSelectedDates(prev => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); saveDates(n); return n; });
+  };
+  const selectDates = (dates: string[]) => {
+    setSelectedDates(prev => { const n = new Set(prev); dates.forEach(d => n.add(d)); saveDates(n); return n; });
+  };
+
+  const [prevWeekOpen, setPrevWeekOpen] = useState(() => [...selectedDates].some(d => new Set(prevWeekDays).has(d)));
+  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+
+  const saveFilters = (filters: Set<string>) => saveWithExpiry(storage, 'karting_comp_filters', [...filters]);
+  const toggleFilter = (key: string) => {
+    setActiveFilters(prev => {
+      const n = new Set(prev);
+      if (n.has(key)) { n.delete(key); if (n.size === 0) { saveFilters(new Set(FORMAT_FILTERS.map(f => f.key))); return new Set(FORMAT_FILTERS.map(f => f.key)); } }
+      else n.add(key);
+      saveFilters(n); return n;
+    });
+  };
+  const allActive = activeFilters.size === FORMAT_FILTERS.length;
+  const toggleAll = () => { const all = new Set(FORMAT_FILTERS.map(f => f.key)); setActiveFilters(all); saveFilters(all); };
+  const toggleSort = () => { const next = sortDir === 'desc' ? 'asc' : 'desc'; setSortDir(next); saveWithExpiry(storage, 'karting_comp_sort', next); };
+
+  const filtered = competitions
+    .filter(c => activeFilters.has(c.format))
+    .filter(c => selectedDates.size === 0 || selectedDates.has(compDates.get(c.id) || ''))
+    .sort((a, b) => {
+      if (a.status === 'live' && b.status !== 'live') return -1;
+      if (a.status !== 'live' && b.status === 'live') return 1;
+      const cmp = (compDates.get(a.id) || '').localeCompare(compDates.get(b.id) || '');
+      return sortDir === 'desc' ? -cmp : cmp;
+    });
 
   const DateBtn = ({ d }: { d: string }) => {
     const isToday = d === todayStr;
@@ -888,34 +904,110 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
         }`}
       >
         <span>{label}</span>
-        {hasData && <span className={`text-[9px] ${isActive ? 'text-white/70' : 'text-dark-500'}`}>{names.join(', ')}</span>}
+        <span className={`text-[9px] ${isActive ? 'text-white/70' : 'text-dark-500'}`}>{hasData ? names.join(', ') : '–'}</span>
       </button>
     );
   };
+
+  const SelectAllBtn = ({ dates }: { dates: string[] }) => {
+    const withData = dates.filter(d => dateCompNames[d]);
+    const notSelected = withData.filter(d => !selectedDates.has(d));
+    if (notSelected.length === 0) return null;
+    return (
+      <button onClick={(e) => { e.stopPropagation(); selectDates(withData); }}
+        className="bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 text-[11px] font-bold rounded px-1.5 py-0.5 transition-colors ml-1.5 leading-none">
+        +{notSelected.length}
+      </button>
+    );
+  };
+
+  const yearMonths = useMemo(() => {
+    const map = new Map<string, Set<number>>();
+    for (const d of allCompDates) {
+      const thisSet = new Set(thisWeekDays);
+      const prevSet = new Set(prevWeekDays);
+      if (thisSet.has(d) || prevSet.has(d)) continue;
+      const y = d.slice(0, 4);
+      const m = parseInt(d.slice(5, 7)) - 1;
+      if (!map.has(y)) map.set(y, new Set());
+      map.get(y)!.add(m);
+    }
+    return map;
+  }, [allCompDates]);
+
+  const thisWeekWithData = thisWeekDays.filter(d => dateCompNames[d]);
+  const prevWeekWithData = prevWeekDays.filter(d => dateCompNames[d]);
 
   return (
     <div className="space-y-4">
       <div className="card p-3 space-y-3">
         <div>
-          <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5">Цей тиждень</div>
+          <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 flex items-center">
+            Цей тиждень
+            <SelectAllBtn dates={thisWeekDays} />
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {thisWeekDays.map(d => <DateBtn key={d} d={d} />)}
           </div>
         </div>
-        <div>
-          <button onClick={() => setPrevWeekOpen(v => !v)}
-            className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors">
-            <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>&#9654;</span>
-            Попередній тиждень
-          </button>
-          {prevWeekOpen && (
-            <div className="flex flex-wrap gap-1.5">
-              {prevWeekDays.map(d => <DateBtn key={d} d={d} />)}
+        {prevWeekDays.length > 0 && (
+          <div>
+            <button onClick={() => setPrevWeekOpen(v => !v)}
+              className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors">
+              <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>&#9654;</span>
+              Попередній тиждень
+              <SelectAllBtn dates={prevWeekDays} />
+            </button>
+            {prevWeekOpen && (
+              <div className="flex flex-wrap gap-1.5">
+                {prevWeekDays.map(d => <DateBtn key={d} d={d} />)}
+              </div>
+            )}
+          </div>
+        )}
+        {[...yearMonths.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => {
+          const yearDates = allCompDates.filter(d => d.startsWith(year) && !new Set(thisWeekDays).has(d) && !new Set(prevWeekDays).has(d));
+          return (
+            <div key={year}>
+              <button onClick={() => { const n = new Set(expandedYears); n.has(year) ? n.delete(year) : n.add(year); setExpandedYears(n); }}
+                className="flex items-center gap-1.5 text-dark-300 hover:text-white text-xs font-medium transition-colors">
+                <span className={`text-[10px] transition-transform ${expandedYears.has(year) ? 'rotate-90' : ''}`}>&#9654;</span>
+                {year}
+                <SelectAllBtn dates={yearDates} />
+              </button>
+              {expandedYears.has(year) && (
+                <div className="ml-4 mt-1 space-y-2">
+                  {[...months].sort((a, b) => b - a).map(month => {
+                    const monthKey = `${year}-${month}`;
+                    const weeks = getWeeksInMonth(parseInt(year), month);
+                    const monthDates = yearDates.filter(d => d.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`));
+                    return (
+                      <div key={monthKey}>
+                        <button onClick={() => { const n = new Set(expandedMonths); n.has(monthKey) ? n.delete(monthKey) : n.add(monthKey); setExpandedMonths(n); }}
+                          className="flex items-center gap-1.5 text-dark-400 hover:text-white text-xs transition-colors">
+                          <span className={`text-[8px] transition-transform ${expandedMonths.has(monthKey) ? 'rotate-90' : ''}`}>&#9654;</span>
+                          {MONTH_NAMES[month]}
+                          <SelectAllBtn dates={monthDates} />
+                        </button>
+                        {expandedMonths.has(monthKey) && (
+                          <div className="ml-3 mt-1 space-y-1">
+                            {weeks.map((weekDays, wi) => (
+                              <div key={wi} className="flex flex-wrap gap-1.5">
+                                {weekDays.map(d => <DateBtn key={d} d={d} />)}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })}
       </div>
-      <div className="flex gap-1 flex-wrap">
+      <div className="flex gap-1 flex-wrap items-center">
         <button onClick={toggleAll}
           className={`px-2 py-1 rounded text-xs font-medium transition-colors ${allActive ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
           Все
@@ -926,6 +1018,10 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
             {f.label}
           </button>
         ))}
+        <button onClick={toggleSort}
+          className="px-2 py-1 rounded text-xs font-medium bg-dark-800 text-dark-500 hover:text-dark-300 transition-colors ml-1">
+          Дата {sortDir === 'desc' ? '↓' : '↑'}
+        </button>
       </div>
       {filtered.length === 0 ? (
         <div className="card text-center py-12 text-dark-500">Немає змагань</div>
