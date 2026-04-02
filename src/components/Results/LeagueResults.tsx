@@ -147,6 +147,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const editingRef = useRef(false);
+  const [selectedPilot, setSelectedPilot] = useState<string | null>(null);
 
   const [pilotsOverride, setPilotsOverride] = useState<number | null>(totalPilotsOverride ?? null);
   const [pilotsLocked, setPilotsLocked] = useState(initialLocked ?? false);
@@ -710,7 +711,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     const nextGroup = nextRow?.races[0]?.group || 0;
                     const isGroupEnd = currentGroup > 0 && currentGroup !== nextGroup;
                     return (
-                    <tr key={row.pilot} className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : 'hover:bg-dark-700/30'}`}>
+                    <tr key={row.pilot} onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
+                      className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'hover:bg-dark-700/30'}`}>
                       <td className="px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700">{isExcluded ? '—' : i + 1}</td>
                       <td className="px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap">
                         {renamingPilot === row.pilot ? (

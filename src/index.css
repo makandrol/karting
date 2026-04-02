@@ -9,6 +9,7 @@
 
   body {
     @apply antialiased;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* Заборонити браузеру автоматично зміщувати скрол при зміні контенту */

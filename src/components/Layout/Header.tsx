@@ -16,6 +16,7 @@ export default function Header() {
   const { getVisiblePages } = usePageVisibility();
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const dropdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dropdownPosRef = useRef<{ top: number; left: number; right: number }>({ top: 0, left: 0, right: 0 });
 
   const role = user?.role ?? 'user';
   const mainPages = getVisiblePages('main', role);
@@ -69,10 +70,20 @@ export default function Header() {
   }) {
     if (items.length === 0) return null;
     const active = isGroupActive(items.map(i => i.path));
+    const btnRef = useRef<HTMLButtonElement>(null);
+    const isOpen = openDropdown === id;
+    const handleOpen = (opener: (id: string) => void) => {
+      if (btnRef.current) {
+        const r = btnRef.current.getBoundingClientRect();
+        dropdownPosRef.current = { top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right };
+      }
+      opener(id);
+    };
     return (
-      <div data-dropdown className="relative" onMouseEnter={() => openDd(id)} onMouseLeave={closeDd}>
+      <div data-dropdown onMouseEnter={() => handleOpen(openDd)} onMouseLeave={closeDd}>
         <button
-          onClick={() => toggleDd(id)}
+          ref={btnRef}
+          onClick={() => handleOpen(toggleDd)}
           className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
             active ? 'text-white bg-primary-600' : 'text-dark-300 hover:text-white hover:bg-dark-800'
           }`}
@@ -80,8 +91,9 @@ export default function Header() {
           {label}
           <ChevronDown />
         </button>
-        {openDropdown === id && (
-          <div className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} mt-1 w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50`}>
+        {isOpen && (
+          <div className="fixed w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
+            style={align === 'right' ? { top: dropdownPosRef.current.top, right: dropdownPosRef.current.right } : { top: dropdownPosRef.current.top, left: dropdownPosRef.current.left }}>
             {items.map(item => {
               const isLiveItem = item.path === '/results/current';
               const hasActiveLive = !!activeCompName;
@@ -124,8 +136,7 @@ export default function Header() {
   return (
     <header className="bg-dark-900/80 backdrop-blur-md border-b border-dark-800 z-[100]">
       <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
-        <div className="flex items-center h-12 gap-1">
-          {/* Nav items — scrollable on small screens */}
+        <div className="flex items-center h-12 gap-1 overflow-x-auto scrollbar-none">
           <nav className="flex items-center gap-0.5 flex-shrink-0">
             {mainPages.map(page => (
               <Link
@@ -155,32 +166,7 @@ export default function Header() {
           {/* Auth — always visible */}
           <div className="flex items-center flex-shrink-0">
             {user ? (
-              <div data-dropdown className="relative" onMouseEnter={() => openDd('user')} onMouseLeave={closeDd}>
-                <button
-                  onClick={() => toggleDd('user')}
-                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-dark-300 hover:text-white hover:bg-dark-800 transition-colors whitespace-nowrap"
-                >
-                  {user.photo ? (
-                    <img src={user.photo} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
-                  ) : (
-                    <span>{ROLE_ICONS[user.role]}</span>
-                  )}
-                  <span className="max-w-[80px] truncate hidden sm:inline">{user.name}</span>
-                </button>
-                {openDropdown === 'user' && (
-                  <div className="absolute top-full right-0 mt-1 w-44 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-50">
-                    <Link to="/login" className="block px-4 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
-                      Профіль
-                    </Link>
-                    <button
-                      onClick={logout}
-                      className="block w-full text-left px-4 py-2 text-sm text-dark-300 hover:text-red-400 hover:bg-dark-800 transition-colors"
-                    >
-                      Вийти
-                    </button>
-                  </div>
-                )}
-              </div>
+              <UserDropdown user={user} openDropdown={openDropdown} openDd={openDd} closeDd={closeDd} toggleDd={toggleDd} logout={logout} dropdownPosRef={dropdownPosRef} />
             ) : (
               <Link to="/login" className="px-2 py-1.5 rounded-lg text-xs text-dark-400 hover:text-white whitespace-nowrap">
                 Вхід
@@ -190,5 +176,48 @@ export default function Header() {
         </div>
       </div>
     </header>
+  );
+}
+
+function UserDropdown({ user, openDropdown, openDd, closeDd, toggleDd, logout, dropdownPosRef }: {
+  user: { photo?: string | null; name: string; role: string };
+  openDropdown: string | null;
+  openDd: (id: string) => void; closeDd: () => void; toggleDd: (id: string) => void;
+  logout: () => void;
+  dropdownPosRef: React.MutableRefObject<{ top: number; left: number; right: number }>;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const isOpen = openDropdown === 'user';
+  const handleOpen = (opener: (id: string) => void) => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      dropdownPosRef.current = { top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right };
+    }
+    opener('user');
+  };
+  return (
+    <div data-dropdown onMouseEnter={() => handleOpen(openDd)} onMouseLeave={closeDd}>
+      <button ref={btnRef} onClick={() => handleOpen(toggleDd)}
+        className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-dark-300 hover:text-white hover:bg-dark-800 transition-colors whitespace-nowrap">
+        {user.photo ? (
+          <img src={user.photo} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
+        ) : (
+          <span>{ROLE_ICONS[user.role as keyof typeof ROLE_ICONS]}</span>
+        )}
+        <span className="max-w-[80px] truncate hidden sm:inline">{user.name}</span>
+      </button>
+      {isOpen && (
+        <div className="fixed w-44 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
+          style={{ top: dropdownPosRef.current.top, right: dropdownPosRef.current.right }}>
+          <Link to="/login" className="block px-4 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
+            Профіль
+          </Link>
+          <button onClick={logout}
+            className="block w-full text-left px-4 py-2 text-sm text-dark-300 hover:text-red-400 hover:bg-dark-800 transition-colors">
+            Вийти
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
