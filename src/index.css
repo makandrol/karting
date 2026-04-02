@@ -3,9 +3,12 @@
 @tailwind utilities;
 
 @layer base {
+  html, body {
+    overflow-x: hidden;
+  }
+
   body {
     @apply antialiased;
-    overflow-x: hidden;
   }
 
   /* Заборонити браузеру автоматично зміщувати скрол при зміні контенту */
