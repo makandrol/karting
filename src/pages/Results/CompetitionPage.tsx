@@ -726,6 +726,34 @@ const FORMAT_FILTERS: { key: string; label: string }[] = [
   { key: 'marathon', label: 'Марафони' },
 ];
 
+const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+function getCompRealDate(c: Competition): string {
+  if (c.sessions.length > 0) {
+    const m = c.sessions[0].sessionId.match(/session-(\d+)/);
+    if (m) {
+      const d = new Date(parseInt(m[1]));
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+  }
+  return c.date || '';
+}
+
+function getMonday(d: Date): Date {
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.getFullYear(), d.getMonth(), diff);
+}
+
+function getWeekDays(monday: Date): string[] {
+  const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + i);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }).filter(d => d <= todayStr);
+}
+
 function CompetitionList({ competitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
   const { user } = useAuth();
   const storage = user ? localStorage : sessionStorage;
@@ -742,6 +770,60 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
     } catch {}
     return new Set(FORMAT_FILTERS.map(f => f.key));
   });
+
+  const compDates = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of competitions) map.set(c.id, getCompRealDate(c));
+    return map;
+  }, [competitions]);
+
+  const dateCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of competitions) {
+      const d = compDates.get(c.id) || '';
+      if (d) counts[d] = (counts[d] || 0) + 1;
+    }
+    return counts;
+  }, [competitions, compDates]);
+
+  const thisMonday = getMonday(new Date());
+  const prevMonday = new Date(thisMonday);
+  prevMonday.setDate(prevMonday.getDate() - 7);
+  const thisWeekDays = getWeekDays(thisMonday);
+  const prevWeekDays = getWeekDays(prevMonday);
+
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
+    try {
+      const saved = storage.getItem('karting_competition_dates');
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr) && arr.length > 0) return new Set(arr);
+      }
+    } catch {}
+    return new Set(thisWeekDays.filter(d => dateCounts[d]));
+  });
+
+  useEffect(() => {
+    if (selectedDates.size === 0 && Object.keys(dateCounts).length > 0) {
+      const withData = thisWeekDays.filter(d => dateCounts[d]);
+      if (withData.length > 0) setSelectedDates(new Set(withData));
+    }
+  }, [dateCounts]);
+
+  const saveDates = (dates: Set<string>) => {
+    try { storage.setItem('karting_competition_dates', JSON.stringify([...dates])); } catch {}
+  };
+
+  const toggleDate = (d: string) => {
+    setSelectedDates(prev => {
+      const n = new Set(prev);
+      n.has(d) ? n.delete(d) : n.add(d);
+      saveDates(n);
+      return n;
+    });
+  };
+
+  const [prevWeekOpen, setPrevWeekOpen] = useState(() => [...selectedDates].some(d => new Set(prevWeekDays).has(d)));
 
   const saveFilters = (filters: Set<string>) => {
     try { storage.setItem(STORAGE_KEY, JSON.stringify([...filters])); } catch {}
@@ -766,28 +848,71 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
 
   const filtered = competitions
     .filter(c => activeFilters.has(c.format))
+    .filter(c => selectedDates.size === 0 || selectedDates.has(compDates.get(c.id) || ''))
     .sort((a, b) => {
       if (a.status === 'live' && b.status !== 'live') return -1;
       if (a.status !== 'live' && b.status === 'live') return 1;
-      return (b.date || '').localeCompare(a.date || '');
+      return (compDates.get(b.id) || '').localeCompare(compDates.get(a.id) || '');
     });
+
+  const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+
+  const DateBtn = ({ d }: { d: string }) => {
+    const isToday = d === todayStr;
+    const count = dateCounts[d] || 0;
+    const hasData = count > 0;
+    const isActive = selectedDates.has(d);
+    const dayDate = new Date(d + 'T00:00:00');
+    const label = `${DAY_NAMES[dayDate.getDay()]} ${String(dayDate.getDate()).padStart(2, '0')}.${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
+    return (
+      <button
+        onClick={() => hasData && toggleDate(d)}
+        className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+          isActive ? 'bg-primary-600 text-white ring-1 ring-primary-400' :
+          isToday ? 'bg-primary-600/20 text-primary-400' :
+          hasData ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
+          'bg-dark-900 text-dark-700 cursor-default'
+        }`}
+      >
+        <span>{label}</span>
+        {hasData && <span className={`text-[9px] font-mono ${isActive ? 'text-white/70' : 'text-dark-500'}`}>{count}</span>}
+      </button>
+    );
+  };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        <h1 className="text-xl font-bold text-white">Змагання</h1>
-        <div className="flex gap-1 flex-wrap">
-          <button onClick={toggleAll}
-            className={`px-2 py-1 rounded text-xs font-medium transition-colors ${allActive ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
-            Все
-          </button>
-          {FORMAT_FILTERS.map(f => (
-            <button key={f.key} onClick={() => toggleFilter(f.key)}
-              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${activeFilters.has(f.key) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
-              {f.label}
-            </button>
-          ))}
+      <div className="card p-3 space-y-3">
+        <div>
+          <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5">Цей тиждень</div>
+          <div className="flex flex-wrap gap-1.5">
+            {thisWeekDays.map(d => <DateBtn key={d} d={d} />)}
+          </div>
         </div>
+        <div>
+          <button onClick={() => setPrevWeekOpen(v => !v)}
+            className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors">
+            <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>&#9654;</span>
+            Попередній тиждень
+          </button>
+          {prevWeekOpen && (
+            <div className="flex flex-wrap gap-1.5">
+              {prevWeekDays.map(d => <DateBtn key={d} d={d} />)}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex gap-1 flex-wrap">
+        <button onClick={toggleAll}
+          className={`px-2 py-1 rounded text-xs font-medium transition-colors ${allActive ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+          Все
+        </button>
+        {FORMAT_FILTERS.map(f => (
+          <button key={f.key} onClick={() => toggleFilter(f.key)}
+            className={`px-2 py-1 rounded text-xs font-medium transition-colors ${activeFilters.has(f.key) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
+            {f.label}
+          </button>
+        ))}
       </div>
       {filtered.length === 0 ? (
         <div className="card text-center py-12 text-dark-500">Немає змагань</div>
