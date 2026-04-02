@@ -622,7 +622,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         <th className={TH_V}><span className={TH_R}>Позиція</span></th>
                         <th className={TH_V}><span className={TH_R}>Обгони</span></th>
                         <th className={TH_V}><span className={TH_R}>Штрафи</span></th>
-                        <th className={TH_V}><span className={TH_R}>Сума</span></th>
+                        <th className={`${TH_V} border-r-2 border-dark-600`}><span className={TH_R}>Сума</span></th>
                       </Fragment>
                     );
                   })}
@@ -685,7 +685,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     <td className="px-1 py-1 text-center font-mono text-green-400 font-bold border-r border-dark-700">{row.totalPoints || '—'}</td>
                     {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && (<>
                       {!showPointsOnly && <td className="px-1 py-1 text-center font-mono text-blue-400/70 border-r border-dark-700/30">{row.quali?.kart || '—'}</td>}
-                      {!showPointsOnly && <td className="px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30">{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>}
+                      {!showPointsOnly && <td className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${showTimeOnly ? 'border-r-2 border-dark-600' : 'border-r border-dark-700/30'}`}>{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>}
                       {!showTimeOnly && <td className="px-1 py-1 text-center font-mono border-r-2 border-dark-600">{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                     </>)}
                     {row.races.map((race, ri) => {
