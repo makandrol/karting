@@ -72,17 +72,17 @@ export default function Header() {
     const btnRef = useRef<HTMLButtonElement>(null);
     const [pos, setPos] = useState<{ top: number; left: number; right: number }>({ top: 0, left: 0, right: 0 });
     const isOpen = openDropdown === id;
-    useEffect(() => {
-      if (isOpen && btnRef.current) {
+    const updatePos = () => {
+      if (btnRef.current) {
         const r = btnRef.current.getBoundingClientRect();
         setPos({ top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right });
       }
-    }, [isOpen]);
+    };
     return (
-      <div data-dropdown onMouseEnter={() => openDd(id)} onMouseLeave={closeDd}>
+      <div data-dropdown onMouseEnter={() => { updatePos(); openDd(id); }} onMouseLeave={closeDd}>
         <button
           ref={btnRef}
-          onClick={() => toggleDd(id)}
+          onClick={() => { updatePos(); toggleDd(id); }}
           className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
             active ? 'text-white bg-primary-600' : 'text-dark-300 hover:text-white hover:bg-dark-800'
           }`}
@@ -187,15 +187,15 @@ function UserDropdown({ user, openDropdown, openDd, closeDd, toggleDd, logout }:
   const btnRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
   const isOpen = openDropdown === 'user';
-  useEffect(() => {
-    if (isOpen && btnRef.current) {
+  const updatePos = () => {
+    if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
       setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
     }
-  }, [isOpen]);
+  };
   return (
-    <div data-dropdown onMouseEnter={() => openDd('user')} onMouseLeave={closeDd}>
-      <button ref={btnRef} onClick={() => toggleDd('user')}
+    <div data-dropdown onMouseEnter={() => { updatePos(); openDd('user'); }} onMouseLeave={closeDd}>
+      <button ref={btnRef} onClick={() => { updatePos(); toggleDd('user'); }}
         className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-dark-300 hover:text-white hover:bg-dark-800 transition-colors whitespace-nowrap">
         {user.photo ? (
           <img src={user.photo} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
