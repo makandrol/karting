@@ -572,7 +572,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && (<>
                     {!showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>}
                     {!showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>}
-                    {!showTimeOnly && !showPointsOnly && <th rowSpan={2} className={TH_V}><span className={TH_R}>Бали</span></th>}
+                    {!showTimeOnly && !showPointsOnly && <th rowSpan={2} className={`${TH_V} border-r-2 border-dark-600`}><span className={TH_R}>Бали</span></th>}
                   </>)}
                   {Array.from({ length: raceCount }, (_, i) => {
                     const visible = showAll || showEditsOnly || showPointsOnly || showTimeOnly || showRace(i + 1);
@@ -582,7 +582,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Старт</span></th>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Фініш</span></th>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Штрафи</span></th>
-                        <th rowSpan={2} className={TH_V}><span className={TH_R}>Сума</span></th>
+                        <th rowSpan={2} className={`${TH_V} border-r-2 border-dark-600`}><span className={TH_R}>Сума</span></th>
                       </Fragment>
                     );
                     if (showPointsOnly) return (
@@ -591,13 +591,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Позиція</span></th>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Обгони</span></th>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Штрафи</span></th>
-                        <th rowSpan={2} className={TH_V}><span className={TH_R}>Сума</span></th>
+                        <th rowSpan={2} className={`${TH_V} border-r-2 border-dark-600`}><span className={TH_R}>Сума</span></th>
                       </Fragment>
                     );
                     if (showTimeOnly) return (
                       <Fragment key={i}>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>
-                        <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>
+                        <th rowSpan={2} className={`${TH_V} border-r-2 border-dark-600`}><span className={TH_R}>Час</span></th>
                       </Fragment>
                     );
                     return (
@@ -608,7 +608,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Група</span></th>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Старт</span></th>
                         <th rowSpan={2} className={TH_V}><span className={TH_R}>Фініш</span></th>
-                        <th colSpan={4} className="px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30">Бали</th>
+                        <th colSpan={4} className={`px-1 py-0.5 text-center text-dark-500 text-[9px] border-r-2 border-dark-600 border-b border-dark-700/30`}>Бали</th>
                       </Fragment>
                     );
                   })}
