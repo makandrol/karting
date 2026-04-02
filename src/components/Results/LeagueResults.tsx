@@ -474,7 +474,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const showEditsOnly = hiddenGroups.has('__positions_only');
   const showPointsOnly = hiddenGroups.has('__points_only');
   const showTimeOnly = hiddenGroups.has('__time_only');
-  const showQuali = !hiddenGroups.has('quali') && !showTimeOnly;
+  const showQuali = !hiddenGroups.has('quali');
   const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
   const rc = showEditsOnly ? 4 : showPointsOnly ? 5 : showTimeOnly ? 2 : 10;
 
