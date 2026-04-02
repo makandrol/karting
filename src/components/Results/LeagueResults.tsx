@@ -555,7 +555,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-[10px] border-collapse">
+            <table className="text-[10px] border-collapse" style={{ tableLayout: 'auto', width: 'auto' }}>
               <thead>
                 <tr className="bg-dark-800/50">
                   <th rowSpan={3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-6">#</th>
@@ -795,7 +795,7 @@ function EditLog({ competitionId }: { competitionId: string }) {
           {log.length === 0 ? (
             <div className="px-4 py-3 text-dark-600 text-[10px]">Немає записів</div>
           ) : (
-            <table className="w-full text-[10px]">
+            <table className="text-[10px]" style={{ tableLayout: 'auto', width: 'auto' }}>
               <thead><tr className="bg-dark-800/50 sticky top-0">
                 <th className="px-2 py-1 text-left text-dark-400">Час</th>
                 <th className="px-2 py-1 text-left text-dark-400">Користувач</th>
