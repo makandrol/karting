@@ -686,7 +686,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && (<>
                       {!showPointsOnly && <td className="px-1 py-1 text-center font-mono text-blue-400/70 border-r border-dark-700/30">{row.quali?.kart || '—'}</td>}
                       {!showPointsOnly && <td className="px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30">{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>}
-                      {!showTimeOnly && <td className="px-1 py-1 text-center font-mono border-r border-dark-700">{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                      {!showTimeOnly && <td className="px-1 py-1 text-center font-mono border-r-2 border-dark-600">{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                     </>)}
                     {row.races.map((race, ri) => {
                       const visible = showAll || showEditsOnly || showPointsOnly || showTimeOnly || showRace(ri + 1);
@@ -708,7 +708,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">
                             {race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
                           </td>
-                          <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
+                          <td className="px-1 py-1 text-center font-mono font-bold border-r-2 border-dark-600">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
                         </Fragment>
                       );
                       if (showPointsOnly) return (
@@ -717,13 +717,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>}</td>
-                          <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
+                          <td className="px-1 py-1 text-center font-mono font-bold border-r-2 border-dark-600">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
                         </Fragment>
                       );
                       if (showTimeOnly) return (
                         <Fragment key={ri}>
                           <td className="px-1 py-1 text-center font-mono text-blue-400/70 border-r border-dark-700/30">{race?.kart || '—'}</td>
-                          <td className="px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30">{race ? toSeconds(race.bestTimeStr) : '—'}</td>
+                          <td className="px-1 py-1 text-center font-mono text-yellow-300/70 border-r-2 border-dark-600">{race ? toSeconds(race.bestTimeStr) : '—'}</td>
                         </Fragment>
                       );
                       return (
@@ -748,7 +748,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">
                             {race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, ri + 1, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
                           </td>
-                          <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
+                          <td className="px-1 py-1 text-center font-mono font-bold border-r-2 border-dark-600">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>
                         </Fragment>
                       );
                     })}
