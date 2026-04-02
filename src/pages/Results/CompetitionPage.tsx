@@ -98,7 +98,10 @@ export default function CompetitionPage() {
         .then(data => { setCompetitions(data); setLoading(false); })
         .catch(() => setLoading(false));
     } else {
-      setLoading(false);
+      fetch(`${COLLECTOR_URL}/competitions`)
+        .then(r => r.json())
+        .then(data => { setCompetitions(data); setLoading(false); })
+        .catch(() => setLoading(false));
     }
   }, [type, eventId]);
 
@@ -117,22 +120,12 @@ export default function CompetitionPage() {
 
   if (loading) return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
 
+  if (!eventId && !type) {
+    return <CompetitionList competitions={competitions} />;
+  }
+
   if (!eventId && type) {
-    const config = COMPETITION_CONFIGS[type as keyof typeof COMPETITION_CONFIGS];
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-white">{config?.name || type}</h1>
-        {competitions.length === 0 ? (
-          <div className="card text-center py-12 text-dark-500">Немає змагань цього типу</div>
-        ) : (
-          <div className="space-y-2">
-            {competitions.map(c => (
-              <CompetitionListItem key={c.id} competition={c} type={type} />
-            ))}
-          </div>
-        )}
-      </div>
-    );
+    return <CompetitionList competitions={competitions} initialFilter={type} />;
   }
 
   if (!competition) {
@@ -721,6 +714,74 @@ function GonzalesLiveTable({ competition, sessionLaps }: { competition: Competit
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+const FORMAT_FILTERS: { key: string; label: string }[] = [
+  { key: 'gonzales', label: 'Гонзалес' },
+  { key: 'light_league', label: 'ЛЛ' },
+  { key: 'champions_league', label: 'ЛЧ' },
+  { key: 'sprint', label: 'Спринти' },
+  { key: 'marathon', label: 'Марафони' },
+];
+
+function CompetitionList({ competitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
+  const [activeFilters, setActiveFilters] = useState<Set<string>>(() => {
+    if (initialFilter) return new Set([initialFilter]);
+    return new Set(FORMAT_FILTERS.map(f => f.key));
+  });
+
+  const toggleFilter = (key: string) => {
+    setActiveFilters(prev => {
+      const n = new Set(prev);
+      if (n.has(key)) {
+        n.delete(key);
+        if (n.size === 0) return new Set(FORMAT_FILTERS.map(f => f.key));
+      } else {
+        n.add(key);
+      }
+      return n;
+    });
+  };
+
+  const allActive = activeFilters.size === FORMAT_FILTERS.length;
+  const toggleAll = () => setActiveFilters(new Set(FORMAT_FILTERS.map(f => f.key)));
+
+  const filtered = competitions
+    .filter(c => activeFilters.has(c.format))
+    .sort((a, b) => {
+      if (a.status === 'live' && b.status !== 'live') return -1;
+      if (a.status !== 'live' && b.status === 'live') return 1;
+      return (b.date || '').localeCompare(a.date || '');
+    });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <h1 className="text-xl font-bold text-white">Змагання</h1>
+        <div className="flex gap-1 flex-wrap">
+          <button onClick={toggleAll}
+            className={`px-2 py-1 rounded text-xs font-medium transition-colors ${allActive ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+            Все
+          </button>
+          {FORMAT_FILTERS.map(f => (
+            <button key={f.key} onClick={() => toggleFilter(f.key)}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${activeFilters.has(f.key) && !allActive ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {filtered.length === 0 ? (
+        <div className="card text-center py-12 text-dark-500">Немає змагань</div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(c => (
+            <CompetitionListItem key={c.id} competition={c} type={c.format} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

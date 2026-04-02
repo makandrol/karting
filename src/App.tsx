@@ -46,7 +46,7 @@ export default function App() {
                   <Route path="/home" element={<HomePage />} />
 
                   {/* Results */}
-                  <Route path="/results" element={<Navigate to="/results/current" replace />} />
+                  <Route path="/results" element={<CompetitionPage />} />
                   <Route path="/results/current" element={<CurrentRace />} />
                   <Route path="/results/:type" element={<CompetitionPage />} />
                   <Route path="/results/:type/:eventId" element={<CompetitionPage />} />

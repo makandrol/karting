@@ -151,7 +151,14 @@ export default function Header() {
             ))}
 
             {competitionPages.length > 0 && (
-              <Dropdown id="comp" label="Змагання" items={competitionPages.map(p => ({ label: p.label, path: p.path }))} />
+              <Link
+                to="/results"
+                className={`px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                  isActive('/results') ? 'text-white bg-primary-600' : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                }`}
+              >
+                Змагання
+              </Link>
             )}
             {otherPages.length > 0 && (
               <Dropdown id="other" label="Інше" items={otherPages.map(p => ({ label: p.label, path: p.path }))} />
