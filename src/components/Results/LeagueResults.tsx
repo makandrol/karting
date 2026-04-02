@@ -470,12 +470,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
     </button>
   );
 
-  const showQuali = !hiddenGroups.has('quali');
-  const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
   const showAll = hiddenGroups.has('__show_all');
   const showEditsOnly = hiddenGroups.has('__positions_only');
   const showPointsOnly = hiddenGroups.has('__points_only');
   const showTimeOnly = hiddenGroups.has('__time_only');
+  const showQuali = !hiddenGroups.has('quali') && !showTimeOnly;
+  const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
   const rc = showEditsOnly ? 4 : showPointsOnly ? 5 : showTimeOnly ? 2 : 10;
 
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
@@ -561,7 +561,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   <th rowSpan={3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-6">#</th>
                   <th rowSpan={3} className="px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px]">Пілот</th>
                   <th rowSpan={3} className="px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10"><span className={TH_R}>Сума</span></th>
-                  {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && <th colSpan={showPointsOnly ? 1 : 3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Квала</th>}
+                  {(showAll || showPointsOnly || (!showEditsOnly && showQuali)) && <th colSpan={showPointsOnly ? 1 : showTimeOnly ? 2 : 3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Квала</th>}
                   {Array.from({ length: raceCount }, (_, i) => {
                     const visible = showAll || showEditsOnly || showPointsOnly || showTimeOnly || showRace(i + 1);
                     if (!visible) return null;
