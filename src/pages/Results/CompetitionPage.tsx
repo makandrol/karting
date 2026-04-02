@@ -727,26 +727,42 @@ const FORMAT_FILTERS: { key: string; label: string }[] = [
 ];
 
 function CompetitionList({ competitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
+  const { user } = useAuth();
+  const storage = user ? localStorage : sessionStorage;
+  const STORAGE_KEY = 'karting_competition_filters';
+
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => {
     if (initialFilter) return new Set([initialFilter]);
+    try {
+      const saved = storage.getItem(STORAGE_KEY);
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr) && arr.length > 0) return new Set(arr);
+      }
+    } catch {}
     return new Set(FORMAT_FILTERS.map(f => f.key));
   });
+
+  const saveFilters = (filters: Set<string>) => {
+    try { storage.setItem(STORAGE_KEY, JSON.stringify([...filters])); } catch {}
+  };
 
   const toggleFilter = (key: string) => {
     setActiveFilters(prev => {
       const n = new Set(prev);
       if (n.has(key)) {
         n.delete(key);
-        if (n.size === 0) return new Set(FORMAT_FILTERS.map(f => f.key));
+        if (n.size === 0) { saveFilters(new Set(FORMAT_FILTERS.map(f => f.key))); return new Set(FORMAT_FILTERS.map(f => f.key)); }
       } else {
         n.add(key);
       }
+      saveFilters(n);
       return n;
     });
   };
 
   const allActive = activeFilters.size === FORMAT_FILTERS.length;
-  const toggleAll = () => setActiveFilters(new Set(FORMAT_FILTERS.map(f => f.key)));
+  const toggleAll = () => { const all = new Set(FORMAT_FILTERS.map(f => f.key)); setActiveFilters(all); saveFilters(all); };
 
   const filtered = competitions
     .filter(c => activeFilters.has(c.format))
@@ -767,7 +783,7 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
           </button>
           {FORMAT_FILTERS.map(f => (
             <button key={f.key} onClick={() => toggleFilter(f.key)}
-              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${activeFilters.has(f.key) && !allActive ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${activeFilters.has(f.key) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
               {f.label}
             </button>
           ))}
