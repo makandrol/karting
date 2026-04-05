@@ -359,15 +359,6 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     return active?.sessionId ?? null;
   }, [scrubTime, sessionTimes]);
 
-  const scrubTableSessionId = useMemo(() => {
-    if (scrubTime === null) return null;
-    if (scrubSessionId) return scrubSessionId;
-    const lastEnded = [...sessionTimes]
-      .filter(s => s.endTime !== null && s.endTime <= scrubTime)
-      .sort((a, b) => b.endTime! - a.endTime!)[0];
-    return lastEnded?.sessionId ?? null;
-  }, [scrubTime, scrubSessionId, sessionTimes]);
-
   // Get the last active phase when scrubbing (for determining which race's start positions to show)
   const scrubActivePhase = useMemo(() => {
     if (scrubTime === null) return null;
@@ -507,10 +498,11 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         />
         <LiveSessionTable
           competition={competition}
-          liveSessionId={isScrubbing ? scrubTableSessionId : liveSessionId}
+          liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
           liveEntries={isScrubbing ? [] : liveEntries}
           liveTeams={isScrubbing ? [] : liveTeams}
           sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+          compSessions={compSessions}
           isScrubbing={isScrubbing}
         />
       </div>
@@ -1056,12 +1048,13 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
   );
 }
 
-function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, sessionLaps, isScrubbing }: {
+function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, sessionLaps, compSessions, isScrubbing }: {
   competition: Competition;
   liveSessionId: string | null;
   liveEntries: any[];
   liveTeams: any[];
   sessionLaps: Map<string, SessionLap[]>;
+  compSessions: SessionTableRow[];
   isScrubbing: boolean;
 }) {
   const [scoring, setScoring] = useState<ScoringData | null>(null);
@@ -1080,10 +1073,16 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   const isQualifying = currentPhase?.startsWith('qualifying') ?? false;
   const isRace = currentPhase?.startsWith('race_') ?? false;
 
+  const sessionEnded = useMemo(() => {
+    if (!liveSessionId || isScrubbing) return false;
+    const cs = compSessions.find(s => s.id === liveSessionId);
+    return cs ? cs.end_time !== null && cs.end_time !== undefined : false;
+  }, [liveSessionId, compSessions, isScrubbing]);
+
   const laps = liveSessionId ? (sessionLaps.get(liveSessionId) || []) : [];
   const hasData = laps.length > 0 || liveEntries.length > 0;
 
-  if (!liveSessionId || (!isQualifying && !isRace) || !hasData) return null;
+  if (!liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded) return null;
 
   const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase) : '';
 
@@ -1205,7 +1204,7 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
 }) {
   const isCL = competition.format === 'champions_league';
 
-  const { startPositions, totalPilots } = useMemo(() => {
+  const { startPositions, startGrid, totalPilots } = useMemo(() => {
     const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith('qualifying'));
     const qualiData = new Map<string, { bestTime: number; pilot: string }>();
     for (const qs of qualiSessions) {
@@ -1246,16 +1245,21 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
       .slice(0, maxQualified);
     const groups = splitIntoGroups(prevSorted.map(p => p.pilot), effectiveMaxGroups);
     const sp = new Map<string, number>();
+    const grid = new Map<number, string>();
     if (groupNum <= groups.length) {
       const g = groups[groupNum - 1];
-      g.pilots.forEach((p, pi) => { sp.set(p, g.pilots.length - pi); });
+      g.pilots.forEach((p, pi) => {
+        const pos = g.pilots.length - pi;
+        sp.set(p, pos);
+        grid.set(pos, p);
+      });
     }
 
     const totalPilotsOverride = competition.results?.totalPilotsOverride ?? null;
     const pilotsLocked = competition.results?.totalPilotsLocked ?? false;
     const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
 
-    return { startPositions: sp, totalPilots: total };
+    return { startPositions: sp, startGrid: grid, totalPilots: total };
   }, [competition, sessionLaps, raceNum, groupNum, excludedPilots, maxGroups, isCL]);
 
   const raceData = useMemo(() => {
@@ -1335,50 +1339,57 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
         <span className="text-dark-500 text-[10px]">{raceData.length} пілотів</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+        <table className="text-xs [&_th]:px-1.5 [&_th]:py-1 [&_td]:px-1.5 [&_td]:py-1">
           <thead>
             <tr className="table-header">
-              <th className="table-cell text-center w-8">#</th>
-              <th className="table-cell text-center">Старт</th>
-              <th className="table-cell text-left" colSpan={2}>Фініш</th>
-              <th className="table-cell text-right">Gap</th>
-              <th className="table-cell text-center border-l border-dark-700" colSpan={2}>Бали</th>
+              <th className="text-left text-dark-300 font-semibold w-6">#</th>
+              <th className="text-left text-dark-300 font-semibold">Старт</th>
+              <th className="text-left text-dark-300 font-semibold" colSpan={2}>Фініш</th>
+              <th className="text-left text-dark-300 font-semibold">Gap</th>
+              <th className="text-left text-dark-300 font-semibold border-l border-dark-700" colSpan={2}>Бали</th>
             </tr>
             <tr className="table-header">
-              <th className="table-cell" colSpan={4}></th>
-              <th className="table-cell"></th>
-              <th className="table-cell text-center text-dark-500 text-[10px] border-l border-dark-700">Поз</th>
-              <th className="table-cell text-center text-dark-500 text-[10px]">Обг</th>
+              <th colSpan={4}></th>
+              <th></th>
+              <th className="text-left text-dark-500 text-[10px] border-l border-dark-700">Поз</th>
+              <th className="text-left text-dark-500 text-[10px]">Обг</th>
             </tr>
           </thead>
           <tbody>
-            {raceData.map((r) => (
-              <tr key={r.pilot} className="table-row">
-                <td className="table-cell text-center font-mono text-white font-bold">{r.finishPos}</td>
-                <td className="table-cell text-center font-mono text-dark-400">{r.startPos > 0 ? r.startPos : '—'}</td>
-                <td className="table-cell text-left text-white">
-                  <Link to={`/pilots/${encodeURIComponent(r.pilot)}`} className="text-white hover:text-primary-400 transition-colors">
-                    {shortName(r.pilot)}
-                  </Link>
-                </td>
-                <td className="table-cell text-center font-mono text-[11px] w-8" style={{ paddingLeft: 0 }}>
-                  {r.diff > 0
-                    ? <span className="text-green-400">▲{r.diff}</span>
-                    : r.diff < 0
-                    ? <span className="text-red-400">▼{Math.abs(r.diff)}</span>
-                    : r.startPos > 0 ? <span className="text-dark-600">—</span> : ''}
-                </td>
-                <td className="table-cell text-right font-mono text-dark-400 text-[11px]">
-                  {r.gap ? toSeconds(r.gap) : ''}
-                </td>
-                <td className="table-cell text-center font-mono text-dark-300 border-l border-dark-700/30">
-                  {r.posPoints > 0 ? r.posPoints : '—'}
-                </td>
-                <td className="table-cell text-center font-mono text-dark-300">
-                  {r.overtakePoints > 0 ? r.overtakePoints : '—'}
-                </td>
-              </tr>
-            ))}
+            {raceData.map((r) => {
+              const startPilot = r.startPos > 0 ? startGrid.get(r.startPos) : null;
+              return (
+                <tr key={r.pilot} className="table-row">
+                  <td className="font-mono text-white font-bold">{r.finishPos}</td>
+                  <td className="text-dark-400 whitespace-nowrap">
+                    {r.startPos > 0 ? (
+                      <><span className="font-mono">{r.startPos}</span>{startPilot && <span className="text-dark-500 ml-1">{shortName(startPilot)}</span>}</>
+                    ) : '—'}
+                  </td>
+                  <td className="text-white whitespace-nowrap">
+                    <Link to={`/pilots/${encodeURIComponent(r.pilot)}`} className="text-white hover:text-primary-400 transition-colors">
+                      {shortName(r.pilot)}
+                    </Link>
+                  </td>
+                  <td className="font-mono text-[11px] w-6" style={{ paddingLeft: 0 }}>
+                    {r.diff > 0
+                      ? <span className="text-green-400">▲{r.diff}</span>
+                      : r.diff < 0
+                      ? <span className="text-red-400">▼{Math.abs(r.diff)}</span>
+                      : r.startPos > 0 ? <span className="text-dark-600">—</span> : ''}
+                  </td>
+                  <td className="font-mono text-dark-400 text-[11px]">
+                    {r.gap ? toSeconds(r.gap) : ''}
+                  </td>
+                  <td className="font-mono text-dark-300 border-l border-dark-700/30">
+                    {r.posPoints > 0 ? r.posPoints : '—'}
+                  </td>
+                  <td className="font-mono text-dark-300">
+                    {r.overtakePoints > 0 ? r.overtakePoints : '—'}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
