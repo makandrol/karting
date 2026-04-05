@@ -461,13 +461,25 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 </tr>
               </thead>
               <tbody>
-                  {sortedData.map((row, i) => {
+                  {(() => {
+                    const includedCount = sortedData.filter(r => !excludedPilots.has(r.pilot)).length;
+                    const groupSeparators = new Set<number>();
+                    if (maxGroups > 1 && includedCount > 1) {
+                      const base = Math.floor(includedCount / maxGroups);
+                      let rem = includedCount % maxGroups;
+                      let pos = 0;
+                      for (let g = 0; g < maxGroups - 1; g++) {
+                        pos += base + (rem > 0 ? 1 : 0);
+                        if (rem > 0) rem--;
+                        groupSeparators.add(pos - 1);
+                      }
+                    }
+                    let includedIdx = 0;
+                    return sortedData.map((row, i) => {
                     const isExcluded = excludedPilots.has(row.pilot);
                     const isOnTrack = livePilots?.includes(row.pilot);
-                    const nextRow = i + 1 < sortedData.length ? sortedData[i + 1] : null;
-                    const currentGroup = row.qualiGroup;
-                    const nextGroup = nextRow?.qualiGroup ?? 0;
-                    const isGroupEnd = currentGroup > 0 && nextGroup > 0 && currentGroup !== nextGroup;
+                    const currentIncIdx = isExcluded ? -1 : includedIdx++;
+                    const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
                     return (
                     <tr key={row.pilot} onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
                       className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'hover:bg-dark-700/30'}`}>
@@ -561,7 +573,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     })}
                   </tr>
                     );
-                  })}
+                  });
+                  })()}
               </tbody>
             </table>
           </div>

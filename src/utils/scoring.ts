@@ -30,8 +30,6 @@ export interface PilotRaceData {
 export interface PilotRow {
   pilot: string; quali: PilotQualiData | null; races: (PilotRaceData | null)[];
   totalPoints: number;
-  /** Qualifying-based group number (stable across races) */
-  qualiGroup: number;
 }
 
 export type ManualEdits = Record<string, { startPos?: number; finishPos?: number; penalties?: number }>;
@@ -266,8 +264,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
     const races = raceResults.map(rd => rd.get(pilot) || null);
     const qualiPts = q?.speedPoints ?? 0;
     const racePts = races.reduce((s, r) => s + (r?.totalRacePoints ?? 0), 0);
-    const qg = pilotGroup.get(pilot)?.group ?? 0;
-    return { pilot, quali: q, races, totalPoints: Math.round((qualiPts + racePts) * 10) / 10, qualiGroup: qg };
+    return { pilot, quali: q, races, totalPoints: Math.round((qualiPts + racePts) * 10) / 10 };
   });
 
   return rows;
@@ -306,7 +303,7 @@ export function rowsToStandings(rows: PilotRow[], excludedPilots: Set<string>): 
     qualiTime: r.quali?.bestTimeStr ?? null,
     qualiKart: r.quali?.kart ?? null,
     qualiSpeedPoints: r.quali?.speedPoints ?? 0,
-    group: r.qualiGroup,
+    group: r.races[0]?.group ?? 0,
     races: r.races.map(race => ({
       kart: race?.kart ?? 0,
       bestTime: race?.bestTimeStr ?? '',
