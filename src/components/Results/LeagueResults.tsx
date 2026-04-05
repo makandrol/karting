@@ -38,6 +38,7 @@ interface LeagueResultsProps {
 
 const TH_V = "px-1 py-1 text-center text-dark-500 border-r border-dark-700/30";
 const TH_R = "[writing-mode:vertical-lr] rotate-180 text-[9px]";
+const SECTION_BORDER = "border-r-2 border-dark-600";
 
 function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
   value: number; onChange: (v: number) => void; colorClass?: string; prefix?: string;
@@ -463,11 +464,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   {sortedData.map((row, i) => {
                     const isExcluded = excludedPilots.has(row.pilot);
                     const isOnTrack = livePilots?.includes(row.pilot);
-                    // Check if next row is in a different group (for group separator line)
                     const nextRow = i + 1 < sortedData.length ? sortedData[i + 1] : null;
-                    const currentGroup = row.races[0]?.group || 0;
-                    const nextGroup = nextRow?.races[0]?.group || 0;
-                    const isGroupEnd = currentGroup > 0 && currentGroup !== nextGroup;
+                    const currentGroup = row.qualiGroup;
+                    const nextGroup = nextRow?.qualiGroup ?? 0;
+                    const isGroupEnd = currentGroup > 0 && nextGroup > 0 && currentGroup !== nextGroup;
                     return (
                     <tr key={row.pilot} onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
                       className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'hover:bg-dark-700/30'}`}>
@@ -514,27 +514,35 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           </>
                         )}
                       </td>
-                    <td className="px-1 py-1 text-center font-mono text-green-400 font-bold border-r border-dark-700">{row.totalPoints || '—'}</td>
-                    {qualiVisible() && <>
-                      {colVisible('q_kart') && <td className="px-1 py-1 text-center font-mono text-blue-400/70 border-r border-dark-700/30">{row.quali?.kart || '—'}</td>}
-                      {colVisible('q_time') && <td className="px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30">{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>}
-                      {colVisible('q_speed') && <td className="px-1 py-1 text-center font-mono border-r border-dark-700">{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
-                    </>}
+                    <td className={`px-1 py-1 text-center font-mono text-green-400 font-bold ${SECTION_BORDER}`}>{row.totalPoints || '—'}</td>
+                    {qualiVisible() && (() => {
+                      const visCols = QUALI_COLS.filter(c => colVisible(c));
+                      const lastCol = visCols[visCols.length - 1];
+                      const qBorder = (c: string) => c === lastCol ? SECTION_BORDER : 'border-r border-dark-700/30';
+                      return <>
+                        {colVisible('q_kart') && <td className={`px-1 py-1 text-center font-mono text-blue-400/70 ${qBorder('q_kart')}`}>{row.quali?.kart || '—'}</td>}
+                        {colVisible('q_time') && <td className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${qBorder('q_time')}`}>{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>}
+                        {colVisible('q_speed') && <td className={`px-1 py-1 text-center font-mono ${qBorder('q_speed')}`}>{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                      </>;
+                    })()}
                     {row.races.map((race, ri) => {
                       const rn = ri + 1;
                       if (!raceVisible(rn)) return null;
                       const cv = (c: string) => colVisible(raceColId(rn, c));
                       const posChange = race && race.startPos > 0 && race.finishPos > 0 ? race.startPos - race.finishPos : 0;
+                      const visRaceCols = RACE_COLS.filter(c => cv(c));
+                      const lastRaceCol = visRaceCols[visRaceCols.length - 1];
+                      const rBorder = (c: string) => c === lastRaceCol ? SECTION_BORDER : 'border-r border-dark-700/30';
                       return (
                         <Fragment key={ri}>
-                          {cv('kart') && <td className="px-1 py-1 text-center font-mono text-blue-400/70 border-r border-dark-700/30">{race?.kart || '—'}</td>}
-                          {cv('time') && <td className="px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30">{race ? toSeconds(race.bestTimeStr) : '—'}</td>}
-                          {cv('speed') && <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
-                          {cv('group') && <td className="px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30">{race?.group || '—'}</td>}
-                          {cv('start') && <td className="px-1 py-1 text-center font-mono text-dark-400 border-r border-dark-700/30">
+                          {cv('kart') && <td className={`px-1 py-1 text-center font-mono text-blue-400/70 ${rBorder('kart')}`}>{race?.kart || '—'}</td>}
+                          {cv('time') && <td className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${rBorder('time')}`}>{race ? toSeconds(race.bestTimeStr) : '—'}</td>}
+                          {cv('speed') && <td className={`px-1 py-1 text-center font-mono ${rBorder('speed')}`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                          {cv('group') && <td className={`px-1 py-1 text-center font-mono text-dark-500 ${rBorder('group')}`}>{race?.group || '—'}</td>}
+                          {cv('start') && <td className={`px-1 py-1 text-center font-mono text-dark-400 ${rBorder('start')}`}>
                             {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell editingRef={editingRef} value={race.startPos} onChange={v => setEdit(row.pilot, rn, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}
                           </td>}
-                          {cv('finish') && <td className="px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30">
+                          {cv('finish') && <td className={`px-1 py-1 text-center font-mono text-dark-300 ${rBorder('finish')}`}>
                             {race ? (
                               <span className="inline-flex items-center gap-0.5">
                                 {canManage ? <EditableCell editingRef={editingRef} value={race.finishPos} onChange={v => setEdit(row.pilot, rn, 'finishPos', v)} /> : <span>{race.finishPos}</span>}
@@ -542,12 +550,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
                               </span>
                             ) : '—'}
                           </td>}
-                          {cv('pos_pts') && <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>}
-                          {cv('overtake') && <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>}
-                          {cv('penalties') && <td className="px-1 py-1 text-center font-mono border-r border-dark-700/30">
+                          {cv('pos_pts') && <td className={`px-1 py-1 text-center font-mono ${rBorder('pos_pts')}`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                          {cv('overtake') && <td className={`px-1 py-1 text-center font-mono ${rBorder('overtake')}`}>{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                          {cv('penalties') && <td className={`px-1 py-1 text-center font-mono ${rBorder('penalties')}`}>
                             {race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, rn, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
                           </td>}
-                          {cv('sum') && <td className="px-1 py-1 text-center font-mono font-bold border-r border-dark-700">{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                          {cv('sum') && <td className={`px-1 py-1 text-center font-mono font-bold ${rBorder('sum')}`}>{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>}
                         </Fragment>
                       );
                     })}
