@@ -1,13 +1,14 @@
 import { useParams, Link, Navigate } from 'react-router-dom';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat } from '../../data/competitions';
-import { toSeconds, isValidSession } from '../../utils/timing';
+import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups } from '../../data/competitions';
+import { toSeconds, isValidSession, shortName } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 import LeagueResults from '../../components/Results/LeagueResults';
 import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
+import { parseLapSec, getPositionPoints, calcOvertakePoints, type ScoringData } from '../../utils/scoring';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -324,6 +325,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const [loading, setLoading] = useState(true);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [livePositions, setLivePositions] = useState<{ pilot: string; position: number }[]>([]);
+  const [liveEntries, setLiveEntries] = useState<any[]>([]);
+  const [liveTeams, setLiveTeams] = useState<any[]>([]);
   const [liveEnabled, setLiveEnabled] = useState(true);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
 
@@ -424,8 +427,12 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
             pilot: e.pilot,
             position: Number(e.position),
           })));
+          setLiveEntries(timingRes.entries);
+          setLiveTeams(timingRes.teams || []);
         } else {
           setLivePositions([]);
+          setLiveEntries([]);
+          setLiveTeams([]);
         }
       } catch {}
     }, 2000);
@@ -488,6 +495,14 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
               setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
             } catch {}
           }}
+        />
+        <LiveSessionTable
+          competition={competition}
+          liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+          liveEntries={isScrubbing ? [] : liveEntries}
+          liveTeams={isScrubbing ? [] : liveTeams}
+          sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+          isScrubbing={isScrubbing}
         />
       </div>
     );
@@ -606,15 +621,6 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
       </div>
     </div>
   );
-}
-
-function parseLapSec(t: string | null): number | null {
-  if (!t) return null;
-  const m = t.match(/^(\d+):(\d+\.\d+)$/);
-  if (m) return parseInt(m[1]) * 60 + parseFloat(m[2]);
-  const s = t.match(/^\d+\.\d+$/);
-  if (s) return parseFloat(t);
-  return null;
 }
 
 function GonzalesLiveTable({ competition, sessionLaps }: { competition: Competition; sessionLaps: Map<string, SessionLap[]> }) {
@@ -1037,6 +1043,334 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, sessionLaps, isScrubbing }: {
+  competition: Competition;
+  liveSessionId: string | null;
+  liveEntries: any[];
+  liveTeams: any[];
+  sessionLaps: Map<string, SessionLap[]>;
+  isScrubbing: boolean;
+}) {
+  const [scoring, setScoring] = useState<ScoringData | null>(null);
+  useEffect(() => {
+    fetch(`${COLLECTOR_URL}/scoring`).then(r => r.ok ? r.json() : fetch('/data/scoring.json').then(r2 => r2.json())).then(setScoring).catch(() => {
+      fetch('/data/scoring.json').then(r => r.json()).then(setScoring).catch(() => {});
+    });
+  }, []);
+
+  const currentPhase = useMemo(() => {
+    if (!liveSessionId) return null;
+    const s = competition.sessions.find(cs => cs.sessionId === liveSessionId);
+    return s?.phase ?? null;
+  }, [competition.sessions, liveSessionId]);
+
+  const isQualifying = currentPhase?.startsWith('qualifying') ?? false;
+  const isRace = currentPhase?.startsWith('race_') ?? false;
+
+  if (isScrubbing || !liveSessionId || (!isQualifying && !isRace) || liveEntries.length === 0) return null;
+
+  const laps = sessionLaps.get(liveSessionId) || [];
+  const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase) : '';
+
+  if (isQualifying) {
+    return <QualifyingLiveTable laps={laps} entries={liveEntries} phaseLabel={phaseLabel} />;
+  }
+
+  const raceMatch = currentPhase!.match(/^race_(\d+)_group_(\d+)$/);
+  const raceNum = raceMatch ? parseInt(raceMatch[1]) : 1;
+  const groupNum = raceMatch ? parseInt(raceMatch[2]) : 1;
+
+  const maxGroups = competition.results?.groupCountOverride ?? undefined;
+  const excludedPilots = new Set<string>(competition.results?.excludedPilots || []);
+
+  return (
+    <RaceLiveTable
+      competition={competition}
+      laps={laps}
+      entries={liveEntries}
+      teams={liveTeams}
+      phaseLabel={phaseLabel}
+      raceNum={raceNum}
+      groupNum={groupNum}
+      scoring={scoring}
+      sessionLaps={sessionLaps}
+      excludedPilots={excludedPilots}
+      maxGroups={maxGroups}
+    />
+  );
+}
+
+function QualifyingLiveTable({ laps, entries, phaseLabel }: {
+  laps: SessionLap[];
+  entries: any[];
+  phaseLabel: string;
+}) {
+  const pilotBest = useMemo(() => {
+    const map = new Map<string, { pilot: string; kart: number; bestTime: number; bestTimeStr: string; lapCount: number }>();
+    for (const l of laps) {
+      if (!l.lap_time) continue;
+      const sec = parseLapSec(l.lap_time);
+      if (sec === null || sec < 38) continue;
+      const ex = map.get(l.pilot);
+      if (!ex) {
+        map.set(l.pilot, { pilot: l.pilot, kart: l.kart, bestTime: sec, bestTimeStr: l.lap_time!, lapCount: 1 });
+      } else {
+        ex.lapCount++;
+        if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
+      }
+    }
+    for (const e of entries) {
+      if (!map.has(e.pilot) && e.bestLap) {
+        const sec = parseLapSec(e.bestLap);
+        if (sec !== null && sec >= 38) {
+          map.set(e.pilot, { pilot: e.pilot, kart: e.kart ?? 0, bestTime: sec, bestTimeStr: e.bestLap, lapCount: e.lapNumber ?? 0 });
+        }
+      }
+    }
+    return [...map.values()].sort((a, b) => a.bestTime - b.bestTime);
+  }, [laps, entries]);
+
+  if (pilotBest.length === 0) return null;
+
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
+        <h3 className="text-white font-semibold text-sm">{phaseLabel} — Таймінг</h3>
+        <span className="text-dark-500 text-[10px]">{pilotBest.length} пілотів</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead><tr className="table-header">
+            <th className="table-cell text-center w-8">#</th>
+            <th className="table-cell text-left">Пілот</th>
+            <th className="table-cell text-center">Карт</th>
+            <th className="table-cell text-right">Найкращий час</th>
+            <th className="table-cell text-right">Gap</th>
+            <th className="table-cell text-center">Кола</th>
+          </tr></thead>
+          <tbody>
+            {pilotBest.map((p, i) => {
+              const gap = i === 0 ? '' : `+${(p.bestTime - pilotBest[0].bestTime).toFixed(3)}`;
+              return (
+                <tr key={p.pilot} className="table-row">
+                  <td className="table-cell text-center font-mono text-white font-bold">{i + 1}</td>
+                  <td className="table-cell text-left text-white">
+                    <Link to={`/pilots/${encodeURIComponent(p.pilot)}`} className="text-white hover:text-primary-400 transition-colors">
+                      {shortName(p.pilot)}
+                    </Link>
+                  </td>
+                  <td className="table-cell text-center font-mono text-dark-300">{p.kart}</td>
+                  <td className={`table-cell text-right font-mono font-semibold ${i === 0 ? 'text-purple-400' : 'text-green-400'}`}>
+                    {toSeconds(p.bestTimeStr)}
+                  </td>
+                  <td className="table-cell text-right font-mono text-dark-400 text-[11px]">{gap}</td>
+                  <td className="table-cell text-center font-mono text-dark-400">{p.lapCount}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum, groupNum, scoring, sessionLaps, excludedPilots, maxGroups }: {
+  competition: Competition;
+  laps: SessionLap[];
+  entries: any[];
+  teams: any[];
+  phaseLabel: string;
+  raceNum: number;
+  groupNum: number;
+  scoring: ScoringData | null;
+  sessionLaps: Map<string, SessionLap[]>;
+  excludedPilots: Set<string>;
+  maxGroups?: number;
+}) {
+  const isCL = competition.format === 'champions_league';
+
+  const { startPositions, totalPilots } = useMemo(() => {
+    const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith('qualifying'));
+    const qualiData = new Map<string, { bestTime: number; pilot: string }>();
+    for (const qs of qualiSessions) {
+      for (const l of (sessionLaps.get(qs.sessionId) || [])) {
+        const sec = parseLapSec(l.lap_time);
+        if (sec === null || sec < 38) continue;
+        const ex = qualiData.get(l.pilot);
+        if (!ex || sec < ex.bestTime) qualiData.set(l.pilot, { bestTime: sec, pilot: l.pilot });
+      }
+    }
+    const qualiSorted = [...qualiData.entries()]
+      .filter(([p]) => !excludedPilots.has(p))
+      .sort((a, b) => a[1].bestTime - b[1].bestTime);
+    const maxQualified = isCL ? 24 : 36;
+    let qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
+    const effectiveMaxGroups = maxGroups ?? (qualifiedPilots.length <= 13 ? 1 : qualifiedPilots.length <= 26 ? 2 : 3);
+
+    let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
+
+    for (let r = 1; r < raceNum; r++) {
+      const rSessions = competition.sessions.filter(s => s.phase?.startsWith(`race_${r}_`));
+      const raceTimes: { pilot: string; time: number }[] = [];
+      for (const rs of rSessions) {
+        for (const l of (sessionLaps.get(rs.sessionId) || [])) {
+          const sec = parseLapSec(l.lap_time);
+          if (sec === null || sec < 38) continue;
+          const ex = raceTimes.find(rt => rt.pilot === l.pilot);
+          if (!ex) raceTimes.push({ pilot: l.pilot, time: sec });
+          else if (sec < ex.time) ex.time = sec;
+        }
+      }
+      if (raceTimes.length > 0) prevRaceTimes = raceTimes.filter(r => !excludedPilots.has(r.pilot));
+    }
+
+    const prevSorted = [...prevRaceTimes]
+      .filter(p => !excludedPilots.has(p.pilot))
+      .sort((a, b) => a.time - b.time)
+      .slice(0, maxQualified);
+    const groups = splitIntoGroups(prevSorted.map(p => p.pilot), effectiveMaxGroups);
+    const sp = new Map<string, number>();
+    if (groupNum <= groups.length) {
+      const g = groups[groupNum - 1];
+      g.pilots.forEach((p, pi) => { sp.set(p, g.pilots.length - pi); });
+    }
+
+    const totalPilotsOverride = competition.results?.totalPilotsOverride ?? null;
+    const pilotsLocked = competition.results?.totalPilotsLocked ?? false;
+    const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
+
+    return { startPositions: sp, totalPilots: total };
+  }, [competition, sessionLaps, raceNum, groupNum, excludedPilots, maxGroups, isCL]);
+
+  const raceData = useMemo(() => {
+    const lagMap = new Map<number, string>();
+    for (const t of teams) {
+      if (t.lag) lagMap.set(t.position ?? t.number, t.lag);
+    }
+
+    const pilotStats = new Map<string, { kart: number; bestTime: number; bestTimeStr: string; lapCount: number; lastPosition: number }>();
+    for (const l of laps) {
+      const sec = parseLapSec(l.lap_time);
+      if (sec === null || sec < 38) continue;
+      const ex = pilotStats.get(l.pilot);
+      if (!ex) {
+        pilotStats.set(l.pilot, { kart: l.kart, bestTime: sec, bestTimeStr: l.lap_time!, lapCount: 1, lastPosition: l.position ?? 99 });
+      } else {
+        ex.lapCount++;
+        if (l.position !== null) ex.lastPosition = l.position;
+        if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
+      }
+    }
+
+    for (const e of entries) {
+      const ps = pilotStats.get(e.pilot);
+      if (ps) {
+        ps.lastPosition = e.position;
+        ps.kart = e.kart ?? ps.kart;
+      } else if (e.pilot) {
+        pilotStats.set(e.pilot, { kart: e.kart ?? 0, bestTime: Infinity, bestTimeStr: '', lapCount: e.lapNumber ?? 0, lastPosition: e.position ?? 99 });
+      }
+    }
+
+    const sorted = [...pilotStats.entries()]
+      .filter(([p]) => !excludedPilots.has(p))
+      .sort((a, b) => {
+        if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
+        if (a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
+        return 0;
+      });
+
+    return sorted.map(([pilot, stats], i) => {
+      const finishPos = i + 1;
+      const startPos = startPositions.get(pilot) ?? 0;
+      const diff = startPos > 0 ? startPos - finishPos : 0;
+      const groupLabel = groupNum === 1 ? 'I' : groupNum === 2 ? 'II' : 'III';
+
+      let posPoints = 0;
+      let overtakePoints = 0;
+      if (scoring && startPos > 0) {
+        posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos);
+        overtakePoints = calcOvertakePoints(scoring, groupNum, startPos, finishPos, isCL);
+      }
+
+      const entryIdx = entries.findIndex((e: any) => e.pilot === pilot);
+      const lag = entryIdx >= 0 ? lagMap.get(entries[entryIdx].position) : null;
+
+      return {
+        pilot,
+        kart: stats.kart,
+        startPos,
+        finishPos,
+        diff,
+        gap: lag ?? null,
+        posPoints,
+        overtakePoints,
+        lapCount: stats.lapCount,
+      };
+    });
+  }, [laps, entries, teams, startPositions, scoring, totalPilots, groupNum, isCL, excludedPilots]);
+
+  if (raceData.length === 0) return null;
+
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
+        <h3 className="text-white font-semibold text-sm">{phaseLabel} — Гонка</h3>
+        <span className="text-dark-500 text-[10px]">{raceData.length} пілотів</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="table-header">
+              <th className="table-cell text-center w-8">#</th>
+              <th className="table-cell text-center">Старт</th>
+              <th className="table-cell text-left" colSpan={2}>Фініш</th>
+              <th className="table-cell text-right">Gap</th>
+              <th className="table-cell text-center border-l border-dark-700" colSpan={2}>Бали</th>
+            </tr>
+            <tr className="table-header">
+              <th className="table-cell" colSpan={4}></th>
+              <th className="table-cell"></th>
+              <th className="table-cell text-center text-dark-500 text-[10px] border-l border-dark-700">Поз</th>
+              <th className="table-cell text-center text-dark-500 text-[10px]">Обг</th>
+            </tr>
+          </thead>
+          <tbody>
+            {raceData.map((r) => (
+              <tr key={r.pilot} className="table-row">
+                <td className="table-cell text-center font-mono text-white font-bold">{r.finishPos}</td>
+                <td className="table-cell text-center font-mono text-dark-400">{r.startPos > 0 ? r.startPos : '—'}</td>
+                <td className="table-cell text-left text-white">
+                  <Link to={`/pilots/${encodeURIComponent(r.pilot)}`} className="text-white hover:text-primary-400 transition-colors">
+                    {shortName(r.pilot)}
+                  </Link>
+                </td>
+                <td className="table-cell text-center font-mono text-[11px] w-8" style={{ paddingLeft: 0 }}>
+                  {r.diff > 0
+                    ? <span className="text-green-400">▲{r.diff}</span>
+                    : r.diff < 0
+                    ? <span className="text-red-400">▼{Math.abs(r.diff)}</span>
+                    : r.startPos > 0 ? <span className="text-dark-600">—</span> : ''}
+                </td>
+                <td className="table-cell text-right font-mono text-dark-400 text-[11px]">
+                  {r.gap ? toSeconds(r.gap) : ''}
+                </td>
+                <td className="table-cell text-center font-mono text-dark-300 border-l border-dark-700/30">
+                  {r.posPoints > 0 ? r.posPoints : '—'}
+                </td>
+                <td className="table-cell text-center font-mono text-dark-300">
+                  {r.overtakePoints > 0 ? r.overtakePoints : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
