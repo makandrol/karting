@@ -64,12 +64,12 @@ export default function Tracks() {
                   className="w-full aspect-[16/10] object-cover"
                 />
                 {track.reverse && (
-                  <div className="absolute top-2 left-2 bg-dark-900/80 text-orange-400 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                  <div className="absolute top-2 right-2 bg-dark-900/80 text-orange-400 text-[10px] font-bold px-1.5 py-0.5 rounded">
                     REVERSE
                   </div>
                 )}
                 {isCurrent && (
-                  <div className="absolute top-2 right-2 badge-live text-xs">
+                  <div className="absolute top-2 left-2 badge-live text-xs">
                     Активна
                   </div>
                 )}
