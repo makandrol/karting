@@ -1,5 +1,5 @@
 import { useParams, Link, Navigate } from 'react-router-dom';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups } from '../../data/competitions';
 import { toSeconds, isValidSession, shortName } from '../../utils/timing';
@@ -1332,6 +1332,40 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
 
   if (raceData.length === 0) return null;
 
+  const n = raceData.length;
+  const arrowW = 48;
+  const tbodyRef = useRef<HTMLTableSectionElement>(null);
+  const [tbodyH, setTbodyH] = useState(0);
+
+  useEffect(() => {
+    if (!tbodyRef.current) return;
+    const obs = new ResizeObserver(([e]) => setTbodyH(e.contentRect.height));
+    obs.observe(tbodyRef.current);
+    return () => obs.disconnect();
+  }, [raceData.length]);
+
+  function arrowColor(diff: number): string {
+    if (diff === 0) return '#6b7280';
+    const abs = Math.abs(diff);
+    if (diff > 0) return abs >= 5 ? '#22c55e' : abs >= 3 ? '#4ade80' : '#86efac';
+    return abs >= 5 ? '#ef4444' : abs >= 3 ? '#f87171' : '#fca5a5';
+  }
+
+  const rowH = n > 0 ? tbodyH / n : 0;
+  const arrows = tbodyH > 0 ? raceData
+    .filter(r => r.startPos > 0 && r.startPos <= n)
+    .map(r => {
+      const sy = (r.startPos - 0.5) * rowH;
+      const fy = (r.finishPos - 0.5) * rowH;
+      const col = arrowColor(r.diff);
+      const w = arrowW;
+      return {
+        d: `M 2 ${sy} C ${w * 0.4} ${sy} ${w * 0.6} ${fy} ${w - 5} ${fy}`,
+        tip: `M ${w - 9} ${fy - 3} L ${w - 4} ${fy} L ${w - 9} ${fy + 3}`,
+        col,
+      };
+    }) : [];
+
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
@@ -1344,19 +1378,20 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
             <tr className="table-header">
               <th className="text-left text-dark-300 font-semibold w-6">#</th>
               <th className="text-left text-dark-300 font-semibold">Старт</th>
+              <th className="w-12"></th>
               <th className="text-left text-dark-300 font-semibold" colSpan={2}>Фініш</th>
               <th className="text-left text-dark-300 font-semibold">Gap</th>
               <th className="text-left text-dark-300 font-semibold border-l border-dark-700" colSpan={2}>Бали</th>
             </tr>
             <tr className="table-header">
-              <th colSpan={4}></th>
+              <th colSpan={5}></th>
               <th></th>
               <th className="text-left text-dark-500 text-[10px] border-l border-dark-700">Поз</th>
               <th className="text-left text-dark-500 text-[10px]">Обг</th>
             </tr>
           </thead>
-          <tbody>
-            {raceData.map((r) => {
+          <tbody ref={tbodyRef}>
+            {raceData.map((r, i) => {
               const startPilot = startGrid.get(r.finishPos);
               return (
                 <tr key={r.pilot} className="table-row">
@@ -1364,6 +1399,20 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
                   <td className="text-dark-400 whitespace-nowrap">
                     {startPilot ? shortName(startPilot) : '—'}
                   </td>
+                  {i === 0 ? (
+                    <td rowSpan={n} className="p-0 relative" style={{ width: arrowW }}>
+                      {tbodyH > 0 && (
+                        <svg width={arrowW} height={tbodyH} className="absolute top-0 left-0 block">
+                          {arrows.map((a, j) => (
+                            <g key={j}>
+                              <path d={a.d} fill="none" stroke={a.col} strokeWidth="1.5" strokeLinecap="round" />
+                              <path d={a.tip} fill="none" stroke={a.col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </g>
+                          ))}
+                        </svg>
+                      )}
+                    </td>
+                  ) : null}
                   <td className="text-white whitespace-nowrap">
                     <Link to={`/pilots/${encodeURIComponent(r.pilot)}`} className="text-white hover:text-primary-400 transition-colors">
                       {shortName(r.pilot)}
