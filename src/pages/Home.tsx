@@ -73,7 +73,7 @@ export default function HomePage() {
         />
         <QuickCard
           title="Траси"
-          description="11 конфігурацій траси картодрому"
+          description="11 конфігурацій траси та їх реверси"
           href="/info/tracks"
           emoji="🗺️"
         />

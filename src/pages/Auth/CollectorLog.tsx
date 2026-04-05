@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
+import { trackDisplayId } from '../../data/tracks';
 import { COLLECTOR_URL } from '../../services/config';
 
 interface SessionRow {
@@ -166,7 +167,7 @@ export default function CollectorLog() {
                         </span>
                       </td>
                       <td className="table-cell text-center font-mono text-dark-500">
-                        #{s.track_id}
+                        {trackDisplayId(s.track_id)}
                       </td>
                     </tr>
                   );

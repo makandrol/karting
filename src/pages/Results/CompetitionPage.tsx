@@ -4,7 +4,7 @@ import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat } from '../../data/competitions';
 import { toSeconds, isValidSession } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
-import { TRACK_CONFIGS } from '../../data/tracks';
+import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 import LeagueResults from '../../components/Results/LeagueResults';
 import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
@@ -141,7 +141,7 @@ export default function CompetitionPage() {
 
   const trackId = competition.results?.trackId ?? null;
   const trackConfig = trackId ? TRACK_CONFIGS.find(t => t.id === trackId) : null;
-  const trackLabel = trackConfig ? `Траса ${trackConfig.id}` : null;
+  const trackLabel = trackConfig ? `Траса ${trackDisplayId(trackConfig.id)}` : null;
 
   const changeTrack = async (newTrackId: number) => {
     try {
@@ -179,16 +179,21 @@ export default function CompetitionPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-white">{getCompetitionDisplayName(competition).replace(/,?\s*Траса\s*\d+/, '')}</h1>
+            <h1 className="text-xl font-bold text-white">{getCompetitionDisplayName(competition).replace(/,?\s*Траса\s*\d+R?/, '')}</h1>
             <select
               value={trackId ?? ''}
               onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
               disabled={!canManage}
-              className={`bg-dark-800 text-dark-300 text-xs rounded px-0.5 py-0.5 border border-dark-700 outline-none focus:border-primary-500 w-10 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
+              className={`bg-dark-800 text-dark-300 text-xs rounded px-0.5 py-0.5 border border-dark-700 outline-none focus:border-primary-500 w-14 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
             >
               <option value=""></option>
-              {TRACK_CONFIGS.map(t => (
-                <option key={t.id} value={t.id}>{t.id}</option>
+              {[...TRACK_CONFIGS].sort((a, b) => {
+                const aR = isReverseTrack(a.id) ? 1 : 0;
+                const bR = isReverseTrack(b.id) ? 1 : 0;
+                if (aR !== bR) return aR - bR;
+                return baseTrackId(a.id) - baseTrackId(b.id);
+              }).map(t => (
+                <option key={t.id} value={t.id}>{trackDisplayId(t.id)}</option>
               ))}
             </select>
             {(competition.format === 'light_league' || competition.format === 'champions_league') && (

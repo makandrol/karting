@@ -5,6 +5,7 @@ import CompetitionControl from '../../components/Timing/CompetitionControl';
 import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
+import { trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
 import { Link, useNavigate } from 'react-router-dom';
@@ -205,12 +206,17 @@ export default function Timing() {
               onChange={(e) => setCurrentTrack(parseInt(e.target.value, 10))}
               className="bg-dark-800 border border-dark-700 text-white text-sm rounded-lg px-2 py-1 outline-none focus:border-primary-500"
             >
-              {allTracks.map((t) => (
-                <option key={t.id} value={t.id}>№{t.id}</option>
+              {[...allTracks].sort((a, b) => {
+                const aR = isReverseTrack(a.id) ? 1 : 0;
+                const bR = isReverseTrack(b.id) ? 1 : 0;
+                if (aR !== bR) return aR - bR;
+                return baseTrackId(a.id) - baseTrackId(b.id);
+              }).map((t) => (
+                <option key={t.id} value={t.id}>№{trackDisplayId(t.id)}</option>
               ))}
             </select>
           ) : (
-            <span className="text-white font-mono font-bold">№{currentTrack.id}</span>
+            <span className="text-white font-mono font-bold">№{trackDisplayId(currentTrack.id)}</span>
           )}
         </div>
 

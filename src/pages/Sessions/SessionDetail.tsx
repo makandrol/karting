@@ -8,6 +8,7 @@ import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilo
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
 import { useTrack } from '../../services/trackContext';
+import { trackDisplayId } from '../../data/tracks';
 import { useViewPrefs } from '../../services/viewPrefs';
 import type { TimingEntry } from '../../types';
 
@@ -254,7 +255,7 @@ export default function SessionDetail() {
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl font-bold text-white">
               Заїзд {dayOrder ?? ''}
-              <span className="text-dark-500 font-normal text-sm ml-2">Траса #{dbSession.track_id}</span>
+              <span className="text-dark-500 font-normal text-sm ml-2">Траса {trackDisplayId(dbSession.track_id)}</span>
             </h1>
             <SessionTypeChanger
               sessionId={sessionId!}

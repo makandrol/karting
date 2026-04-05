@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { toSeconds, shortName } from '../../utils/timing';
 import { COMPETITION_CONFIGS, getPhaseShortLabel } from '../../data/competitions';
+import { trackDisplayId } from '../../data/tracks';
 
 export interface SessionTableRow {
   id: string;
@@ -74,7 +75,7 @@ export default function SessionsTable({ sessions, maxHeight, showDate }: Session
                 </td>
                 <td className="py-1.5 text-dark-500 whitespace-nowrap">{pilots} пілот{pilots === 1 ? '' : pilots < 5 ? 'и' : 'ів'}</td>
                 <td className={`py-1.5 whitespace-nowrap ${isCompetition ? 'text-purple-400' : 'text-dark-500'}`}>{sessionType}</td>
-                <td className="py-1.5 text-dark-500 whitespace-nowrap">Траса {s.track_id || 1}</td>
+                <td className="py-1.5 text-dark-500 whitespace-nowrap">Траса {trackDisplayId(s.track_id || 1)}</td>
                 <td className="py-1.5 pr-3 text-right font-mono whitespace-nowrap">
                   {s.best_lap_time && s.best_lap_pilot ? (
                     <>
