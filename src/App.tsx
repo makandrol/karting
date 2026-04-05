@@ -1,9 +1,9 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
-import { AuthProvider } from './services/auth';
+import { AuthProvider, useAuth } from './services/auth';
 import { TrackProvider } from './services/trackContext';
-import { PageVisibilityProvider } from './services/pageVisibility';
+import { PageVisibilityProvider, usePageVisibility } from './services/pageVisibility';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const HomePage = lazy(() => import('./pages/Home'));
@@ -16,11 +16,10 @@ const Karts = lazy(() => import('./pages/Info/Karts'));
 const KartDetail = lazy(() => import('./pages/Info/KartDetail'));
 const Videos = lazy(() => import('./pages/Info/Videos'));
 const Login = lazy(() => import('./pages/Auth/Login'));
-const AdminPanel = lazy(() => import('./pages/Auth/AdminPanel'));
+const AccessSettings = lazy(() => import('./pages/Auth/AccessSettings'));
 const DatabaseStats = lazy(() => import('./pages/Auth/DatabaseStats'));
 const Monitoring = lazy(() => import('./pages/Auth/Monitoring'));
 const CollectorLog = lazy(() => import('./pages/Auth/CollectorLog'));
-const PageSettings = lazy(() => import('./pages/Auth/PageSettings'));
 const CompetitionManager = lazy(() => import('./pages/Auth/CompetitionManager'));
 const ScoringSettings = lazy(() => import('./pages/Auth/ScoringSettings'));
 const Changelog = lazy(() => import('./pages/Changelog'));
@@ -30,6 +29,31 @@ const PilotProfile = lazy(() => import('./pages/Pilots/PilotProfile'));
 
 function PageLoader() {
   return <div className="text-center py-20 text-dark-500">Завантаження...</div>;
+}
+
+function PageGuard({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const { user } = useAuth();
+  const { isPathAccessible } = usePageVisibility();
+
+  const role = user?.role ?? 'user';
+  const email = user?.email;
+
+  if (!isPathAccessible(location.pathname, role, email)) {
+    return <PageBlocked />;
+  }
+
+  return <>{children}</>;
+}
+
+function PageBlocked() {
+  return (
+    <div className="text-center py-20">
+      <div className="text-5xl mb-4">🔒</div>
+      <h1 className="text-2xl font-bold text-white mb-2">Доступ обмежений</h1>
+      <p className="text-dark-400">Ця сторінка зараз недоступна для вашого акаунту.</p>
+    </div>
+  );
 }
 
 export default function App() {
@@ -43,44 +67,45 @@ export default function App() {
               <Routes>
                 <Route element={<Layout />}>
                   <Route path="/" element={<Timing />} />
-                  <Route path="/home" element={<HomePage />} />
+                  <Route path="/home" element={<PageGuard><HomePage /></PageGuard>} />
 
                   {/* Results */}
-                  <Route path="/results" element={<CompetitionPage />} />
-                  <Route path="/results/current" element={<CurrentRace />} />
-                  <Route path="/results/:type" element={<CompetitionPage />} />
-                  <Route path="/results/:type/:eventId" element={<CompetitionPage />} />
-                  <Route path="/results/:type/:eventId/:phaseId" element={<CompetitionPage />} />
+                  <Route path="/results" element={<PageGuard><CompetitionPage /></PageGuard>} />
+                  <Route path="/results/current" element={<PageGuard><CurrentRace /></PageGuard>} />
+                  <Route path="/results/:type" element={<PageGuard><CompetitionPage /></PageGuard>} />
+                  <Route path="/results/:type/:eventId" element={<PageGuard><CompetitionPage /></PageGuard>} />
+                  <Route path="/results/:type/:eventId/:phaseId" element={<PageGuard><CompetitionPage /></PageGuard>} />
 
                   {/* Info / Analytics */}
                   <Route path="/info" element={<Navigate to="/info/timing" replace />} />
                   <Route path="/info/timing" element={<Timing />} />
-                  <Route path="/onboard" element={<Onboard />} />
-                  <Route path="/onboard/:kartId" element={<Onboard />} />
-                  <Route path="/info/tracks" element={<Tracks />} />
-                  <Route path="/info/karts" element={<Karts />} />
-                  <Route path="/info/karts/:kartId" element={<KartDetail />} />
-                  <Route path="/info/videos" element={<Videos />} />
+                  <Route path="/onboard" element={<PageGuard><Onboard /></PageGuard>} />
+                  <Route path="/onboard/:kartId" element={<PageGuard><Onboard /></PageGuard>} />
+                  <Route path="/info/tracks" element={<PageGuard><Tracks /></PageGuard>} />
+                  <Route path="/info/karts" element={<PageGuard><Karts /></PageGuard>} />
+                  <Route path="/info/karts/:kartId" element={<PageGuard><KartDetail /></PageGuard>} />
+                  <Route path="/info/videos" element={<PageGuard><Videos /></PageGuard>} />
 
                   {/* Auth */}
                   <Route path="/login" element={<Login />} />
-                  <Route path="/admin" element={<AdminPanel />} />
+                  <Route path="/admin" element={<Navigate to="/admin/access" replace />} />
+                  <Route path="/admin/access" element={<AccessSettings />} />
+                  <Route path="/admin/pages" element={<Navigate to="/admin/access" replace />} />
                   <Route path="/admin/db" element={<DatabaseStats />} />
                   <Route path="/admin/monitoring" element={<Monitoring />} />
                   <Route path="/admin/collector-log" element={<CollectorLog />} />
-                  <Route path="/admin/pages" element={<PageSettings />} />
                   <Route path="/admin/competitions" element={<CompetitionManager />} />
                   <Route path="/admin/scoring" element={<ScoringSettings />} />
 
                   {/* Sessions */}
-                  <Route path="/sessions" element={<SessionsList />} />
-                  <Route path="/sessions/:sessionId" element={<SessionDetail />} />
+                  <Route path="/sessions" element={<PageGuard><SessionsList /></PageGuard>} />
+                  <Route path="/sessions/:sessionId" element={<PageGuard><SessionDetail /></PageGuard>} />
 
                   {/* Pilots */}
-                  <Route path="/pilots/:pilotName" element={<PilotProfile />} />
+                  <Route path="/pilots/:pilotName" element={<PageGuard><PilotProfile /></PageGuard>} />
 
                   {/* Changelog */}
-                  <Route path="/changelog" element={<Changelog />} />
+                  <Route path="/changelog" element={<PageGuard><Changelog /></PageGuard>} />
 
                   {/* 404 */}
                   <Route path="*" element={<NotFound />} />

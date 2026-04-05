@@ -19,10 +19,10 @@ export default function Header() {
   const dropdownPosRef = useRef<{ top: number; left: number; right: number }>({ top: 0, left: 0, right: 0 });
 
   const role = user?.role ?? 'user';
-  const mainPages = getVisiblePages('main', role);
-  const competitionPages = getVisiblePages('competitions', role);
-  const otherPages = getVisiblePages('other', role);
-  const adminPages = (isOwner || isModerator) ? getVisiblePages('admin', role) : [];
+  const email = user?.email;
+  const mainPages = getVisiblePages('main', role, email);
+  const otherPages = getVisiblePages('other', role, email);
+  const adminPages = (isOwner || isModerator) ? getVisiblePages('admin', role, email) : [];
 
   const [activeCompName, setActiveCompName] = useState<string | null>(null);
   useEffect(() => {
@@ -150,16 +150,6 @@ export default function Header() {
               </Link>
             ))}
 
-            {competitionPages.length > 0 && (
-              <Link
-                to="/results"
-                className={`px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                  isActive('/results') ? 'text-white bg-primary-600' : 'text-dark-300 hover:text-white hover:bg-dark-800'
-                }`}
-              >
-                Змагання
-              </Link>
-            )}
             {otherPages.length > 0 && (
               <Dropdown id="other" label="Інше" items={otherPages.map(p => ({ label: p.label, path: p.path }))} />
             )}
