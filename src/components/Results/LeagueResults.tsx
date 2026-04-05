@@ -40,6 +40,9 @@ const TH_V = "px-1 py-1 text-center text-dark-500 border-r border-dark-700/30";
 const TH_R = "[writing-mode:vertical-lr] rotate-180 text-[9px]";
 const SECTION_BORDER = "border-r-2 border-dark-600";
 
+const STICKY_NUM = "sticky left-0 z-10";
+const STICKY_PILOT = "sticky left-[28px] z-10 after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]";
+
 function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
   value: number; onChange: (v: number) => void; colorClass?: string; prefix?: string;
   editingRef: React.MutableRefObject<boolean>;
@@ -393,11 +396,11 @@ export default function LeagueResults({ format, competitionId, sessions, session
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="text-[10px] border-collapse" style={{ tableLayout: 'auto', width: 'auto' }}>
+            <table className="text-[10px] border-separate border-spacing-0" style={{ tableLayout: 'auto', width: 'auto' }}>
               <thead>
                 <tr className="bg-dark-800/50">
-                  <th rowSpan={3} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-6">#</th>
-                  <th rowSpan={3} className="px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px]">Пілот</th>
+                  <th rowSpan={3} className={`px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-[28px] bg-dark-900 ${STICKY_NUM} z-20`}>#</th>
+                  <th rowSpan={3} className={`px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px] bg-dark-900 ${STICKY_PILOT} z-20`}>Пілот</th>
                   <th rowSpan={3} className="px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10"><span className={TH_R}>Сума</span></th>
                   {qualiVisible() && (() => {
                     const visCount = QUALI_COLS.filter(c => colVisible(c)).length;
@@ -480,11 +483,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     const isOnTrack = livePilots?.includes(row.pilot);
                     const currentIncIdx = isExcluded ? -1 : includedIdx++;
                     const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
+                    const stickyBg = isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'bg-dark-900';
                     return (
                     <tr key={row.pilot} onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
                       className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'hover:bg-dark-700/30'}`}>
-                      <td className="px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700">{isExcluded ? '—' : i + 1}</td>
-                      <td className="px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap">
+                      <td className={`px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700 ${stickyBg} ${STICKY_NUM}`}>{isExcluded ? '—' : i + 1}</td>
+                      <td className={`px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap ${stickyBg} ${STICKY_PILOT}`}>
                         {renamingPilot === row.pilot ? (
                           <form onSubmit={(e) => {
                             e.preventDefault();
