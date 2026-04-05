@@ -1379,12 +1379,12 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
               <th className="text-left text-dark-300 font-semibold w-6">#</th>
               <th className="text-left text-dark-300 font-semibold">Старт</th>
               <th className="w-12"></th>
-              <th className="text-left text-dark-300 font-semibold" colSpan={2}>Фініш</th>
+              <th className="text-left text-dark-300 font-semibold">Фініш</th>
               <th className="text-left text-dark-300 font-semibold">Gap</th>
               <th className="text-left text-dark-300 font-semibold border-l border-dark-700" colSpan={2}>Бали</th>
             </tr>
             <tr className="table-header">
-              <th colSpan={5}></th>
+              <th colSpan={4}></th>
               <th></th>
               <th className="text-left text-dark-500 text-[10px] border-l border-dark-700">Поз</th>
               <th className="text-left text-dark-500 text-[10px]">Обг</th>
@@ -1414,16 +1414,14 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
                     </td>
                   ) : null}
                   <td className="text-white whitespace-nowrap">
+                    {r.diff !== 0 || r.startPos > 0 ? (
+                      <span className="font-mono text-[11px] mr-1" style={{ color: arrowColor(r.diff) }}>
+                        {r.diff > 0 ? `▲${r.diff}` : r.diff < 0 ? `▼${Math.abs(r.diff)}` : '—'}
+                      </span>
+                    ) : null}
                     <Link to={`/pilots/${encodeURIComponent(r.pilot)}`} className="text-white hover:text-primary-400 transition-colors">
                       {shortName(r.pilot)}
                     </Link>
-                  </td>
-                  <td className="font-mono text-[11px] w-6" style={{ paddingLeft: 0 }}>
-                    {r.diff > 0
-                      ? <span className="text-green-400">▲{r.diff}</span>
-                      : r.diff < 0
-                      ? <span className="text-red-400">▼{Math.abs(r.diff)}</span>
-                      : r.startPos > 0 ? <span className="text-dark-600">—</span> : ''}
                   </td>
                   <td className="font-mono text-dark-400 text-[11px]">
                     {r.gap ? toSeconds(r.gap) : ''}
