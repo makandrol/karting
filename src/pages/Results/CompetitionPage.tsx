@@ -1333,7 +1333,7 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
   if (raceData.length === 0) return null;
 
   const n = raceData.length;
-  const arrowW = 72;
+  const arrowW = 96;
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
   const [tbodyH, setTbodyH] = useState(0);
 
@@ -1378,7 +1378,7 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
             <tr className="table-header">
               <th className="text-left text-dark-300 font-semibold w-6">#</th>
               <th className="text-left text-dark-300 font-semibold">Старт</th>
-              <th className="w-[72px]"></th>
+              <th className="w-24"></th>
               <th className="text-left text-dark-300 font-semibold">Фініш</th>
               <th className="text-left text-dark-300 font-semibold">Gap</th>
               <th className="text-left text-dark-300 font-semibold border-l border-dark-700" colSpan={2}>Бали</th>
