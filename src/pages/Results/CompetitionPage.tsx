@@ -1357,14 +1357,12 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
           </thead>
           <tbody>
             {raceData.map((r) => {
-              const startPilot = r.startPos > 0 ? startGrid.get(r.startPos) : null;
+              const startPilot = startGrid.get(r.finishPos);
               return (
                 <tr key={r.pilot} className="table-row">
                   <td className="font-mono text-white font-bold">{r.finishPos}</td>
                   <td className="text-dark-400 whitespace-nowrap">
-                    {r.startPos > 0 ? (
-                      <><span className="font-mono">{r.startPos}</span>{startPilot && <span className="text-dark-500 ml-1">{shortName(startPilot)}</span>}</>
-                    ) : '—'}
+                    {startPilot ? shortName(startPilot) : '—'}
                   </td>
                   <td className="text-white whitespace-nowrap">
                     <Link to={`/pilots/${encodeURIComponent(r.pilot)}`} className="text-white hover:text-primary-400 transition-colors">
