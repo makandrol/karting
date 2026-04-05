@@ -359,6 +359,15 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     return active?.sessionId ?? null;
   }, [scrubTime, sessionTimes]);
 
+  const scrubTableSessionId = useMemo(() => {
+    if (scrubTime === null) return null;
+    if (scrubSessionId) return scrubSessionId;
+    const lastEnded = [...sessionTimes]
+      .filter(s => s.endTime !== null && s.endTime <= scrubTime)
+      .sort((a, b) => b.endTime! - a.endTime!)[0];
+    return lastEnded?.sessionId ?? null;
+  }, [scrubTime, scrubSessionId, sessionTimes]);
+
   // Get the last active phase when scrubbing (for determining which race's start positions to show)
   const scrubActivePhase = useMemo(() => {
     if (scrubTime === null) return null;
@@ -498,7 +507,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         />
         <LiveSessionTable
           competition={competition}
-          liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+          liveSessionId={isScrubbing ? scrubTableSessionId : liveSessionId}
           liveEntries={isScrubbing ? [] : liveEntries}
           liveTeams={isScrubbing ? [] : liveTeams}
           sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
@@ -1071,9 +1080,11 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   const isQualifying = currentPhase?.startsWith('qualifying') ?? false;
   const isRace = currentPhase?.startsWith('race_') ?? false;
 
-  if (isScrubbing || !liveSessionId || (!isQualifying && !isRace) || liveEntries.length === 0) return null;
+  const laps = liveSessionId ? (sessionLaps.get(liveSessionId) || []) : [];
+  const hasData = laps.length > 0 || liveEntries.length > 0;
 
-  const laps = sessionLaps.get(liveSessionId) || [];
+  if (!liveSessionId || (!isQualifying && !isRace) || !hasData) return null;
+
   const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase) : '';
 
   if (isQualifying) {
