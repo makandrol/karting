@@ -624,12 +624,18 @@ export const storage = {
   },
 
   autoLinkSessionToActiveCompetition(sessionId) {
-    const FORMAT_MAX_GROUPS = { gonzales: 1, light_league: 3, champions_league: 2, sprint: 1, marathon: 1 };
+    const FORMAT_MAX_GROUPS = { gonzales: 1, light_league: 3, champions_league: 2, sprint: 3, marathon: 1 };
     const FULL_PHASES = {
       gonzales: Array.from({ length: 12 }, (_, i) => `round_${i + 1}`),
       light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
       champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
-      sprint: ['race'],
+      sprint: [
+        'qualifying_1_group_3', 'qualifying_1_group_2', 'qualifying_1_group_1',
+        'race_1_group_3', 'race_1_group_2', 'race_1_group_1',
+        'qualifying_2_group_3', 'qualifying_2_group_2', 'qualifying_2_group_1',
+        'race_2_group_3', 'race_2_group_2', 'race_2_group_1',
+        'final_group_3', 'final_group_2', 'final_group_1',
+      ],
       marathon: ['race'],
     };
 
@@ -641,7 +647,7 @@ export const storage = {
     let groupCount = results.groupCountOverride || null;
 
     // Auto-detect groups by pilot overlap if not manually set
-    if (!groupCount && (liveComp.format === 'light_league' || liveComp.format === 'champions_league')) {
+    if (!groupCount && (liveComp.format === 'light_league' || liveComp.format === 'champions_league' || liveComp.format === 'sprint')) {
       const linkedSessions = liveComp.sessions.filter(s => s.phase?.startsWith('qualifying'));
       if (linkedSessions.length > 0) {
         const cumulativePilots = new Set();
@@ -667,10 +673,10 @@ export const storage = {
       }
     }
 
-    const filterPhases = (phases, gc) => {
+    const filterPhases = (phases, gc, format) => {
       if (!gc) return phases;
       return phases.filter(p => {
-        if (p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
+        if (format !== 'sprint' && p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
         const gm = p.match(/group_(\d+)/);
         if (gm) return parseInt(gm[1]) <= gc;
         return true;
@@ -678,7 +684,7 @@ export const storage = {
     };
 
     const allPhases = FULL_PHASES[liveComp.format] || [];
-    const phases = filterPhases(allPhases, groupCount);
+    const phases = filterPhases(allPhases, groupCount, liveComp.format);
     const usedPhases = liveComp.sessions.map(s => s.phase);
     let lastUsedIdx = -1;
     for (const p of usedPhases) {
@@ -697,7 +703,7 @@ export const storage = {
     const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
     const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
     if (!comp || comp.status !== 'live') return;
-    if (comp.format !== 'light_league' && comp.format !== 'champions_league') return;
+    if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint') return;
 
     const results = comp.results || {};
     if (results.groupCountOverride) return;
@@ -724,11 +730,11 @@ export const storage = {
 
     if (overlapRatio < 0.5) return;
 
-    const groupCount = Math.min(qualiSessions.length, { light_league: 3, champions_league: 2 }[comp.format] || 3);
+    const groupCount = Math.min(qualiSessions.length, { light_league: 3, champions_league: 2, sprint: 3 }[comp.format] || 3);
     console.log(`🔍 Session ${sessionId}: ${Math.round(overlapRatio * 100)}% overlap → detected ${groupCount} groups, reassigning phase`);
 
-    const filterPhases = (phases, gc) => phases.filter(p => {
-      if (p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
+    const filterPhases = (phases, gc, fmt) => phases.filter(p => {
+      if (fmt !== 'sprint' && p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
       const gm = p.match(/group_(\d+)/);
       if (gm) return parseInt(gm[1]) <= gc;
       return true;
@@ -737,8 +743,15 @@ export const storage = {
     const FULL_PHASES = {
       light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
       champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
+      sprint: [
+        'qualifying_1_group_3', 'qualifying_1_group_2', 'qualifying_1_group_1',
+        'race_1_group_3', 'race_1_group_2', 'race_1_group_1',
+        'qualifying_2_group_3', 'qualifying_2_group_2', 'qualifying_2_group_1',
+        'race_2_group_3', 'race_2_group_2', 'race_2_group_1',
+        'final_group_3', 'final_group_2', 'final_group_1',
+      ],
     };
-    const phases = filterPhases(FULL_PHASES[comp.format] || [], groupCount);
+    const phases = filterPhases(FULL_PHASES[comp.format] || [], groupCount, comp.format);
 
     const usedPhases = comp.sessions.filter(s => s.sessionId !== sessionId).map(s => s.phase);
     let lastUsedIdx = -1;

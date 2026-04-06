@@ -169,7 +169,7 @@ export default function CompetitionPage() {
 
   return (
     <div className="space-y-4">
-      {(competition.format === 'light_league' || competition.format === 'champions_league') && (
+      {(competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
         <TableLayoutBar pageId="competition" sections={[
           ...PAGE_SECTIONS.competition,
           ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
@@ -198,7 +198,7 @@ export default function CompetitionPage() {
                 ))}
               </select>
             </div>
-            {(competition.format === 'light_league' || competition.format === 'champions_league') && (
+            {(competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
               <CompetitionParams
                 pilotCount={pilotCount}
                 pilotOverride={competition.results?.totalPilotsOverride ?? null}
@@ -388,7 +388,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     return <GonzalesLiveTable competition={competition} sessionLaps={sessionLaps} />;
   }
 
-  if (competition.format === 'light_league' || competition.format === 'champions_league') {
+  if (competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') {
     const isScrubbing = scrubTime !== null;
 
     const leagueResultsEl = (
@@ -1060,7 +1060,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   }, [competition.sessions, liveSessionId]);
 
   const isQualifying = currentPhase?.startsWith('qualifying') ?? false;
-  const isRace = currentPhase?.startsWith('race_') ?? false;
+  const isRace = (currentPhase?.startsWith('race_') || currentPhase?.startsWith('final_')) ?? false;
 
   const sessionEnded = useMemo(() => {
     if (!liveSessionId || isScrubbing) return false;
@@ -1131,8 +1131,9 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     if (!isRace) return { startPositions: undefined, totalPilots: 0 };
 
     const raceMatch = currentPhase!.match(/^race_(\d+)_group_(\d+)$/);
-    const raceNum = raceMatch ? parseInt(raceMatch[1]) : 1;
-    const groupNum = raceMatch ? parseInt(raceMatch[2]) : 1;
+    const finalMatch = !raceMatch ? currentPhase!.match(/^final_group_(\d+)$/) : null;
+    const raceNum = raceMatch ? parseInt(raceMatch[1]) : (finalMatch ? 3 : 1);
+    const groupNum = raceMatch ? parseInt(raceMatch[2]) : (finalMatch ? parseInt(finalMatch[1]) : 1);
 
     const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith('qualifying'));
     const qualiData = new Map<string, { bestTime: number; pilot: string }>();

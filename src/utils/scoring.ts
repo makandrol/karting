@@ -1,4 +1,4 @@
-import { splitIntoGroups } from '../data/competitions';
+import { splitIntoGroups, splitIntoGroupsSprint } from '../data/competitions';
 
 export interface SessionLap {
   pilot: string;
@@ -28,7 +28,7 @@ export interface PilotRaceData {
   positionPoints: number; overtakePoints: number; speedPoints: number; penalties: number; totalRacePoints: number;
 }
 export interface PilotRow {
-  pilot: string; quali: PilotQualiData | null; races: (PilotRaceData | null)[];
+  pilot: string; quali: PilotQualiData | null; qualis?: (PilotQualiData | null)[]; races: (PilotRaceData | null)[];
   totalPoints: number;
 }
 
@@ -265,6 +265,237 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
     const qualiPts = q?.speedPoints ?? 0;
     const racePts = races.reduce((s, r) => s + (r?.totalRacePoints ?? 0), 0);
     return { pilot, quali: q, races, totalPoints: Math.round((qualiPts + racePts) * 10) / 10 };
+  });
+
+  return rows;
+}
+
+export function computeSprintStandings(params: ComputeStandingsParams): PilotRow[] {
+  const { sessions, sessionLaps, scoring, edits, excludedPilots, maxGroups, pilotsOverride, pilotsLocked, liveSessionId, livePhase, livePositions } = params;
+
+  const getQualiSessions = (n: number) => sessions.filter(s => s.phase?.startsWith(`qualifying_${n}_`));
+  const getRaceSessions = (key: string) => sessions.filter(s => s.phase?.startsWith(`${key}_`));
+  const getFinalSessions = () => sessions.filter(s => s.phase?.startsWith('final_'));
+
+  const buildQualiData = (qualiSess: CompSession[]) => {
+    const data = new Map<string, PilotQualiData>();
+    for (const qs of qualiSess) {
+      for (const l of (sessionLaps.get(qs.sessionId) || [])) {
+        const sec = parseLapSec(l.lap_time);
+        if (sec === null || sec < 38) continue;
+        const ex = data.get(l.pilot);
+        if (!ex || sec < ex.bestTime) data.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart, speedPoints: 0 });
+      }
+    }
+    return data;
+  };
+
+  const quali1Data = buildQualiData(getQualiSessions(1));
+  const quali2Data = buildQualiData(getQualiSessions(2));
+  const allQualiData = buildQualiData([...getQualiSessions(1), ...getQualiSessions(2)]);
+
+  const allQualiSorted = [...allQualiData.entries()]
+    .filter(([p]) => !excludedPilots.has(p))
+    .sort((a, b) => a[1].bestTime - b[1].bestTime);
+  const maxQualified = 45;
+  const qualifiedPilots = allQualiSorted.slice(0, maxQualified).map(([p]) => p);
+  const disqualifiedPilots = new Set(allQualiSorted.slice(maxQualified).map(([p]) => p));
+  const autoTotalPilots = qualifiedPilots.length;
+  const totalPilots = (pilotsLocked && pilotsOverride !== null) ? pilotsOverride : autoTotalPilots;
+
+  const addSpeedPoints = (data: Map<string, PilotQualiData>) => {
+    const sorted = [...data.entries()]
+      .filter(([p]) => !excludedPilots.has(p))
+      .sort((a, b) => a[1].bestTime - b[1].bestTime);
+    sorted.slice(0, 5).forEach(([pilot], i) => {
+      const q = data.get(pilot)!;
+      q.speedPoints = scoring.speedPoints[i] || 0;
+    });
+  };
+  addSpeedPoints(quali1Data);
+  addSpeedPoints(quali2Data);
+
+  let activePhase: string | null = null;
+  if (liveSessionId) {
+    const liveSession = sessions.find(s => s.sessionId === liveSessionId);
+    activePhase = liveSession?.phase || null;
+  } else if (livePhase) {
+    activePhase = livePhase;
+  }
+
+  const buildRaceData = (raceSessions: CompSession[], startPositions: Map<string, { group: number; startPos: number }>, raceIndex: number, shouldShowStart: boolean) => {
+    const rData = new Map<string, PilotRaceData>();
+    const raceTimes: { pilot: string; time: number }[] = [];
+
+    for (const rs of raceSessions) {
+      const groupMatch = rs.phase?.match(/group_(\d+)/);
+      const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
+      const laps = sessionLaps.get(rs.sessionId) || [];
+      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; kart: number; lapCount: number; lastTs: number; lastPosition: number }>();
+      for (const l of laps) {
+        const sec = parseLapSec(l.lap_time);
+        if (sec === null || sec < 38) continue;
+        const ex = pilotStats.get(l.pilot);
+        if (!ex) {
+          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, kart: l.kart, lapCount: 1, lastTs: l.ts, lastPosition: l.position ?? 99 });
+        } else {
+          ex.lapCount++;
+          if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPosition = l.position ?? 99; }
+          if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
+        }
+      }
+      const isActiveSession = rs.sessionId === liveSessionId && livePositions && livePositions.length > 0;
+      if (isActiveSession) {
+        for (const lp of livePositions!) {
+          const ps = pilotStats.get(lp.pilot);
+          if (ps) ps.lastPosition = lp.position;
+        }
+      }
+
+      const sorted = [...pilotStats.entries()]
+        .filter(([p]) => !excludedPilots.has(p))
+        .sort((a, b) => {
+          if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
+          if (a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
+          return a[1].lastTs - b[1].lastTs;
+        });
+
+      sorted.forEach(([pilot, pData], i) => {
+        const editKey = `${pilot}|${raceIndex}`;
+        const edit = edits[editKey];
+        const sp = startPositions.get(pilot);
+        const isDisq = disqualifiedPilots.has(pilot);
+        const startPos = isDisq ? -1 : (edit?.startPos ?? sp?.startPos ?? 0);
+        const finishPos = edit?.finishPos ?? (i + 1);
+        const group = isDisq ? 0 : (sp?.group ?? groupNum);
+        const penalties = edit?.penalties ?? 0;
+        const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
+        const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos);
+
+        rData.set(pilot, {
+          kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
+          group, startPos, finishPos,
+          positionPoints: posPoints, overtakePoints: 0, speedPoints: 0, penalties,
+          totalRacePoints: Math.round((posPoints - penalties) * 10) / 10,
+        });
+        raceTimes.push({ pilot, time: pData.bestTime });
+      });
+
+      const excludedEntries = [...pilotStats.entries()].filter(([p]) => excludedPilots.has(p));
+      excludedEntries.forEach(([pilot, pData]) => {
+        rData.set(pilot, {
+          kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
+          group: 0, startPos: 0, finishPos: 0,
+          positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
+        });
+      });
+    }
+
+    raceTimes.sort((a, b) => a.time - b.time);
+    raceTimes.filter(r => !excludedPilots.has(r.pilot)).slice(0, 5).forEach(({ pilot }, i) => {
+      const rd = rData.get(pilot);
+      if (rd) {
+        rd.speedPoints = scoring.speedPoints[i] || 0;
+        rd.totalRacePoints = Math.round((rd.positionPoints + rd.speedPoints - rd.penalties) * 10) / 10;
+      }
+    });
+
+    if (shouldShowStart) {
+      for (const [pilot, sp] of startPositions) {
+        if (!rData.has(pilot) && !excludedPilots.has(pilot)) {
+          rData.set(pilot, {
+            kart: 0, bestTime: Infinity, bestTimeStr: '',
+            group: sp.group, startPos: sp.startPos, finishPos: 0,
+            positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
+          });
+        }
+      }
+    }
+
+    return { rData, raceTimes };
+  };
+
+  const computeStartFromQuali = (qualiData: Map<string, PilotQualiData>) => {
+    const sorted = [...qualiData.entries()]
+      .filter(([p]) => !excludedPilots.has(p) && !disqualifiedPilots.has(p))
+      .sort((a, b) => a[1].bestTime - b[1].bestTime)
+      .slice(0, maxQualified);
+    const groups = splitIntoGroupsSprint(sorted.map(([p]) => p), maxGroups);
+    const sp = new Map<string, { group: number; startPos: number }>();
+    groups.forEach((g, gi) => {
+      const gNum = gi + 1;
+      g.pilots.forEach((p, pi) => {
+        sp.set(p, { group: gNum, startPos: g.pilots.length - pi });
+      });
+    });
+    return sp;
+  };
+
+  const shouldShowRaceStart = (raceKey: string) => {
+    if (!activePhase) return true;
+    if (activePhase.startsWith(`qualifying_1_`)) return raceKey === 'race_1';
+    if (activePhase.startsWith(`race_1_`)) return raceKey === 'qualifying_2' || raceKey === 'race_2';
+    if (activePhase.startsWith(`qualifying_2_`)) return raceKey === 'race_2';
+    if (activePhase.startsWith(`race_2_`)) return raceKey === 'final';
+    return true;
+  };
+
+  const startPos1 = computeStartFromQuali(quali1Data);
+  const { rData: race1Data, raceTimes: race1Times } = buildRaceData(getRaceSessions('race_1'), startPos1, 1, shouldShowRaceStart('race_1'));
+
+  const startPos2 = computeStartFromQuali(quali2Data);
+  const { rData: race2Data, raceTimes: race2Times } = buildRaceData(getRaceSessions('race_2'), startPos2, 2, shouldShowRaceStart('race_2'));
+
+  const computeFinalStart = () => {
+    const pointsMap = new Map<string, number>();
+    for (const pilot of qualifiedPilots) {
+      if (excludedPilots.has(pilot)) continue;
+      const r1 = race1Data.get(pilot);
+      const r2 = race2Data.get(pilot);
+      const pts = (r1?.totalRacePoints ?? 0) + (r2?.totalRacePoints ?? 0);
+      pointsMap.set(pilot, pts);
+    }
+    const sorted = [...pointsMap.entries()]
+      .sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1];
+        const q1a = quali1Data.get(a[0])?.bestTime ?? Infinity;
+        const q1b = quali1Data.get(b[0])?.bestTime ?? Infinity;
+        return q1a - q1b;
+      })
+      .slice(0, maxQualified);
+    const groups = splitIntoGroupsSprint(sorted.map(([p]) => p), maxGroups);
+    const sp = new Map<string, { group: number; startPos: number }>();
+    groups.forEach((g, gi) => {
+      const gNum = gi + 1;
+      g.pilots.forEach((p, pi) => {
+        sp.set(p, { group: gNum, startPos: g.pilots.length - pi });
+      });
+    });
+    return sp;
+  };
+
+  const finalStartPos = computeFinalStart();
+  const { rData: finalData } = buildRaceData(getFinalSessions(), finalStartPos, 3, shouldShowRaceStart('final'));
+
+  const raceResults = [race1Data, race2Data, finalData];
+
+  const allPilots = new Set<string>([...quali1Data.keys(), ...quali2Data.keys()]);
+  for (const rd of raceResults) for (const p of rd.keys()) allPilots.add(p);
+
+  const rows: PilotRow[] = [...allPilots].map(pilot => {
+    const q1 = quali1Data.get(pilot) || null;
+    const q2 = quali2Data.get(pilot) || null;
+    const races = raceResults.map(rd => rd.get(pilot) || null);
+    const q1Pts = q1?.speedPoints ?? 0;
+    const q2Pts = q2?.speedPoints ?? 0;
+    const racePts = races.reduce((s, r) => s + (r?.totalRacePoints ?? 0), 0);
+    return {
+      pilot,
+      quali: q1,
+      qualis: [q1, q2],
+      races,
+      totalPoints: Math.round((q1Pts + q2Pts + racePts) * 10) / 10,
+    };
   });
 
   return rows;

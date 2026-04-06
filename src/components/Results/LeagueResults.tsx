@@ -6,7 +6,7 @@ import { COLLECTOR_URL } from '../../services/config';
 import {
   type SessionLap, type CompSession, type ScoringData,
   type PilotQualiData, type PilotRaceData, type PilotRow, type ManualEdits,
-  computeStandings, rowsToStandings,
+  computeStandings, computeSprintStandings, rowsToStandings,
 } from '../../utils/scoring';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
@@ -66,7 +66,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const { isSectionVisible } = useLayoutPrefs();
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
-  const raceCount = format === 'champions_league' ? 3 : 2;
+  const raceCount = format === 'champions_league' ? 3 : format === 'sprint' ? 3 : 2;
+  const isSprint = format === 'sprint';
+  const qualiCount = isSprint ? 2 : 1;
   const excludedLapSet = useMemo(() => new Set(excludedLapKeys || []), [excludedLapKeys]);
   const effectiveLaps = useMemo(() => {
     if (excludedLapSet.size === 0) return sessionLaps;
@@ -79,7 +81,16 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const formatMaxGroups = format === 'champions_league' ? 2 : 3;
   const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
   const qualiSessionsWithData = qualiSessions.filter(s => (effectiveLaps.get(s.sessionId) || []).length > 0);
-  const autoGroupsByQuali = Math.min(Math.max(qualiSessionsWithData.length, 1), formatMaxGroups);
+  const autoGroupsByQuali = useMemo(() => {
+    if (isSprint) {
+      const q1Groups = new Set(qualiSessionsWithData
+        .filter(s => s.phase?.startsWith('qualifying_1_group_'))
+        .map(s => s.phase?.match(/group_(\d+)/)?.[1])
+        .filter(Boolean));
+      return Math.min(Math.max(q1Groups.size, 1), formatMaxGroups);
+    }
+    return Math.min(Math.max(qualiSessionsWithData.length, 1), formatMaxGroups);
+  }, [qualiSessionsWithData, isSprint, formatMaxGroups]);
   const maxGroups = groupCountOverride ?? autoGroupsByQuali;
   const sessionsWithData = new Set(sessions.filter(s => (effectiveLaps.get(s.sessionId) || []).length > 0).map(s => s.sessionId));
   const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
@@ -180,7 +191,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const data = useMemo(() => {
     if (!scoring) return [];
-    return computeStandings({
+    const computeFn = isSprint ? computeSprintStandings : computeStandings;
+    return computeFn({
       format, sessions, sessionLaps: effectiveLaps, scoring, edits,
       excludedPilots, maxGroups, pilotsOverride, pilotsLocked,
       liveSessionId, livePhase, livePositions,
@@ -210,27 +222,56 @@ export default function LeagueResults({ format, competitionId, sessions, session
   }, [data, sortKey, sortDir, excludedPilots]);
 
   const QUALI_COLS_H = ['q_kart', 'q_time', 'q_speed'] as const;
-  const RACE_COLS_H = ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
+  const RACE_COLS_H = isSprint
+    ? ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'penalties', 'sum'] as const
+    : ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
 
   type TopGrpId = string;
-  const SUB_GROUPS = [
-    { id: 'pos', label: 'Поз', cols: ['group', 'start', 'finish'] },
-    { id: 'time', label: 'Час', cols: ['kart', 'time', 'speed'] },
-    { id: 'pts', label: 'Бали', cols: ['pos_pts', 'overtake', 'penalties', 'sum'] },
-  ] as const;
+  const SUB_GROUPS = isSprint
+    ? [
+        { id: 'pos', label: 'Поз', cols: ['group', 'start', 'finish'] },
+        { id: 'time', label: 'Час', cols: ['kart', 'time', 'speed'] },
+        { id: 'pts', label: 'Бали', cols: ['pos_pts', 'penalties', 'sum'] },
+      ] as const
+    : [
+        { id: 'pos', label: 'Поз', cols: ['group', 'start', 'finish'] },
+        { id: 'time', label: 'Час', cols: ['kart', 'time', 'speed'] },
+        { id: 'pts', label: 'Бали', cols: ['pos_pts', 'overtake', 'penalties', 'sum'] },
+      ] as const;
   const TOP_GROUPS = useMemo(() => {
-    const groups: { id: TopGrpId; label: string; allCols: string[] }[] = [
-      { id: 'quali', label: 'Квала', allCols: [...QUALI_COLS_H] },
-    ];
+    const groups: { id: TopGrpId; label: string; allCols: string[] }[] = [];
+    if (isSprint) {
+      groups.push({ id: 'quali1', label: 'Кв1', allCols: QUALI_COLS_H.map(c => `q1_${c.replace('q_', '')}`) });
+    } else {
+      groups.push({ id: 'quali', label: 'Квала', allCols: [...QUALI_COLS_H] });
+    }
     for (let r = 1; r <= raceCount; r++) {
+      const label = isSprint && r === 3 ? 'Фін' : `Г${r}`;
+      if (isSprint && r <= 2) {
+        groups.push({
+          id: `q${r + 1 === 2 ? '2' : String(r + 1)}`,
+          label: `Кв${r + 1 === 2 ? '2' : String(r + 1)}`,
+          allCols: QUALI_COLS_H.map(c => `q${r + 1 === 2 ? '2' : String(r + 1)}_${c.replace('q_', '')}`),
+        });
+      }
       groups.push({
         id: `r${r}`,
-        label: `Г${r}`,
+        label: label,
         allCols: RACE_COLS_H.map(c => `r${r}_${c}`),
       });
     }
+    if (isSprint) {
+      const ordered = [
+        groups.find(g => g.id === 'quali1')!,
+        groups.find(g => g.id === 'r1')!,
+        groups.find(g => g.id === 'q2')!,
+        groups.find(g => g.id === 'r2')!,
+        groups.find(g => g.id === 'r3')!,
+      ].filter(Boolean);
+      return ordered;
+    }
     return groups;
-  }, [raceCount]);
+  }, [raceCount, isSprint]);
   const DEFAULT_TOP_ORDER = useMemo(() => TOP_GROUPS.map(g => g.id), [TOP_GROUPS]);
   const topById = useMemo(() => new Map(TOP_GROUPS.map(g => [g.id, g])), [TOP_GROUPS]);
 
@@ -256,8 +297,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
   }, [DEFAULT_TOP_ORDER]);
 
   const toggleTopGrp = useCallback((gid: TopGrpId) => {
-    const isRace = gid !== 'quali';
-    if (isRace) {
+    const isQuali = gid === 'quali' || gid.startsWith('quali') || gid.match(/^q\d+$/);
+    if (!isQuali) {
       const allSubsHidden = SUB_GROUPS.every(sg => hiddenSubGrps.has(`${gid}_${sg.id}`));
       if (allSubsHidden) {
         setHiddenSubGrps(prev => {
@@ -309,7 +350,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
       if (hiddenTopGrps.has(gid)) continue;
       const g = topById.get(gid);
       if (!g) continue;
-      if (gid === 'quali') {
+      const isQuali = gid === 'quali' || gid.startsWith('quali') || gid.match(/^q\d+$/);
+      if (isQuali) {
         g.allCols.forEach(c => s.add(c));
       } else {
         for (const sg of SUB_GROUPS) {
@@ -340,10 +382,18 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const showQuali = !hiddenGroups.has('quali');
   const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
   const QUALI_COLS = ['q_kart', 'q_time', 'q_speed'] as const;
-  const RACE_COLS = ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
+  const RACE_COLS = isSprint
+    ? ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'penalties', 'sum'] as const
+    : ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
   const raceColId = (raceNum: number, col: string) => `r${raceNum}_${col}`;
 
-  const PRESET_COLS: Record<string, { quali: string[]; race: string[] }> = {
+  const PRESET_COLS: Record<string, { quali: string[]; race: string[] }> = isSprint ? {
+    all: { quali: [...QUALI_COLS], race: [...RACE_COLS] },
+    positions: { quali: [], race: ['group', 'start', 'finish'] },
+    time: { quali: ['q_kart', 'q_time'], race: ['kart', 'time', 'speed'] },
+    points: { quali: ['q_speed'], race: ['pos_pts', 'penalties', 'sum'] },
+    edit: { quali: [], race: ['start', 'finish', 'penalties', 'sum'] },
+  } : {
     all: { quali: [...QUALI_COLS], race: [...RACE_COLS] },
     positions: { quali: [], race: ['group', 'start', 'finish'] },
     time: { quali: ['q_kart', 'q_time'], race: ['kart', 'time', 'speed'] },
@@ -362,6 +412,14 @@ export default function LeagueResults({ format, competitionId, sessions, session
     const preset = PRESET_COLS[activeMode || 'all'] || PRESET_COLS.all;
     const hidden = new Set<string>();
     QUALI_COLS.forEach(c => { if (!preset.quali.includes(c)) hidden.add(c); });
+    if (isSprint) {
+      const qualiFields = ['kart', 'time', 'speed'];
+      for (let q = 1; q <= qualiCount; q++) {
+        qualiFields.forEach(f => {
+          if (!preset.quali.includes(`q_${f}`)) hidden.add(`q${q}_${f}`);
+        });
+      }
+    }
     for (let r = 1; r <= raceCount; r++) {
       RACE_COLS.forEach(c => { if (!preset.race.includes(c)) hidden.add(raceColId(r, c)); });
     }
@@ -387,7 +445,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const topOrder = showCustom ? customTopOrder : DEFAULT_TOP_ORDER;
 
-  const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
+  const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && (r.quali || r.qualis?.some(q => q))).length;
   Promise.resolve().then(() => {
     onPilotCount?.(autoTotalPilots);
     onAutoGroups?.(autoGroupsByQuali);
@@ -488,8 +546,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     const g = topById.get(gid);
                     if (!g) return null;
                     const topHidden = hiddenTopGrps.has(gid);
-                    const isRace = gid !== 'quali';
-                    const allSubsHidden = isRace && SUB_GROUPS.every(sg => hiddenSubGrps.has(`${gid}_${sg.id}`));
+                    const isQualiPill = gid === 'quali' || gid.startsWith('quali') || gid.match(/^q\d+$/);
+                    const allSubsHidden = !isQualiPill && SUB_GROUPS.every(sg => hiddenSubGrps.has(`${gid}_${sg.id}`));
                     const visible = !topHidden && !allSubsHidden;
                     return (
                       <span key={gid} className="inline-flex items-center border border-dark-700 rounded-lg overflow-hidden"
@@ -506,7 +564,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         >
                           {g.label}
                         </button>
-                        {isRace && visible && <>
+                        {!isQualiPill && visible && <>
                           <span className="text-dark-700 text-[9px] flex items-center px-0.5">|</span>
                           {SUB_GROUPS.map((sg) => {
                           const subKey = `${gid}_${sg.id}`;
@@ -547,9 +605,16 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           const cnt = QUALI_COLS.filter(c => cv(c)).length;
                           return cnt > 0 ? <th key={gid} colSpan={cnt} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Квала</th> : null;
                         }
+                        const isQualiGrp = gid.startsWith('quali') || gid.match(/^q\d+$/);
+                        if (isQualiGrp) {
+                          const g = topById.get(gid);
+                          const cnt = g?.allCols.filter(c => cv(c)).length ?? 0;
+                          return cnt > 0 ? <th key={gid} colSpan={cnt} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">{g?.label}</th> : null;
+                        }
                         const rn = parseInt(gid.replace('r', ''));
                         const cnt = RACE_COLS.filter(c => cv(raceColId(rn, c))).length;
-                        return cnt > 0 ? <th key={gid} colSpan={cnt} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Гонка {rn}</th> : null;
+                        const rLabel = isSprint && rn === 3 ? 'Фінал' : `Гонка ${rn}`;
+                        return cnt > 0 ? <th key={gid} colSpan={cnt} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">{rLabel}</th> : null;
                       })}
                     </tr>
                     <tr className="bg-dark-800/30">
@@ -559,10 +624,21 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           {cv('q_time') && <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>}
                           {cv('q_speed') && <th rowSpan={2} className={TH_V}><span className={TH_R}>Швидк.</span></th>}
                         </Fragment>;
+                        const isQualiGrp = gid.startsWith('quali') || gid.match(/^q\d+$/);
+                        if (isQualiGrp) {
+                          const g = topById.get(gid);
+                          if (!g) return null;
+                          return <Fragment key={gid}>
+                            {g.allCols.filter(c => cv(c)).map(c => {
+                              const label = c.endsWith('_kart') ? 'Карт' : c.endsWith('_time') ? 'Час' : 'Швидк.';
+                              return <th key={c} rowSpan={2} className={TH_V}><span className={TH_R}>{label}</span></th>;
+                            })}
+                          </Fragment>;
+                        }
                         const rn = parseInt(gid.replace('r', ''));
                         const posCols = ['group', 'start', 'finish'] as const;
                         const timeCols = ['kart', 'time', 'speed'] as const;
-                        const ptsCols = ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
+                        const ptsCols = isSprint ? ['pos_pts', 'penalties', 'sum'] as const : ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
                         const visPos = posCols.filter(c => cv(raceColId(rn, c)));
                         const visTime = timeCols.filter(c => cv(raceColId(rn, c)));
                         const visPts = ptsCols.filter(c => cv(raceColId(rn, c)));
@@ -576,9 +652,14 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     </tr>
                     <tr className="bg-dark-800/20">
                       {visTop.map(gid => {
-                        if (gid === 'quali') return null;
+                        const isQualiGrp = gid === 'quali' || gid.startsWith('quali') || gid.match(/^q\d+$/);
+                        if (isQualiGrp) return null;
                         const rn = parseInt(gid.replace('r', ''));
-                        const allSubCols = [
+                        const allSubCols = isSprint ? [
+                          { col: 'group', label: 'Група' }, { col: 'start', label: 'Старт' }, { col: 'finish', label: 'Фініш' },
+                          { col: 'kart', label: 'Карт' }, { col: 'time', label: 'Час' }, { col: 'speed', label: 'Швидк.' },
+                          { col: 'pos_pts', label: 'Позиція' }, { col: 'penalties', label: 'Штрафи' }, { col: 'sum', label: 'Сума' },
+                        ] : [
                           { col: 'group', label: 'Група' }, { col: 'start', label: 'Старт' }, { col: 'finish', label: 'Фініш' },
                           { col: 'kart', label: 'Карт' }, { col: 'time', label: 'Час' }, { col: 'speed', label: 'Швидк.' },
                           { col: 'pos_pts', label: 'Позиція' }, { col: 'overtake', label: 'Обгони' }, { col: 'penalties', label: 'Штрафи' }, { col: 'sum', label: 'Сума' },
@@ -616,6 +697,14 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           if (col === 'q_kart') return <td key={col} className={`px-1 py-1 text-center font-mono ${KART_COLOR} border-r border-dark-700/30`}>{row.quali?.kart || '—'}</td>;
                           if (col === 'q_time') return <td key={col} className={`px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30`}>{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>;
                           if (col === 'q_speed') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>;
+                          const qm = col.match(/^q(\d+)_(kart|time|speed)$/);
+                          if (qm) {
+                            const qi = parseInt(qm[1]) - 1;
+                            const qd = row.qualis?.[qi];
+                            if (qm[2] === 'kart') return <td key={col} className={`px-1 py-1 text-center font-mono ${KART_COLOR} border-r border-dark-700/30`}>{qd?.kart || '—'}</td>;
+                            if (qm[2] === 'time') return <td key={col} className={`px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30`}>{qd ? toSeconds(qd.bestTimeStr) : '—'}</td>;
+                            if (qm[2] === 'speed') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{qd?.speedPoints ? <span className="text-green-400/80">{qd.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>;
+                          }
                           const m = col.match(/^r(\d+)_(.+)$/);
                           if (!m) return <td key={col} className="px-1 py-1 text-center border-r border-dark-700/30">—</td>;
                           const rn = parseInt(m[1]), base = m[2];
@@ -697,6 +786,20 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   <th rowSpan={3} className={`px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-[28px] bg-dark-900 ${STICKY_NUM} z-20`}>#</th>
                   <th rowSpan={3} className={`px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px] bg-dark-900 ${STICKY_PILOT} z-20`}>Пілот</th>
                   <th rowSpan={3} className="px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10"><span className={TH_R}>Сума</span></th>
+                  {isSprint ? topOrder.map(gid => {
+                    const isQualiGrp = gid.startsWith('quali') || gid.match(/^q\d+$/);
+                    if (isQualiGrp) {
+                      const g = topById.get(gid);
+                      const cnt = g?.allCols.filter(c => colVisible(c)).length ?? 0;
+                      return cnt > 0 ? <th key={gid} colSpan={cnt} className={thClass("px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700")}>{g?.label}</th> : null;
+                    }
+                    const rn = parseInt(gid.replace('r', ''));
+                    if (!raceVisible(rn)) return null;
+                    const visCount = RACE_COLS.filter(c => colVisible(raceColId(rn, c))).length;
+                    if (visCount === 0) return null;
+                    const rLabel = rn === 3 ? 'Фінал' : `Гонка ${rn}`;
+                    return <th key={gid} colSpan={visCount} className={thClass("px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700")}>{rLabel}</th>;
+                  }) : (<>
                   {qualiVisible() && (() => {
                     const visCount = QUALI_COLS.filter(c => colVisible(c)).length;
                     if (visCount === 0) return null;
@@ -710,8 +813,36 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     if (visCount === 0) return null;
                     return <th key={i} colSpan={visCount} className={thClass("px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700")}>Гонка {rn}</th>;
                   })}
+                  </>)}
                 </tr>
                 <tr className="bg-dark-800/30">
+                  {isSprint ? topOrder.map(gid => {
+                    const isQualiGrp = gid.startsWith('quali') || gid.match(/^q\d+$/);
+                    if (isQualiGrp) {
+                      const g = topById.get(gid);
+                      if (!g) return null;
+                      return <Fragment key={gid}>
+                        {g.allCols.filter(c => colVisible(c)).map(c => {
+                          const label = c.endsWith('_kart') ? 'Карт' : c.endsWith('_time') ? 'Час' : 'Швидк.';
+                          return <th key={c} rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>{label}</span></th>;
+                        })}
+                      </Fragment>;
+                    }
+                    const rn = parseInt(gid.replace('r', ''));
+                    if (!raceVisible(rn)) return null;
+                    const posCols = ['group', 'start', 'finish'] as const;
+                    const timeCols = ['kart', 'time', 'speed'] as const;
+                    const ptsCols = ['pos_pts', 'penalties', 'sum'] as const;
+                    const visPos = posCols.filter(c => colVisible(raceColId(rn, c)));
+                    const visTime = timeCols.filter(c => colVisible(raceColId(rn, c)));
+                    const visPts = ptsCols.filter(c => colVisible(raceColId(rn, c)));
+                    const subHdr = "px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30";
+                    return <Fragment key={gid}>
+                      {visPos.length > 0 && <th colSpan={visPos.length} className={subHdr}>Позиція</th>}
+                      {visTime.length > 0 && <th colSpan={visTime.length} className={subHdr}>Час</th>}
+                      {visPts.length > 0 && <th colSpan={visPts.length} className={subHdr}>Бали</th>}
+                    </Fragment>;
+                  }) : (<>
                   {qualiVisible() && <>
                     {colVisible('q_kart') && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Карт</span></th>}
                     {colVisible('q_time') && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Час</span></th>}
@@ -735,8 +866,26 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       </Fragment>
                     );
                   })}
+                  </>)}
                 </tr>
                 <tr className="bg-dark-800/20">
+                  {isSprint ? topOrder.map(gid => {
+                    const isQualiGrp = gid.startsWith('quali') || gid.match(/^q\d+$/);
+                    if (isQualiGrp) return null;
+                    const rn = parseInt(gid.replace('r', ''));
+                    if (!raceVisible(rn)) return null;
+                    return <Fragment key={gid}>
+                      {colVisible(raceColId(rn, 'group')) && <th className={thClass(TH_V)}><span className={TH_R}>Група</span></th>}
+                      {colVisible(raceColId(rn, 'start')) && <th className={thClass(TH_V)}><span className={TH_R}>Старт</span></th>}
+                      {colVisible(raceColId(rn, 'finish')) && <th className={thClass(TH_V)}><span className={TH_R}>Фініш</span></th>}
+                      {colVisible(raceColId(rn, 'kart')) && <th className={thClass(TH_V)}><span className={TH_R}>Карт</span></th>}
+                      {colVisible(raceColId(rn, 'time')) && <th className={thClass(TH_V)}><span className={TH_R}>Час</span></th>}
+                      {colVisible(raceColId(rn, 'speed')) && <th className={thClass(TH_V)}><span className={TH_R}>Швидк.</span></th>}
+                      {colVisible(raceColId(rn, 'pos_pts')) && <th className={thClass(TH_V)}><span className={TH_R}>Позиція</span></th>}
+                      {colVisible(raceColId(rn, 'penalties')) && <th className={thClass(TH_V)}><span className={TH_R}>Штрафи</span></th>}
+                      {colVisible(raceColId(rn, 'sum')) && <th className={thClass(TH_V)}><span className={TH_R}>Сума</span></th>}
+                    </Fragment>;
+                  }) : (<>
                   {Array.from({ length: raceCount }, (_, i) => {
                     const rn = i + 1;
                     if (!raceVisible(rn)) return null;
@@ -755,6 +904,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       </Fragment>
                     );
                   })}
+                  </>)}
                 </tr>
               </thead>
               <tbody>
@@ -825,6 +975,45 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         )}
                       </td>
                     <td className={`px-1 py-1 text-center font-mono text-green-400 font-bold ${SECTION_BORDER}`}>{row.totalPoints || '—'}</td>
+                    {isSprint ? topOrder.map(gid => {
+                      const isQualiGrp = gid.startsWith('quali') || gid.match(/^q\d+$/);
+                      if (isQualiGrp) {
+                        const qIdx = gid === 'quali1' ? 0 : parseInt(gid.replace('q', '')) - 1;
+                        const qd = row.qualis?.[qIdx];
+                        const g = topById.get(gid);
+                        if (!g) return null;
+                        const visCols = g.allCols.filter(c => colVisible(c));
+                        const lastCol = visCols[visCols.length - 1];
+                        const qBorder = (c: string) => c === lastCol ? SECTION_BORDER : 'border-r border-dark-700/30';
+                        return <Fragment key={gid}>
+                          {g.allCols.filter(c => colVisible(c)).map(c => {
+                            if (c.endsWith('_kart')) return <td key={c} className={`px-1 py-1 text-center font-mono ${KART_COLOR} ${qBorder(c)}`}>{qd?.kart || '—'}</td>;
+                            if (c.endsWith('_time')) return <td key={c} className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${qBorder(c)}`}>{qd ? toSeconds(qd.bestTimeStr) : '—'}</td>;
+                            if (c.endsWith('_speed')) return <td key={c} className={`px-1 py-1 text-center font-mono ${qBorder(c)}`}>{qd?.speedPoints ? <span className="text-green-400/80">{qd.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>;
+                            return null;
+                          })}
+                        </Fragment>;
+                      }
+                      const rn = parseInt(gid.replace('r', ''));
+                      if (!raceVisible(rn)) return null;
+                      const race = row.races[rn - 1];
+                      const cv = (c: string) => colVisible(raceColId(rn, c));
+                      const posChange = race && race.startPos > 0 && race.finishPos > 0 ? race.startPos - race.finishPos : 0;
+                      const visRaceCols = RACE_COLS.filter(c => cv(c));
+                      const lastRaceCol = visRaceCols[visRaceCols.length - 1];
+                      const rBorder = (c: string) => c === lastRaceCol ? SECTION_BORDER : 'border-r border-dark-700/30';
+                      return <Fragment key={gid}>
+                        {cv('group') && <td className={`px-1 py-1 text-center font-mono text-dark-500 ${rBorder('group')}`}>{race?.group || '—'}</td>}
+                        {cv('start') && <td className={`px-1 py-1 text-center font-mono text-dark-400 ${rBorder('start')}`}>{race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell editingRef={editingRef} value={race.startPos} onChange={v => setEdit(row.pilot, rn, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}</td>}
+                        {cv('finish') && <td className={`px-1 py-1 text-center font-mono text-dark-300 ${rBorder('finish')}`}>{race ? (<span className="inline-flex items-center gap-0.5">{canManage ? <EditableCell editingRef={editingRef} value={race.finishPos} onChange={v => setEdit(row.pilot, rn, 'finishPos', v)} /> : <span>{race.finishPos}</span>}{posChange !== 0 && <span className={`text-[8px] ${posChange > 0 ? 'text-green-400' : 'text-red-400'}`}>{posChange > 0 ? `▲${posChange}` : `▼${Math.abs(posChange)}`}</span>}</span>) : '—'}</td>}
+                        {cv('kart') && <td className={`px-1 py-1 text-center font-mono ${KART_COLOR} ${rBorder('kart')}`}>{race?.kart || '—'}</td>}
+                        {cv('time') && <td className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${rBorder('time')}`}>{race ? toSeconds(race.bestTimeStr) : '—'}</td>}
+                        {cv('speed') && <td className={`px-1 py-1 text-center font-mono ${rBorder('speed')}`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                        {cv('pos_pts') && <td className={`px-1 py-1 text-center font-mono ${rBorder('pos_pts')}`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                        {cv('penalties') && <td className={`px-1 py-1 text-center font-mono ${rBorder('penalties')}`}>{race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, rn, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}</td>}
+                        {cv('sum') && <td className={`px-1 py-1 text-center font-mono font-bold ${rBorder('sum')}`}>{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                      </Fragment>;
+                    }) : (<>
                     {qualiVisible() && (() => {
                       const visCols = QUALI_COLS.filter(c => colVisible(c));
                       const lastCol = visCols[visCols.length - 1];
@@ -869,6 +1058,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         </Fragment>
                       );
                     })}
+                    </>)}
                   </tr>
                     );
                   });

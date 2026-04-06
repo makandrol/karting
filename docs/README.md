@@ -15,9 +15,22 @@
 
 A real-time karting timing dashboard for the "Жага Швидкості" karting track. Collects live timing data, stores it in SQLite, and provides a web interface for viewing sessions, replays, kart statistics, and managing competitions with live scoring.
 
-## Current State (v0.9.238)
+## Current State (v0.9.240)
 
-### Recent Changes (v0.9.223 → v0.9.238)
+### Recent Changes (v0.9.239 → v0.9.240)
+
+#### Sprint competition format (v0.9.240)
+- Added full Sprint competition format: Квала 1 → Гонка 1 → Квала 2 → Гонка 2 → Фінал
+- Group logic: ≤14 pilots → 1 group, 15-29 → 2, 30+ → 3
+- Quali 1 determines Race 1 start positions, Quali 2 → Race 2, sum of Race 1+2 points → Final
+- No overtake points — only position points + speed points for qualifying/race best laps
+- Each phase has per-group sessions (qualifying_N_group_X, race_N_group_X, final_group_X)
+- `computeSprintStandings` in scoring.ts, `splitIntoGroupsSprint` in competitions.ts
+- LeagueResults table extended: 2 quali columns (Кв1, Кв2), 3 race columns (Г1, Г2, Фін)
+- Collector auto-linking and recheck support sprint phase progression
+- CompetitionPage.tsx routes sprint through same LeagueResults pipeline as LL/CL
+
+### Previous Changes (v0.9.223 → v0.9.238)
 
 #### Session detail track selector (v0.9.223)
 - Session detail page now has a track dropdown selector (was static text)

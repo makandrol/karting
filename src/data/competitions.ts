@@ -54,10 +54,10 @@ export const COMPETITION_CONFIGS: Record<CompetitionFormat, CompetitionConfig> =
     format: 'sprint',
     name: 'Спринт',
     shortName: 'Спр',
-    maxPilots: 12,
-    maxKarts: 12,
-    raceCount: 1,
-    description: 'Коротка гонка.',
+    maxPilots: 45,
+    maxKarts: 15,
+    raceCount: 3, // Race 1, Race 2, Final
+    description: 'Квала 1 + Гонка 1, Квала 2 + Гонка 2, Фінал. Без обгонів.',
   },
   marathon: {
     format: 'marathon',
@@ -158,7 +158,25 @@ export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
       { id: 'race_3_group_1', label: 'Гонка 3 · Група 1', shortLabel: 'Гонка 3 · Група 1' },
     ],
   },
-  sprint: { phases: [{ id: 'race', label: 'Гонка', shortLabel: 'Гонка' }] },
+  sprint: {
+    phases: [
+      { id: 'qualifying_1_group_3', label: 'Кваліфікація 1 · Група 3', shortLabel: 'Квала 1 · Група 3' },
+      { id: 'qualifying_1_group_2', label: 'Кваліфікація 1 · Група 2', shortLabel: 'Квала 1 · Група 2' },
+      { id: 'qualifying_1_group_1', label: 'Кваліфікація 1 · Група 1', shortLabel: 'Квала 1 · Група 1' },
+      { id: 'race_1_group_3', label: 'Гонка 1 · Група 3', shortLabel: 'Гонка 1 · Група 3' },
+      { id: 'race_1_group_2', label: 'Гонка 1 · Група 2', shortLabel: 'Гонка 1 · Група 2' },
+      { id: 'race_1_group_1', label: 'Гонка 1 · Група 1', shortLabel: 'Гонка 1 · Група 1' },
+      { id: 'qualifying_2_group_3', label: 'Кваліфікація 2 · Група 3', shortLabel: 'Квала 2 · Група 3' },
+      { id: 'qualifying_2_group_2', label: 'Кваліфікація 2 · Група 2', shortLabel: 'Квала 2 · Група 2' },
+      { id: 'qualifying_2_group_1', label: 'Кваліфікація 2 · Група 1', shortLabel: 'Квала 2 · Група 1' },
+      { id: 'race_2_group_3', label: 'Гонка 2 · Група 3', shortLabel: 'Гонка 2 · Група 3' },
+      { id: 'race_2_group_2', label: 'Гонка 2 · Група 2', shortLabel: 'Гонка 2 · Група 2' },
+      { id: 'race_2_group_1', label: 'Гонка 2 · Група 1', shortLabel: 'Гонка 2 · Група 1' },
+      { id: 'final_group_3', label: 'Фінал · Група 3', shortLabel: 'Фінал · Група 3' },
+      { id: 'final_group_2', label: 'Фінал · Група 2', shortLabel: 'Фінал · Група 2' },
+      { id: 'final_group_1', label: 'Фінал · Група 1', shortLabel: 'Фінал · Група 1' },
+    ],
+  },
   marathon: { phases: [{ id: 'race', label: 'Гонка', shortLabel: 'Гонка' }] },
 };
 
@@ -168,7 +186,7 @@ export function getPhasesForFormat(format: string, groupCount?: number | null): 
   if (groupCount === undefined || groupCount === null) return config.phases;
 
   return config.phases.filter(p => {
-    if (p.id.startsWith('qualifying_')) {
+    if (format !== 'sprint' && p.id.startsWith('qualifying_')) {
       const num = parseInt(p.id.split('_')[1]);
       return num <= groupCount;
     }
@@ -220,6 +238,39 @@ export function splitIntoGroups(pilots: string[], maxGroups: number): LeagueGrou
     const groupPilots = pilots.slice(idx, idx + size);
     groups.push({
       name: String.fromCharCode(65 + g), // A, B, C
+      pilots: groupPilots,
+    });
+    idx += size;
+  }
+
+  return groups;
+}
+
+/**
+ * Розбиває пілотів на групи за регламентом Спринту.
+ * ≤14 → 1 група, 15-29 → 2 групи, 30+ → 3 групи.
+ */
+export function splitIntoGroupsSprint(pilots: string[], maxGroups?: number): LeagueGroup[] {
+  const n = pilots.length;
+  let groupCount: number;
+
+  if (n <= 14) groupCount = 1;
+  else if (n <= 29) groupCount = 2;
+  else groupCount = 3;
+
+  if (maxGroups !== undefined) groupCount = Math.min(groupCount, maxGroups);
+
+  const groups: LeagueGroup[] = [];
+  const baseSize = Math.floor(n / groupCount);
+  let remainder = n % groupCount;
+
+  let idx = 0;
+  for (let g = 0; g < groupCount; g++) {
+    const size = baseSize + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder--;
+    const groupPilots = pilots.slice(idx, idx + size);
+    groups.push({
+      name: String.fromCharCode(65 + g),
       pilots: groupPilots,
     });
     idx += size;
