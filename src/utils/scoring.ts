@@ -270,6 +270,14 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
   return rows;
 }
 
+export function getSprintPositionPoints(finishPos: number): number {
+  if (finishPos < 1) return 0;
+  if (finishPos === 1) return 40;
+  if (finishPos === 2) return 37;
+  const pts = 35 - (finishPos - 3) * 2;
+  return Math.max(pts, 0);
+}
+
 export function computeSprintStandings(params: ComputeStandingsParams): PilotRow[] {
   const { sessions, sessionLaps, scoring, edits, excludedPilots, maxGroups, pilotsOverride, pilotsLocked, liveSessionId, livePhase, livePositions } = params;
 
@@ -300,20 +308,18 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
   const maxQualified = 45;
   const qualifiedPilots = allQualiSorted.slice(0, maxQualified).map(([p]) => p);
   const disqualifiedPilots = new Set(allQualiSorted.slice(maxQualified).map(([p]) => p));
-  const autoTotalPilots = qualifiedPilots.length;
-  const totalPilots = (pilotsLocked && pilotsOverride !== null) ? pilotsOverride : autoTotalPilots;
 
-  const addSpeedPoints = (data: Map<string, PilotQualiData>) => {
+  // Speed: 1 point to the single fastest pilot per qualifying
+  const addQualiSpeedPoints = (data: Map<string, PilotQualiData>) => {
     const sorted = [...data.entries()]
       .filter(([p]) => !excludedPilots.has(p))
       .sort((a, b) => a[1].bestTime - b[1].bestTime);
-    sorted.slice(0, 5).forEach(([pilot], i) => {
-      const q = data.get(pilot)!;
-      q.speedPoints = scoring.speedPoints[i] || 0;
-    });
+    if (sorted.length > 0) {
+      data.get(sorted[0][0])!.speedPoints = 1;
+    }
   };
-  addSpeedPoints(quali1Data);
-  addSpeedPoints(quali2Data);
+  addQualiSpeedPoints(quali1Data);
+  addQualiSpeedPoints(quali2Data);
 
   let activePhase: string | null = null;
   if (liveSessionId) {
@@ -325,7 +331,7 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
 
   const buildRaceData = (raceSessions: CompSession[], startPositions: Map<string, { group: number; startPos: number }>, raceIndex: number, shouldShowStart: boolean) => {
     const rData = new Map<string, PilotRaceData>();
-    const raceTimes: { pilot: string; time: number }[] = [];
+    const raceTimes: { pilot: string; time: number; group: number }[] = [];
 
     for (const rs of raceSessions) {
       const groupMatch = rs.phase?.match(/group_(\d+)/);
@@ -369,8 +375,7 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
         const finishPos = edit?.finishPos ?? (i + 1);
         const group = isDisq ? 0 : (sp?.group ?? groupNum);
         const penalties = edit?.penalties ?? 0;
-        const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
-        const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos);
+        const posPoints = getSprintPositionPoints(finishPos);
 
         rData.set(pilot, {
           kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
@@ -378,7 +383,7 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
           positionPoints: posPoints, overtakePoints: 0, speedPoints: 0, penalties,
           totalRacePoints: Math.round((posPoints - penalties) * 10) / 10,
         });
-        raceTimes.push({ pilot, time: pData.bestTime });
+        raceTimes.push({ pilot, time: pData.bestTime, group: group });
       });
 
       const excludedEntries = [...pilotStats.entries()].filter(([p]) => excludedPilots.has(p));
@@ -391,14 +396,19 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
       });
     }
 
-    raceTimes.sort((a, b) => a.time - b.time);
-    raceTimes.filter(r => !excludedPilots.has(r.pilot)).slice(0, 5).forEach(({ pilot }, i) => {
-      const rd = rData.get(pilot);
-      if (rd) {
-        rd.speedPoints = scoring.speedPoints[i] || 0;
-        rd.totalRacePoints = Math.round((rd.positionPoints + rd.speedPoints - rd.penalties) * 10) / 10;
+    // Speed: 1 point to the fastest lap per group
+    const groups = new Set(raceTimes.map(r => r.group));
+    for (const g of groups) {
+      const groupTimes = raceTimes.filter(r => r.group === g && !excludedPilots.has(r.pilot));
+      groupTimes.sort((a, b) => a.time - b.time);
+      if (groupTimes.length > 0) {
+        const rd = rData.get(groupTimes[0].pilot);
+        if (rd) {
+          rd.speedPoints = 1;
+          rd.totalRacePoints = Math.round((rd.positionPoints + rd.speedPoints - rd.penalties) * 10) / 10;
+        }
       }
-    });
+    }
 
     if (shouldShowStart) {
       for (const [pilot, sp] of startPositions) {
@@ -425,7 +435,7 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
     groups.forEach((g, gi) => {
       const gNum = gi + 1;
       g.pilots.forEach((p, pi) => {
-        sp.set(p, { group: gNum, startPos: g.pilots.length - pi });
+        sp.set(p, { group: gNum, startPos: pi + 1 });
       });
     });
     return sp;
@@ -468,7 +478,7 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
     groups.forEach((g, gi) => {
       const gNum = gi + 1;
       g.pilots.forEach((p, pi) => {
-        sp.set(p, { group: gNum, startPos: g.pilots.length - pi });
+        sp.set(p, { group: gNum, startPos: pi + 1 });
       });
     });
     return sp;

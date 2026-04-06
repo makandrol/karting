@@ -247,7 +247,8 @@ export function splitIntoGroups(pilots: string[], maxGroups: number): LeagueGrou
 }
 
 /**
- * Розбиває пілотів на групи за регламентом Спринту.
+ * Розбиває пілотів на групи за регламентом Спринту — "змійкою" (round-robin).
+ * 1→Г1, 2→Г2, 3→Г1, 4→Г2... (для 3 груп: 1→Г1, 2→Г2, 3→Г3, 4→Г1...)
  * ≤14 → 1 група, 15-29 → 2 групи, 30+ → 3 групи.
  */
 export function splitIntoGroupsSprint(pilots: string[], maxGroups?: number): LeagueGroup[] {
@@ -260,23 +261,15 @@ export function splitIntoGroupsSprint(pilots: string[], maxGroups?: number): Lea
 
   if (maxGroups !== undefined) groupCount = Math.min(groupCount, maxGroups);
 
-  const groups: LeagueGroup[] = [];
-  const baseSize = Math.floor(n / groupCount);
-  let remainder = n % groupCount;
-
-  let idx = 0;
-  for (let g = 0; g < groupCount; g++) {
-    const size = baseSize + (remainder > 0 ? 1 : 0);
-    if (remainder > 0) remainder--;
-    const groupPilots = pilots.slice(idx, idx + size);
-    groups.push({
-      name: String.fromCharCode(65 + g),
-      pilots: groupPilots,
-    });
-    idx += size;
+  const buckets: string[][] = Array.from({ length: groupCount }, () => []);
+  for (let i = 0; i < n; i++) {
+    buckets[i % groupCount].push(pilots[i]);
   }
 
-  return groups;
+  return buckets.map((groupPilots, gi) => ({
+    name: String.fromCharCode(65 + gi),
+    pilots: groupPilots,
+  }));
 }
 
 /**
