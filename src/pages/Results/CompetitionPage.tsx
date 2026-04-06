@@ -37,25 +37,13 @@ interface SessionLap {
 
 export default function CompetitionPage() {
   const { type, eventId } = useParams<{ type: string; eventId?: string }>();
-  const { hasPermission, user } = useAuth();
+  const { hasPermission, user, isOwner } = useAuth();
   const canManage = hasPermission('manage_results');
+  const { isSectionVisible } = useLayoutPrefs();
 
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // Load saved tab preference or default to 'live'
-  const [tab, setTab] = useState<'live' | 'final'>(() => {
-    const storage = user ? localStorage : sessionStorage;
-    const saved = storage.getItem('competition_tab_preference');
-    return (saved === 'final' ? 'final' : 'live') as 'live' | 'final';
-  });
-  
-  // Save tab preference when it changes
-  useEffect(() => {
-    const storage = user ? localStorage : sessionStorage;
-    storage.setItem('competition_tab_preference', tab);
-  }, [tab, user]);
   
   const [compSessions, setCompSessions] = useState<SessionTableRow[]>([]);
   const [allSessionsEnded, setAllSessionsEnded] = useState(false);
@@ -255,24 +243,9 @@ export default function CompetitionPage() {
         </div>
       </div>
 
-      <div className="flex bg-dark-800 rounded-md p-0.5 w-fit">
-        <button onClick={() => setTab('live')}
-          className={`px-3 py-1 text-xs rounded transition-colors ${tab === 'live' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
-          Live результати
-        </button>
-        <button onClick={() => setTab('final')}
-          className={`px-3 py-1 text-xs rounded transition-colors ${tab === 'final' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
-          Фінальні результати
-        </button>
-      </div>
+      <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
 
-      {tab === 'final' ? (
-        <FinalResults competition={competition} />
-      ) : (
-        <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
-      )}
-
-      {compSessions.length > 0 && (
+      {isSectionVisible('competition', 'sessions') && compSessions.length > 0 && (
         <div className="card p-0 overflow-hidden">
           <div className="px-4 py-2.5 border-b border-dark-800">
             <h3 className="text-white font-semibold text-sm">Заїзди ({compSessions.length})</h3>
@@ -284,44 +257,8 @@ export default function CompetitionPage() {
   );
 }
 
-function FinalResults({ competition }: { competition: Competition }) {
-  if (competition.status === 'live') {
-    return <div className="card text-center py-12 text-dark-500">Фінальні результати будуть опубліковані після завершення змагання</div>;
-  }
-  if (!competition.uploaded_results) {
-    return <div className="card text-center py-12 text-dark-500">Фінальні результати ще не завантажені</div>;
-  }
-
-  const results = competition.uploaded_results;
-  if (Array.isArray(results)) {
-    return (
-      <div className="card p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead><tr className="table-header">
-              {Object.keys(results[0] || {}).map(key => (
-                <th key={key} className="table-cell text-center">{key}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {results.map((row: any, i: number) => (
-                <tr key={i} className="table-row">
-                  {Object.values(row).map((val: any, j: number) => (
-                    <td key={j} className="table-cell text-center font-mono text-dark-300">{String(val ?? '—')}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  }
-
-  return <div className="card p-4"><pre className="text-dark-300 text-xs overflow-auto">{JSON.stringify(results, null, 2)}</pre></div>;
-}
-
 function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void }) {
+  const { isOwner } = useAuth();
   const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -510,7 +447,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     };
 
     return (
-      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled}>
+      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled} isOwner={isOwner}>
         {sectionMap}
       </CompetitionLayoutWrapper>
     );
@@ -574,22 +511,27 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   );
 }
 
-function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, children }: {
+function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, isOwner, children }: {
   sessionTimes: { sessionId: string; phase: string | null; startTime: number; endTime: number | null }[];
   competition: Competition;
   scrubTime: number | null;
   setScrubTime: (t: number | null) => void;
   allSessionsEnded: boolean;
   setLiveEnabled: (v: boolean | ((prev: boolean) => boolean)) => void;
+  isOwner: boolean;
   children: Record<string, ReactNode>;
 }) {
-  const { getPageLayout } = useLayoutPrefs();
-  const layout = getPageLayout('competition');
+  const { isSectionVisible } = useLayoutPrefs();
+
+  const sectionsForBar = [
+    ...PAGE_SECTIONS.competition,
+    ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
+  ];
 
   return (
     <div className="space-y-4">
-      <TableLayoutBar pageId="competition" sections={PAGE_SECTIONS.competition} />
-      {sessionTimes.length > 0 && (
+      <TableLayoutBar pageId="competition" sections={sectionsForBar} />
+      {isSectionVisible('competition', 'timeline') && sessionTimes.length > 0 && (
         <CompetitionTimeline
           format={competition.format}
           sessions={competition.sessions}
@@ -599,10 +541,12 @@ function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScr
           isLive={competition.status === 'live' && !allSessionsEnded}
         />
       )}
-      {layout.map(section => {
-        if (!section.visible) return null;
-        return children[section.id] ?? null;
-      })}
+      {isSectionVisible('competition', 'leaguePoints') && (
+        <>
+          {children['leaguePoints']}
+          {children['liveSession']}
+        </>
+      )}
     </div>
   );
 }

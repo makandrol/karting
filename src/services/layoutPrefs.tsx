@@ -37,15 +37,16 @@ export const PAGE_SECTIONS: Record<string, { id: string; label: string }[]> = {
     { id: 'lapsByPilots', label: 'Всі кола' },
   ],
   competition: [
-    { id: 'leaguePoints', label: 'Таблиця балів' },
-    { id: 'liveSession', label: 'Лайв таблиця' },
+    { id: 'timeline', label: 'Таймлайн' },
+    { id: 'leaguePoints', label: 'Результати' },
+    { id: 'sessions', label: 'Заїзди' },
   ],
 };
 
 const HARDCODED_DEFAULTS: ServerDefaults = {
   timing: { sections: [{ id: 'replay', visible: true }, { id: 'timingTable', visible: true }, { id: 'track', visible: true }, { id: 'lapsByPilots', visible: true }, { id: 'history', visible: true }], version: 0 },
   sessionDetail: { sections: [{ id: 'replay', visible: true }, { id: 'timingTable', visible: true }, { id: 'track', visible: true }, { id: 'lapsByPilots', visible: true }], version: 0 },
-  competition: { sections: [{ id: 'leaguePoints', visible: true }, { id: 'liveSession', visible: true }], version: 0 },
+  competition: { sections: [{ id: 'timeline', visible: true }, { id: 'leaguePoints', visible: true }, { id: 'sessions', visible: false }, { id: 'editLog', visible: true }], version: 1 },
 };
 
 function getStorageKey(email: string | null): string {

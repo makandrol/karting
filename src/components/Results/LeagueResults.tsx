@@ -63,8 +63,7 @@ function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
 }
 
 export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePhase, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
-  const { isSectionVisible, toggleSection } = useLayoutPrefs();
-  const showLeaguePoints = isSectionVisible('competition', 'leaguePoints');
+  const { isSectionVisible } = useLayoutPrefs();
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
   const raceCount = format === 'champions_league' ? 3 : 2;
@@ -457,12 +456,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   return (
     <div className="space-y-4 max-w-full overflow-hidden">
-      {showLeaguePoints ? (
         <div className="card p-0 overflow-hidden">
           <div className="px-4 py-2.5 border-b border-dark-800 space-y-1.5 overflow-x-auto">
-            <div className="flex items-center gap-3 flex-wrap">
-              <button onClick={() => toggleSection('competition', 'leaguePoints')} className="text-white font-semibold text-sm hover:text-dark-300 transition-colors">Таблиця балів ▾</button>
-            </div>
             <div className="flex items-center gap-1.5 flex-wrap border border-dark-700 rounded-lg px-2.5 py-1">
               <span className="text-dark-500 text-[9px]">Сорт:</span>
               <SortBtn k="total" label="Сума" />
@@ -883,11 +878,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
             </table>
           </div>
         </div>
-      ) : (
-        <button onClick={() => toggleSection('competition', 'leaguePoints')} className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">Таблиця балів ▸</button>
-      )}
 
-      {canManage && (
+      {isOwner && isSectionVisible('competition', 'editLog') && (
         <EditLog competitionId={competitionId} />
       )}
     </div>
