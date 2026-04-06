@@ -249,15 +249,6 @@ export default function CompetitionPage() {
       </div>
 
       <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
-
-      {isSectionVisible('competition', 'sessions') && compSessions.length > 0 && (
-        <div className="card p-0 overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-dark-800">
-            <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
-          </div>
-          <SessionsTable sessions={compSessions} />
-        </div>
-      )}
     </div>
   );
 }

@@ -887,11 +887,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
 }
 
 function EditLog({ competitionId }: { competitionId: string }) {
-  const [open, setOpen] = useState(false);
   const [log, setLog] = useState<{ pilot: string; action: string; detail: string; user: string; ts: number }[]>([]);
 
   useEffect(() => {
-    if (!open) return;
     fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competitionId)}`)
       .then(r => r.json())
       .then(c => {
@@ -899,38 +897,31 @@ function EditLog({ competitionId }: { competitionId: string }) {
         setLog((results.editLog || []).slice().reverse());
       })
       .catch(() => {});
-  }, [open, competitionId]);
+  }, [competitionId]);
 
   return (
-    <div>
-      <button onClick={() => setOpen(v => !v)} className="px-2 py-0.5 rounded text-[9px] bg-dark-800 text-dark-600 hover:text-dark-400 transition-colors">
-        {open ? 'Сховати журнал ▾' : 'Журнал змін ▸'}
-      </button>
-      {open && (
-        <div className="mt-2 card p-0 overflow-hidden max-h-60 overflow-y-auto">
-          {log.length === 0 ? (
-            <div className="px-4 py-3 text-dark-600 text-[10px]">Немає записів</div>
-          ) : (
-            <table className="text-[10px]" style={{ tableLayout: 'auto', width: 'auto' }}>
-              <thead><tr className="bg-dark-800/50 sticky top-0">
-                <th className="px-2 py-1 text-left text-dark-400">Час</th>
-                <th className="px-2 py-1 text-left text-dark-400">Користувач</th>
-                <th className="px-2 py-1 text-left text-dark-400">Пілот</th>
-                <th className="px-2 py-1 text-left text-dark-400">Дія</th>
-              </tr></thead>
-              <tbody>
-                {log.map((entry, i) => (
-                  <tr key={i} className="border-b border-dark-800/50">
-                    <td className="px-2 py-1 text-dark-500 whitespace-nowrap">{new Date(entry.ts).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
-                    <td className="px-2 py-1 text-dark-400">{entry.user.split('@')[0]}</td>
-                    <td className="px-2 py-1 text-white">{entry.pilot}</td>
-                    <td className="px-2 py-1 text-dark-300">{entry.detail}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+    <div className="card p-0 overflow-hidden max-h-60 overflow-y-auto">
+      {log.length === 0 ? (
+        <div className="px-4 py-3 text-dark-600 text-[10px]">Немає записів</div>
+      ) : (
+        <table className="text-[10px]" style={{ tableLayout: 'auto', width: 'auto' }}>
+          <thead><tr className="bg-dark-800/50 sticky top-0">
+            <th className="px-2 py-1 text-left text-dark-400">Час</th>
+            <th className="px-2 py-1 text-left text-dark-400">Користувач</th>
+            <th className="px-2 py-1 text-left text-dark-400">Пілот</th>
+            <th className="px-2 py-1 text-left text-dark-400">Дія</th>
+          </tr></thead>
+          <tbody>
+            {log.map((entry, i) => (
+              <tr key={i} className="border-b border-dark-800/50">
+                <td className="px-2 py-1 text-dark-500 whitespace-nowrap">{new Date(entry.ts).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+                <td className="px-2 py-1 text-dark-400">{entry.user.split('@')[0]}</td>
+                <td className="px-2 py-1 text-white">{entry.pilot}</td>
+                <td className="px-2 py-1 text-dark-300">{entry.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );
