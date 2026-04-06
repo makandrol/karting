@@ -175,7 +175,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     } catch {}
   }, [competitionId, user]);
 
-  type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points`;
+  type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points` | `quali_${number}_time`;
   const [sortKey, setSortKey] = useState<SortKey>(() => saved?.sortKey || 'total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => saved?.sortDir || 'desc');
   const toggleSort = (key: SortKey, fixedDir?: 'asc' | 'desc') => {
@@ -207,6 +207,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
     const getValue = (row: PilotRow): number => {
       if (sortKey === 'total') return row.totalPoints;
       if (sortKey === 'quali_time') return row.quali?.bestTime ?? Infinity;
+      const qm = sortKey.match(/^quali_(\d+)_time$/);
+      if (qm) { const qi = parseInt(qm[1]) - 1; return row.qualis?.[qi]?.bestTime ?? Infinity; }
       const m = sortKey.match(/^race_(\d+)_(time|points)$/);
       if (m) { const ri = parseInt(m[1]) - 1; const race = row.races[ri]; return m[2] === 'time' ? (race?.bestTime ?? Infinity) : (race?.totalRacePoints ?? 0); }
       return 0;
@@ -520,10 +522,18 @@ export default function LeagueResults({ format, competitionId, sessions, session
             <div className="flex items-center gap-1.5 flex-wrap border border-dark-700 rounded-lg px-2.5 py-1">
               <span className="text-dark-500 text-[9px]">Сорт:</span>
               <SortBtn k="total" label="Сума" />
-              <SortBtn k="quali_time" label="Квала" fixedDir="asc" />
-              {Array.from({ length: raceCount }, (_, i) => (
-                <SortBtn key={i} k={`race_${i + 1}_time` as SortKey} label={`Г${i + 1} час`} fixedDir="asc" />
-              ))}
+              {isSprint ? (<>
+                <SortBtn k="quali_1_time" label="Кв1" fixedDir="asc" />
+                <SortBtn k="race_1_points" label="Г1" fixedDir="desc" />
+                <SortBtn k="quali_2_time" label="Кв2" fixedDir="asc" />
+                <SortBtn k="race_2_points" label="Г2" fixedDir="desc" />
+                <SortBtn k="race_3_points" label="Фінал" fixedDir="desc" />
+              </>) : (<>
+                <SortBtn k="quali_time" label="Квала" fixedDir="asc" />
+                {Array.from({ length: raceCount }, (_, i) => (
+                  <SortBtn key={i} k={`race_${i + 1}_time` as SortKey} label={`Г${i + 1} час`} fixedDir="asc" />
+                ))}
+              </>)}
             </div>
             <div className="flex items-center gap-1.5 flex-wrap border border-dark-700 rounded-lg px-2.5 py-1">
               <span className="text-dark-500 text-[9px]">Вид:</span>
