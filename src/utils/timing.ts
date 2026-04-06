@@ -113,6 +113,7 @@ export async function fetchRaceStartPositions(
       typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : comp.sessions;
     const rawResults = typeof comp.results === 'string' ? JSON.parse(comp.results) : comp.results;
     const excluded = new Set<string>(rawResults?.excludedPilots || []);
+    const excludedLapKeys = new Set<string>(rawResults?.excludedLaps || []);
 
     let sourcePhasePrefix: string;
     if (isSprint) {
@@ -126,10 +127,11 @@ export async function fetchRaceStartPositions(
     const sourceSessions = sessions.filter(s => s.phase.startsWith(sourcePhasePrefix));
     const pilotBest = new Map<string, number>();
     for (const ss of sourceSessions) {
-      const laps: { pilot: string; lap_time: string | null }[] =
+      const laps: { pilot: string; lap_time: string | null; ts: number }[] =
         await fetch(`${collectorUrl}/db/laps?session=${ss.sessionId}`).then(r => r.json()).catch(() => []);
       for (const l of laps) {
         if (!l.lap_time || excluded.has(l.pilot)) continue;
+        if (excludedLapKeys.has(`${ss.sessionId}|${l.pilot}|${l.ts}`)) continue;
         const sec = parseTime(l.lap_time);
         if (sec === null || sec < 38) continue;
         const prev = pilotBest.get(l.pilot);
