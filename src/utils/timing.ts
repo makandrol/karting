@@ -33,7 +33,7 @@ export const COLOR_CLASSES: Record<TimeColor, string> = {
   none: 'text-dark-500',
 };
 
-export const KART_COLOR = 'text-blue-400/70';
+export const KART_COLOR = 'text-blue-400';
 
 /** "Апанасенко Олексій" → "Апанасенко О.", but keep short names and "Карт X" as-is */
 export function shortName(name: string): string {
