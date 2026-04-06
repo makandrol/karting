@@ -58,8 +58,8 @@
 - `SessionsTable` — used everywhere for session lists
 - `DateNavigator` — single-select (Sessions) or multi-select (Karts, KartDetail)
 - `SessionReplay` — used on Timing (live), SessionDetail (replay), and CompetitionPage (live, `showScrubber=false`)
-- `TimingTable` — standalone timing table used inside SessionReplay. Column visibility (Все/Осн/Своє), sort modes, Start+arrows columns
-- `LapsByPilots` — used on Timing (isLive) and SessionDetail (with highlight)
+- `TimingTable` — standalone timing table used inside SessionReplay. Column visibility (Все/Осн/Своє), sort modes, Start+arrows columns, precise GAP, race/qualifying column orders
+- `LapsByPilots` — used on Timing (isLive) and SessionDetail (with highlight, position arrows for races)
 - `SessionTypeChanger` — used on Timing and SessionDetail
 - `TrackMap` with `static` prop for replay, without for live animation
 - `mergePilotNames()` applied per-session to avoid cross-session name leaks
@@ -133,9 +133,19 @@
 35. **Kart color**: Use `KART_COLOR` constant from `utils/timing.ts` for all kart number displays. Never hardcode kart color in individual components.
 36. **Track selector**: All pages (competition, timing, session detail) use the same bordered frame style with flag icon + dropdown/number.
 37. **LapsByPilots pilot names**: Use `compactName()` (max 10 chars, surname >7 → truncate, ≤7 → with initial). NOT `shortName()`.
-38. **TimingTable columns**: `TB` is theoretical best (bestS1+bestS2), `Loss` is best lap minus TB. `Gap` is race-mode only (diff in best lap to pilot ahead). `MAIN_RACE_VISIBLE` excludes Start/arrows but includes Gap.
+38. **TimingTable columns**: `TB` is theoretical best (bestS1+bestS2), `Loss` is best lap minus TB. `Gap` is race-mode only (precise time distance via cumulative lap times). `MAIN_RACE_VISIBLE` excludes Start/arrows but includes Gap.
 39. **Localhost auth**: `auth.tsx` uses `localhostLoggedOut` state flag — `IS_LOCALHOST` auto-owner respects logout. `loginWithGoogle` resets the flag.
 40. **AccessSettings drag-reorder**: Uses `wasDragged` ref to prevent click from firing after drag. Always add `onDragEnd` to reset drag state.
+41. **Race sort priority**: In `getEntriesAtTime()`, race mode sorts by: lapNumber → snapshotPositions (ground truth) → pilotLastPos → progress → startPositions. Snapshot positions MUST have higher priority than progress-based sorting.
+42. **GAP calculation**: Uses `pilotCumLapMs` (cumulative lap time sums from raw data) for finish-line gap — NOT `pilotTimelines` (which depend on poll timestamps). S1 gap uses real S1 event timestamps. Format: `+X.XX` (hundredths, `Math.abs`, always `+`).
+43. **isCompetitionRace**: Use shared `extractCompetitionReplayProps(phase)` from `utils/session.ts` to determine if session is a competition race. Pass `isCompetitionRace` prop to TimingTable to control Квала/Гонка toggle visibility.
+44. **LapsByPilots position arrows**: For competition races, show ▲/▼ position change arrows next to each lap time. Uses `startPositions` for first lap comparison. Only show when `startPositions` prop is provided.
+45. **LapsByPilots default view**: Default view mode is "Осн" (not "Все").
+46. **LapsByPilots sort toggle**: "Сорт: Час/Поз" only visible for race sessions with `startPositions`. Toolbar order: Вид first, Сорт second.
+47. **Race column order**: TimingTable uses `RACE_ORDER` (Δ, P, Pilot, L, GAP, Kart, ...) in race mode, `DEFAULT_ORDER` in qualifying. Custom view ("Своє") inherits mode-specific order as default.
+48. **Pencil rename button**: Uses `onPointerDown` + `setTimeout(…, 10)` with IIFE closure to survive React re-renders from `currentEntries` updates. Do NOT use `onClick` — it gets lost during re-renders.
+49. **Session detail track change**: Uses `POST /db/update-sessions-track` with `sessionIds` array (includes merged session IDs). Admin-only endpoint.
+50. **TimingEntry.gap**: Optional `gap?: string | null` field on `TimingEntry` interface. Computed in `getEntriesAtTime()`, consumed by `TimingTable` for GAP column display.
 
 ## File Structure
 ```
@@ -190,7 +200,7 @@ karting/
 ├── public/data/
 │   └── scoring.json         # Scoring rules (editable via /admin/scoring)
 ├── docs/                    # This documentation
-├── package.json             # v0.9.222
+├── package.json             # v0.9.238
 ├── vite.config.ts
 ├── tailwind.config.js       # hoverOnlyWhenSupported: true
 ├── tsconfig.json            # resolveJsonModule enabled

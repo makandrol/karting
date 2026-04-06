@@ -125,6 +125,7 @@ CREATE TABLE competitions (
 | POST | `/competition/phase` | Mark phase |
 | POST | `/competition/reset` | Reset detection |
 | POST | `/db/rename-pilot` | Rename pilot in session laps `{sessionId, oldName, newName}` |
+| POST | `/db/update-sessions-track` | Batch update track_id for sessions `{sessionIds, trackId}` |
 
 ## Event Diffing Logic (`poller.js`)
 

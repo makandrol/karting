@@ -65,7 +65,13 @@ The core replay component used on Timing (live), SessionDetail (replay), and Com
 - `ReplaySortMode` type
 - `parseSessionEvents(rawEvents)` — parses all event types into s1Events + position timeline
 
-**Internal structure:** Manages replay logic (animation loop, `getEntriesAtTime`, pilotTimelines, scrubber). Renders `<TimingTable>` internally with computed entries.
+**Internal structure:** Manages replay logic (animation loop, `getEntriesAtTime`, pilotTimelines, pilotCumLapMs for GAP, scrubber). Renders `<TimingTable>` internally with computed entries. Passes `isCompetitionRace` to TimingTable.
+
+**Key internal data structures:**
+- `pilotTimelines` — `Map<string, number[]>`: per-pilot absolute completion timestamps, reconstructed from `firstTs - firstLapSec * 1000` + cumulative lap times. Used for replay animation (completedLaps, progress) and S1 gap reference points.
+- `pilotCumLapMs` — `Map<string, number[]>`: per-pilot cumulative lap time sums in ms (built from raw lap data, independent of poll timestamps). Used for precise finish-line GAP calculation.
+- `pilotS1Events` — `Map<string, S1Event[]>`: per-pilot S1 sector events with real timestamps. Used for mid-lap GAP updates.
+- `snapshotPositions` — `Map<string, number>`: latest position snapshot before current replay time. Ground truth from timing system, highest priority in race sort.
 
 ### `TimingTable` (`components/Timing/TimingTable.tsx`)
 Standalone reusable timing table extracted from SessionReplay. Used in ALL places where a timing table appears (timing page, session detail, competition live session).
@@ -78,6 +84,7 @@ Standalone reusable timing table extracted from SessionReplay. Used in ALL place
 - `startPositions?` — `Map<string, number>` for race start data
 - `startGrid?` — `Map<number, string>` for Start column display
 - `raceGroup?` / `totalQualifiedPilots?` — for points calculation
+- `isCompetitionRace?` — when true, shows Квала/Гонка toggle; when false/undefined, hides it
 
 **Table columns:**
 - `#` — current position
@@ -87,39 +94,58 @@ Standalone reusable timing table extracted from SessionReplay. Used in ALL place
 - Pilot name (with progress bar — bordered outline, full-width, yellow fill)
 - `P` — race points: position + overtake (race mode + competition only)
 - Kart number (blue — `KART_COLOR` constant from `utils/timing.ts`)
-- `Gap` — gap to pilot ahead by best lap time (race mode only)
+- `Gap` — precise time distance to pilot ahead (race mode only):
+  - Same lap: cumulative lap time difference (format: `+X.XX`)
+  - Different laps: `+NL`
+  - No data: "—"
 - Last lap, S1, S2, Best lap, Best S1, Best S2
 - `TB` — theoretical best (bestS1 + bestS2)
 - `Loss` — difference between best lap and TB (how much slower than theoretical)
 - `L` — lap count
 
+**Column order:**
+- Qualifying: `Start, Arrows, Δ, Pilot, P, Kart, Gap, Last, S1, S2, Best, B.S1, B.S2, TB, Loss, L` (DEFAULT_ORDER)
+- Race: `Start, Arrows, Δ, P, Pilot, L, Gap, Kart, Last, S1, S2, Best, B.S1, B.S2, TB, Loss` (RACE_ORDER)
+
 **Column visibility system ("Вид:"):**
-- `Все` — all columns visible
+- `Все` — all columns visible (race mode uses `RACE_ORDER`, qualifying uses `DEFAULT_ORDER`)
 - `Осн` — main columns only:
   - **Qualifying**: Start, arrows, Δ, Pilot, P, Kart, Last, Best, L (hides S1, S2, bestS1, bestS2, TB, Loss, Gap)
   - **Race**: Δ, Pilot, P, Kart, Gap, Last, Best, L (hides Start, arrows, S1, S2, bestS1, bestS2, TB, Loss)
 - `Своє` — custom: draggable column pills, click to toggle on/off, persisted per sort mode in localStorage
+  - Default order inherits from mode-specific order (`RACE_ORDER` for race, `DEFAULT_ORDER` for qualifying)
   - `Start` and `arrows` toggle together as a group, only shown when start data exists
   - `Gap` pill hidden in qualifying mode (race-only column)
   - `start` and `arrows` columns are fixed-position (always first, not draggable)
 
-**Sort mode buttons:** Квала / Гонка toggle
+**Sort mode buttons:** Квала / Гонка toggle — only visible when `isCompetitionRace` is true
 
 **Arrow rendering:** SVG Bezier curves in a `<td rowSpan={n}>` on the first row. Uses `ResizeObserver` on tbody for dynamic height. Colors: green shades (gained positions), red shades (lost), gray (same).
 
 ### `LapsByPilots` (`components/Timing/LapsByPilots.tsx`)
 Laps-by-pilots grid. Each cell shows lap time + S1/S2 (hundredths, green/purple only).
 
-**Props:** `pilots`, `currentEntries?`, `isLive?`, `onRenamePilot?`, `excludedLaps?`, `onToggleLap?`, `sessionId?`
+**Props:** `pilots`, `currentEntries?`, `isLive?`, `onRenamePilot?`, `excludedLaps?`, `onToggleLap?`, `sessionId?`, `startPositions?`
 **Features:**
 - Pilot name truncated via `compactName()`: max 10 chars. Surname >7 → first 10 chars (no initial). Surname ≤7 → "Surname F." format. Full name shown on hover via `title`.
-- Kart number shown centered below pilot name in blue (`KART_COLOR`)
-- ✎ rename button after kart number (owner only, uses `onPointerDown` for reliable click handling, calls `prompt()` then `onRenamePilot` callback)
-- **View mode ("Вид: Все / Осн")**: "Все" shows sectors under each lap, "Осн" hides S1/S2 sector rows
+- Kart label: "Карт X" (left-aligned), in blue (`KART_COLOR`)
+- ✎ rename button after kart number (owner only, uses `onPointerDown` + `setTimeout(…, 10)` with IIFE closure for reliable click handling — survives React re-renders from `currentEntries` updates)
+- **View mode ("Вид: Осн / Все")**: "Осн" (default) hides S1/S2 sector rows, "Все" shows sectors under each lap
+- **Sort mode ("Сорт: Час / Поз")**: only shown for race sessions when `startPositions` present
+  - "Час" (default): sorts pilots by best lap time
+  - "Поз": sorts pilots by last lap's position field
+- Toolbar order: Вид first, then Сорт
+- **Position change arrows** (competition race only, when `startPositions` present):
+  - Green ▲N next to lap time when pilot gained N positions vs previous lap
+  - Red ▼N when pilot lost positions
+  - First lap compares to `startPositions`, subsequent laps compare to previous lap's `position` field
+  - Uses `posDelta = prevPos - lap.position` calculation
 - S1/S2 in text-[8px] below lap time (in "Все" mode only), space-separated, green (PB) or purple (overall best)
 - Current lap highlight (ring) during replay
 - ✕/↩ lap exclusion buttons on hover (owner only, when session belongs to competition)
 - All pilot columns uniform width: `min-w-[100px]`
+
+**LapData interface:** `{ lapNumber, lapTime, s1, s2, bestLap, kart, ts, position?: number | null }`
 
 ### `LeagueResults` (`components/Results/LeagueResults.tsx`)
 Full scoring table for Light League / Champions League competitions. Uses shared `scoring.ts` module for all calculations.
@@ -247,8 +273,8 @@ Pure functions extracted from LeagueResults for reuse:
 - `saveWithExpiry(storage, key, value)` — save value to storage with end-of-day expiry timestamp
 
 ### `utils/session.ts`
-- `buildReplayLaps(dbLaps)` — converts `DbLap[]` to `ReplayLap[]` format for SessionReplay
-- `extractCompetitionReplayProps(phase)` — extracts `raceGroup` and `isRace` from phase string
+- `buildReplayLaps(dbLaps)` — converts `DbLap[]` to `ReplayLap[]` format for SessionReplay (includes `position` field)
+- `extractCompetitionReplayProps(phase)` — extracts `raceGroup` and `isRace` from phase string. Shared function used by SessionDetail, CompetitionPage, and Timing to determine if session is a competition race.
 
 ### `data/competitions.ts`
 Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseLabel()`, `getPhasesForFormat(format, groupCount)`.
@@ -268,7 +294,31 @@ Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseL
 - Kart numbers: `KART_COLOR` (`text-blue-400`) — unified constant across all tables
 - Track selector: bordered frame with flag icon + dropdown, same style on competition, timing, and session detail pages
 
-## Recent Changes (v0.9.196–0.9.222)
+## Recent Changes (v0.9.223–0.9.238)
+
+### Session detail track dropdown (v0.9.223)
+- Replaced static track text with dropdown selector (same pattern as Timing/CompetitionPage)
+- Uses `isReverseTrack`/`baseTrackId` for sorting, `handleChangeTrack` with `POST /db/update-sessions-track`
+
+### LapsByPilots enhancements (v0.9.224–0.9.228)
+- Kart label: "КХ" → "Карт Х", left-aligned
+- Pencil rename: `onPointerDown` + `setTimeout(…, 10)` with IIFE closure (fix for React re-render losing handler)
+- Default view: "Осн" (was "Все")
+- Position change arrows (▲/▼) for competition races: green for gained, red for lost, using `position` from lap data and `startPositions`
+- Sort toggle "Сорт: Час/Поз" (race sessions only): sorts by best time or last lap position
+- Toolbar order: Вид first, Сорт second
+
+### TimingTable enhancements (v0.9.229–0.9.238)
+- Квала/Гонка toggle hidden when not competition race (`isCompetitionRace` prop, uses shared `extractCompetitionReplayProps()`)
+- GAP column: precise time distance via cumulative lap times (was best lap diff). Format: `+X.XX`, `+NL`, or "—"
+- Race column order: `RACE_ORDER` = `Δ, P, Pilot, L, GAP, Kart, Last, ...`
+- Custom view default order inherits from mode-specific order
+- Race sort: snapshotPositions now highest priority (was progress)
+
+### Types (v0.9.233)
+- `TimingEntry.gap?: string | null` — gap to pilot ahead
+
+## Previous Changes (v0.9.196–0.9.222)
 
 ### Auth fixes (v0.9.209–0.9.212)
 - Fixed header dropdown click handling: added `data-dropdown` attribute to fixed-position popups

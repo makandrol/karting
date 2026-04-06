@@ -139,11 +139,17 @@ sequenceDiagram
 
 ### TimingTable Component
 Standalone reusable timing table with full column management:
-- Квала/Гонка sort mode toggle
+- Квала/Гонка sort mode toggle (hidden when not a competition race via `isCompetitionRace` prop)
 - Вид: (Все/Осн/Своє) column visibility bar with draggable pills
 - Separate "Осн" presets per mode: `MAIN_QUAL_VISIBLE` (with Start/arrows), `MAIN_RACE_VISIBLE` (with Gap, without Start/arrows)
+- Separate column order per mode: `DEFAULT_ORDER` (qualifying), `RACE_ORDER` (race: Δ, P, Pilot, L, GAP, Kart, ...)
+- "Своє" custom view inherits the mode-specific order as default
 - Start column + SVG Bezier curved arrows (race mode only, toggleable as group)
-- `Gap` column — diff in best lap to pilot ahead (race mode only, in `RACE_ONLY_COLS`)
+- `Gap` column — precise time distance to pilot ahead (race mode only, in `RACE_ONLY_COLS`):
+  - Same lap: cumulative lap time difference
+  - Different laps: `+NL`
+  - Mid-lap: S1 timestamp gap
+  - Format: `+X.XX` (hundredths)
 - `TB` (theoretical best = bestS1+bestS2) and `Loss` (best lap minus TB) as separate columns
 - `Δ` column for position change
 - Pilot progress bar with bordered outline
@@ -156,10 +162,23 @@ Standalone reusable timing table with full column management:
 **Qualifying** (default): sorted by best lap time
 **Race**: sorted by:
 1. Lap count (desc)
-2. Track progress (desc, if diff > 0.01)
-3. Last recorded position from timing
-4. Snapshot/event position (from position timeline)
+2. Snapshot positions — ground truth from timing system (lower = ahead)
+3. Last recorded position from completed lap
+4. Track progress (desc, if diff > 0.01)
 5. Start positions (fallback)
+
+### GAP Calculation (Race Mode)
+
+GAP shows the precise time distance between consecutive pilots:
+- **Different laps**: `+NL` (e.g., `+2L`)
+- **Same lap, both passed S1**: gap computed from S1 event timestamps (`pilotS1Events`)
+- **Same lap, finish line**: gap = cumulative lap time difference (`sum(lapTimes_B) - sum(lapTimes_A)`)
+  - Uses cumulative lap time sums, NOT poll timestamps — gives precise relative gap independent of polling frequency
+- **No data**: `null` (displays as "—")
+- Format: `+X.XX` (hundredths, always positive with `+` prefix, uses `Math.abs`)
+- Computed in `getEntriesAtTime()` after sorting, stored in `TimingEntry.gap` field
+- `pilotTimelines` (reconstructed from `firstTs - firstLapSec * 1000`) used for replay animation and S1 gap reference points
+- `pilotCumLapMs` (cumulative lap time sums from raw lap data) used for finish-line gap — avoids poll timestamp artifacts
 
 ## Competition Scoring Flow
 
@@ -264,6 +283,7 @@ The timing system sometimes shows "Карт X" for initial laps. `mergePilotName
 - **Competition race**: computed from qualifying/previous race (via `fetchRaceStartPositions()`)
 - **Regular session (race mode)**: from first snapshot event
 - Start positions shown even before race starts (pre-filled from previous phase)
+- `extractCompetitionReplayProps(phase)` — shared function: extracts `raceGroup` and `isRace` from competition phase string (e.g., `race_1_group_2`). Used by SessionDetail, CompetitionPage, and Timing to determine if session is a competition race.
 
 ### Live Competition Updates
 - `● LIVE` toggle button: pause/resume live polling

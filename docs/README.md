@@ -15,9 +15,42 @@
 
 A real-time karting timing dashboard for the "Жага Швидкості" karting track. Collects live timing data, stores it in SQLite, and provides a web interface for viewing sessions, replays, kart statistics, and managing competitions with live scoring.
 
-## Current State (v0.9.222)
+## Current State (v0.9.238)
 
-### Recent Changes (v0.9.196 → v0.9.222)
+### Recent Changes (v0.9.223 → v0.9.238)
+
+#### Session detail track selector (v0.9.223)
+- Session detail page now has a track dropdown selector (was static text)
+- Same pattern as Timing and Competition pages: `isReverseTrack`/`baseTrackId` sorting, permission check
+- Added collector endpoint `POST /db/update-sessions-track` for batch track update
+
+#### LapsByPilots improvements (v0.9.224–v0.9.228)
+- Changed kart label from "КХ" to "Карт Х" with left alignment
+- Fixed pencil rename button not clickable — root cause: React re-renders between mousedown/click due to `currentEntries` updates from replay. Fix: `onPointerDown` + `setTimeout(…, 10)` with IIFE closure capturing `pilotName` and `rename` callback
+- Default view mode changed from "Все" to "Осн"
+- Added position change arrows (▲/▼) next to lap times for competition race laps:
+  - Green ▲N for positions gained, red ▼N for positions lost (compared to previous lap or start position for first lap)
+  - Uses `position` field from lap data and `startPositions` from competition
+- Added "Сорт: Час/Поз" toggle (only for race sessions with `startPositions`): sorts pilots by best time (default) or by last lap position
+- Toolbar order: Вид first, then Сорт
+
+#### TimingTable improvements (v0.9.229–v0.9.238)
+- "Квала/Гонка" sort toggle hidden when not a competition race (uses shared `extractCompetitionReplayProps()`)
+- Added `isCompetitionRace` prop to TimingTable, passed from SessionReplay
+- GAP column now shows precise time distance (was best lap difference):
+  - Same lap: cumulative lap time difference (sum of lap times)
+  - Different laps: "+NL" format
+  - Mid-lap S1 update: if both pilots passed S1 on current lap, shows gap from S1 timestamps
+  - Format: `+X.XX` (hundredths, always positive with `+` prefix)
+  - No data: shows "—"
+- Race mode column order: `Δ, P, Pilot, L, GAP, Kart, Last, S1, S2, Best, B.S1, B.S2, TB, Loss` (separate `RACE_ORDER` constant)
+- "Своє" custom view inherits race column order as default when in race mode
+- Race sort priority fixed: `lapNumber` → `snapshotPositions` (ground truth) → `pilotLastPos` → `progress` → `startPositions`
+
+#### Types (v0.9.233)
+- `TimingEntry` interface: added `gap?: string | null` field
+
+### Previous Changes (v0.9.196 → v0.9.222)
 
 #### Auth & Header fixes (v0.9.209–0.9.212)
 - Fixed logout on localhost (added `localhostLoggedOut` flag in `auth.tsx`)
@@ -127,9 +160,9 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
 
 ### Working Features
 - **Live timing**: real-time data from karting timing API with 1s polling
-- **Session replay**: scrubber (starts at end by default), kart positions on track map, qualifying/race sort modes
+- **Session replay**: scrubber (starts at end by default), kart positions on track map, qualifying/race sort modes, precise GAP calculation
 - **Sessions list**: date navigation, merged sessions, best lap/pilot, sortable, filters sessions < 3min
-- **Session detail**: replay, laps-by-pilots grid (with S1/S2), live updates, lap exclusion for competitions
+- **Session detail**: replay, laps-by-pilots grid (with S1/S2, position arrows), live updates, lap exclusion for competitions, track dropdown selector
 - **Onboard page**: fullscreen kart timing for phone on kart mount (landscape)
 - **Kart statistics**: per-kart top laps, multi-date filtering with end-of-day expiry
 - **Day timeline**: scrollable 6h window, 3 colors (offline/idle/session), unified `isValidSession()` filter
@@ -216,5 +249,5 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
 - **Branches**: `main` (production), `dev` (development)
 - **Merge flow**: dev → main (no-ff merge) **ONLY when user explicitly asks**
 - **Versions**: Frontend `0.9.x` in package.json, Collector `0.3.x` in collector/package.json
-- **Current**: Frontend `0.9.222`, Collector `0.3.6`
+- **Current**: Frontend `0.9.238`, Collector `0.3.6`
 - **APP_VERSION**: auto-read from package.json (displayed in footer)
