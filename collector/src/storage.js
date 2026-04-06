@@ -630,11 +630,11 @@ export const storage = {
       light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
       champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
       sprint: [
-        'qualifying_1_group_3', 'qualifying_1_group_2', 'qualifying_1_group_1',
-        'race_1_group_3', 'race_1_group_2', 'race_1_group_1',
-        'qualifying_2_group_3', 'qualifying_2_group_2', 'qualifying_2_group_1',
-        'race_2_group_3', 'race_2_group_2', 'race_2_group_1',
-        'final_group_3', 'final_group_2', 'final_group_1',
+        'qualifying_1_group_1', 'qualifying_1_group_2', 'qualifying_1_group_3',
+        'race_1_group_1', 'race_1_group_2', 'race_1_group_3',
+        'qualifying_2_group_1', 'qualifying_2_group_2', 'qualifying_2_group_3',
+        'race_2_group_1', 'race_2_group_2', 'race_2_group_3',
+        'final_group_1', 'final_group_2', 'final_group_3',
       ],
       marathon: ['race'],
     };
@@ -744,11 +744,11 @@ export const storage = {
       light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
       champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
       sprint: [
-        'qualifying_1_group_3', 'qualifying_1_group_2', 'qualifying_1_group_1',
-        'race_1_group_3', 'race_1_group_2', 'race_1_group_1',
-        'qualifying_2_group_3', 'qualifying_2_group_2', 'qualifying_2_group_1',
-        'race_2_group_3', 'race_2_group_2', 'race_2_group_1',
-        'final_group_3', 'final_group_2', 'final_group_1',
+        'qualifying_1_group_1', 'qualifying_1_group_2', 'qualifying_1_group_3',
+        'race_1_group_1', 'race_1_group_2', 'race_1_group_3',
+        'qualifying_2_group_1', 'qualifying_2_group_2', 'qualifying_2_group_3',
+        'race_2_group_1', 'race_2_group_2', 'race_2_group_3',
+        'final_group_1', 'final_group_2', 'final_group_3',
       ],
     };
     const phases = filterPhases(FULL_PHASES[comp.format] || [], groupCount, comp.format);
