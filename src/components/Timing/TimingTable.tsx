@@ -16,7 +16,7 @@ const COL_LABELS: Record<ColId, string> = {
 const COL_WIDTHS: Record<ColId, string> = {
   start: 'w-[120px]', arrows: 'min-w-[100px] w-[100px]', change: 'w-5', pilot: 'min-w-[150px]', points: 'w-8',
   kart: 'w-12', last: 'w-16', s1: 'w-14', s2: 'w-14',
-  best: 'w-16', bestS1: 'w-14', bestS2: 'w-14', tb: 'w-16', laps: 'w-8',
+  best: 'w-16', bestS1: 'w-14', bestS2: 'w-14', tb: 'w-28', laps: 'w-8',
 };
 const ALL_COLS_SET = new Set<ColId>(ALL_COL_IDS);
 const MAIN_VISIBLE = new Set<ColId>(['start', 'arrows', 'change', 'pilot', 'points', 'kart', 'last', 'best', 'laps']);
@@ -347,12 +347,15 @@ export default function TimingTable({
                 best: <td key="best" className={`table-cell text-center font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>{notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}</td>,
                 bestS1: <td key="bestS1" className={`table-cell text-center font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>{notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toHundredths(e.bestS1) : '—')}</td>,
                 bestS2: <td key="bestS2" className={`table-cell text-center font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>{notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toHundredths(e.bestS2) : '—')}</td>,
-                tb: <td key="tb" className="table-cell text-center font-mono text-[11px] text-dark-400">{(() => {
+                tb: <td key="tb" className="table-cell text-center font-mono text-[11px] text-dark-400 whitespace-nowrap">{(() => {
                   if (notStarted) return '';
                   const s1v = parseTime(e.bestS1);
                   const s2v = parseTime(e.bestS2);
                   if (s1v === null || s1v < 10 || s2v === null || s2v < 10) return '—';
-                  return (s1v + s2v).toFixed(3);
+                  const tb = s1v + s2v;
+                  const bestLapV = parseTime(e.bestLap);
+                  const diff = bestLapV !== null ? tb - bestLapV : null;
+                  return <>{tb.toFixed(3)}{diff !== null && <span className="text-[9px] text-dark-500"> ({diff < 0 ? '' : '+'}{diff.toFixed(3)})</span>}</>;
                 })()}</td>,
                 laps: <td key="laps" className="table-cell text-center font-mono text-dark-500">{notStarted ? '' : e.lapNumber}</td>,
               };
