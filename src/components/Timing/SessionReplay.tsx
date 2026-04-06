@@ -542,6 +542,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       startGrid={startGrid}
       raceGroup={raceGroup}
       totalQualifiedPilots={totalQualifiedPilots}
+      isCompetitionRace={raceGroup != null && raceGroup > 0}
     />
   );
 

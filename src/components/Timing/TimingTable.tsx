@@ -35,6 +35,7 @@ export interface TimingTableProps {
   startGrid?: Map<number, string>;
   raceGroup?: number;
   totalQualifiedPilots?: number;
+  isCompetitionRace?: boolean;
 }
 
 function arrowColor(diff: number): string {
@@ -48,7 +49,7 @@ export default function TimingTable({
   entries, sortMode, onSortModeChange,
   columnFilter: controlledColumnFilter, onColumnFilterChange,
   startPositions, startGrid,
-  raceGroup, totalQualifiedPilots,
+  raceGroup, totalQualifiedPilots, isCompetitionRace,
 }: TimingTableProps) {
   const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>('all');
   const columnFilter = controlledColumnFilter ?? internalColumnFilter;
@@ -216,24 +217,26 @@ export default function TimingTable({
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-3 border-b border-dark-800 flex items-center gap-3 flex-wrap">
-        <div className="flex bg-dark-800 rounded-md p-0.5">
-          <button
-            onClick={() => onSortModeChange('qualifying')}
-            className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-              sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
-            }`}
-          >
-            Квала
-          </button>
-          <button
-            onClick={() => onSortModeChange('race')}
-            className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-              sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
-            }`}
-          >
-            Гонка
-          </button>
-        </div>
+        {isCompetitionRace && (
+          <div className="flex bg-dark-800 rounded-md p-0.5">
+            <button
+              onClick={() => onSortModeChange('qualifying')}
+              className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+              }`}
+            >
+              Квала
+            </button>
+            <button
+              onClick={() => onSortModeChange('race')}
+              className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+              }`}
+            >
+              Гонка
+            </button>
+          </div>
+        )}
         <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1 flex-wrap">
           <span className="text-dark-500 text-[9px]">Вид:</span>
           <span className="flex rounded overflow-hidden">
