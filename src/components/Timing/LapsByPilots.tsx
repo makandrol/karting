@@ -69,6 +69,17 @@ function compactName(name: string): string {
 
 export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId, startPositions }: LapsByPilotsProps) {
   const [viewMode, setViewMode] = useState<'all' | 'main'>('main');
+  const [sortMode, setSortMode] = useState<'time' | 'position'>('time');
+  const isRace = startPositions != null && startPositions.size > 0;
+
+  const sortedPilots = isRace && sortMode === 'position'
+    ? [...pilots].sort((a, b) => {
+        const aPos = a.laps[a.laps.length - 1]?.position ?? Infinity;
+        const bPos = b.laps[b.laps.length - 1]?.position ?? Infinity;
+        return aPos - bPos;
+      })
+    : pilots;
+
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
   const overallBestS2 = Math.min(...pilots.map(p => p.bestS2).filter(v => v < Infinity));
@@ -91,6 +102,16 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-3 border-b border-dark-800 flex items-center gap-3">
+        {isRace && (
+          <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
+            <span className="text-dark-500 text-[9px]">Сорт:</span>
+            <span className="flex rounded overflow-hidden">
+              <button onClick={() => setSortMode('time')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${sortMode === 'time' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Час</button>
+              <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+              <button onClick={() => setSortMode('position')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${sortMode === 'position' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Поз</button>
+            </span>
+          </div>
+        )}
         <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
           <span className="text-dark-500 text-[9px]">Вид:</span>
           <span className="flex rounded overflow-hidden">
@@ -105,7 +126,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
           <thead>
             <tr className="table-header">
               <th className="table-cell text-center w-8">Коло</th>
-              {pilots.map(p => (
+              {sortedPilots.map(p => (
                 <th key={p.name} className="table-cell text-left min-w-[100px]">
                   <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
                     {compactName(p.name)}
@@ -139,7 +160,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
             {Array.from({ length: maxLaps }, (_, lapIdx) => (
               <tr key={lapIdx} className="table-row">
                 <td className="table-cell text-center font-mono text-dark-500">{lapIdx + 1}</td>
-                {pilots.map(p => {
+                {sortedPilots.map(p => {
                   const lap = p.laps[lapIdx];
                   const completed = completedLapsMap.get(p.name) ?? 0;
                   const isCurrent = hasReplayState && lapIdx === completed;
