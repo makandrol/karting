@@ -130,6 +130,12 @@
 32. **Competition live table**: Uses `SessionReplay(showScrubber=false)` with events fetched on 3s interval. Do NOT create separate live table components.
 33. **LeagueResults toolbar order**: "Сорт:" first row, "Вид:" second row.
 34. **CompetitionTimeline links**: Only session name is a link; time display is plain text.
+35. **Kart color**: Use `KART_COLOR` constant from `utils/timing.ts` for all kart number displays. Never hardcode kart color in individual components.
+36. **Track selector**: All pages (competition, timing, session detail) use the same bordered frame style with flag icon + dropdown/number.
+37. **LapsByPilots pilot names**: Use `compactName()` (max 10 chars, surname >7 → truncate, ≤7 → with initial). NOT `shortName()`.
+38. **TimingTable columns**: `TB` is theoretical best (bestS1+bestS2), `Loss` is best lap minus TB. `Gap` is race-mode only (diff in best lap to pilot ahead). `MAIN_RACE_VISIBLE` excludes Start/arrows but includes Gap.
+39. **Localhost auth**: `auth.tsx` uses `localhostLoggedOut` state flag — `IS_LOCALHOST` auto-owner respects logout. `loginWithGoogle` resets the flag.
+40. **AccessSettings drag-reorder**: Uses `wasDragged` ref to prevent click from firing after drag. Always add `onDragEnd` to reset drag state.
 
 ## File Structure
 ```
@@ -169,7 +175,7 @@ karting/
 │   │   └── firebase.ts      # Firebase init
 │   ├── utils/
 │   │   ├── timing.ts        # parseTime, toSeconds, toHundredths, getTimeColor,
-│   │   │                    #   mergePilotNames, shortName, fetchRaceStartPositions
+│   │   │                    #   KART_COLOR, mergePilotNames, shortName, fetchRaceStartPositions
 │   │   ├── scoring.ts       # computeStandings, rowsToStandings, calcOvertakePoints,
 │   │   │                    #   getPositionPoints, parseLapSec (shared scoring module)
 │   │   └── session.ts       # buildReplayLaps, extractCompetitionReplayProps
@@ -184,7 +190,7 @@ karting/
 ├── public/data/
 │   └── scoring.json         # Scoring rules (editable via /admin/scoring)
 ├── docs/                    # This documentation
-├── package.json             # v0.9.195
+├── package.json             # v0.9.222
 ├── vite.config.ts
 ├── tailwind.config.js       # hoverOnlyWhenSupported: true
 ├── tsconfig.json            # resolveJsonModule enabled

@@ -15,9 +15,38 @@
 
 A real-time karting timing dashboard for the "Жага Швидкості" karting track. Collects live timing data, stores it in SQLite, and provides a web interface for viewing sessions, replays, kart statistics, and managing competitions with live scoring.
 
-## Current State (v0.9.195)
+## Current State (v0.9.222)
 
-### Recent Changes (v0.9.161 → v0.9.195)
+### Recent Changes (v0.9.196 → v0.9.222)
+
+#### Auth & Header fixes (v0.9.209–0.9.212)
+- Fixed logout on localhost (added `localhostLoggedOut` flag in `auth.tsx`)
+- Fixed `UserDropdown` — rewritten to click-only (removed hover conflicts with `position: fixed`)
+- Fixed header dropdown click handling with `data-dropdown` attribute on fixed popups
+
+#### Admin AccessSettings (v0.9.213)
+- Fixed drag-and-drop reorder in "Дефолтні настройки таблиць" (added `wasDragged` ref)
+
+#### Track selector unification (v0.9.214)
+- All pages (competition, timing, session detail) now use same bordered frame style with flag icon + dropdown
+
+#### TimingTable columns (v0.9.205–0.9.208, v0.9.215)
+- Pilot column: `min-w-[150px]`, arrows: `min-w-[100px]`
+- Split `TB` into `TB` (theoretical best) + `Loss` (best lap minus TB)
+- Added `Gap` column (race mode only: diff in best lap to pilot ahead)
+- `Start` toggle in "Вид: Своє" — toggles start+arrows together
+- Race mode "Осн": shows Gap, hides Start/arrows
+
+#### LapsByPilots improvements (v0.9.216–0.9.221)
+- `compactName()` for pilot names (max 10 chars, surname >7 → truncate)
+- Pencil button: fixed (`onPointerDown`), moved after kart number
+- Added "Вид: Все / Осн" toggle (Осн hides sectors)
+- All columns uniform width `min-w-[100px]`
+
+#### Unified kart color (v0.9.220, v0.9.222)
+- `KART_COLOR` constant (`text-blue-400`) applied across ALL tables
+
+### Previous Changes (v0.9.161 → v0.9.195)
 
 #### TimingTable extraction (v0.9.191)
 - Extracted reusable `TimingTable` component from `SessionReplay`
@@ -187,5 +216,5 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
 - **Branches**: `main` (production), `dev` (development)
 - **Merge flow**: dev → main (no-ff merge) **ONLY when user explicitly asks**
 - **Versions**: Frontend `0.9.x` in package.json, Collector `0.3.x` in collector/package.json
-- **Current**: Frontend `0.9.195`, Collector `0.3.6`
+- **Current**: Frontend `0.9.222`, Collector `0.3.6`
 - **APP_VERSION**: auto-read from package.json (displayed in footer)

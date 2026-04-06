@@ -30,8 +30,8 @@ React 18 SPA with TypeScript, Vite, Tailwind CSS. Firebase Auth for Google Sign-
 ### Admin Pages (owner only)
 | Route | Component | Description |
 |-------|-----------|-------------|
-| `/admin` | `AdminPanel.tsx` | Moderator management |
-| `/admin/pages` | `PageSettings.tsx` | Toggle page visibility for users/admins |
+| `/admin` | → `/admin/access` | Redirects to access settings |
+| `/admin/access` | `AccessSettings.tsx` | Moderators, custom accounts, page visibility, table defaults (drag-reorder sections) |
 | `/admin/db` | `DatabaseStats.tsx` | SQLite DB stats from collector |
 | `/admin/monitoring` | `Monitoring.tsx` | Server CPU/RAM/disk, analytics |
 | `/admin/collector-log` | `CollectorLog.tsx` | Raw session log from collector |
@@ -86,13 +86,22 @@ Standalone reusable timing table extracted from SessionReplay. Used in ALL place
 - `Δ` — position change vs start (race mode only, green ↑ / red ↓)
 - Pilot name (with progress bar — bordered outline, full-width, yellow fill)
 - `P` — race points: position + overtake (race mode + competition only)
-- Kart, Last lap, S1, S2, Best lap, Best S1, Best S2, TB (theoretical best = bestS1 + bestS2), L (lap count)
+- Kart number (blue — `KART_COLOR` constant from `utils/timing.ts`)
+- `Gap` — gap to pilot ahead by best lap time (race mode only)
+- Last lap, S1, S2, Best lap, Best S1, Best S2
+- `TB` — theoretical best (bestS1 + bestS2)
+- `Loss` — difference between best lap and TB (how much slower than theoretical)
+- `L` — lap count
 
 **Column visibility system ("Вид:"):**
 - `Все` — all columns visible
-- `Осн` — main columns only (hides S1, S2, bestS1, bestS2, TB)
+- `Осн` — main columns only:
+  - **Qualifying**: Start, arrows, Δ, Pilot, P, Kart, Last, Best, L (hides S1, S2, bestS1, bestS2, TB, Loss, Gap)
+  - **Race**: Δ, Pilot, P, Kart, Gap, Last, Best, L (hides Start, arrows, S1, S2, bestS1, bestS2, TB, Loss)
 - `Своє` — custom: draggable column pills, click to toggle on/off, persisted per sort mode in localStorage
-- `start` and `arrows` columns are fixed-position (always first, not draggable) and only visible when `sortMode === 'race'` AND start data exists
+  - `Start` and `arrows` toggle together as a group, only shown when start data exists
+  - `Gap` pill hidden in qualifying mode (race-only column)
+  - `start` and `arrows` columns are fixed-position (always first, not draggable)
 
 **Sort mode buttons:** Квала / Гонка toggle
 
@@ -101,12 +110,16 @@ Standalone reusable timing table extracted from SessionReplay. Used in ALL place
 ### `LapsByPilots` (`components/Timing/LapsByPilots.tsx`)
 Laps-by-pilots grid. Each cell shows lap time + S1/S2 (hundredths, green/purple only).
 
-**Props:** `pilots`, `currentEntries?`, `isLive?`, `onRenamePilot?`
+**Props:** `pilots`, `currentEntries?`, `isLive?`, `onRenamePilot?`, `excludedLaps?`, `onToggleLap?`, `sessionId?`
 **Features:**
-- Kart number shown under pilot name in header
-- ✎ rename button (owner only, calls onRenamePilot callback)
-- S1/S2 in text-[8px] below lap time, space-separated, green (PB) or purple (overall best)
+- Pilot name truncated via `compactName()`: max 10 chars. Surname >7 → first 10 chars (no initial). Surname ≤7 → "Surname F." format. Full name shown on hover via `title`.
+- Kart number shown centered below pilot name in blue (`KART_COLOR`)
+- ✎ rename button after kart number (owner only, uses `onPointerDown` for reliable click handling, calls `prompt()` then `onRenamePilot` callback)
+- **View mode ("Вид: Все / Осн")**: "Все" shows sectors under each lap, "Осн" hides S1/S2 sector rows
+- S1/S2 in text-[8px] below lap time (in "Все" mode only), space-separated, green (PB) or purple (overall best)
 - Current lap highlight (ring) during replay
+- ✕/↩ lap exclusion buttons on hover (owner only, when session belongs to competition)
+- All pilot columns uniform width: `min-w-[100px]`
 
 ### `LeagueResults` (`components/Results/LeagueResults.tsx`)
 Full scoring table for Light League / Champions League competitions. Uses shared `scoring.ts` module for all calculations.
@@ -182,7 +195,9 @@ Firebase Auth with role system:
 - **Owner**: `makandrol@gmail.com` (hardcoded)
 - **Moderator**: emails in localStorage
 - **User**: anyone else
-- Localhost auto-grants owner role
+- Localhost auto-grants owner role via `IS_LOCALHOST` check
+- **Localhost logout**: `localhostLoggedOut` state flag — logout sets `true` (user becomes null), `loginWithGoogle` resets to `false` (user returns to auto-owner)
+- `useAuth()` hook: returns `user`, `isOwner`, `hasPermission(permission)`, `loginWithGoogle()`, `logout()`
 
 ### `viewPrefs.ts`
 Persists view preferences per user email in localStorage.
@@ -221,8 +236,10 @@ Pure functions extracted from LeagueResults for reuse:
 - `toSeconds(str)` — converts to seconds string (3 decimals)
 - `toHundredths(str)` — converts to seconds string (2 decimals, for S1/S2)
 - `getTimeColor(value, personalBest, overallBest)` — purple/green/yellow/none
+- `COLOR_CLASSES` — maps TimeColor to Tailwind classes
+- `KART_COLOR` — unified kart number color (`'text-blue-400'`), used across all tables (TimingTable, TimingBoard, LapsByPilots, SessionDetail, CompetitionPage, LeagueResults, ResultsTable)
 - `mergePilotNames(laps)` — replaces "Карт X" with real name on same kart
-- `shortName(name)` — "Апанасенко Олексій" → "Апанасенко О."
+- `shortName(name)` — "Апанасенко Олексій" → "Апанасенко О." (used in TimingTable pilot column)
 - `fmtBytes(n)` — human-readable bytes
 - `fetchRaceStartPositions(collectorUrl, competitionId, phase, format)` — computes start positions from qualifying/previous race, returns `{positions, totalQualified}`
 - `isValidSession(session)` — returns false for sessions < 3 minutes (MIN_SESSION_DURATION_MS = 180000). Used across all pages for filtering.
@@ -246,9 +263,53 @@ Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseL
 - Footer: version + links only (no logo)
 - SessionReplay table: tight padding (`px-0.5 py-0.5`), narrow pilot column (`w-[140px]`), bordered progress bar (full-width, border-dark-600/50, yellow fill)
 - TimingTable: sort mode toggle (Квала/Гонка), Вид: bar (Все/Осн/Своє), draggable column pills in custom mode
+- LapsByPilots: Вид: bar (Все/Осн), uniform column width (`min-w-[100px]`), centered kart+pencil row
 - Color coding: `text-purple-400` (overall best), `text-green-400` (PB), `text-yellow-400` (slower)
+- Kart numbers: `KART_COLOR` (`text-blue-400`) — unified constant across all tables
+- Track selector: bordered frame with flag icon + dropdown, same style on competition, timing, and session detail pages
 
-## Recent Changes (v0.9.191–0.9.195)
+## Recent Changes (v0.9.196–0.9.222)
+
+### Auth fixes (v0.9.209–0.9.212)
+- Fixed header dropdown click handling: added `data-dropdown` attribute to fixed-position popups
+- Added `onMouseEnter`/`onMouseLeave` on nav dropdown popups for hover behavior
+- Rewrote `UserDropdown` to click-only (removed hover open/close that conflicted with `position: fixed`)
+- Fixed logout on localhost: added `localhostLoggedOut` state flag in `auth.tsx` — `IS_LOCALHOST` auto-owner now respects logout
+
+### Admin AccessSettings drag-reorder (v0.9.213)
+- Fixed drag-and-drop reorder in "Дефолтні настройки таблиць" section
+- Added `wasDragged` ref to prevent click (toggle visibility) from firing after drag
+- Added `onDragEnd` handler and visual feedback (opacity + ring) for dragged items
+
+### Track selector unification (v0.9.214)
+- Competition page: track frame same height as pilots/groups frames (`py-1`)
+- Timing page: replaced separate "Траса" label + select with bordered frame (flag icon + dropdown) matching competition page style, positioned after status badge
+- Session detail page: replaced inline "Траса X" text with bordered frame (flag icon + number)
+
+### TimingTable column changes (v0.9.205–0.9.208, v0.9.215)
+- Pilot column: `min-w-[150px]` (was fixed `w-[200px]`)
+- Arrows column: `min-w-[100px] w-[100px]` with `minWidth` on td style
+- Split `TB` column into two: `TB` (theoretical best = bestS1 + bestS2) and `Loss` (best lap minus TB)
+- Added `Gap` column (race mode only): diff in best lap to pilot ahead, positioned after Kart before Last
+- Added `Start` toggle to "Вид: Своє" — toggles `start` and `arrows` together as a group
+- Race mode "Осн" view: shows Gap but hides Start/arrows
+- Qualifying "Осн" view: unchanged (shows Start/arrows if data exists)
+- `RACE_ONLY_COLS` now includes `gap` — auto-hidden in qualifying mode
+- `MAIN_QUAL_VISIBLE` and `MAIN_RACE_VISIBLE` — separate sets for each mode
+
+### LapsByPilots improvements (v0.9.216–0.9.219, v0.9.221)
+- `compactName()` function for pilot name truncation (max 10 chars): surname >7 → first 10 chars, surname ≤7 → "Surname F."
+- Full name shown on hover via `title` attribute
+- Pencil (✎) button: moved after kart number, uses `onPointerDown` (was `onClick`), bigger (10px with padding)
+- Kart number: centered with pencil, larger font (11px)
+- All pilot columns: uniform width `min-w-[100px]`
+- Added "Вид: Все / Осн" toggle: "Осн" hides sector times (S1/S2) under each lap
+
+### Unified kart color (v0.9.220, v0.9.222)
+- Added `KART_COLOR` constant in `utils/timing.ts` — `'text-blue-400'`
+- Applied across all tables: TimingTable, TimingBoard, LapsByPilots, SessionDetail, CompetitionPage (Gonzales), LeagueResults, ResultsTable
+
+## Previous Changes (v0.9.191–0.9.195)
 
 ### TimingTable extraction (v0.9.191)
 - Extracted reusable `TimingTable` component from `SessionReplay` (~280 lines)
@@ -309,7 +370,8 @@ Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseL
 
 ### Laps-by-Pilots
 - Table aligned left instead of center
-- Column width reduced to 60px
-- Pilot name font: `text-[9px]`
-- Kart number font: `text-[10px]`
-- Rename button font: `text-[8px]`
+- Column width: `min-w-[100px]` (uniform)
+- Pilot name: `compactName()` with max 10 chars
+- Kart number: centered, blue (`KART_COLOR`), `text-[11px]`
+- Rename button: `text-[10px]`, after kart number, uses `onPointerDown`
+- "Вид: Все / Осн" toggle for hiding sectors

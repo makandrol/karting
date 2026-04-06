@@ -141,9 +141,13 @@ sequenceDiagram
 Standalone reusable timing table with full column management:
 - Квала/Гонка sort mode toggle
 - Вид: (Все/Осн/Своє) column visibility bar with draggable pills
-- Start column + SVG Bezier curved arrows (race mode only)
+- Separate "Осн" presets per mode: `MAIN_QUAL_VISIBLE` (with Start/arrows), `MAIN_RACE_VISIBLE` (with Gap, without Start/arrows)
+- Start column + SVG Bezier curved arrows (race mode only, toggleable as group)
+- `Gap` column — diff in best lap to pilot ahead (race mode only, in `RACE_ONLY_COLS`)
+- `TB` (theoretical best = bestS1+bestS2) and `Loss` (best lap minus TB) as separate columns
 - `Δ` column for position change
 - Pilot progress bar with bordered outline
+- Kart number in blue (`KART_COLOR` from `utils/timing.ts`)
 - Column order/visibility persisted per sort mode in localStorage
 - `start` and `arrows` columns are fixed-position, auto-shown/hidden based on race data
 
