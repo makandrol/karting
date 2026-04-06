@@ -201,14 +201,18 @@ export default function TimingTable({
     for (let i = 0; i < sorted.length; i++) {
       const e = sorted[i];
       if (i === 0) { map.set(e.pilot, '—'); continue; }
-      const prev = sorted[i - 1];
-      const eLap = parseTime(e.bestLap);
-      const pLap = parseTime(prev.bestLap);
-      if (eLap !== null && pLap !== null) {
-        const diff = eLap - pLap;
-        map.set(e.pilot, `${diff >= 0 ? '+' : ''}${diff.toFixed(3)}`);
+      if (e.gap) {
+        map.set(e.pilot, e.gap);
       } else {
-        map.set(e.pilot, '—');
+        const prev = sorted[i - 1];
+        const eLap = parseTime(e.bestLap);
+        const pLap = parseTime(prev.bestLap);
+        if (eLap !== null && pLap !== null) {
+          const diff = eLap - pLap;
+          map.set(e.pilot, `${diff >= 0 ? '+' : ''}${diff.toFixed(3)}`);
+        } else {
+          map.set(e.pilot, '—');
+        }
       }
     }
     return map;

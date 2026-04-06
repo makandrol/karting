@@ -22,6 +22,8 @@ export interface TimingEntry {
   currentLapSec: number | null;
   /** Час попереднього завершеного кола в секундах. null = перше коло */
   previousLapSec: number | null;
+  /** Gap до пілота попереду: "+1.2" або "+2L" */
+  gap?: string | null;
 }
 
 export interface TimingSnapshot {

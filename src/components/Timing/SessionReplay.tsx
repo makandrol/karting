@@ -381,7 +381,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       }
     }
 
-    return result
+    const sorted = result
       .sort((a, b) => {
         if (a.lapNumber < 0 && b.lapNumber < 0) return 0;
         if (a.lapNumber < 0) return 1;
@@ -410,6 +410,62 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
+
+    // Compute precise gap for race mode
+    if (sortMode === 'race' && sessionStartTime && pilotTimelines.size > 0) {
+      const currentMs = sessionStartTime + timeSec * 1000;
+      for (let i = 0; i < sorted.length; i++) {
+        if (i === 0 || sorted[i].lapNumber < 0) { sorted[i].gap = null; continue; }
+        const ahead = sorted[i - 1];
+        const behind = sorted[i];
+        if (ahead.lapNumber < 0) { behind.gap = null; continue; }
+
+        const lapDiff = ahead.lapNumber - behind.lapNumber;
+        if (lapDiff > 0) {
+          behind.gap = `+${lapDiff}L`;
+          continue;
+        }
+
+        const tlA = pilotTimelines.get(ahead.pilot) || [];
+        const tlB = pilotTimelines.get(behind.pilot) || [];
+        const commonLap = Math.min(ahead.lapNumber, behind.lapNumber);
+
+        // Try S1 gap on current lap (if both passed S1)
+        const evtsA = pilotS1Events.get(ahead.pilot);
+        const evtsB = pilotS1Events.get(behind.pilot);
+        if (evtsA && evtsB) {
+          const lastFinishA = commonLap > 0 ? tlA[commonLap - 1] : sessionStartTime;
+          const lastFinishB = commonLap > 0 ? tlB[commonLap - 1] : sessionStartTime;
+          if (lastFinishA && lastFinishB) {
+            let s1A: number | null = null;
+            let s1B: number | null = null;
+            for (let j = evtsA.length - 1; j >= 0; j--) {
+              if (evtsA[j].ts <= currentMs && evtsA[j].ts > lastFinishA) { s1A = evtsA[j].ts; break; }
+            }
+            for (let j = evtsB.length - 1; j >= 0; j--) {
+              if (evtsB[j].ts <= currentMs && evtsB[j].ts > lastFinishB) { s1B = evtsB[j].ts; break; }
+            }
+            if (s1A != null && s1B != null) {
+              const gapSec = (s1B - s1A) / 1000;
+              behind.gap = gapSec >= 0 ? `+${gapSec.toFixed(1)}` : `${gapSec.toFixed(1)}`;
+              continue;
+            }
+          }
+        }
+
+        // Fall back to finish line timestamps
+        if (commonLap > 0 && tlA.length >= commonLap && tlB.length >= commonLap) {
+          const finishA = tlA[commonLap - 1];
+          const finishB = tlB[commonLap - 1];
+          const gapSec = (finishB - finishA) / 1000;
+          behind.gap = gapSec >= 0 ? `+${gapSec.toFixed(1)}` : `${gapSec.toFixed(1)}`;
+        } else {
+          behind.gap = null;
+        }
+      }
+    }
+
+    return sorted;
   }, [laps, pilots, sessionStartTime, pilotTimelines, pilotS1Events, snapshots, startPositions, liveEntries, sortMode]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
