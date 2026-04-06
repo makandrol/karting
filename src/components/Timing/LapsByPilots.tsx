@@ -83,8 +83,8 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
             <tr className="table-header">
               <th className="table-cell text-center w-8">Коло</th>
               {pilots.map(p => (
-                <th key={p.name} className="table-cell text-left min-w-[60px]">
-                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]">
+                <th key={p.name} className="table-cell text-left min-w-[60px] max-w-[80px]">
+                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px] block truncate" title={p.name}>
                     {shortName(p.name)}
                   </Link>
                   {onRenamePilot && (
