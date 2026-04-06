@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { AuthProvider, useAuth } from './services/auth';
 import { TrackProvider } from './services/trackContext';
 import { PageVisibilityProvider, usePageVisibility } from './services/pageVisibility';
+import { LayoutPrefsProvider } from './services/layoutPrefs';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const HomePage = lazy(() => import('./pages/Home'));
@@ -60,6 +61,7 @@ export default function App() {
   return (
     <AuthProvider>
       <PageVisibilityProvider>
+      <LayoutPrefsProvider>
       <TrackProvider>
         <BrowserRouter>
           <ErrorBoundary>
@@ -115,6 +117,7 @@ export default function App() {
           </ErrorBoundary>
         </BrowserRouter>
       </TrackProvider>
+      </LayoutPrefsProvider>
       </PageVisibilityProvider>
     </AuthProvider>
   );

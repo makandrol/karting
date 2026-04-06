@@ -778,6 +778,15 @@ export const storage = {
     this.setSystemState('scoring', JSON.stringify(data));
   },
 
+  getViewDefaults() {
+    const raw = this.getSystemState('view_defaults');
+    return raw ? JSON.parse(raw) : null;
+  },
+
+  setViewDefaults(data) {
+    this.setSystemState('view_defaults', JSON.stringify(data));
+  },
+
   updateSessionsTrack(sessionIds, trackId) {
     if (!sessionIds || sessionIds.length === 0) return 0;
     const placeholders = sessionIds.map(() => '?').join(',');

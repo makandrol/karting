@@ -82,6 +82,22 @@ export function parseSessionEvents(rawEvents: any[]): {
 
 export type ReplaySortMode = 'qualifying' | 'race';
 
+const ALL_COL_IDS = ['change', 'pilot', 'points', 'kart', 'last', 's1', 's2', 'best', 'bestS1', 'bestS2', 'tb', 'laps'] as const;
+type ColId = typeof ALL_COL_IDS[number];
+const DEFAULT_ORDER: ColId[] = [...ALL_COL_IDS];
+const COL_LABELS: Record<ColId, string> = {
+  change: '+/-', pilot: 'Pilot', points: 'P',
+  kart: 'Kart', last: 'Last', s1: 'S1', s2: 'S2',
+  best: 'Best', bestS1: 'B.S1', bestS2: 'B.S2', tb: 'TB', laps: 'L',
+};
+const COL_WIDTHS: Record<ColId, string> = {
+  change: 'w-8', pilot: 'w-[200px] max-w-[280px]', points: 'w-8',
+  kart: 'w-12', last: 'w-16', s1: 'w-14', s2: 'w-14',
+  best: 'w-16', bestS1: 'w-14', bestS2: 'w-14', tb: 'w-16', laps: 'w-8',
+};
+const ALL_COLS_SET = new Set<ColId>(ALL_COL_IDS);
+const MAIN_VISIBLE = new Set<ColId>(['change', 'pilot', 'points', 'kart', 'last', 'best', 'laps']);
+
 interface SessionReplayProps {
   laps: { pilot: string; kart: number; lapNumber: number; lapTime: string; s1: string; s2: string; position: number; ts?: number }[];
   durationSec: number;
@@ -96,20 +112,97 @@ interface SessionReplayProps {
   raceGroup?: number;
   totalQualifiedPilots?: number;
   defaultSortMode?: ReplaySortMode;
+  sortMode?: ReplaySortMode;
+  onSortModeChange?: (mode: ReplaySortMode) => void;
+  columnFilter?: 'all' | 'main' | 'custom';
+  onColumnFilterChange?: (filter: 'all' | 'main' | 'custom') => void;
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
+  showScrubber?: boolean;
+  showTable?: boolean;
+  renderContent?: (parts: { scrubber: React.ReactNode; table: React.ReactNode }) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(durationSec);
   const [speed, setSpeed] = useState(1);
   const [atLive, setAtLive] = useState(!!isLive && !!autoPlay);
-  const [sortMode, setSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
-  const [columnFilter, setColumnFilter] = useState<'all' | 'main'>('all');
+  const [internalSortMode, setInternalSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
+  const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>('all');
 
-  useEffect(() => { if (defaultSortMode) setSortMode(defaultSortMode); }, [defaultSortMode]);
+  const sortMode = controlledSortMode ?? internalSortMode;
+  const setSortMode = onSortModeChange ?? setInternalSortMode;
+  const columnFilter = controlledColumnFilter ?? internalColumnFilter;
+  const setColumnFilter = onColumnFilterChange ?? setInternalColumnFilter;
+
+  const [customCols, setCustomCols] = useState<Record<ReplaySortMode, { visible: Set<ColId>; order: ColId[] }>>(() => {
+    const load = (mode: ReplaySortMode) => {
+      try {
+        const raw = localStorage.getItem(`karting_timing_cols_${mode}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.order && parsed.hidden) {
+            const order = (parsed.order as string[]).filter(c => ALL_COLS_SET.has(c as ColId)) as ColId[];
+            const missing = DEFAULT_ORDER.filter(c => !order.includes(c));
+            const fullOrder = [...order, ...missing];
+            const hidden = new Set(parsed.hidden as string[]);
+            return { visible: new Set<ColId>(fullOrder.filter(c => !hidden.has(c))), order: fullOrder };
+          }
+          const visible = new Set((parsed as string[]).filter(c => ALL_COLS_SET.has(c as ColId)) as ColId[]);
+          for (const c of ALL_COLS_SET) visible.add(c);
+          return { visible, order: [...DEFAULT_ORDER] };
+        }
+      } catch {}
+      return { visible: new Set<ColId>(ALL_COLS_SET), order: [...DEFAULT_ORDER] };
+    };
+    return { qualifying: load('qualifying'), race: load('race') };
+  });
+
+  const saveCustom = useCallback((mode: ReplaySortMode, state: { visible: Set<ColId>; order: ColId[] }) => {
+    const hidden = state.order.filter(c => !state.visible.has(c));
+    localStorage.setItem(`karting_timing_cols_${mode}`, JSON.stringify({ order: state.order, hidden }));
+  }, []);
+
+  const toggleCustomCol = useCallback((col: ColId) => {
+    setCustomCols(prev => {
+      const current = prev[sortMode];
+      const nextVisible = new Set(current.visible);
+      nextVisible.has(col) ? nextVisible.delete(col) : nextVisible.add(col);
+      const next = { visible: nextVisible, order: current.order };
+      saveCustom(sortMode, next);
+      return { ...prev, [sortMode]: next };
+    });
+  }, [sortMode, saveCustom]);
+
+  const [dragCol, setDragCol] = useState<ColId | null>(null);
+
+  const handleDragStart = useCallback((col: ColId) => { setDragCol(col); }, []);
+  const handleDragOver = useCallback((e: React.DragEvent, targetCol: ColId) => {
+    e.preventDefault();
+    if (!dragCol || dragCol === targetCol) return;
+    setCustomCols(prev => {
+      const current = prev[sortMode];
+      const order = [...current.order];
+      const fromIdx = order.indexOf(dragCol);
+      const toIdx = order.indexOf(targetCol);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      order.splice(fromIdx, 1);
+      order.splice(toIdx, 0, dragCol);
+      const next = { visible: current.visible, order };
+      saveCustom(sortMode, next);
+      return { ...prev, [sortMode]: next };
+    });
+  }, [dragCol, sortMode, saveCustom]);
+  const handleDragEnd = useCallback(() => { setDragCol(null); }, []);
+
+  const customState = customCols[sortMode];
+  const visibleCols: Set<ColId> = columnFilter === 'all' ? ALL_COLS_SET : columnFilter === 'main' ? MAIN_VISIBLE : customState.visible;
+  const colOrder: ColId[] = columnFilter === 'custom' ? customState.order : DEFAULT_ORDER;
+  const isCol = (id: ColId) => visibleCols.has(id);
+
+  useEffect(() => { if (defaultSortMode && !controlledSortMode) setInternalSortMode(defaultSortMode); }, [defaultSortMode, controlledSortMode]);
 
   // Scoring data for race points
   const [scoringData, setScoringData] = useState<any>(null);
@@ -509,25 +602,6 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         <option value={10}>10x</option>
       </select>
 
-      <div className="flex bg-dark-800 rounded-md p-0.5 shrink-0">
-        <button
-          onClick={() => setSortMode('qualifying')}
-          className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-            sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
-          }`}
-        >
-          Квала
-        </button>
-        <button
-          onClick={() => setSortMode('race')}
-          className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-            sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
-          }`}
-        >
-          Гонка
-        </button>
-      </div>
-
       <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
         {isLive ? formatTimeSec(currentTime) : `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
       </span>
@@ -540,45 +614,78 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
     </div>
   );
 
-  return (
-    <>
-      {/* Scrubber — parent can wrap for sticky positioning */}
-      {renderScrubber ? renderScrubber(scrubberEl) : (
-        <div className="bg-dark-900/95 border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
-          {scrubberEl}
-        </div>
-      )}
+  const wrappedScrubberEl = renderScrubber ? renderScrubber(scrubberEl) : (
+    <div className="bg-dark-900/95 border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+      {scrubberEl}
+    </div>
+  );
 
-      {/* Timing board */}
-      <div className="card p-0 overflow-hidden">
-        <div className="px-4 py-3 border-b border-dark-800 flex items-center justify-between">
-          <h3 className="text-white font-semibold">Таймінг</h3>
-          <div className="flex items-center gap-1.5">
-            <span className="text-dark-500 text-[9px]">Вид:</span>
-            <span className="flex rounded overflow-hidden">
-              <button onClick={() => setColumnFilter('all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
-              <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-              <button onClick={() => setColumnFilter('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
-            </span>
-          </div>
+  const tableEl = (
+    <div className="card p-0 overflow-hidden">
+      <div className="px-4 py-3 border-b border-dark-800 flex items-center gap-3 flex-wrap">
+        <div className="flex bg-dark-800 rounded-md p-0.5">
+          <button
+            onClick={() => setSortMode('qualifying')}
+            className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+              sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+            }`}
+          >
+            Квала
+          </button>
+          <button
+            onClick={() => setSortMode('race')}
+            className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+              sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+            }`}
+          >
+            Гонка
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1 flex-wrap">
+          <span className="text-dark-500 text-[9px]">Вид:</span>
+          <span className="flex rounded overflow-hidden">
+            <button onClick={() => setColumnFilter('all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
+            <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+            <button onClick={() => setColumnFilter('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
+            <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+            <button onClick={() => setColumnFilter('custom')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'custom' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Своє</button>
+          </span>
+          {columnFilter === 'custom' && (
+            <>
+              <span className="text-dark-700 text-[9px]">|</span>
+              {customState.order.map(col => (
+                <button
+                  key={col}
+                  draggable
+                  onDragStart={() => handleDragStart(col)}
+                  onDragOver={(e) => handleDragOver(e, col)}
+                  onDragEnd={handleDragEnd}
+                  onClick={() => toggleCustomCol(col)}
+                  className={`px-1.5 py-0.5 rounded text-[9px] transition-colors cursor-grab active:cursor-grabbing ${
+                    dragCol === col ? 'ring-1 ring-primary-400 opacity-60' : ''
+                  } ${
+                    visibleCols.has(col) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
+                  }`}
+                >
+                  {COL_LABELS[col]}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs [&_th]:px-0.5 [&_th]:py-0.5 [&_td]:px-0.5 [&_td]:py-0.5">
+          <table className="table-fixed text-xs [&_th]:px-2.5 [&_th]:py-1 [&_td]:px-2.5 [&_td]:py-1">
           <thead>
             <tr className="table-header">
-              <th className="table-cell text-center w-5">#</th>
-              <th className="table-cell text-left min-w-[70px]">Pilot</th>
-              {sortMode === 'race' && <th className="table-cell text-center text-dark-500 w-5" style={{ paddingLeft: 0 }}>+/-</th>}
-              {sortMode === 'race' && raceGroup && <th className="table-cell text-center text-dark-500 w-6">P</th>}
-              <th className="table-cell text-center">Kart</th>
-              <th className="table-cell text-right">Last</th>
-              {columnFilter === 'all' && <th className="table-cell text-right">S1</th>}
-              {columnFilter === 'all' && <th className="table-cell text-right">S2</th>}
-              <th className="table-cell text-right">Best</th>
-              {columnFilter === 'all' && <th className="table-cell text-right">B.S1</th>}
-              {columnFilter === 'all' && <th className="table-cell text-right">B.S2</th>}
-              {columnFilter === 'all' && <th className="table-cell text-right">TB</th>}
-              <th className="table-cell text-center">L</th>
+              <th className="table-cell text-center w-6">#</th>
+              {colOrder.filter(c => isCol(c)).map(col => {
+                if (col === 'change' && sortMode !== 'race') return null;
+                if (col === 'points' && !(sortMode === 'race' && raceGroup)) return null;
+                const align = col === 'pilot' ? 'text-left' : 'text-center';
+                const extra = (col === 'change' || col === 'points') ? ' text-dark-500' : '';
+                return <th key={col} className={`table-cell ${align}${extra} ${COL_WIDTHS[col]}`}>{COL_LABELS[col]}</th>;
+              })}
             </tr>
           </thead>
           <tbody>
@@ -591,13 +698,21 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
               const bestS1Color = notStarted ? 'none' as TimeColor : getTimeColor(e.bestS1, e.bestS1, overallBestS1);
               const bestS2Color = notStarted ? 'none' as TimeColor : getTimeColor(e.bestS2, e.bestS2, overallBestS2);
 
-              return (
-                <tr key={e.pilot} className="table-row">
-                  <td className="table-cell text-center font-mono font-bold text-dark-400">
-                    {notStarted ? '—' : e.position}
-                  </td>
-                  <td className="table-cell text-left py-1.5" style={{ paddingRight: 0 }}>
-                    <div className={`font-medium text-[11px] leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
+              const cellMap: Record<ColId, React.ReactNode> = {
+                change: sortMode === 'race' ? (
+                  <td key="change" className="table-cell text-center font-mono text-[10px]">{(() => {
+                    if (notStarted) return '';
+                    const st = e.currentLapSec;
+                    if (st == null) return '—';
+                    const diff = st - e.position;
+                    if (diff > 0) return <span className="text-green-400">↑{diff}</span>;
+                    if (diff < 0) return <span className="text-red-400">↓{Math.abs(diff)}</span>;
+                    return <span className="text-dark-600">0</span>;
+                  })()}</td>
+                ) : null,
+                pilot: (
+                  <td key="pilot" className="table-cell text-left py-1.5">
+                    <div className={`font-medium text-[13px] leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
                       <Link to={`/pilots/${encodeURIComponent(e.pilot)}`} className={`${notStarted ? 'text-dark-500' : 'text-white hover:text-primary-400'} transition-colors`}>
                         {shortName(e.pilot)}
                       </Link>
@@ -609,16 +724,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                       />
                     </div>
                   </td>
-                  {sortMode === 'race' && <td className="table-cell text-center font-mono text-[10px]" style={{ paddingLeft: 0 }}>{(() => {
-                    if (notStarted) return '';
-                    const st = e.currentLapSec;
-                    if (st == null) return '—';
-                    const diff = st - e.position;
-                    if (diff > 0) return <span className="text-green-400">↑{diff}</span>;
-                    if (diff < 0) return <span className="text-red-400">↓{Math.abs(diff)}</span>;
-                    return <span className="text-dark-600">0</span>;
-                  })()}</td>}
-                  {sortMode === 'race' && raceGroup && scoringData && <td className="table-cell text-center font-mono text-[10px] text-green-400/70">{(() => {
+                ),
+                points: (sortMode === 'race' && raceGroup && scoringData) ? (
+                  <td key="points" className="table-cell text-center font-mono text-[10px] text-green-400/70">{(() => {
                     if (notStarted) return '';
                     const st = e.currentLapSec;
                     if (st == null) return '—';
@@ -639,38 +747,31 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
                     }
                     const total_pts = Math.round((posPoints + overtakePoints) * 10) / 10;
                     return total_pts || '—';
-                  })()}</td>}
-                  <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
-                  <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
-                    {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
+                  })()}</td>
+                ) : null,
+                kart: <td key="kart" className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>,
+                last: <td key="last" className={`table-cell text-center font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>{notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}</td>,
+                s1: <td key="s1" className={`table-cell text-center font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>{notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toHundredths(e.s1) : '—')}</td>,
+                s2: <td key="s2" className={`table-cell text-center font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>{notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toHundredths(e.s2) : '—')}</td>,
+                best: <td key="best" className={`table-cell text-center font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>{notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}</td>,
+                bestS1: <td key="bestS1" className={`table-cell text-center font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>{notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toHundredths(e.bestS1) : '—')}</td>,
+                bestS2: <td key="bestS2" className={`table-cell text-center font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>{notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toHundredths(e.bestS2) : '—')}</td>,
+                tb: <td key="tb" className="table-cell text-center font-mono text-[11px] text-dark-400">{(() => {
+                  if (notStarted) return '';
+                  const s1v = parseTime(e.bestS1);
+                  const s2v = parseTime(e.bestS2);
+                  if (s1v === null || s1v < 10 || s2v === null || s2v < 10) return '—';
+                  return (s1v + s2v).toFixed(3);
+                })()}</td>,
+                laps: <td key="laps" className="table-cell text-center font-mono text-dark-500">{notStarted ? '' : e.lapNumber}</td>,
+              };
+
+              return (
+                <tr key={e.pilot} className="table-row">
+                  <td className="table-cell text-center font-mono font-bold text-dark-400">
+                    {notStarted ? '—' : e.position}
                   </td>
-                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
-                    {notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toHundredths(e.s1) : '—')}
-                  </td>}
-                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
-                    {notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toHundredths(e.s2) : '—')}
-                  </td>}
-                  <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>
-                    {notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}
-                  </td>
-                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
-                    {notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toHundredths(e.bestS1) : '—')}
-                  </td>}
-                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
-                    {notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toHundredths(e.bestS2) : '—')}
-                  </td>}
-                  {columnFilter === 'all' && <td className="table-cell text-right font-mono text-[11px] text-dark-400">
-                    {(() => {
-                      if (notStarted) return '';
-                      const s1 = parseTime(e.bestS1);
-                      const s2 = parseTime(e.bestS2);
-                      if (s1 === null || s1 < 10 || s2 === null || s2 < 10) return '—';
-                      return (s1 + s2).toFixed(3);
-                    })()}
-                  </td>}
-                  <td className="table-cell text-center font-mono text-dark-500">
-                    {notStarted ? '' : e.lapNumber}
-                  </td>
+                  {colOrder.filter(c => isCol(c)).map(col => cellMap[col])}
                 </tr>
               );
             })}
@@ -679,6 +780,16 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         </div>
 
       </div>
+  );
+
+  if (renderContent) {
+    return <>{renderContent({ scrubber: wrappedScrubberEl, table: tableEl })}</>;
+  }
+
+  return (
+    <>
+      {showScrubber && wrappedScrubberEl}
+      {showTable && tableEl}
     </>
   );
 }

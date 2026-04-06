@@ -1,6 +1,6 @@
 import { useMemo, Fragment, useState, useEffect, useCallback, useRef } from 'react';
 import { toSeconds } from '../../utils/timing';
-import { useViewPrefs } from '../../services/viewPrefs';
+import { useLayoutPrefs } from '../../services/layoutPrefs';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
 import {
@@ -63,7 +63,8 @@ function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
 }
 
 export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePhase, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
-  const { prefs, toggle } = useViewPrefs();
+  const { isSectionVisible, toggleSection } = useLayoutPrefs();
+  const showLeaguePoints = isSectionVisible('competition', 'leaguePoints');
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
   const raceCount = format === 'champions_league' ? 3 : 2;
@@ -117,33 +118,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const saved = loadSettings();
   const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(() => new Set(saved?.hiddenGroups || []));
-  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => new Set(saved?.hiddenCols || []));
   const toggleGroup = (g: string) => setHiddenGroups(prev => {
     const n = new Set(prev);
     n.has(g) ? n.delete(g) : n.add(g);
     saveSettings({ hiddenGroups: [...n] });
     return n;
   });
-  const isCustomMode = hiddenGroups.has('__custom');
-  const toggleCol = (colId: string) => {
-    if (!isCustomMode) return;
-    setHiddenCols(prev => {
-      const n = new Set(prev);
-      n.has(colId) ? n.delete(colId) : n.add(colId);
-      saveSettings({ hiddenCols: [...n], customCols: [...n] });
-      return n;
-    });
-  };
-  const toggleGroupCols = (groupPrefix: string, subCols: string[]) => {
-    if (!isCustomMode) return;
-    setHiddenCols(prev => {
-      const n = new Set(prev);
-      const allHidden = subCols.every(c => n.has(c));
-      subCols.forEach(c => allHidden ? n.delete(c) : n.add(c));
-      saveSettings({ hiddenCols: [...n], customCols: [...n] });
-      return n;
-    });
-  };
 
   const [edits, setEdits] = useState<ManualEdits>(initialEdits || {});
   const setEdit = useCallback((pilot: string, raceNum: number, field: string, value: number) => {
@@ -230,6 +210,80 @@ export default function LeagueResults({ format, competitionId, sessions, session
     return result;
   }, [data, sortKey, sortDir, excludedPilots]);
 
+  const QUALI_COLS_H = ['q_kart', 'q_time', 'q_speed'] as const;
+  const RACE_COLS_H = ['kart', 'time', 'speed', 'group', 'start', 'finish', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
+
+  type GrpId = string;
+  const GROUP_DEFS = useMemo(() => {
+    const groups: { id: GrpId; label: string; cols: string[] }[] = [
+      { id: 'quali', label: 'Квала', cols: [...QUALI_COLS_H] },
+    ];
+    for (let r = 1; r <= raceCount; r++) {
+      groups.push({ id: `r${r}_time`, label: `Г${r}:Час`, cols: ['kart', 'time', 'speed'].map(c => `r${r}_${c}`) });
+      groups.push({ id: `r${r}_pos`, label: `Г${r}:Поз`, cols: ['group', 'start', 'finish'].map(c => `r${r}_${c}`) });
+      groups.push({ id: `r${r}_pts`, label: `Г${r}:Бали`, cols: ['pos_pts', 'overtake', 'penalties', 'sum'].map(c => `r${r}_${c}`) });
+    }
+    return groups;
+  }, [raceCount]);
+  const DEFAULT_GRP_ORDER = useMemo(() => GROUP_DEFS.map(g => g.id), [GROUP_DEFS]);
+  const grpById = useMemo(() => new Map(GROUP_DEFS.map(g => [g.id, g])), [GROUP_DEFS]);
+
+  const [customGrpOrder, setCustomGrpOrder] = useState<GrpId[]>(() => {
+    const saved = loadSettings()?.customGrpOrder;
+    if (saved && Array.isArray(saved)) {
+      const validSet = new Set(DEFAULT_GRP_ORDER);
+      const ordered = saved.filter((g: string) => validSet.has(g));
+      const missing = DEFAULT_GRP_ORDER.filter(g => !ordered.includes(g));
+      return [...ordered, ...missing];
+    }
+    return [...DEFAULT_GRP_ORDER];
+  });
+  const [hiddenGrps, setHiddenGrps] = useState<Set<GrpId>>(() => new Set(loadSettings()?.hiddenGrps || []));
+  useEffect(() => {
+    const validSet = new Set(DEFAULT_GRP_ORDER);
+    setCustomGrpOrder(prev => {
+      const ordered = prev.filter(g => validSet.has(g));
+      const missing = DEFAULT_GRP_ORDER.filter(g => !ordered.includes(g));
+      return ordered.length === DEFAULT_GRP_ORDER.length && missing.length === 0 ? prev : [...ordered, ...missing];
+    });
+  }, [DEFAULT_GRP_ORDER]);
+
+  const toggleGrp = useCallback((gid: GrpId) => {
+    setHiddenGrps(prev => {
+      const n = new Set(prev);
+      n.has(gid) ? n.delete(gid) : n.add(gid);
+      saveSettings({ hiddenGrps: [...n] });
+      return n;
+    });
+  }, [saveSettings]);
+
+  const [dragGrp, setDragGrp] = useState<GrpId | null>(null);
+  const handleGrpDragStart = useCallback((gid: GrpId) => { setDragGrp(gid); }, []);
+  const handleGrpDragOver = useCallback((e: React.DragEvent, target: GrpId) => {
+    e.preventDefault();
+    if (!dragGrp || dragGrp === target) return;
+    setCustomGrpOrder(prev => {
+      const order = [...prev];
+      const fi = order.indexOf(dragGrp), ti = order.indexOf(target);
+      if (fi === -1 || ti === -1) return prev;
+      order.splice(fi, 1);
+      order.splice(ti, 0, dragGrp);
+      saveSettings({ customGrpOrder: order });
+      return order;
+    });
+  }, [dragGrp, saveSettings]);
+  const handleGrpDragEnd = useCallback(() => { setDragGrp(null); }, []);
+
+  const customVisibleCols = useMemo(() => {
+    const s = new Set<string>();
+    for (const gid of customGrpOrder) {
+      if (hiddenGrps.has(gid)) continue;
+      const g = grpById.get(gid);
+      if (g) g.cols.forEach(c => s.add(c));
+    }
+    return s;
+  }, [customGrpOrder, hiddenGrps, grpById]);
+
   if (!scoring) return <div className="card text-center py-6 text-dark-500">Завантаження балів...</div>;
   if (sortedData.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
 
@@ -250,7 +304,6 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const QUALI_COLS = ['q_kart', 'q_time', 'q_speed'] as const;
   const RACE_COLS = ['kart', 'time', 'speed', 'group', 'start', 'finish', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
   const raceColId = (raceNum: number, col: string) => `r${raceNum}_${col}`;
-  const allRaceCols = (raceNum: number) => RACE_COLS.map(c => raceColId(raceNum, c));
 
   const PRESET_COLS: Record<string, { quali: string[]; race: string[] }> = {
     all: { quali: [...QUALI_COLS], race: [...RACE_COLS] },
@@ -260,8 +313,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
   };
 
   const activeMode = showAll ? 'all' : showPointsOnly ? 'points' : showTimeOnly ? 'time' : showEditsOnly ? 'positions' : showCustom ? 'custom' : null;
+
   const effectiveHidden = (() => {
-    if (showCustom) return hiddenCols;
+    if (showCustom) {
+      const hidden = new Set<string>();
+      for (const g of GROUP_DEFS) g.cols.forEach(c => { if (!customVisibleCols.has(c)) hidden.add(c); });
+      return hidden;
+    }
     const preset = PRESET_COLS[activeMode || 'all'] || PRESET_COLS.all;
     const hidden = new Set<string>();
     QUALI_COLS.forEach(c => { if (!preset.quali.includes(c)) hidden.add(c); });
@@ -273,18 +331,18 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const colVisible = (colId: string) => !effectiveHidden.has(colId);
   const qualiVisible = () => {
-    if (activeMode && !showCustom) return PRESET_COLS[activeMode]?.quali.length > 0;
-    if (!showCustom) return showQuali;
-    return QUALI_COLS.some(c => colVisible(c));
+    if (showCustom) return !hiddenGrps.has('quali');
+    if (activeMode) return PRESET_COLS[activeMode]?.quali.length > 0;
+    return showQuali;
   };
   const raceVisible = (n: number) => {
+    if (showCustom) return [`r${n}_time`, `r${n}_pos`, `r${n}_pts`].some(gid => !hiddenGrps.has(gid));
     if (activeMode) return RACE_COLS.some(c => colVisible(raceColId(n, c)));
     return showRace(n);
   };
-  const thClick = (colId: string) => isCustomMode ? () => toggleCol(colId) : undefined;
-  const thGroupClick = (prefix: string, cols: string[]) => isCustomMode ? () => toggleGroupCols(prefix, cols) : undefined;
-  const thClass = (base: string, colId?: string) =>
-    `${base}${isCustomMode ? ' cursor-pointer hover:bg-dark-600/30' : ''}`;
+  const thClass = (base: string, _colId?: string) => base;
+
+  const grpOrder = showCustom ? customGrpOrder : DEFAULT_GRP_ORDER;
 
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
   Promise.resolve().then(() => {
@@ -342,8 +400,6 @@ export default function LeagueResults({ format, competitionId, sessions, session
         n.delete('quali');
         for (let i = 1; i <= raceCount; i++) n.delete(`race_${i}`);
         n.add('__custom');
-        const savedCustom = loadSettings()?.customCols;
-        setHiddenCols(new Set(savedCustom || []));
       }
       saveSettings({ hiddenGroups: [...n] });
       return n;
@@ -352,13 +408,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   return (
     <div className="space-y-4 max-w-full overflow-hidden">
-      {prefs.showLeaguePoints ? (
+      {showLeaguePoints ? (
         <div className="card p-0 overflow-hidden">
           <div className="px-4 py-2.5 border-b border-dark-800 space-y-1.5 overflow-x-auto">
             <div className="flex items-center gap-3 flex-wrap">
-              <button onClick={() => toggle('showLeaguePoints')} className="text-white font-semibold text-sm hover:text-dark-300 transition-colors">Таблиця балів ▾</button>
+              <button onClick={() => toggleSection('competition', 'leaguePoints')} className="text-white font-semibold text-sm hover:text-dark-300 transition-colors">Таблиця балів ▾</button>
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap border border-dark-700 rounded-lg px-2.5 py-1">
               <span className="text-dark-500 text-[9px]">Сорт:</span>
               <SortBtn k="total" label="Сума" />
               <SortBtn k="quali_time" label="Квала" fixedDir="asc" />
@@ -366,7 +422,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 <SortBtn key={i} k={`race_${i + 1}_time` as SortKey} label={`Г${i + 1} час`} fixedDir="asc" />
               ))}
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap border border-dark-700 rounded-lg px-2.5 py-1">
               <span className="text-dark-500 text-[9px]">Вид:</span>
               <span className="flex rounded overflow-hidden">
                 <button onClick={() => setViewMode(showAll ? '' : 'all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showAll ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
@@ -377,26 +433,163 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
                 <button onClick={() => setViewMode(showEditsOnly ? '' : 'positions')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Поз</button>
                 <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-                <button onClick={() => setViewMode(showCustom ? '' : 'custom')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showCustom ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Ост</button>
+                <button onClick={() => setViewMode(showCustom ? '' : 'custom')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showCustom ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Своє</button>
               </span>
-              <button onClick={() => {
-                if (showCustom) { toggleGroupCols('quali', [...QUALI_COLS]); }
-                else { setViewMode(''); toggleGroup('quali'); }
-              }} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${
-                qualiVisible() ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
-              }`}>Квала</button>
-              {Array.from({ length: raceCount }, (_, i) => (
-                <button key={i} onClick={() => {
-                  if (showCustom) { toggleGroupCols(`race_${i+1}`, allRaceCols(i+1)); }
-                  else { setViewMode(''); toggleGroup(`race_${i + 1}`); }
-                }} className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${
-                  raceVisible(i+1) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
-                }`}>Г{i + 1}</button>
-              ))}
+              {showCustom && (
+                <>
+                  <span className="text-dark-700 text-[9px]">|</span>
+                  {customGrpOrder.map(gid => {
+                    const g = grpById.get(gid);
+                    if (!g) return null;
+                    const visible = !hiddenGrps.has(gid);
+                    return (
+                      <button
+                        key={gid}
+                        draggable
+                        onDragStart={() => handleGrpDragStart(gid)}
+                        onDragOver={(e) => handleGrpDragOver(e, gid)}
+                        onDragEnd={handleGrpDragEnd}
+                        onClick={() => toggleGrp(gid)}
+                        className={`px-1.5 py-0.5 rounded text-[9px] transition-colors cursor-grab active:cursor-grabbing ${
+                          dragGrp === gid ? 'ring-1 ring-primary-400 opacity-60' : ''
+                        } ${
+                          visible ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
+                        }`}
+                      >
+                        {g.label}
+                      </button>
+                    );
+                  })}
+                </>
+              )}
             </div>
           </div>
           <div className="overflow-x-auto">
             <table className="text-[10px] border-separate border-spacing-0" style={{ tableLayout: 'auto', width: 'auto' }}>
+              {showCustom ? (() => {
+                const visGrps = grpOrder.filter(gid => !hiddenGrps.has(gid)).map(gid => grpById.get(gid)!).filter(Boolean);
+                const COL_HEADER: Record<string, string> = {
+                  q_kart: 'Карт', q_time: 'Час', q_speed: 'Швидк.',
+                };
+                const raceColHeader = (col: string) => {
+                  const base = col.replace(/^r\d+_/, '');
+                  const map: Record<string, string> = { kart: 'Карт', time: 'Час', speed: 'Швидк.', group: 'Група', start: 'Старт', finish: 'Фініш', pos_pts: 'Позиція', overtake: 'Обгони', penalties: 'Штрафи', sum: 'Сума' };
+                  return map[base] || base;
+                };
+                const colHeader = (col: string) => COL_HEADER[col] || raceColHeader(col);
+                return <>
+                  <thead>
+                    <tr className="bg-dark-800/50">
+                      <th rowSpan={2} className={`px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-[28px] bg-dark-900 ${STICKY_NUM} z-20`}>#</th>
+                      <th rowSpan={2} className={`px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px] bg-dark-900 ${STICKY_PILOT} z-20`}>Пілот</th>
+                      <th rowSpan={2} className="px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10"><span className={TH_R}>Сума</span></th>
+                      {visGrps.map(g => (
+                        <th key={g.id} colSpan={g.cols.length} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">{g.label}</th>
+                      ))}
+                    </tr>
+                    <tr className="bg-dark-800/30">
+                      {visGrps.flatMap(g => g.cols.map(col => (
+                        <th key={col} className={TH_V}><span className={TH_R}>{colHeader(col)}</span></th>
+                      )))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const includedCount = sortedData.filter(r => !excludedPilots.has(r.pilot)).length;
+                      const groupSeparators = new Set<number>();
+                      if (maxGroups > 1 && includedCount > 1) {
+                        const base = Math.floor(includedCount / maxGroups);
+                        let rem = includedCount % maxGroups;
+                        let pos = 0;
+                        for (let g = 0; g < maxGroups - 1; g++) {
+                          pos += base + (rem > 0 ? 1 : 0);
+                          if (rem > 0) rem--;
+                          groupSeparators.add(pos - 1);
+                        }
+                      }
+                      let includedIdx = 0;
+                      return sortedData.map((row, i) => {
+                        const isExcluded = excludedPilots.has(row.pilot);
+                        const isOnTrack = livePilots?.includes(row.pilot);
+                        const currentIncIdx = isExcluded ? -1 : includedIdx++;
+                        const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
+                        const stickyBg = isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'bg-dark-900';
+                        const cellForCol = (col: string): React.ReactNode => {
+                          if (col === 'q_kart') return <td key={col} className={`px-1 py-1 text-center font-mono text-blue-400/70 border-r border-dark-700/30`}>{row.quali?.kart || '—'}</td>;
+                          if (col === 'q_time') return <td key={col} className={`px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30`}>{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>;
+                          if (col === 'q_speed') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>;
+                          const m = col.match(/^r(\d+)_(.+)$/);
+                          if (!m) return <td key={col} className="px-1 py-1 text-center border-r border-dark-700/30">—</td>;
+                          const rn = parseInt(m[1]), base = m[2];
+                          const race = row.races[rn - 1];
+                          const posChange = race && race.startPos > 0 && race.finishPos > 0 ? race.startPos - race.finishPos : 0;
+                          if (base === 'kart') return <td key={col} className={`px-1 py-1 text-center font-mono text-blue-400/70 border-r border-dark-700/30`}>{race?.kart || '—'}</td>;
+                          if (base === 'time') return <td key={col} className={`px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30`}>{race ? toSeconds(race.bestTimeStr) : '—'}</td>;
+                          if (base === 'speed') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>;
+                          if (base === 'group') return <td key={col} className={`px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30`}>{race?.group || '—'}</td>;
+                          if (base === 'start') return <td key={col} className={`px-1 py-1 text-center font-mono text-dark-400 border-r border-dark-700/30`}>{race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell editingRef={editingRef} value={race.startPos} onChange={v => setEdit(row.pilot, rn, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}</td>;
+                          if (base === 'finish') return <td key={col} className={`px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30`}>{race ? (<span className="inline-flex items-center gap-0.5">{canManage ? <EditableCell editingRef={editingRef} value={race.finishPos} onChange={v => setEdit(row.pilot, rn, 'finishPos', v)} /> : <span>{race.finishPos}</span>}{posChange !== 0 && <span className={`text-[8px] ${posChange > 0 ? 'text-green-400' : 'text-red-400'}`}>{posChange > 0 ? `▲${posChange}` : `▼${Math.abs(posChange)}`}</span>}</span>) : '—'}</td>;
+                          if (base === 'pos_pts') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>;
+                          if (base === 'overtake') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>;
+                          if (base === 'penalties') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, rn, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}</td>;
+                          if (base === 'sum') return <td key={col} className={`px-1 py-1 text-center font-mono font-bold border-r border-dark-700/30`}>{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>;
+                          return <td key={col} className="px-1 py-1 text-center border-r border-dark-700/30">—</td>;
+                        };
+                        return (
+                          <tr key={row.pilot} onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
+                            className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'hover:bg-dark-700/30'}`}>
+                            <td className={`px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700 ${stickyBg} ${STICKY_NUM}`}>{isExcluded ? '—' : i + 1}</td>
+                            <td className={`px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap ${stickyBg} ${STICKY_PILOT}`}>
+                              {renamingPilot === row.pilot ? (
+                                <form onSubmit={(e) => {
+                                  e.preventDefault();
+                                  const newName = renameValue.trim();
+                                  if (newName && newName !== row.pilot) {
+                                    setRenamingPilot(null);
+                                    (async () => {
+                                      for (const s of sessions) {
+                                        await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                                          body: JSON.stringify({ sessionId: s.sessionId, oldName: row.pilot, newName }),
+                                        }).catch(() => {});
+                                      }
+                                      window.location.reload();
+                                    })();
+                                  } else {
+                                    setRenamingPilot(null);
+                                  }
+                                }} className="flex items-center gap-1">
+                                  <input autoFocus type="text" value={renameValue}
+                                    onChange={e => setRenameValue(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Escape') setRenamingPilot(null); }}
+                                    className="w-32 bg-dark-800 border border-primary-500 text-white text-[10px] rounded px-1.5 py-0.5 outline-none" />
+                                </form>
+                              ) : (
+                                <>
+                                  <span className="text-white">{row.pilot}</span>
+                                  {canManage && (
+                                    <>
+                                      <button onClick={() => { setRenamingPilot(row.pilot); setRenameValue(row.pilot); }}
+                                        className="ml-1 text-[9px] px-0.5 rounded text-dark-600 hover:text-primary-400 transition-colors">✎</button>
+                                      <button onClick={() => toggleExclude(row.pilot)}
+                                        className={`text-[9px] px-0.5 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-600 hover:text-red-400'}`}>
+                                        {isExcluded ? '↩' : '✕'}
+                                      </button>
+                                    </>
+                                  )}
+                                </>
+                              )}
+                            </td>
+                            <td className={`px-1 py-1 text-center font-mono text-green-400 font-bold ${SECTION_BORDER}`}>{row.totalPoints || '—'}</td>
+                            {visGrps.flatMap(g => g.cols.map(col => cellForCol(col)))}
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </>;
+              })() : (<>
               <thead>
                 <tr className="bg-dark-800/50">
                   <th rowSpan={3} className={`px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-[28px] bg-dark-900 ${STICKY_NUM} z-20`}>#</th>
@@ -405,23 +598,22 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   {qualiVisible() && (() => {
                     const visCount = QUALI_COLS.filter(c => colVisible(c)).length;
                     if (visCount === 0) return null;
-                    return <th colSpan={visCount} className={thClass("px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700")}
-                      onClick={thGroupClick('quali', [...QUALI_COLS])}>Квала</th>;
+                    return <th colSpan={visCount} className={thClass("px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700")}>Квала</th>;
                   })()}
                   {Array.from({ length: raceCount }, (_, i) => {
                     const rn = i + 1;
                     if (!raceVisible(rn)) return null;
-                    const visCount = RACE_COLS.filter(c => colVisible(raceColId(rn, c))).length;
+                    const raceColId_ = (c: string) => `r${rn}_${c}`;
+                    const visCount = RACE_COLS.filter(c => colVisible(raceColId_(c))).length;
                     if (visCount === 0) return null;
-                    return <th key={i} colSpan={visCount} className={thClass("px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700")}
-                      onClick={thGroupClick(`race_${rn}`, allRaceCols(rn))}>Гонка {rn}</th>;
+                    return <th key={i} colSpan={visCount} className={thClass("px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700")}>Гонка {rn}</th>;
                   })}
                 </tr>
                 <tr className="bg-dark-800/30">
                   {qualiVisible() && <>
-                    {colVisible('q_kart') && <th rowSpan={2} className={thClass(TH_V, 'q_kart')} onClick={thClick('q_kart')}><span className={TH_R}>Карт</span></th>}
-                    {colVisible('q_time') && <th rowSpan={2} className={thClass(TH_V, 'q_time')} onClick={thClick('q_time')}><span className={TH_R}>Час</span></th>}
-                    {colVisible('q_speed') && <th rowSpan={2} className={thClass(TH_V, 'q_speed')} onClick={thClick('q_speed')}><span className={TH_R}>Швидк.</span></th>}
+                    {colVisible('q_kart') && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Карт</span></th>}
+                    {colVisible('q_time') && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Час</span></th>}
+                    {colVisible('q_speed') && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Швидк.</span></th>}
                   </>}
                   {Array.from({ length: raceCount }, (_, i) => {
                     const rn = i + 1;
@@ -430,16 +622,15 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     const visibleSubCols = subCols.filter(c => colVisible(raceColId(rn, c)));
                     return (
                       <Fragment key={i}>
-                        {colVisible(raceColId(rn, 'kart')) && <th rowSpan={2} className={thClass(TH_V, raceColId(rn, 'kart'))} onClick={thClick(raceColId(rn, 'kart'))}><span className={TH_R}>Карт</span></th>}
-                        {colVisible(raceColId(rn, 'time')) && <th rowSpan={2} className={thClass(TH_V, raceColId(rn, 'time'))} onClick={thClick(raceColId(rn, 'time'))}><span className={TH_R}>Час</span></th>}
-                        {colVisible(raceColId(rn, 'speed')) && <th rowSpan={2} className={thClass(TH_V, raceColId(rn, 'speed'))} onClick={thClick(raceColId(rn, 'speed'))}><span className={TH_R}>Швидк.</span></th>}
-                        {colVisible(raceColId(rn, 'group')) && <th rowSpan={2} className={thClass(TH_V, raceColId(rn, 'group'))} onClick={thClick(raceColId(rn, 'group'))}><span className={TH_R}>Група</span></th>}
-                        {colVisible(raceColId(rn, 'start')) && <th rowSpan={2} className={thClass(TH_V, raceColId(rn, 'start'))} onClick={thClick(raceColId(rn, 'start'))}><span className={TH_R}>Старт</span></th>}
-                        {colVisible(raceColId(rn, 'finish')) && <th rowSpan={2} className={thClass(TH_V, raceColId(rn, 'finish'))} onClick={thClick(raceColId(rn, 'finish'))}><span className={TH_R}>Фініш</span></th>}
+                        {colVisible(raceColId(rn, 'kart')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Карт</span></th>}
+                        {colVisible(raceColId(rn, 'time')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Час</span></th>}
+                        {colVisible(raceColId(rn, 'speed')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Швидк.</span></th>}
+                        {colVisible(raceColId(rn, 'group')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Група</span></th>}
+                        {colVisible(raceColId(rn, 'start')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Старт</span></th>}
+                        {colVisible(raceColId(rn, 'finish')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Фініш</span></th>}
                         {visibleSubCols.length > 0 && (
                           <th colSpan={visibleSubCols.length}
-                            className={`px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30${isCustomMode ? ' cursor-pointer hover:bg-dark-600/30' : ''}`}
-                            onClick={thGroupClick(`r${rn}_pts`, subCols.map(c => raceColId(rn, c)))}>Бали</th>
+                            className="px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30">Бали</th>
                         )}
                       </Fragment>
                     );
@@ -454,10 +645,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     if (!anyVisible) return null;
                     return (
                       <Fragment key={i}>
-                        {colVisible(raceColId(rn, 'pos_pts')) && <th className={thClass(TH_V, raceColId(rn, 'pos_pts'))} onClick={thClick(raceColId(rn, 'pos_pts'))}><span className={TH_R}>Позиція</span></th>}
-                        {colVisible(raceColId(rn, 'overtake')) && <th className={thClass(TH_V, raceColId(rn, 'overtake'))} onClick={thClick(raceColId(rn, 'overtake'))}><span className={TH_R}>Обгони</span></th>}
-                        {colVisible(raceColId(rn, 'penalties')) && <th className={thClass(TH_V, raceColId(rn, 'penalties'))} onClick={thClick(raceColId(rn, 'penalties'))}><span className={TH_R}>Штрафи</span></th>}
-                        {colVisible(raceColId(rn, 'sum')) && <th className={thClass(TH_V, raceColId(rn, 'sum'))} onClick={thClick(raceColId(rn, 'sum'))}><span className={TH_R}>Сума</span></th>}
+                        {colVisible(raceColId(rn, 'pos_pts')) && <th className={thClass(TH_V)}><span className={TH_R}>Позиція</span></th>}
+                        {colVisible(raceColId(rn, 'overtake')) && <th className={thClass(TH_V)}><span className={TH_R}>Обгони</span></th>}
+                        {colVisible(raceColId(rn, 'penalties')) && <th className={thClass(TH_V)}><span className={TH_R}>Штрафи</span></th>}
+                        {colVisible(raceColId(rn, 'sum')) && <th className={thClass(TH_V)}><span className={TH_R}>Сума</span></th>}
                       </Fragment>
                     );
                   })}
@@ -580,11 +771,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   });
                   })()}
               </tbody>
+              </>)}
             </table>
           </div>
         </div>
       ) : (
-        <button onClick={() => toggle('showLeaguePoints')} className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">Таблиця балів ▸</button>
+        <button onClick={() => toggleSection('competition', 'leaguePoints')} className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">Таблиця балів ▸</button>
       )}
 
       {canManage && (

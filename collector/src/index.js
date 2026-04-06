@@ -490,6 +490,25 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /view-defaults — отримати дефолтні настройки таблиць
+    if (req.method === 'GET' && url.pathname === '/view-defaults') {
+      const data = storage.getViewDefaults();
+      sendJson(res, 200, data || {});
+      return;
+    }
+
+    // POST /view-defaults — зберегти дефолтні настройки таблиць (admin only)
+    if (req.method === 'POST' && url.pathname === '/view-defaults') {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      try {
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        storage.setViewDefaults(data);
+        sendJson(res, 200, { ok: true });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
     // POST /db/rename-pilot — перейменувати пілота в заїзді (admin only)
     if (req.method === 'POST' && url.pathname === '/db/rename-pilot') {
       if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }

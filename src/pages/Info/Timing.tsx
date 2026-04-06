@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { TrackMap } from '../../components/Track';
 import DayTimeline from '../../components/Timing/DayTimeline';
-import CompetitionControl from '../../components/Timing/CompetitionControl';
 import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
 import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
@@ -9,23 +8,14 @@ import { trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
 import { Link, useNavigate } from 'react-router-dom';
-import { parseTime, mergePilotNames, shortName, toSeconds, fetchRaceStartPositions, isValidSession } from '../../utils/timing';
+import { shortName, fetchRaceStartPositions, isValidSession } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
-import { useViewPrefs } from '../../services/viewPrefs';
-
-interface DbLap {
-  pilot: string;
-  kart: number;
-  lap_number: number;
-  lap_time: string | null;
-  s1: string | null;
-  s2: string | null;
-  position: number | null;
-  ts: number;
-}
+import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
+import TableLayoutBar from '../../components/TableLayoutBar';
+import { type DbLap, buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
 
 export default function Timing() {
   const navigate = useNavigate();
@@ -35,7 +25,6 @@ export default function Timing() {
   const { currentTrack, setCurrentTrack, allTracks } = useTrack();
   const { hasPermission } = useAuth();
   const canChangeTrack = hasPermission('change_track');
-  const canManage = hasPermission('manage_results');
 
   const isLive = mode === 'live';
   const isConnecting = mode === 'connecting';
@@ -128,29 +117,22 @@ export default function Timing() {
     return () => clearInterval(timer);
   }, [currentSessionId, isLive, fetchLaps]);
 
-  const replayData = mergePilotNames(replayLaps
-    .filter(l => l.lap_time)
-    .map(l => ({
-      pilot: l.pilot,
-      kart: l.kart,
-      lapNumber: l.lap_number,
-      lapTime: l.lap_time!,
-      s1: l.s1 || '',
-      s2: l.s2 || '',
-      position: l.position || 0,
-      ts: l.ts,
-    })));
+  const replayData = buildReplayLaps(replayLaps);
 
   const replayPilots = buildPilotLaps(replayLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time, s1: l.s1, s2: l.s2 })));
-  const { prefs, toggle } = useViewPrefs();
+  const { isSectionVisible, getPageLayout } = useLayoutPrefs();
+  const timingLayout = getPageLayout('timing');
   const hasReplayData = sessionStartTime != null && currentSessionId != null;
+  const { raceGroup: liveRaceGroup, isRace: liveIsRace } = extractCompetitionReplayProps(liveSessionComp.phase);
   const replayDuration = sessionStartTime
     ? Math.round((Date.now() - sessionStartTime) / 1000)
     : 600;
 
   return (
     <div className="space-y-4">
-      {/* ===== TOP BAR ===== */}
+      <TableLayoutBar pageId="timing" sections={PAGE_SECTIONS.timing} />
+
+      {/* ===== STATUS BAR ===== */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
           isLive && hasData ? 'bg-green-500/10 text-green-400' :
@@ -193,8 +175,6 @@ export default function Timing() {
             }}
           />
         )}
-
-        {canManage && !liveSessionComp.competitionId && <CompetitionControl inline />}
 
         <div className="flex-1" />
 
@@ -262,64 +242,57 @@ export default function Timing() {
         </div>
       )}
 
-      {/* ===== LIVE SESSION WITH REPLAY ===== */}
+      {/* ===== LIVE SESSION ===== */}
       {(hasData || siteReachable) && (
         <>
           {hasReplayData ? (
-            <>
-              <SessionReplay
-                laps={replayData}
-                durationSec={replayDuration}
-                sessionStartTime={sessionStartTime!}
-                isLive={true}
-                raceNumber={currentRaceNumber}
-                autoPlay={true}
-                liveEntries={entries}
-                s1Events={s1Events}
-                snapshots={replaySnapshots}
-                startPositions={startPositions}
-                raceGroup={liveSessionComp.phase?.match(/group_(\d+)/)?.[1] ? parseInt(liveSessionComp.phase!.match(/group_(\d+)/)![1]) : undefined}
-                totalQualifiedPilots={totalQualifiedPilots || undefined}
-                defaultSortMode={liveSessionComp.phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
-                onEntriesUpdate={setTrackEntries}
-                renderScrubber={(scrubber) => (
-                  <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
-                    {scrubber}
-                  </div>
-                )}
-              />
-              {prefs.showTrack ? (
-                <div className="relative">
-                  <button onClick={() => toggle('showTrack')}
-                    className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
-                    сховати
-                  </button>
-                  <TrackMap track={currentTrack} entries={trackEntries} static />
+            <SessionReplay
+              laps={replayData}
+              durationSec={replayDuration}
+              sessionStartTime={sessionStartTime!}
+              isLive={true}
+              raceNumber={currentRaceNumber}
+              autoPlay={true}
+              liveEntries={entries}
+              s1Events={s1Events}
+              snapshots={replaySnapshots}
+              startPositions={startPositions}
+              raceGroup={liveRaceGroup}
+              totalQualifiedPilots={totalQualifiedPilots || undefined}
+              defaultSortMode={liveIsRace ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
+              onEntriesUpdate={setTrackEntries}
+              renderScrubber={(scrubber) => (
+                <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+                  {scrubber}
                 </div>
-              ) : (
-                <button onClick={() => toggle('showTrack')}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
-                  Показати трек
-                </button>
               )}
-              {prefs.showLapsByPilots ? (
-                <div className="relative">
-                  <button onClick={() => toggle('showLapsByPilots')}
-                    className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
-                    сховати
-                  </button>
-                  <LapsByPilots pilots={replayPilots} currentEntries={trackEntries} isLive />
-                </div>
-              ) : (
-                <button onClick={() => toggle('showLapsByPilots')}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
-                  Показати кола по пілотах
-                </button>
-              )}
-            </>
+              renderContent={({ scrubber, table }) => {
+                const sectionMap: Record<string, ReactNode> = {
+                  replay: scrubber,
+                  timingTable: table,
+                  track: <TrackMap track={currentTrack} entries={trackEntries} static />,
+                  lapsByPilots: <LapsByPilots pilots={replayPilots} currentEntries={trackEntries} isLive />,
+                  history: (
+                    <DayTimeline
+                      isTimingOnline={isLive}
+                      isTimingIdle={siteReachable && !isLive}
+                      idleSince={collectorStatus?.siteReachableSince ?? null}
+                    />
+                  ),
+                };
+                return (
+                  <>
+                    {timingLayout.map(s => {
+                      if (!s.visible || !sectionMap[s.id]) return null;
+                      return <div key={s.id}>{sectionMap[s.id]}</div>;
+                    })}
+                  </>
+                );
+              }}
+            />
           ) : (
             <>
-              {prefs.showTrack && <TrackMap track={currentTrack} entries={entries} />}
+              {isSectionVisible('timing', 'track') && <TrackMap track={currentTrack} entries={entries} />}
               {hasData && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <StatCard label="Пілотів" value={entries.length.toString()} />
@@ -336,12 +309,13 @@ export default function Timing() {
         <div className="text-dark-500 text-xs text-center">{error}</div>
       )}
 
-      {/* ===== TIMELINE (bottom) ===== */}
-      <DayTimeline
-        isTimingOnline={isLive}
-        isTimingIdle={siteReachable && !isLive}
-        idleSince={collectorStatus?.siteReachableSince ?? null}
-      />
+      {!hasReplayData && isSectionVisible('timing', 'history') && (
+        <DayTimeline
+          isTimingOnline={isLive}
+          isTimingIdle={siteReachable && !isLive}
+          idleSince={collectorStatus?.siteReachableSince ?? null}
+        />
+      )}
     </div>
   );
 }

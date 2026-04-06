@@ -2,14 +2,6 @@ import { Link } from 'react-router-dom';
 import { toSeconds, toHundredths, shortName, parseTime, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 
-function parseLapTime(t: string): number | null {
-  const lapMatch = t.match(/^(\d+):(\d+\.\d+)$/);
-  if (lapMatch) return parseInt(lapMatch[1]) * 60 + parseFloat(lapMatch[2]);
-  const secMatch = t.match(/^\d+\.\d+$/);
-  if (secMatch) return parseFloat(t);
-  return null;
-}
-
 export interface LapData {
   pilot: string;
   kart: number;
@@ -46,15 +38,15 @@ export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sess
     const isExcluded = sessionId && lap.ts && excludedLaps?.has(`${sessionId}|${lap.pilot}|${lap.ts}`);
     if (isExcluded) continue;
     if (lap.lap_time) {
-      const sec = parseLapTime(lap.lap_time);
+      const sec = parseTime(lap.lap_time);
       if (sec !== null && sec < p.bestLap) p.bestLap = sec;
     }
     if (lap.s1) {
-      const v = parseLapTime(lap.s1);
+      const v = parseTime(lap.s1);
       if (v !== null && v >= 10 && v < p.bestS1) p.bestS1 = v;
     }
     if (lap.s2) {
-      const v = parseLapTime(lap.s2);
+      const v = parseTime(lap.s2);
       if (v !== null && v >= 10 && v < p.bestS2) p.bestS2 = v;
     }
   }
@@ -75,15 +67,18 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
   }
   const hasReplayState = !isLive && currentEntries.length > 0 && currentEntries.some(e => e.lapNumber >= 0);
 
-  if (maxLaps === 0) return null;
+  if (maxLaps === 0) {
+    return (
+      <div className="card p-0 overflow-hidden">
+        <div className="text-center py-6 text-dark-500 text-xs">Ще немає зафіксованих кіл</div>
+      </div>
+    );
+  }
 
   return (
     <div className="card p-0 overflow-hidden">
-      <div className="px-4 py-3 border-b border-dark-800">
-        <h3 className="text-white font-semibold">Кола по пілотах</h3>
-      </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-[10px]">
+        <table className="text-[10px]">
           <thead>
             <tr className="table-header">
               <th className="table-cell text-center w-8">Коло</th>
@@ -117,12 +112,12 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   );
                   const lapKey = sessionId && lap.ts ? `${sessionId}|${p.name}|${lap.ts}` : '';
                   const isExcluded = lapKey ? excludedLaps?.has(lapKey) : false;
-                  const sec = parseLapTime(lap.lap_time);
+                  const sec = parseTime(lap.lap_time);
                   const isPB = !isExcluded && sec !== null && Math.abs(sec - p.bestLap) < 0.002;
                   const isOverall = !isExcluded && sec !== null && Math.abs(sec - overallBest) < 0.002;
 
-                  const s1Val = lap.s1 ? parseLapTime(lap.s1) : null;
-                  const s2Val = lap.s2 ? parseLapTime(lap.s2) : null;
+                  const s1Val = lap.s1 ? parseTime(lap.s1) : null;
+                  const s2Val = lap.s2 ? parseTime(lap.s2) : null;
                   const s1Str = s1Val !== null && s1Val >= 10 ? (p.bestS1 < Infinity ? String(p.bestS1) : null) : null;
                   const s2Str = s2Val !== null && s2Val >= 10 ? (p.bestS2 < Infinity ? String(p.bestS2) : null) : null;
                   const s1Color = s1Val !== null && s1Val >= 10 ? getTimeColor(lap.s1!, s1Str, overallBestS1 < Infinity ? overallBestS1 : null) : 'none';

@@ -1,5 +1,5 @@
 import { useParams, Link, Navigate } from 'react-router-dom';
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups } from '../../data/competitions';
 import { toSeconds, isValidSession, shortName } from '../../utils/timing';
@@ -9,6 +9,8 @@ import SessionsTable, { type SessionTableRow } from '../../components/Sessions/S
 import LeagueResults from '../../components/Results/LeagueResults';
 import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
 import { parseLapSec, getPositionPoints, calcOvertakePoints, type ScoringData } from '../../utils/scoring';
+import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
+import TableLayoutBar from '../../components/TableLayoutBar';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -449,63 +451,68 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
 
   if (competition.format === 'light_league' || competition.format === 'champions_league') {
     const isScrubbing = scrubTime !== null;
+
+    const leagueResultsEl = (
+      <LeagueResults
+        key="leaguePoints"
+        format={competition.format}
+        competitionId={competition.id}
+        sessions={competition.sessions}
+        sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+        liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+        livePhase={isScrubbing ? scrubActivePhase : undefined}
+        livePositions={isScrubbing ? [] : livePositions}
+        livePilots={isScrubbing ? scrubPilots : livePositions.map(p => p.pilot)}
+        liveEnabled={!isScrubbing && liveEnabled}
+        onToggleLive={() => { if (isScrubbing) { setScrubTime(null); setLiveEnabled(true); } else setLiveEnabled(v => !v); }}
+        initialExcludedPilots={competition.results?.excludedPilots}
+        initialEdits={competition.results?.edits}
+        excludedLapKeys={competition.results?.excludedLaps}
+        allSessionsEnded={allSessionsEnded}
+        totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
+        totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
+        groupCountOverride={competition.results?.groupCountOverride ?? null}
+        onPilotCount={onPilotCount}
+        onAutoGroups={onAutoGroups}
+        onSaveResults={async (partial) => {
+          try {
+            const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+            if (!res.ok) return;
+            const comp = await res.json();
+            const currentResults = comp.results || {};
+            await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+              body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+            });
+            setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+          } catch {}
+        }}
+      />
+    );
+
+    const liveSessionEl = (
+      <LiveSessionTable
+        key="liveSession"
+        competition={competition}
+        liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+        liveEntries={isScrubbing ? [] : liveEntries}
+        liveTeams={isScrubbing ? [] : liveTeams}
+        sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+        compSessions={compSessions}
+        isScrubbing={isScrubbing}
+      />
+    );
+
+    const sectionMap: Record<string, React.ReactNode> = {
+      leaguePoints: leagueResultsEl,
+      liveSession: liveSessionEl,
+    };
+
     return (
-      <div className="space-y-4">
-        {sessionTimes.length > 0 && (
-          <CompetitionTimeline
-            format={competition.format}
-            sessions={competition.sessions}
-            sessionTimes={sessionTimes}
-            currentTime={scrubTime}
-            onTimeChange={(t) => { setScrubTime(t); if (t !== null) setLiveEnabled(false); else setLiveEnabled(true); }}
-            isLive={competition.status === 'live' && !allSessionsEnded}
-          />
-        )}
-        <LeagueResults
-          format={competition.format}
-          competitionId={competition.id}
-          sessions={competition.sessions}
-          sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
-          liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
-          livePhase={isScrubbing ? scrubActivePhase : undefined}
-          livePositions={isScrubbing ? [] : livePositions}
-          livePilots={isScrubbing ? scrubPilots : livePositions.map(p => p.pilot)}
-          liveEnabled={!isScrubbing && liveEnabled}
-          onToggleLive={() => { if (isScrubbing) { setScrubTime(null); setLiveEnabled(true); } else setLiveEnabled(v => !v); }}
-          initialExcludedPilots={competition.results?.excludedPilots}
-          initialEdits={competition.results?.edits}
-          excludedLapKeys={competition.results?.excludedLaps}
-          allSessionsEnded={allSessionsEnded}
-          totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
-          totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
-          groupCountOverride={competition.results?.groupCountOverride ?? null}
-          onPilotCount={onPilotCount}
-          onAutoGroups={onAutoGroups}
-          onSaveResults={async (partial) => {
-            try {
-              const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-              if (!res.ok) return;
-              const comp = await res.json();
-              const currentResults = comp.results || {};
-              await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                body: JSON.stringify({ results: { ...currentResults, ...partial } }),
-              });
-              setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
-            } catch {}
-          }}
-        />
-        <LiveSessionTable
-          competition={competition}
-          liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
-          liveEntries={isScrubbing ? [] : liveEntries}
-          liveTeams={isScrubbing ? [] : liveTeams}
-          sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
-          compSessions={compSessions}
-          isScrubbing={isScrubbing}
-        />
-      </div>
+      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled}>
+        {sectionMap}
+      </CompetitionLayoutWrapper>
     );
   }
 
@@ -562,6 +569,39 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
             )}
           </div>
         );
+      })}
+    </div>
+  );
+}
+
+function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, children }: {
+  sessionTimes: { sessionId: string; phase: string | null; startTime: number; endTime: number | null }[];
+  competition: Competition;
+  scrubTime: number | null;
+  setScrubTime: (t: number | null) => void;
+  allSessionsEnded: boolean;
+  setLiveEnabled: (v: boolean | ((prev: boolean) => boolean)) => void;
+  children: Record<string, ReactNode>;
+}) {
+  const { getPageLayout } = useLayoutPrefs();
+  const layout = getPageLayout('competition');
+
+  return (
+    <div className="space-y-4">
+      <TableLayoutBar pageId="competition" sections={PAGE_SECTIONS.competition} />
+      {sessionTimes.length > 0 && (
+        <CompetitionTimeline
+          format={competition.format}
+          sessions={competition.sessions}
+          sessionTimes={sessionTimes}
+          currentTime={scrubTime}
+          onTimeChange={(t) => { setScrubTime(t); if (t !== null) setLiveEnabled(false); else setLiveEnabled(true); }}
+          isLive={competition.status === 'live' && !allSessionsEnded}
+        />
+      )}
+      {layout.map(section => {
+        if (!section.visible) return null;
+        return children[section.id] ?? null;
       })}
     </div>
   );
