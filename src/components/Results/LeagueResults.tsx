@@ -521,7 +521,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
           <div className="px-4 py-2.5 border-b border-dark-800 space-y-1.5 overflow-x-auto">
             <div className="flex items-center gap-1.5 flex-wrap border border-dark-700 rounded-lg px-2.5 py-1">
               <span className="text-dark-500 text-[9px]">Сорт:</span>
-              <SortBtn k="total" label="Сума" />
+              <SortBtn k="total" label="Сума" fixedDir="desc" />
               {isSprint ? (<>
                 <SortBtn k="quali_1_time" label="Кв1" fixedDir="asc" />
                 <SortBtn k="race_1_points" label="Г1" fixedDir="desc" />
