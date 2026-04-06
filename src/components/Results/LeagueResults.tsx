@@ -692,7 +692,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         const isOnTrack = livePilots?.includes(row.pilot);
                         const currentIncIdx = isExcluded ? -1 : includedIdx++;
                         const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
-                        const stickyBg = isOnTrack ? 'bg-[#0d1a14]' : selectedPilot === row.pilot ? 'bg-[#1a1f2e]' : 'bg-dark-900';
+                        const stickyBg = isOnTrack ? 'bg-[#3c443f]' : selectedPilot === row.pilot ? 'bg-[#444444]' : 'bg-dark-900';
                         const cellForCol = (col: string): React.ReactNode => {
                           if (col === 'q_kart') return <td key={col} className={`px-1 py-1 text-center font-mono ${KART_COLOR} border-r border-dark-700/30`}>{row.quali?.kart || '—'}</td>;
                           if (col === 'q_time') return <td key={col} className={`px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30`}>{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>;
@@ -927,7 +927,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     const isOnTrack = livePilots?.includes(row.pilot);
                     const currentIncIdx = isExcluded ? -1 : includedIdx++;
                     const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
-                    const stickyBg = isOnTrack ? 'bg-[#0d1a14]' : selectedPilot === row.pilot ? 'bg-[#1a1f2e]' : 'bg-dark-900';
+                    const stickyBg = isOnTrack ? 'bg-[#3c443f]' : selectedPilot === row.pilot ? 'bg-[#444444]' : 'bg-dark-900';
                     return (
                     <tr key={row.pilot} onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
                       className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'hover:bg-dark-700/30'}`}>
