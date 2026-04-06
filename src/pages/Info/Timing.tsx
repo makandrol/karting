@@ -159,6 +159,28 @@ export default function Timing() {
            'Офлайн'}
         </div>
 
+        <div className="flex items-center gap-1 border border-dark-700 rounded px-2 py-1">
+          <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+          {canChangeTrack ? (
+            <select
+              value={currentTrack.id}
+              onChange={(e) => setCurrentTrack(parseInt(e.target.value, 10))}
+              className="bg-transparent text-dark-300 text-xs outline-none w-10 cursor-pointer"
+            >
+              {[...allTracks].sort((a, b) => {
+                const aR = isReverseTrack(a.id) ? 1 : 0;
+                const bR = isReverseTrack(b.id) ? 1 : 0;
+                if (aR !== bR) return aR - bR;
+                return baseTrackId(a.id) - baseTrackId(b.id);
+              }).map((t) => (
+                <option key={t.id} value={t.id}>{trackDisplayId(t.id)}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-dark-300 text-xs font-mono">{trackDisplayId(currentTrack.id)}</span>
+          )}
+        </div>
+
         {(isLive && hasData) && (
           <SessionTypeChanger
             sessionId={currentSessionId}
@@ -175,30 +197,6 @@ export default function Timing() {
             }}
           />
         )}
-
-        <div className="flex-1" />
-
-        <div className="flex items-center gap-2">
-          <span className="text-dark-500 text-xs">Траса</span>
-          {canChangeTrack ? (
-            <select
-              value={currentTrack.id}
-              onChange={(e) => setCurrentTrack(parseInt(e.target.value, 10))}
-              className="bg-dark-800 border border-dark-700 text-white text-sm rounded-lg px-2 py-1 outline-none focus:border-primary-500"
-            >
-              {[...allTracks].sort((a, b) => {
-                const aR = isReverseTrack(a.id) ? 1 : 0;
-                const bR = isReverseTrack(b.id) ? 1 : 0;
-                if (aR !== bR) return aR - bR;
-                return baseTrackId(a.id) - baseTrackId(b.id);
-              }).map((t) => (
-                <option key={t.id} value={t.id}>№{trackDisplayId(t.id)}</option>
-              ))}
-            </select>
-          ) : (
-            <span className="text-white font-mono font-bold">№{trackDisplayId(currentTrack.id)}</span>
-          )}
-        </div>
 
       </div>
 

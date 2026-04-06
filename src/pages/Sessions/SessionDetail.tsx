@@ -228,8 +228,11 @@ export default function SessionDetail() {
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl font-bold text-white">
               Заїзд {dayOrder ?? ''}
-              <span className="text-dark-500 font-normal text-sm ml-2">Траса {trackDisplayId(dbSession.track_id)}</span>
             </h1>
+            <div className="flex items-center gap-1 border border-dark-700 rounded px-2 py-1">
+              <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+              <span className="text-dark-300 text-xs font-mono">{trackDisplayId(dbSession.track_id)}</span>
+            </div>
             <SessionTypeChanger
               sessionId={sessionId!}
               currentFormat={(dbSession as any).competition_format || null}
