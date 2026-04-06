@@ -66,7 +66,7 @@ function compactName(name: string): string {
 }
 
 export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId }: LapsByPilotsProps) {
-  const [viewMode, setViewMode] = useState<'all' | 'main'>('all');
+  const [viewMode, setViewMode] = useState<'all' | 'main'>('main');
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
   const overallBestS2 = Math.min(...pilots.map(p => p.bestS2).filter(v => v < Infinity));
