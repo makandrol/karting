@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { toSeconds, toHundredths, shortName, parseTime, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
+import { toSeconds, toHundredths, parseTime, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 
 export interface LapData {
@@ -55,6 +55,15 @@ export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sess
     .map(([name, data]) => ({ name, ...data }));
 }
 
+function compactName(name: string): string {
+  if (!name || name.length <= 13) return name;
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length < 2) return name.slice(0, 13);
+  const surname = parts[0];
+  if (surname.length > 10) return name.slice(0, 13);
+  return `${surname} ${parts[1][0]}.`;
+}
+
 export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId }: LapsByPilotsProps) {
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
@@ -83,9 +92,9 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
             <tr className="table-header">
               <th className="table-cell text-center w-8">Коло</th>
               {pilots.map(p => (
-                <th key={p.name} className="table-cell text-left min-w-[60px] max-w-[80px]">
-                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px] block truncate" title={p.name}>
-                    {shortName(p.name)}
+                <th key={p.name} className="table-cell text-left min-w-[60px]">
+                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
+                    {compactName(p.name)}
                   </Link>
                   {onRenamePilot && (
                     <button onClick={(e) => {
