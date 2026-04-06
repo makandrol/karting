@@ -163,11 +163,13 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       const pLaps = laps.filter(l => l.pilot === pilot);
       if (pLaps.length === 0) continue;
       
-      // First lap: find earliest ts for this pilot as anchor, then work backwards
+      // For races (startPositions present): all pilots start at sessionStartTime
+      // For other sessions: reconstruct from first lap ts
       const firstTs = pLaps[0].ts;
       const firstLapSec = parseTime(pLaps[0].lapTime) || 42;
-      // The pilot started their first lap ~firstLapSec before it was completed
-      const pilotStartMs = firstTs ? (firstTs - firstLapSec * 1000) : sessionStartTime;
+      const pilotStartMs = startPositions && startPositions.size > 0
+        ? sessionStartTime
+        : (firstTs ? (firstTs - firstLapSec * 1000) : sessionStartTime);
       
       const completionTimes: number[] = [];
       let accum = pilotStartMs;
@@ -179,7 +181,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       timelines.set(pilot, completionTimes);
     }
     return timelines;
-  }, [laps, pilots, sessionStartTime]);
+  }, [laps, pilots, sessionStartTime, startPositions]);
 
   // Get entries at a given time point with best S1/S2 tracking
   const getEntriesAtTime = useCallback((timeSec: number): TimingEntry[] => {
@@ -447,7 +449,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
             }
             if (s1A != null && s1B != null) {
               const gapSec = (s1B - s1A) / 1000;
-              behind.gap = gapSec >= 0 ? `+${gapSec.toFixed(1)}` : `${gapSec.toFixed(1)}`;
+              behind.gap = `+${Math.abs(gapSec).toFixed(2)}`;
               continue;
             }
           }
@@ -458,7 +460,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
           const finishA = tlA[commonLap - 1];
           const finishB = tlB[commonLap - 1];
           const gapSec = (finishB - finishA) / 1000;
-          behind.gap = gapSec >= 0 ? `+${gapSec.toFixed(1)}` : `${gapSec.toFixed(1)}`;
+          behind.gap = `+${Math.abs(gapSec).toFixed(2)}`;
         } else {
           behind.gap = null;
         }
