@@ -113,13 +113,16 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                     {onRenamePilot && (
                       <button
                         type="button"
-                        onPointerDown={(e) => {
+                        onClick={(e) => {
                           e.stopPropagation();
                           e.preventDefault();
-                          const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
-                          if (newName && newName !== p.name) onRenamePilot(p.name, newName);
+                          const name = p.name;
+                          setTimeout(() => {
+                            const newName = prompt(`Перейменувати "${name}" на:`, name);
+                            if (newName && newName !== name) onRenamePilot(name, newName);
+                          }, 0);
                         }}
-                        className="text-dark-500 hover:text-primary-400 text-[10px] cursor-pointer p-0.5 leading-none"
+                        className="text-dark-500 hover:text-primary-400 text-[10px] cursor-pointer p-1 leading-none relative z-10"
                       >✎</button>
                     )}
                   </div>
