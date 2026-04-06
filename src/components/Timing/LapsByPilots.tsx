@@ -56,11 +56,11 @@ export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sess
 }
 
 function compactName(name: string): string {
-  if (!name || name.length <= 13) return name;
+  if (!name || name.length <= 10) return name;
   const parts = name.trim().split(' ').filter(Boolean);
-  if (parts.length < 2) return name.slice(0, 13);
+  if (parts.length < 2) return name.slice(0, 10);
   const surname = parts[0];
-  if (surname.length > 10) return name.slice(0, 13);
+  if (surname.length > 7) return name.slice(0, 10);
   return `${surname} ${parts[1][0]}.`;
 }
 
