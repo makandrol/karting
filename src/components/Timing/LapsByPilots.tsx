@@ -105,28 +105,29 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
               <th className="table-cell text-center w-8">Коло</th>
               {pilots.map(p => (
                 <th key={p.name} className="table-cell text-left min-w-[100px]">
-                  <div className="flex items-center gap-1">
-                    <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
-                      {compactName(p.name)}
-                    </Link>
-                    {onRenamePilot && (
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          const name = p.name;
-                          const newName = window.prompt(`Перейменувати "${name}" на:`, name);
-                          if (newName && newName !== name) onRenamePilot!(name, newName);
-                        }}
-                        className="text-dark-500 hover:text-primary-400 cursor-pointer select-none inline-block"
-                        style={{ fontSize: 12, padding: '0 4px', position: 'relative', zIndex: 20 }}
-                      >✎</span>
-                    )}
-                  </div>
+                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
+                    {compactName(p.name)}
+                  </Link>
                   <div className="flex items-center gap-1 font-normal">
                     <span className={`${KART_COLOR} text-[11px]`}>Карт {p.laps[0]?.kart}</span>
+                    {onRenamePilot && (() => {
+                      const pilotName = p.name;
+                      const rename = onRenamePilot;
+                      return (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onPointerDown={() => {
+                            setTimeout(() => {
+                              const newName = window.prompt(`Перейменувати "${pilotName}" на:`, pilotName);
+                              if (newName && newName !== pilotName) rename(pilotName, newName);
+                            }, 10);
+                          }}
+                          className="text-dark-500 hover:text-primary-400 cursor-pointer select-none"
+                          style={{ fontSize: 12, padding: '0 4px' }}
+                        >✎</span>
+                      );
+                    })()}
                   </div>
                 </th>
               ))}
