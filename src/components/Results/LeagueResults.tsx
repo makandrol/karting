@@ -226,7 +226,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const QUALI_COLS_H = ['q_kart', 'q_time', 'q_speed'] as const;
   const RACE_COLS_H = isSprint
-    ? ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'penalties', 'sum'] as const
+    ? ['group', 'start', 'finish', 'kart', 'time', 'speed', 'penalties', 'pos_pts', 'sum'] as const
     : ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
 
   type TopGrpId = string;
@@ -234,7 +234,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     ? [
         { id: 'pos', label: 'Поз', cols: ['group', 'start', 'finish'] },
         { id: 'time', label: 'Час', cols: ['kart', 'time', 'speed'] },
-        { id: 'pts', label: 'Бали', cols: ['pos_pts', 'penalties', 'sum'] },
+        { id: 'pts', label: 'Бали', cols: ['penalties', 'pos_pts', 'sum'] },
       ] as const
     : [
         { id: 'pos', label: 'Поз', cols: ['group', 'start', 'finish'] },
@@ -386,7 +386,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
   const QUALI_COLS = ['q_kart', 'q_time', 'q_speed'] as const;
   const RACE_COLS = isSprint
-    ? ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'penalties', 'sum'] as const
+    ? ['group', 'start', 'finish', 'kart', 'time', 'speed', 'penalties', 'pos_pts', 'sum'] as const
     : ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
   const raceColId = (raceNum: number, col: string) => `r${raceNum}_${col}`;
 
@@ -394,7 +394,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     all: { quali: [...QUALI_COLS], race: [...RACE_COLS] },
     positions: { quali: [], race: ['group', 'start', 'finish'] },
     time: { quali: ['q_kart', 'q_time'], race: ['kart', 'time', 'speed'] },
-    points: { quali: ['q_speed'], race: ['pos_pts', 'penalties', 'sum'] },
+    points: { quali: ['q_speed'], race: ['penalties', 'pos_pts', 'sum'] },
     edit: { quali: [], race: ['start', 'finish', 'penalties', 'sum'] },
   } : {
     all: { quali: [...QUALI_COLS], race: [...RACE_COLS] },
@@ -649,7 +649,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         const rn = parseInt(gid.replace('r', ''));
                         const posCols = ['group', 'start', 'finish'] as const;
                         const timeCols = ['kart', 'time', 'speed'] as const;
-                        const ptsCols = isSprint ? ['pos_pts', 'penalties', 'sum'] as const : ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
+                        const ptsCols = isSprint ? ['penalties', 'pos_pts', 'sum'] as const : ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
                         const visPos = posCols.filter(c => cv(raceColId(rn, c)));
                         const visTime = timeCols.filter(c => cv(raceColId(rn, c)));
                         const visPts = ptsCols.filter(c => cv(raceColId(rn, c)));
@@ -669,7 +669,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         const allSubCols = isSprint ? [
                           { col: 'group', label: 'Група' }, { col: 'start', label: 'Старт' }, { col: 'finish', label: 'Фініш' },
                           { col: 'kart', label: 'Карт' }, { col: 'time', label: 'Час' }, { col: 'speed', label: 'Швидк.' },
-                          { col: 'pos_pts', label: 'Позиція' }, { col: 'penalties', label: 'Штрафи' }, { col: 'sum', label: 'Сума' },
+                          { col: 'penalties', label: 'Штрафи' }, { col: 'pos_pts', label: 'Позиція' }, { col: 'sum', label: 'Сума' },
                         ] : [
                           { col: 'group', label: 'Група' }, { col: 'start', label: 'Старт' }, { col: 'finish', label: 'Фініш' },
                           { col: 'kart', label: 'Карт' }, { col: 'time', label: 'Час' }, { col: 'speed', label: 'Швидк.' },
@@ -730,7 +730,17 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           if (base === 'pos_pts') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>;
                           if (base === 'overtake') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>;
                           if (base === 'penalties') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, rn, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}</td>;
-                          if (base === 'sum') return <td key={col} className={`px-1 py-1 text-center font-mono font-bold border-r border-dark-700/30`}>{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>;
+                          if (base === 'sum') {
+                            let sumVal = race?.totalRacePoints ?? 0;
+                            if (isSprint && rn === 2) {
+                              sumVal = (row.qualis?.[0]?.speedPoints ?? 0) + (row.races[0]?.totalRacePoints ?? 0)
+                                     + (row.qualis?.[1]?.speedPoints ?? 0) + (row.races[1]?.totalRacePoints ?? 0);
+                              sumVal = Math.round(sumVal * 10) / 10;
+                            } else if (isSprint && rn === 3) {
+                              sumVal = row.totalPoints;
+                            }
+                            return <td key={col} className={`px-1 py-1 text-center font-mono font-bold border-r border-dark-700/30`}>{sumVal ? <span className="text-green-400/80">{sumVal}</span> : <span className="text-dark-700">—</span>}</td>;
+                          }
                           return <td key={col} className="px-1 py-1 text-center border-r border-dark-700/30">—</td>;
                         };
                         return (
@@ -843,7 +853,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     if (!raceVisible(rn)) return null;
                     const posCols = ['group', 'start', 'finish'] as const;
                     const timeCols = ['kart', 'time', 'speed'] as const;
-                    const ptsCols = ['pos_pts', 'penalties', 'sum'] as const;
+                    const ptsCols = ['penalties', 'pos_pts', 'sum'] as const;
                     const visPos = posCols.filter(c => colVisible(raceColId(rn, c)));
                     const visTime = timeCols.filter(c => colVisible(raceColId(rn, c)));
                     const visPts = ptsCols.filter(c => colVisible(raceColId(rn, c)));
@@ -892,8 +902,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       {colVisible(raceColId(rn, 'kart')) && <th className={thClass(TH_V)}><span className={TH_R}>Карт</span></th>}
                       {colVisible(raceColId(rn, 'time')) && <th className={thClass(TH_V)}><span className={TH_R}>Час</span></th>}
                       {colVisible(raceColId(rn, 'speed')) && <th className={thClass(TH_V)}><span className={TH_R}>Швидк.</span></th>}
-                      {colVisible(raceColId(rn, 'pos_pts')) && <th className={thClass(TH_V)}><span className={TH_R}>Позиція</span></th>}
                       {colVisible(raceColId(rn, 'penalties')) && <th className={thClass(TH_V)}><span className={TH_R}>Штрафи</span></th>}
+                      {colVisible(raceColId(rn, 'pos_pts')) && <th className={thClass(TH_V)}><span className={TH_R}>Позиція</span></th>}
                       {colVisible(raceColId(rn, 'sum')) && <th className={thClass(TH_V)}><span className={TH_R}>Сума</span></th>}
                     </Fragment>;
                   }) : (<>
@@ -1020,9 +1030,19 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         {cv('kart') && <td className={`px-1 py-1 text-center font-mono ${KART_COLOR} ${rBorder('kart')}`}>{race?.kart || '—'}</td>}
                         {cv('time') && <td className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${rBorder('time')}`}>{race ? toSeconds(race.bestTimeStr) : '—'}</td>}
                         {cv('speed') && <td className={`px-1 py-1 text-center font-mono ${rBorder('speed')}`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
-                        {cv('pos_pts') && <td className={`px-1 py-1 text-center font-mono ${rBorder('pos_pts')}`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                         {cv('penalties') && <td className={`px-1 py-1 text-center font-mono ${rBorder('penalties')}`}>{race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, rn, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}</td>}
-                        {cv('sum') && <td className={`px-1 py-1 text-center font-mono font-bold ${rBorder('sum')}`}>{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                        {cv('pos_pts') && <td className={`px-1 py-1 text-center font-mono ${rBorder('pos_pts')}`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>}
+                        {cv('sum') && (() => {
+                          let sumVal = race?.totalRacePoints ?? 0;
+                          if (rn === 2) {
+                            sumVal = (row.qualis?.[0]?.speedPoints ?? 0) + (row.races[0]?.totalRacePoints ?? 0)
+                                   + (row.qualis?.[1]?.speedPoints ?? 0) + (row.races[1]?.totalRacePoints ?? 0);
+                            sumVal = Math.round(sumVal * 10) / 10;
+                          } else if (rn === 3) {
+                            sumVal = row.totalPoints;
+                          }
+                          return <td className={`px-1 py-1 text-center font-mono font-bold ${rBorder('sum')}`}>{sumVal ? <span className="text-green-400/80">{sumVal}</span> : <span className="text-dark-700">—</span>}</td>;
+                        })()}
                       </Fragment>;
                     }) : (<>
                     {qualiVisible() && (() => {

@@ -1134,6 +1134,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   const { raceGroup, isRace: isRacePhase } = useMemo(() => extractCompetitionReplayProps(currentPhase), [currentPhase]);
 
   const isCL = competition.format === 'champions_league';
+  const isSprint = competition.format === 'sprint';
   const excludedPilots = new Set<string>(competition.results?.excludedPilots || []);
 
   const { startPositions, totalPilots } = useMemo(() => {
