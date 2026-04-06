@@ -631,9 +631,9 @@ export const storage = {
       champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
       sprint: [
         'qualifying_1_group_1', 'qualifying_1_group_2', 'qualifying_1_group_3',
-        'race_1_group_1', 'race_1_group_2', 'race_1_group_3',
+        'race_1_group_3', 'race_1_group_2', 'race_1_group_1',
         'qualifying_2_group_1', 'qualifying_2_group_2', 'qualifying_2_group_3',
-        'race_2_group_1', 'race_2_group_2', 'race_2_group_3',
+        'race_2_group_3', 'race_2_group_2', 'race_2_group_1',
         'final_group_3', 'final_group_2', 'final_group_1',
       ],
       marathon: ['race'],
@@ -745,9 +745,9 @@ export const storage = {
       champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
       sprint: [
         'qualifying_1_group_1', 'qualifying_1_group_2', 'qualifying_1_group_3',
-        'race_1_group_1', 'race_1_group_2', 'race_1_group_3',
+        'race_1_group_3', 'race_1_group_2', 'race_1_group_1',
         'qualifying_2_group_1', 'qualifying_2_group_2', 'qualifying_2_group_3',
-        'race_2_group_1', 'race_2_group_2', 'race_2_group_3',
+        'race_2_group_3', 'race_2_group_2', 'race_2_group_1',
         'final_group_3', 'final_group_2', 'final_group_1',
       ],
     };

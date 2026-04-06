@@ -163,15 +163,15 @@ export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
       { id: 'qualifying_1_group_1', label: 'Кваліфікація 1 · Група 1', shortLabel: 'Кв1-1' },
       { id: 'qualifying_1_group_2', label: 'Кваліфікація 1 · Група 2', shortLabel: 'Кв1-2' },
       { id: 'qualifying_1_group_3', label: 'Кваліфікація 1 · Група 3', shortLabel: 'Кв1-3' },
-      { id: 'race_1_group_1', label: 'Гонка 1 · Група 1', shortLabel: 'Г1-1' },
-      { id: 'race_1_group_2', label: 'Гонка 1 · Група 2', shortLabel: 'Г1-2' },
       { id: 'race_1_group_3', label: 'Гонка 1 · Група 3', shortLabel: 'Г1-3' },
+      { id: 'race_1_group_2', label: 'Гонка 1 · Група 2', shortLabel: 'Г1-2' },
+      { id: 'race_1_group_1', label: 'Гонка 1 · Група 1', shortLabel: 'Г1-1' },
       { id: 'qualifying_2_group_1', label: 'Кваліфікація 2 · Група 1', shortLabel: 'Кв2-1' },
       { id: 'qualifying_2_group_2', label: 'Кваліфікація 2 · Група 2', shortLabel: 'Кв2-2' },
       { id: 'qualifying_2_group_3', label: 'Кваліфікація 2 · Група 3', shortLabel: 'Кв2-3' },
-      { id: 'race_2_group_1', label: 'Гонка 2 · Група 1', shortLabel: 'Г2-1' },
-      { id: 'race_2_group_2', label: 'Гонка 2 · Група 2', shortLabel: 'Г2-2' },
       { id: 'race_2_group_3', label: 'Гонка 2 · Група 3', shortLabel: 'Г2-3' },
+      { id: 'race_2_group_2', label: 'Гонка 2 · Група 2', shortLabel: 'Г2-2' },
+      { id: 'race_2_group_1', label: 'Гонка 2 · Група 1', shortLabel: 'Г2-1' },
       { id: 'final_group_3', label: 'Фінал Лайт', shortLabel: 'Ф-Лайт' },
       { id: 'final_group_2', label: 'Фінал Голд', shortLabel: 'Ф-Голд' },
       { id: 'final_group_1', label: 'Фінал Про', shortLabel: 'Ф-Про' },
@@ -248,7 +248,9 @@ export function splitIntoGroups(pilots: string[], maxGroups: number): LeagueGrou
 
 /**
  * Розбиває пілотів на групи за регламентом Спринту — "змійкою" (round-robin).
- * 1→Г1, 2→Г2, 3→Г1, 4→Г2... (для 3 груп: 1→Г1, 2→Г2, 3→Г3, 4→Г1...)
+ * Перший пілот іде в найвищу групу, щоб група яка їде першою (найвищий номер)
+ * мала більше пілотів при непарній кількості.
+ * 1→Г2, 2→Г1, 3→Г2, 4→Г1... (для 3 груп: 1→Г3, 2→Г2, 3→Г1, 4→Г3...)
  * ≤14 → 1 група, 15-29 → 2 групи, 30+ → 3 групи.
  */
 export function splitIntoGroupsSprint(pilots: string[], maxGroups?: number): LeagueGroup[] {
@@ -263,7 +265,8 @@ export function splitIntoGroupsSprint(pilots: string[], maxGroups?: number): Lea
 
   const buckets: string[][] = Array.from({ length: groupCount }, () => []);
   for (let i = 0; i < n; i++) {
-    buckets[i % groupCount].push(pilots[i]);
+    const gi = (groupCount - 1) - (i % groupCount);
+    buckets[gi].push(pilots[i]);
   }
 
   return buckets.map((groupPilots, gi) => ({
