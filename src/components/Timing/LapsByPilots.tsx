@@ -102,6 +102,14 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-3 border-b border-dark-800 flex items-center gap-3">
+        <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
+          <span className="text-dark-500 text-[9px]">Вид:</span>
+          <span className="flex rounded overflow-hidden">
+            <button onClick={() => setViewMode('all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${viewMode === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
+            <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+            <button onClick={() => setViewMode('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${viewMode === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
+          </span>
+        </div>
         {isRace && (
           <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
             <span className="text-dark-500 text-[9px]">Сорт:</span>
@@ -112,14 +120,6 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
             </span>
           </div>
         )}
-        <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
-          <span className="text-dark-500 text-[9px]">Вид:</span>
-          <span className="flex rounded overflow-hidden">
-            <button onClick={() => setViewMode('all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${viewMode === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
-            <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-            <button onClick={() => setViewMode('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${viewMode === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
-          </span>
-        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="text-[10px]">
