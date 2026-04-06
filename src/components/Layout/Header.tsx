@@ -93,7 +93,8 @@ export default function Header() {
         </button>
         {isOpen && (
           <div data-dropdown className="fixed w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
-            style={align === 'right' ? { top: dropdownPosRef.current.top, right: dropdownPosRef.current.right } : { top: dropdownPosRef.current.top, left: dropdownPosRef.current.left }}>
+            style={align === 'right' ? { top: dropdownPosRef.current.top, right: dropdownPosRef.current.right } : { top: dropdownPosRef.current.top, left: dropdownPosRef.current.left }}
+            onMouseEnter={() => openDd(id)} onMouseLeave={closeDd}>
             {items.map(item => {
               const isLiveItem = item.path === '/results/current';
               const hasActiveLive = !!activeCompName;
@@ -205,7 +206,8 @@ function UserDropdown({ user, openDropdown, openDd, closeDd, toggleDd, logout, d
       </button>
       {isOpen && (
         <div data-dropdown className="fixed w-44 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
-          style={{ top: dropdownPosRef.current.top, right: dropdownPosRef.current.right }}>
+          style={{ top: dropdownPosRef.current.top, right: dropdownPosRef.current.right }}
+          onMouseEnter={() => openDd('user')} onMouseLeave={closeDd}>
           <Link to="/login" className="block px-4 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
             Профіль
           </Link>
