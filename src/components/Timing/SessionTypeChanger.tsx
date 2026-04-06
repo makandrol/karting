@@ -409,7 +409,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         {step === 'format' && (
           <>
             <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Тип заїзду</div>
-            {Object.values(COMPETITION_CONFIGS).filter(c => c.format !== 'sprint' && c.format !== 'marathon').map(config => (
+            {Object.values(COMPETITION_CONFIGS).filter(c => c.format !== 'marathon').map(config => (
               <button key={config.format} onClick={() => handleFormatSelect(config.format)}
                 className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
                 {config.name}
