@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
+import { trackDisplayId } from '../../data/tracks';
 import { COLLECTOR_URL } from '../../services/config';
 
 interface SessionRow {
@@ -76,7 +77,7 @@ export default function CollectorLog() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Link to="/admin" className="text-dark-400 hover:text-white transition-colors">
+        <Link to="/admin/access" className="text-dark-400 hover:text-white transition-colors">
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
@@ -166,7 +167,7 @@ export default function CollectorLog() {
                         </span>
                       </td>
                       <td className="table-cell text-center font-mono text-dark-500">
-                        #{s.track_id}
+                        {trackDisplayId(s.track_id)}
                       </td>
                     </tr>
                   );

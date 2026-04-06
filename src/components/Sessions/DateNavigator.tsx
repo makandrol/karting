@@ -115,7 +115,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
           onClick={() => hasData && count > 0 && onToggleDate!(d)}
           className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
             isActive ? 'bg-primary-600 text-white ring-1 ring-primary-400' :
-            isToday ? 'bg-primary-600/20 text-primary-400' :
+            isToday ? 'bg-green-600/20 text-green-400' :
             hasData && count > 0 ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
             'bg-dark-900 text-dark-700 cursor-default'
           }`}
@@ -134,7 +134,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
         onClick={() => hasData && onSelectDate(d)}
         className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
           isSelected ? 'bg-primary-600 text-white' :
-          isToday ? 'bg-primary-600/20 text-primary-400' :
+          isToday ? 'bg-green-600/20 text-green-400' :
           hasData ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
           'bg-dark-900 text-dark-700 cursor-default'
         }`}

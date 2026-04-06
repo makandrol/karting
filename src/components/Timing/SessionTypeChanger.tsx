@@ -4,6 +4,7 @@ import { COLLECTOR_URL } from '../../services/config';
 import { useAuth } from '../../services/auth';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhasesForFormat, type CompetitionFormat } from '../../data/competitions';
 import { useTrack } from '../../services/trackContext';
+import { trackDisplayId } from '../../data/tracks';
 import { isValidSession } from '../../utils/timing';
 
 interface Competition {
@@ -88,7 +89,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     const now = new Date();
     const dateStr = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getFullYear()).slice(2)}`;
     const config = COMPETITION_CONFIGS[selectedFormat];
-    const name = `${config.shortName}, ${dateStr}, Тр. ${currentTrack.id}`;
+    const name = `${config.shortName}, ${dateStr}, Тр. ${trackDisplayId(currentTrack.id)}`;
     const id = `${selectedFormat}-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${Date.now().toString(36)}`;
     try {
       const res = await fetch(`${COLLECTOR_URL}/competitions`, {

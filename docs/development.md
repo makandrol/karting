@@ -57,7 +57,8 @@
 ### Shared Patterns
 - `SessionsTable` — used everywhere for session lists
 - `DateNavigator` — single-select (Sessions) or multi-select (Karts, KartDetail)
-- `SessionReplay` — used on Timing (live) and SessionDetail (replay)
+- `SessionReplay` — used on Timing (live), SessionDetail (replay), and CompetitionPage (live, `showScrubber=false`)
+- `TimingTable` — standalone timing table used inside SessionReplay. Column visibility (Все/Осн/Своє), sort modes, Start+arrows columns
 - `LapsByPilots` — used on Timing (isLive) and SessionDetail (with highlight)
 - `SessionTypeChanger` — used on Timing and SessionDetail
 - `TrackMap` with `static` prop for replay, without for live animation
@@ -117,6 +118,24 @@
 20. **Track sync**: Track changes from timing page sync to collector via `POST /track`, updates all future sessions
 21. **Competition track**: Track changes on competition page update all linked sessions via `POST /competitions/:id/update-track`
 22. **Tab preference**: Competition page saves tab preference (live/final) to localStorage (auth users) or sessionStorage (anon)
+23. **Scoring module**: All scoring logic in `src/utils/scoring.ts` — `computeStandings()`, `rowsToStandings()`, pure functions reusable by any component
+24. **Standings storage**: LeagueResults pushes `results.standings` to collector every 10s (debounced). Competition list reads for top-3 display.
+25. **Competition date**: Derived from first session timestamp, NOT from stored `date` field. Use `getCompRealDate(competition)`.
+26. **Settings expiry**: Competition filters and kart date selections expire at end of day. Use `loadWithExpiry()`/`saveWithExpiry()`.
+27. **Mobile**: `html, body { overflow-x: hidden }`, header dropdowns use `position: fixed`, Tailwind `hoverOnlyWhenSupported: true`, today highlighted green
+28. **Competitions page**: `/results` shows unified list with date navigator + type filters. "Змагання" is a direct Link in header (not dropdown).
+29. **TimingTable**: Reusable component in `components/Timing/TimingTable.tsx`. DO NOT inline table JSX in SessionReplay — all table rendering goes through TimingTable.
+30. **Column visibility**: `start` and `arrows` columns are `RACE_ONLY_COLS` — auto-hidden when not in race mode or no start data. They are fixed-position (not draggable) in custom mode.
+31. **Layout prefs**: `layoutPrefs.tsx` manages page-level section visibility. `updateLocal()` must fall back to `HARDCODED_DEFAULTS` version when `serverDefaults` is empty. See bugfix in v0.9.195.
+32. **Competition live table**: Uses `SessionReplay(showScrubber=false)` with events fetched on 3s interval. Do NOT create separate live table components.
+33. **LeagueResults toolbar order**: "Сорт:" first row, "Вид:" second row.
+34. **CompetitionTimeline links**: Only session name is a link; time display is plain text.
+35. **Kart color**: Use `KART_COLOR` constant from `utils/timing.ts` for all kart number displays. Never hardcode kart color in individual components.
+36. **Track selector**: All pages (competition, timing, session detail) use the same bordered frame style with flag icon + dropdown/number.
+37. **LapsByPilots pilot names**: Use `compactName()` (max 10 chars, surname >7 → truncate, ≤7 → with initial). NOT `shortName()`.
+38. **TimingTable columns**: `TB` is theoretical best (bestS1+bestS2), `Loss` is best lap minus TB. `Gap` is race-mode only (diff in best lap to pilot ahead). `MAIN_RACE_VISIBLE` excludes Start/arrows but includes Gap.
+39. **Localhost auth**: `auth.tsx` uses `localhostLoggedOut` state flag — `IS_LOCALHOST` auto-owner respects logout. `loginWithGoogle` resets the flag.
+40. **AccessSettings drag-reorder**: Uses `wasDragged` ref to prevent click from firing after drag. Always add `onDragEnd` to reset drag state.
 
 ## File Structure
 ```
@@ -130,32 +149,36 @@ karting/
 │   │   ├── detector.js      # Competition auto-detection
 │   │   └── schedule.js      # Weekly competition schedule
 │   ├── data/                # SQLite DB (not in git)
-│   └── package.json         # v0.3.4
+│   └── package.json         # v0.3.6
 ├── src/
 │   ├── components/
-│   │   ├── Layout/          # Header, Footer, Layout
-│   │   ├── Timing/          # SessionReplay, DayTimeline, CompetitionControl,
+│   │   ├── Layout/          # Header (fixed dropdowns, UserDropdown), Footer, Layout
+│   │   ├── Timing/          # SessionReplay, TimingTable, DayTimeline, CompetitionControl,
 │   │   │                    #   LapsByPilots, SessionTypeChanger, TimingBoard
 │   │   ├── Track/           # TrackMap
-│   │   ├── Sessions/        # DateNavigator, SessionsTable, SessionRows
-│   │   └── Results/         # LeagueResults (LL/CL scoring table)
+│   │   ├── Sessions/        # DateNavigator (green today), SessionsTable, SessionRows
+│   │   └── Results/         # LeagueResults, CompetitionTimeline, TableLayoutBar
 │   ├── pages/
-│   │   ├── Info/            # Timing, Onboard, Karts, KartDetail, Tracks, Videos
+│   │   ├── Info/            # Timing, Onboard, Karts (date expiry), KartDetail, Tracks, Videos
 │   │   ├── Sessions/        # SessionsList, SessionDetail
 │   │   ├── Auth/            # Login, AdminPanel, PageSettings, DatabaseStats,
 │   │   │                    #   Monitoring, CollectorLog, CompetitionManager, ScoringSettings
-│   │   ├── Results/         # CompetitionPage (list + detail + live scoring), CurrentRace
+│   │   ├── Results/         # CompetitionPage (unified list + detail + live), CurrentRace
 │   │   └── Pilots/          # PilotProfile (placeholder)
 │   ├── services/
 │   │   ├── auth.tsx         # Firebase Auth + roles + localhost auto-owner
 │   │   ├── timingPoller.ts  # Live timing hook (bestS1/S2 tracking, kart Number conversion)
 │   │   ├── viewPrefs.ts     # Per-user view preferences
-│   │   ├── pageVisibility.tsx # Page visibility config
+│   │   ├── layoutPrefs.tsx  # Page-level section visibility + ordering (server defaults + local overrides)
+│   │   ├── pageVisibility.tsx # Page visibility config (competitions in main group)
 │   │   ├── config.ts        # Collector URL
 │   │   └── firebase.ts      # Firebase init
 │   ├── utils/
-│   │   └── timing.ts        # parseTime, toSeconds, toHundredths, getTimeColor,
-│   │                        #   mergePilotNames, shortName, fetchRaceStartPositions
+│   │   ├── timing.ts        # parseTime, toSeconds, toHundredths, getTimeColor,
+│   │   │                    #   KART_COLOR, mergePilotNames, shortName, fetchRaceStartPositions
+│   │   ├── scoring.ts       # computeStandings, rowsToStandings, calcOvertakePoints,
+│   │   │                    #   getPositionPoints, parseLapSec (shared scoring module)
+│   │   └── session.ts       # buildReplayLaps, extractCompetitionReplayProps
 │   ├── data/
 │   │   ├── tracks.ts        # Track configurations
 │   │   ├── competitions.ts  # Competition configs + PHASE_CONFIGS + splitIntoGroups
@@ -167,9 +190,9 @@ karting/
 ├── public/data/
 │   └── scoring.json         # Scoring rules (editable via /admin/scoring)
 ├── docs/                    # This documentation
-├── package.json             # v0.9.106
+├── package.json             # v0.9.222
 ├── vite.config.ts
-├── tailwind.config.js
+├── tailwind.config.js       # hoverOnlyWhenSupported: true
 ├── tsconfig.json            # resolveJsonModule enabled
 └── netlify.toml
 ```

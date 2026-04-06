@@ -490,6 +490,37 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /view-defaults — отримати дефолтні настройки таблиць
+    if (req.method === 'GET' && url.pathname === '/view-defaults') {
+      const data = storage.getViewDefaults();
+      sendJson(res, 200, data || {});
+      return;
+    }
+
+    // POST /view-defaults — зберегти дефолтні настройки таблиць (admin only)
+    if (req.method === 'POST' && url.pathname === '/view-defaults') {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      try {
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        storage.setViewDefaults(data);
+        sendJson(res, 200, { ok: true });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
+    // POST /db/update-sessions-track — оновити трасу для сесій (admin only)
+    if (req.method === 'POST' && url.pathname === '/db/update-sessions-track') {
+      if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+      try {
+        const { sessionIds, trackId } = JSON.parse(await readBody(req));
+        if (!Array.isArray(sessionIds) || typeof trackId !== 'number') { sendJson(res, 400, { error: 'sessionIds and trackId required' }); return; }
+        const changes = storage.updateSessionsTrack(sessionIds, trackId);
+        sendJson(res, 200, { ok: true, changes });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
     // POST /db/rename-pilot — перейменувати пілота в заїзді (admin only)
     if (req.method === 'POST' && url.pathname === '/db/rename-pilot') {
       if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }

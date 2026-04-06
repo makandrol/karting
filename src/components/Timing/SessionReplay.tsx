@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
-import { parseTime, toSeconds, toHundredths, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
+import { parseTime } from '../../utils/timing';
+import TimingTable from './TimingTable';
 
 // ============================================================
 // SessionReplay component
@@ -96,24 +96,39 @@ interface SessionReplayProps {
   raceGroup?: number;
   totalQualifiedPilots?: number;
   defaultSortMode?: ReplaySortMode;
+  sortMode?: ReplaySortMode;
+  onSortModeChange?: (mode: ReplaySortMode) => void;
+  columnFilter?: 'all' | 'main' | 'custom';
+  onColumnFilterChange?: (filter: 'all' | 'main' | 'custom') => void;
   onTimeUpdate?: (timeSec: number) => void;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
   renderScrubber?: (scrubber: React.ReactNode) => React.ReactNode;
+  showScrubber?: boolean;
+  showTable?: boolean;
+  renderContent?: (parts: { scrubber: React.ReactNode; table: React.ReactNode }) => React.ReactNode;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, defaultSortMode, onTimeUpdate, onEntriesUpdate, renderScrubber }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(durationSec);
   const [speed, setSpeed] = useState(1);
   const [atLive, setAtLive] = useState(!!isLive && !!autoPlay);
-  const [sortMode, setSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
-  const [columnFilter, setColumnFilter] = useState<'all' | 'main'>('all');
+  const [internalSortMode, setInternalSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
+  const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>('all');
 
-  useEffect(() => { if (defaultSortMode) setSortMode(defaultSortMode); }, [defaultSortMode]);
+  const sortMode = controlledSortMode ?? internalSortMode;
+  const setSortMode = onSortModeChange ?? setInternalSortMode;
+  const columnFilter = controlledColumnFilter ?? internalColumnFilter;
+  const setColumnFilter = onColumnFilterChange ?? setInternalColumnFilter;
 
-  // Scoring data for race points
-  const [scoringData, setScoringData] = useState<any>(null);
-  useEffect(() => { fetch('/data/scoring.json').then(r => r.json()).then(setScoringData).catch(() => {}); }, []);
+  useEffect(() => { if (defaultSortMode && !controlledSortMode) setInternalSortMode(defaultSortMode); }, [defaultSortMode, controlledSortMode]);
+
+  const startGrid = useMemo(() => {
+    if (!startPositions) return undefined;
+    const grid = new Map<number, string>();
+    for (const [pilot, pos] of startPositions) grid.set(pos, pilot);
+    return grid;
+  }, [startPositions]);
 
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
@@ -441,17 +456,6 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
     onEntriesUpdate?.(ent);
   };
 
-  // Overall bests for color coding
-  const { overallBestLap, overallBestS1, overallBestS2 } = useMemo(() => {
-    let bLap: number | null = null, bS1: number | null = null, bS2: number | null = null;
-    for (const e of entries) {
-      const lap = parseTime(e.bestLap); if (lap !== null && (bLap === null || lap < bLap)) bLap = lap;
-      const s1 = parseTime(e.bestS1); if (s1 !== null && s1 >= 10 && (bS1 === null || s1 < bS1)) bS1 = s1;
-      const s2 = parseTime(e.bestS2); if (s2 !== null && s2 >= 10 && (bS2 === null || s2 < bS2)) bS2 = s2;
-    }
-    return { overallBestLap: bLap, overallBestS1: bS1, overallBestS2: bS2 };
-  }, [entries]);
-
   const scrubberEl = (
     <div className="flex items-center gap-3">
       <button
@@ -509,25 +513,6 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         <option value={10}>10x</option>
       </select>
 
-      <div className="flex bg-dark-800 rounded-md p-0.5 shrink-0">
-        <button
-          onClick={() => setSortMode('qualifying')}
-          className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-            sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
-          }`}
-        >
-          Квала
-        </button>
-        <button
-          onClick={() => setSortMode('race')}
-          className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-            sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
-          }`}
-        >
-          Гонка
-        </button>
-      </div>
-
       <span className="text-dark-400 text-xs font-mono whitespace-nowrap shrink-0">
         {isLive ? formatTimeSec(currentTime) : `${formatTimeSec(currentTime)} / ${formatTimeSec(durationSec)}`}
       </span>
@@ -540,145 +525,34 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
     </div>
   );
 
+  const wrappedScrubberEl = renderScrubber ? renderScrubber(scrubberEl) : (
+    <div className="bg-dark-900/95 border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+      {scrubberEl}
+    </div>
+  );
+
+  const tableEl = (
+    <TimingTable
+      entries={entries}
+      sortMode={sortMode}
+      onSortModeChange={setSortMode}
+      columnFilter={columnFilter}
+      onColumnFilterChange={setColumnFilter}
+      startPositions={startPositions}
+      startGrid={startGrid}
+      raceGroup={raceGroup}
+      totalQualifiedPilots={totalQualifiedPilots}
+    />
+  );
+
+  if (renderContent) {
+    return <>{renderContent({ scrubber: wrappedScrubberEl, table: tableEl })}</>;
+  }
+
   return (
     <>
-      {/* Scrubber — parent can wrap for sticky positioning */}
-      {renderScrubber ? renderScrubber(scrubberEl) : (
-        <div className="bg-dark-900/95 border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
-          {scrubberEl}
-        </div>
-      )}
-
-      {/* Timing board */}
-      <div className="card p-0 overflow-hidden">
-        <div className="px-4 py-3 border-b border-dark-800 flex items-center justify-between">
-          <h3 className="text-white font-semibold">Таймінг</h3>
-          <div className="flex items-center gap-1.5">
-            <span className="text-dark-500 text-[9px]">Вид:</span>
-            <span className="flex rounded overflow-hidden">
-              <button onClick={() => setColumnFilter('all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
-              <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-              <button onClick={() => setColumnFilter('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${columnFilter === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
-            </span>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs [&_th]:px-0.5 [&_th]:py-0.5 [&_td]:px-0.5 [&_td]:py-0.5">
-          <thead>
-            <tr className="table-header">
-              <th className="table-cell text-center w-5">#</th>
-              <th className="table-cell text-left min-w-[70px]">Pilot</th>
-              {sortMode === 'race' && <th className="table-cell text-center text-dark-500 w-5" style={{ paddingLeft: 0 }}>+/-</th>}
-              {sortMode === 'race' && raceGroup && <th className="table-cell text-center text-dark-500 w-6">P</th>}
-              <th className="table-cell text-center">Kart</th>
-              <th className="table-cell text-right">Last</th>
-              {columnFilter === 'all' && <th className="table-cell text-right">S1</th>}
-              {columnFilter === 'all' && <th className="table-cell text-right">S2</th>}
-              <th className="table-cell text-right">Best</th>
-              {columnFilter === 'all' && <th className="table-cell text-right">B.S1</th>}
-              {columnFilter === 'all' && <th className="table-cell text-right">B.S2</th>}
-              {columnFilter === 'all' && <th className="table-cell text-right">TB</th>}
-              <th className="table-cell text-center">L</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((e) => {
-              const notStarted = e.lapNumber < 0;
-              const lapColor = notStarted ? 'none' as TimeColor : getTimeColor(e.lastLap, e.bestLap, overallBestLap);
-              const s1Color = notStarted ? 'none' as TimeColor : getTimeColor(e.s1, e.bestS1, overallBestS1);
-              const s2Color = notStarted ? 'none' as TimeColor : getTimeColor(e.s2, e.bestS2, overallBestS2);
-              const bestLapColor = notStarted ? 'none' as TimeColor : getTimeColor(e.bestLap, e.bestLap, overallBestLap);
-              const bestS1Color = notStarted ? 'none' as TimeColor : getTimeColor(e.bestS1, e.bestS1, overallBestS1);
-              const bestS2Color = notStarted ? 'none' as TimeColor : getTimeColor(e.bestS2, e.bestS2, overallBestS2);
-
-              return (
-                <tr key={e.pilot} className="table-row">
-                  <td className="table-cell text-center font-mono font-bold text-dark-400">
-                    {notStarted ? '—' : e.position}
-                  </td>
-                  <td className="table-cell text-left py-1.5" style={{ paddingRight: 0 }}>
-                    <div className={`font-medium text-[11px] leading-tight ${notStarted ? 'text-dark-500' : ''}`}>
-                      <Link to={`/pilots/${encodeURIComponent(e.pilot)}`} className={`${notStarted ? 'text-dark-500' : 'text-white hover:text-primary-400'} transition-colors`}>
-                        {shortName(e.pilot)}
-                      </Link>
-                    </div>
-                    <div className="mt-0.5 h-[1.5px] w-1/2 bg-dark-800 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-[50ms] ease-linear bg-yellow-500/60"
-                        style={{ width: `${!notStarted && e.progress !== null ? Math.round(e.progress * 100) : 0}%` }}
-                      />
-                    </div>
-                  </td>
-                  {sortMode === 'race' && <td className="table-cell text-center font-mono text-[10px]" style={{ paddingLeft: 0 }}>{(() => {
-                    if (notStarted) return '';
-                    const st = e.currentLapSec;
-                    if (st == null) return '—';
-                    const diff = st - e.position;
-                    if (diff > 0) return <span className="text-green-400">↑{diff}</span>;
-                    if (diff < 0) return <span className="text-red-400">↓{Math.abs(diff)}</span>;
-                    return <span className="text-dark-600">0</span>;
-                  })()}</td>}
-                  {sortMode === 'race' && raceGroup && scoringData && <td className="table-cell text-center font-mono text-[10px] text-green-400/70">{(() => {
-                    if (notStarted) return '';
-                    const st = e.currentLapSec;
-                    if (st == null) return '—';
-                    const finishPos = e.position;
-                    const groupLabel = raceGroup === 1 ? 'I' : raceGroup === 2 ? 'II' : 'III';
-                    const total = totalQualifiedPilots || 0;
-                    const cat = scoringData.positionPoints?.find((c: any) => total >= c.minPilots && total <= c.maxPilots);
-                    const posArr = cat?.groups?.[groupLabel];
-                    const posPoints = posArr && finishPos >= 1 && finishPos <= posArr.length ? posArr[finishPos - 1] : 0;
-                    let overtakePoints = 0;
-                    for (let pos = st; pos > finishPos; pos--) {
-                      if (raceGroup === 3) overtakePoints += scoringData.overtakePoints?.groupIII ?? 0;
-                      else if (raceGroup === 2) overtakePoints += scoringData.overtakePoints?.groupII ?? 0;
-                      else {
-                        const rule = scoringData.overtakePoints?.groupI?.find((r: any) => pos >= r.startPosMin && pos <= r.startPosMax);
-                        overtakePoints += rule?.perOvertake ?? 0;
-                      }
-                    }
-                    const total_pts = Math.round((posPoints + overtakePoints) * 10) / 10;
-                    return total_pts || '—';
-                  })()}</td>}
-                  <td className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>
-                  <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>
-                    {notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}
-                  </td>
-                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>
-                    {notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toHundredths(e.s1) : '—')}
-                  </td>}
-                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>
-                    {notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toHundredths(e.s2) : '—')}
-                  </td>}
-                  <td className={`table-cell text-right font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[bestLapColor]}`}>
-                    {notStarted ? '' : (e.bestLap ? toSeconds(e.bestLap) : '—')}
-                  </td>
-                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS1Color]}`}>
-                    {notStarted ? '' : (e.bestS1 && (parseTime(e.bestS1) ?? 0) >= 10 ? toHundredths(e.bestS1) : '—')}
-                  </td>}
-                  {columnFilter === 'all' && <td className={`table-cell text-right font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[bestS2Color]}`}>
-                    {notStarted ? '' : (e.bestS2 && (parseTime(e.bestS2) ?? 0) >= 10 ? toHundredths(e.bestS2) : '—')}
-                  </td>}
-                  {columnFilter === 'all' && <td className="table-cell text-right font-mono text-[11px] text-dark-400">
-                    {(() => {
-                      if (notStarted) return '';
-                      const s1 = parseTime(e.bestS1);
-                      const s2 = parseTime(e.bestS2);
-                      if (s1 === null || s1 < 10 || s2 === null || s2 < 10) return '—';
-                      return (s1 + s2).toFixed(3);
-                    })()}
-                  </td>}
-                  <td className="table-cell text-center font-mono text-dark-500">
-                    {notStarted ? '' : e.lapNumber}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        </div>
-
-      </div>
+      {showScrubber && wrappedScrubberEl}
+      {showTable && tableEl}
     </>
   );
 }

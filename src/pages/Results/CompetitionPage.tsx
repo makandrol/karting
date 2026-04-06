@@ -1,13 +1,18 @@
-import { useParams, Link, Navigate } from 'react-router-dom';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat } from '../../data/competitions';
-import { toSeconds, isValidSession } from '../../utils/timing';
+import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups } from '../../data/competitions';
+import { toSeconds, isValidSession, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
-import { TRACK_CONFIGS } from '../../data/tracks';
+import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 import LeagueResults from '../../components/Results/LeagueResults';
 import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
+import { parseLapSec } from '../../utils/scoring';
+import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
+import TableLayoutBar from '../../components/TableLayoutBar';
+import SessionReplay, { parseSessionEvents } from '../../components/Timing/SessionReplay';
+import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -34,25 +39,13 @@ interface SessionLap {
 
 export default function CompetitionPage() {
   const { type, eventId } = useParams<{ type: string; eventId?: string }>();
-  const { hasPermission, user } = useAuth();
+  const { hasPermission, user, isOwner } = useAuth();
   const canManage = hasPermission('manage_results');
+  const { isSectionVisible } = useLayoutPrefs();
 
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // Load saved tab preference or default to 'live'
-  const [tab, setTab] = useState<'live' | 'final'>(() => {
-    const storage = user ? localStorage : sessionStorage;
-    const saved = storage.getItem('competition_tab_preference');
-    return (saved === 'final' ? 'final' : 'live') as 'live' | 'final';
-  });
-  
-  // Save tab preference when it changes
-  useEffect(() => {
-    const storage = user ? localStorage : sessionStorage;
-    storage.setItem('competition_tab_preference', tab);
-  }, [tab, user]);
   
   const [compSessions, setCompSessions] = useState<SessionTableRow[]>([]);
   const [allSessionsEnded, setAllSessionsEnded] = useState(false);
@@ -98,7 +91,10 @@ export default function CompetitionPage() {
         .then(data => { setCompetitions(data); setLoading(false); })
         .catch(() => setLoading(false));
     } else {
-      setLoading(false);
+      fetch(`${COLLECTOR_URL}/competitions`)
+        .then(r => r.json())
+        .then(data => { setCompetitions(data); setLoading(false); })
+        .catch(() => setLoading(false));
     }
   }, [type, eventId]);
 
@@ -117,35 +113,12 @@ export default function CompetitionPage() {
 
   if (loading) return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
 
+  if (!eventId && !type) {
+    return <CompetitionList competitions={competitions} />;
+  }
+
   if (!eventId && type) {
-    const config = COMPETITION_CONFIGS[type as keyof typeof COMPETITION_CONFIGS];
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-white">{config?.name || type}</h1>
-        {competitions.length === 0 ? (
-          <div className="card text-center py-12 text-dark-500">Немає змагань цього типу</div>
-        ) : (
-          <div className="space-y-2">
-            {competitions.map(c => (
-              <Link key={c.id} to={`/results/${type}/${c.id}`}
-                className="card p-4 block hover:bg-dark-700/50 transition-colors">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-white font-medium">{c.name}</div>
-                    <div className="text-dark-400 text-sm">{c.date} · {c.sessions.length} заїздів</div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                    c.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
-                  }`}>
-                    {c.status === 'finished' ? 'Завершено' : 'Live'}
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
-    );
+    return <CompetitionList competitions={competitions} initialFilter={type} />;
   }
 
   if (!competition) {
@@ -161,7 +134,7 @@ export default function CompetitionPage() {
 
   const trackId = competition.results?.trackId ?? null;
   const trackConfig = trackId ? TRACK_CONFIGS.find(t => t.id === trackId) : null;
-  const trackLabel = trackConfig ? `Траса ${trackConfig.id}` : null;
+  const trackLabel = trackConfig ? `Траса ${trackDisplayId(trackConfig.id)}` : null;
 
   const changeTrack = async (newTrackId: number) => {
     try {
@@ -196,21 +169,35 @@ export default function CompetitionPage() {
 
   return (
     <div className="space-y-4">
+      {(competition.format === 'light_league' || competition.format === 'champions_league') && (
+        <TableLayoutBar pageId="competition" sections={[
+          ...PAGE_SECTIONS.competition,
+          ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
+        ]} />
+      )}
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-white">{competition.name.replace(/,?\s*Тр\.\s*\d+/, '')}</h1>
-            <select
-              value={trackId ?? ''}
-              onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
-              disabled={!canManage}
-              className={`bg-dark-800 text-dark-300 text-xs rounded px-0.5 py-0.5 border border-dark-700 outline-none focus:border-primary-500 w-10 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
-            >
-              <option value=""></option>
-              {TRACK_CONFIGS.map(t => (
-                <option key={t.id} value={t.id}>{t.id}</option>
-              ))}
-            </select>
+            <h1 className="text-xl font-bold text-white">{getCompetitionDisplayName(competition).replace(/,?\s*Траса\s*\d+R?/, '')}</h1>
+            <div className="flex items-center gap-1 border border-dark-700 rounded px-2 py-1">
+              <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+              <select
+                value={trackId ?? ''}
+                onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
+                disabled={!canManage}
+                className={`bg-transparent text-dark-300 text-xs outline-none w-10 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
+              >
+                <option value=""></option>
+                {[...TRACK_CONFIGS].sort((a, b) => {
+                  const aR = isReverseTrack(a.id) ? 1 : 0;
+                  const bR = isReverseTrack(b.id) ? 1 : 0;
+                  if (aR !== bR) return aR - bR;
+                  return baseTrackId(a.id) - baseTrackId(b.id);
+                }).map(t => (
+                  <option key={t.id} value={t.id}>{trackDisplayId(t.id)}</option>
+                ))}
+              </select>
+            </div>
             {(competition.format === 'light_league' || competition.format === 'champions_league') && (
               <CompetitionParams
                 pilotCount={pilotCount}
@@ -267,78 +254,20 @@ export default function CompetitionPage() {
         </div>
       </div>
 
-      <div className="flex bg-dark-800 rounded-md p-0.5 w-fit">
-        <button onClick={() => setTab('live')}
-          className={`px-3 py-1 text-xs rounded transition-colors ${tab === 'live' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
-          Live результати
-        </button>
-        <button onClick={() => setTab('final')}
-          className={`px-3 py-1 text-xs rounded transition-colors ${tab === 'final' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>
-          Фінальні результати
-        </button>
-      </div>
-
-      {tab === 'final' ? (
-        <FinalResults competition={competition} />
-      ) : (
-        <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
-      )}
-
-      {compSessions.length > 0 && (
-        <div className="card p-0 overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-dark-800">
-            <h3 className="text-white font-semibold text-sm">Заїзди ({compSessions.length})</h3>
-          </div>
-          <SessionsTable sessions={compSessions} />
-        </div>
-      )}
+      <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
     </div>
   );
 }
 
-function FinalResults({ competition }: { competition: Competition }) {
-  if (competition.status === 'live') {
-    return <div className="card text-center py-12 text-dark-500">Фінальні результати будуть опубліковані після завершення змагання</div>;
-  }
-  if (!competition.uploaded_results) {
-    return <div className="card text-center py-12 text-dark-500">Фінальні результати ще не завантажені</div>;
-  }
-
-  const results = competition.uploaded_results;
-  if (Array.isArray(results)) {
-    return (
-      <div className="card p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead><tr className="table-header">
-              {Object.keys(results[0] || {}).map(key => (
-                <th key={key} className="table-cell text-center">{key}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {results.map((row: any, i: number) => (
-                <tr key={i} className="table-row">
-                  {Object.values(row).map((val: any, j: number) => (
-                    <td key={j} className="table-cell text-center font-mono text-dark-300">{String(val ?? '—')}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  }
-
-  return <div className="card p-4"><pre className="text-dark-300 text-xs overflow-auto">{JSON.stringify(results, null, 2)}</pre></div>;
-}
-
 function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void }) {
+  const { isOwner } = useAuth();
   const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [livePositions, setLivePositions] = useState<{ pilot: string; position: number }[]>([]);
+  const [liveEntries, setLiveEntries] = useState<any[]>([]);
+  const [liveTeams, setLiveTeams] = useState<any[]>([]);
   const [liveEnabled, setLiveEnabled] = useState(true);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
 
@@ -439,8 +368,12 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
             pilot: e.pilot,
             position: Number(e.position),
           })));
+          setLiveEntries(timingRes.entries);
+          setLiveTeams(timingRes.teams || []);
         } else {
           setLivePositions([]);
+          setLiveEntries([]);
+          setLiveTeams([]);
         }
       } catch {}
     }, 2000);
@@ -457,54 +390,78 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
 
   if (competition.format === 'light_league' || competition.format === 'champions_league') {
     const isScrubbing = scrubTime !== null;
-    return (
-      <div className="space-y-4">
-        {sessionTimes.length > 0 && (
-          <CompetitionTimeline
-            format={competition.format}
-            sessions={competition.sessions}
-            sessionTimes={sessionTimes}
-            currentTime={scrubTime}
-            onTimeChange={(t) => { setScrubTime(t); if (t !== null) setLiveEnabled(false); else setLiveEnabled(true); }}
-            isLive={competition.status === 'live' && !allSessionsEnded}
-          />
-        )}
-        <LeagueResults
-          format={competition.format}
-          competitionId={competition.id}
-          sessions={competition.sessions}
-          sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
-          liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
-          livePhase={isScrubbing ? scrubActivePhase : undefined}
-          livePositions={isScrubbing ? [] : livePositions}
-          livePilots={isScrubbing ? scrubPilots : livePositions.map(p => p.pilot)}
-          liveEnabled={!isScrubbing && liveEnabled}
-          onToggleLive={() => { if (isScrubbing) { setScrubTime(null); setLiveEnabled(true); } else setLiveEnabled(v => !v); }}
-          initialExcludedPilots={competition.results?.excludedPilots}
-          initialEdits={competition.results?.edits}
-          excludedLapKeys={competition.results?.excludedLaps}
-          allSessionsEnded={allSessionsEnded}
-          totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
-          totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
-          groupCountOverride={competition.results?.groupCountOverride ?? null}
-          onPilotCount={onPilotCount}
-          onAutoGroups={onAutoGroups}
-          onSaveResults={async (partial) => {
-            try {
-              const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-              if (!res.ok) return;
-              const comp = await res.json();
-              const currentResults = comp.results || {};
-              await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                body: JSON.stringify({ results: { ...currentResults, ...partial } }),
-              });
-              setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
-            } catch {}
-          }}
-        />
+
+    const leagueResultsEl = (
+      <LeagueResults
+        key="leaguePoints"
+        format={competition.format}
+        competitionId={competition.id}
+        sessions={competition.sessions}
+        sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+        liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+        livePhase={isScrubbing ? scrubActivePhase : undefined}
+        livePositions={isScrubbing ? [] : livePositions}
+        livePilots={isScrubbing ? scrubPilots : livePositions.map(p => p.pilot)}
+        liveEnabled={!isScrubbing && liveEnabled}
+        onToggleLive={() => { if (isScrubbing) { setScrubTime(null); setLiveEnabled(true); } else setLiveEnabled(v => !v); }}
+        initialExcludedPilots={competition.results?.excludedPilots}
+        initialEdits={competition.results?.edits}
+        excludedLapKeys={competition.results?.excludedLaps}
+        allSessionsEnded={allSessionsEnded}
+        totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
+        totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
+        groupCountOverride={competition.results?.groupCountOverride ?? null}
+        onPilotCount={onPilotCount}
+        onAutoGroups={onAutoGroups}
+        onSaveResults={async (partial) => {
+          try {
+            const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+            if (!res.ok) return;
+            const comp = await res.json();
+            const currentResults = comp.results || {};
+            await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+              body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+            });
+            setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+          } catch {}
+        }}
+      />
+    );
+
+    const liveSessionEl = (
+      <LiveSessionTable
+        key="liveSession"
+        competition={competition}
+        liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+        liveEntries={isScrubbing ? [] : liveEntries}
+        liveTeams={isScrubbing ? [] : liveTeams}
+        sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+        compSessions={compSessions}
+        isScrubbing={isScrubbing}
+      />
+    );
+
+    const sessionsEl = compSessions.length > 0 ? (
+      <div key="sessions" className="card p-0 overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-dark-800">
+          <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
+        </div>
+        <SessionsTable sessions={compSessions} />
       </div>
+    ) : null;
+
+    const sectionMap: Record<string, React.ReactNode> = {
+      leaguePoints: leagueResultsEl,
+      liveSession: liveSessionEl,
+      sessions: sessionsEl,
+    };
+
+    return (
+      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled}>
+        {sectionMap}
+      </CompetitionLayoutWrapper>
     );
   }
 
@@ -547,7 +504,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
                       <tr key={p.pilot} className="table-row">
                         <td className="table-cell text-center font-mono text-white font-bold">{i + 1}</td>
                         <td className="table-cell text-left text-white">{p.pilot}</td>
-                        <td className="table-cell text-center font-mono text-dark-300">{p.kart}</td>
+                        <td className={`table-cell text-center font-mono ${KART_COLOR}`}>{p.kart}</td>
                         <td className={`table-cell text-right font-mono font-semibold ${i === 0 ? 'text-purple-400' : 'text-green-400'}`}>
                           {toSeconds(p.bestTimeStr)}
                         </td>
@@ -562,6 +519,46 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, children }: {
+  sessionTimes: { sessionId: string; phase: string | null; startTime: number; endTime: number | null }[];
+  competition: Competition;
+  scrubTime: number | null;
+  setScrubTime: (t: number | null) => void;
+  allSessionsEnded: boolean;
+  setLiveEnabled: (v: boolean | ((prev: boolean) => boolean)) => void;
+  children: Record<string, ReactNode>;
+}) {
+  const { isSectionVisible, getPageLayout } = useLayoutPrefs();
+
+  const layout = getPageLayout('competition');
+
+  const renderSection = (sectionId: string) => {
+    if (!isSectionVisible('competition', sectionId)) return null;
+    if (sectionId === 'timeline') {
+      if (sessionTimes.length === 0) return null;
+      return (
+        <CompetitionTimeline
+          key="timeline"
+          format={competition.format}
+          sessions={competition.sessions}
+          sessionTimes={sessionTimes}
+          currentTime={scrubTime}
+          onTimeChange={(t) => { setScrubTime(t); if (t !== null) setLiveEnabled(false); else setLiveEnabled(true); }}
+          isLive={competition.status === 'live' && !allSessionsEnded}
+        />
+      );
+    }
+    if (children[sectionId] !== undefined) return children[sectionId];
+    return null;
+  };
+
+  return (
+    <div className="space-y-4">
+      {layout.map(s => renderSection(s.id))}
     </div>
   );
 }
@@ -621,15 +618,6 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
       </div>
     </div>
   );
-}
-
-function parseLapSec(t: string | null): number | null {
-  if (!t) return null;
-  const m = t.match(/^(\d+):(\d+\.\d+)$/);
-  if (m) return parseInt(m[1]) * 60 + parseFloat(m[2]);
-  const s = t.match(/^\d+\.\d+$/);
-  if (s) return parseFloat(t);
-  return null;
 }
 
 function GonzalesLiveTable({ competition, sessionLaps }: { competition: Competition; sessionLaps: Map<string, SessionLap[]> }) {
@@ -735,5 +723,551 @@ function GonzalesLiveTable({ competition, sessionLaps }: { competition: Competit
         </table>
       </div>
     </div>
+  );
+}
+
+const FORMAT_FILTERS: { key: string; label: string }[] = [
+  { key: 'gonzales', label: 'Гонзалес' },
+  { key: 'light_league', label: 'ЛЛ' },
+  { key: 'champions_league', label: 'ЛЧ' },
+  { key: 'sprint', label: 'Спринти' },
+  { key: 'marathon', label: 'Марафони' },
+];
+
+const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+function getCompRealDate(c: Competition): string {
+  if (c.sessions.length > 0) {
+    const m = c.sessions[0].sessionId.match(/session-(\d+)/);
+    if (m) {
+      const d = new Date(parseInt(m[1]));
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+  }
+  return c.date || '';
+}
+
+function getMonday(d: Date): Date {
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.getFullYear(), d.getMonth(), diff);
+}
+
+function getWeekDays(monday: Date): string[] {
+  const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + i);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }).filter(d => d <= todayStr);
+}
+
+const MONTH_NAMES = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
+
+function getWeeksInMonth(year: number, month: number): string[][] {
+  const todayStr = localDateStr(new Date());
+  const firstDay = new Date(year, month, 1);
+  const monday = getMonday(firstDay);
+  const weeks: string[][] = [];
+  for (let w = 0; w < 6; w++) {
+    const weekStart = new Date(monday);
+    weekStart.setDate(weekStart.getDate() + w * 7);
+    const days = getWeekDays(weekStart).filter(d => {
+      const dd = new Date(d + 'T00:00:00');
+      return dd.getMonth() === month && d <= todayStr;
+    });
+    if (days.length > 0) weeks.push(days);
+  }
+  return weeks;
+}
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function loadWithExpiry(storage: Storage, key: string): any {
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return null;
+    const { value, expiresAt } = JSON.parse(raw);
+    if (expiresAt && Date.now() > expiresAt) { storage.removeItem(key); return null; }
+    return value;
+  } catch { return null; }
+}
+
+function saveWithExpiry(storage: Storage, key: string, value: any) {
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+  try { storage.setItem(key, JSON.stringify({ value, expiresAt: endOfDay.getTime() })); } catch {}
+}
+
+function CompetitionList({ competitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
+  const { user } = useAuth();
+  const storage = user ? localStorage : sessionStorage;
+
+  const [activeFilters, setActiveFilters] = useState<Set<string>>(() => {
+    if (initialFilter) return new Set([initialFilter]);
+    const saved = loadWithExpiry(storage, 'karting_comp_filters');
+    if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
+    return new Set(FORMAT_FILTERS.map(f => f.key));
+  });
+
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>(() => {
+    const saved = loadWithExpiry(storage, 'karting_comp_sort');
+    return saved === 'asc' ? 'asc' : 'desc';
+  });
+
+  const compDates = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of competitions) map.set(c.id, getCompRealDate(c));
+    return map;
+  }, [competitions]);
+
+  const dateCompNames = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const c of competitions) {
+      const d = compDates.get(c.id) || '';
+      if (!d) continue;
+      const cfg = COMPETITION_CONFIGS[c.format as keyof typeof COMPETITION_CONFIGS];
+      const name = cfg?.shortName || c.format;
+      if (!map[d]) map[d] = [];
+      if (!map[d].includes(name)) map[d].push(name);
+    }
+    return map;
+  }, [competitions, compDates]);
+
+  const allCompDates = useMemo(() => [...new Set(competitions.map(c => compDates.get(c.id) || '').filter(Boolean))].sort().reverse(), [competitions, compDates]);
+
+  const thisMonday = getMonday(new Date());
+  const prevMonday = new Date(thisMonday);
+  prevMonday.setDate(prevMonday.getDate() - 7);
+  const thisWeekDays = getWeekDays(thisMonday);
+  const prevWeekDays = getWeekDays(prevMonday);
+  const todayStr = localDateStr(new Date());
+
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
+    const saved = loadWithExpiry(storage, 'karting_comp_dates');
+    if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
+    const withData = thisWeekDays.filter(d => dateCompNames[d]);
+    return new Set(withData.length > 0 ? withData : []);
+  });
+
+  useEffect(() => {
+    if (selectedDates.size === 0 && allCompDates.length > 0) {
+      const withData = thisWeekDays.filter(d => dateCompNames[d]);
+      if (withData.length > 0) setSelectedDates(new Set(withData));
+    }
+  }, [dateCompNames]);
+
+  const saveDates = (dates: Set<string>) => saveWithExpiry(storage, 'karting_comp_dates', [...dates]);
+  const toggleDate = (d: string) => {
+    setSelectedDates(prev => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); saveDates(n); return n; });
+  };
+  const selectDates = (dates: string[]) => {
+    setSelectedDates(prev => { const n = new Set(prev); dates.forEach(d => n.add(d)); saveDates(n); return n; });
+  };
+
+  const [prevWeekOpen, setPrevWeekOpen] = useState(() => [...selectedDates].some(d => new Set(prevWeekDays).has(d)));
+  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+
+  const saveFilters = (filters: Set<string>) => saveWithExpiry(storage, 'karting_comp_filters', [...filters]);
+  const toggleFilter = (key: string) => {
+    setActiveFilters(prev => {
+      const n = new Set(prev);
+      if (n.has(key)) { n.delete(key); if (n.size === 0) { saveFilters(new Set(FORMAT_FILTERS.map(f => f.key))); return new Set(FORMAT_FILTERS.map(f => f.key)); } }
+      else n.add(key);
+      saveFilters(n); return n;
+    });
+  };
+  const allActive = activeFilters.size === FORMAT_FILTERS.length;
+  const toggleAll = () => { const all = new Set(FORMAT_FILTERS.map(f => f.key)); setActiveFilters(all); saveFilters(all); };
+  const toggleSort = () => { const next = sortDir === 'desc' ? 'asc' : 'desc'; setSortDir(next); saveWithExpiry(storage, 'karting_comp_sort', next); };
+
+  const filtered = competitions
+    .filter(c => activeFilters.has(c.format))
+    .filter(c => selectedDates.size === 0 || selectedDates.has(compDates.get(c.id) || ''))
+    .sort((a, b) => {
+      if (a.status === 'live' && b.status !== 'live') return -1;
+      if (a.status !== 'live' && b.status === 'live') return 1;
+      const cmp = (compDates.get(a.id) || '').localeCompare(compDates.get(b.id) || '');
+      return sortDir === 'desc' ? -cmp : cmp;
+    });
+
+  const DateBtn = ({ d }: { d: string }) => {
+    const isToday = d === todayStr;
+    const names = dateCompNames[d] || [];
+    const hasData = names.length > 0;
+    const isActive = selectedDates.has(d);
+    const dayDate = new Date(d + 'T00:00:00');
+    const label = `${DAY_NAMES[dayDate.getDay()]} ${String(dayDate.getDate()).padStart(2, '0')}.${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
+    return (
+      <button
+        onClick={() => hasData && toggleDate(d)}
+        className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+          isActive ? 'bg-primary-600 text-white ring-1 ring-primary-400' :
+          isToday ? 'bg-green-600/20 text-green-400' :
+          hasData ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
+          'bg-dark-900 text-dark-700 cursor-default'
+        }`}
+      >
+        <span>{label}</span>
+        <span className={`text-[9px] ${isActive ? 'text-white/70' : 'text-dark-500'}`}>{hasData ? names.join(', ') : '–'}</span>
+      </button>
+    );
+  };
+
+  const SelectAllBtn = ({ dates }: { dates: string[] }) => {
+    const withData = dates.filter(d => dateCompNames[d]);
+    const notSelected = withData.filter(d => !selectedDates.has(d));
+    if (notSelected.length === 0) return null;
+    return (
+      <button onClick={(e) => { e.stopPropagation(); selectDates(withData); }}
+        className="bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 text-[11px] font-bold rounded px-1.5 py-0.5 transition-colors ml-1.5 leading-none">
+        +{notSelected.length}
+      </button>
+    );
+  };
+
+  const yearMonths = useMemo(() => {
+    const map = new Map<string, Set<number>>();
+    for (const d of allCompDates) {
+      const thisSet = new Set(thisWeekDays);
+      const prevSet = new Set(prevWeekDays);
+      if (thisSet.has(d) || prevSet.has(d)) continue;
+      const y = d.slice(0, 4);
+      const m = parseInt(d.slice(5, 7)) - 1;
+      if (!map.has(y)) map.set(y, new Set());
+      map.get(y)!.add(m);
+    }
+    return map;
+  }, [allCompDates]);
+
+  const thisWeekWithData = thisWeekDays.filter(d => dateCompNames[d]);
+  const prevWeekWithData = prevWeekDays.filter(d => dateCompNames[d]);
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-3 space-y-3">
+        <div>
+          <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 flex items-center">
+            Цей тиждень
+            <SelectAllBtn dates={thisWeekDays} />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {thisWeekDays.map(d => <DateBtn key={d} d={d} />)}
+          </div>
+        </div>
+        {prevWeekDays.length > 0 && (
+          <div>
+            <button onClick={() => setPrevWeekOpen(v => !v)}
+              className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors">
+              <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>&#9654;</span>
+              Попередній тиждень
+              <SelectAllBtn dates={prevWeekDays} />
+            </button>
+            {prevWeekOpen && (
+              <div className="flex flex-wrap gap-1.5">
+                {prevWeekDays.map(d => <DateBtn key={d} d={d} />)}
+              </div>
+            )}
+          </div>
+        )}
+        {[...yearMonths.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => {
+          const yearDates = allCompDates.filter(d => d.startsWith(year) && !new Set(thisWeekDays).has(d) && !new Set(prevWeekDays).has(d));
+          return (
+            <div key={year}>
+              <button onClick={() => { const n = new Set(expandedYears); n.has(year) ? n.delete(year) : n.add(year); setExpandedYears(n); }}
+                className="flex items-center gap-1.5 text-dark-300 hover:text-white text-xs font-medium transition-colors">
+                <span className={`text-[10px] transition-transform ${expandedYears.has(year) ? 'rotate-90' : ''}`}>&#9654;</span>
+                {year}
+                <SelectAllBtn dates={yearDates} />
+              </button>
+              {expandedYears.has(year) && (
+                <div className="ml-4 mt-1 space-y-2">
+                  {[...months].sort((a, b) => b - a).map(month => {
+                    const monthKey = `${year}-${month}`;
+                    const weeks = getWeeksInMonth(parseInt(year), month);
+                    const monthDates = yearDates.filter(d => d.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`));
+                    return (
+                      <div key={monthKey}>
+                        <button onClick={() => { const n = new Set(expandedMonths); n.has(monthKey) ? n.delete(monthKey) : n.add(monthKey); setExpandedMonths(n); }}
+                          className="flex items-center gap-1.5 text-dark-400 hover:text-white text-xs transition-colors">
+                          <span className={`text-[8px] transition-transform ${expandedMonths.has(monthKey) ? 'rotate-90' : ''}`}>&#9654;</span>
+                          {MONTH_NAMES[month]}
+                          <SelectAllBtn dates={monthDates} />
+                        </button>
+                        {expandedMonths.has(monthKey) && (
+                          <div className="ml-3 mt-1 space-y-1">
+                            {weeks.map((weekDays, wi) => (
+                              <div key={wi} className="flex flex-wrap gap-1.5">
+                                {weekDays.map(d => <DateBtn key={d} d={d} />)}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-1 flex-wrap items-center">
+        <button onClick={toggleAll}
+          className={`px-2 py-1 rounded text-xs font-medium transition-colors ${allActive ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+          Все
+        </button>
+        {FORMAT_FILTERS.map(f => (
+          <button key={f.key} onClick={() => toggleFilter(f.key)}
+            className={`px-2 py-1 rounded text-xs font-medium transition-colors ${activeFilters.has(f.key) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
+            {f.label}
+          </button>
+        ))}
+        <button onClick={toggleSort}
+          className="px-2 py-1 rounded text-xs font-medium bg-dark-800 text-dark-500 hover:text-dark-300 transition-colors ml-1">
+          Дата {sortDir === 'desc' ? '↓' : '↑'}
+        </button>
+      </div>
+      {filtered.length === 0 ? (
+        <div className="card text-center py-12 text-dark-500">Немає змагань</div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(c => (
+            <CompetitionListItem key={c.id} competition={c} type={c.format} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, sessionLaps, compSessions, isScrubbing }: {
+  competition: Competition;
+  liveSessionId: string | null;
+  liveEntries: any[];
+  liveTeams: any[];
+  sessionLaps: Map<string, SessionLap[]>;
+  compSessions: SessionTableRow[];
+  isScrubbing: boolean;
+}) {
+  const currentPhase = useMemo(() => {
+    if (!liveSessionId) return null;
+    const s = competition.sessions.find(cs => cs.sessionId === liveSessionId);
+    return s?.phase ?? null;
+  }, [competition.sessions, liveSessionId]);
+
+  const isQualifying = currentPhase?.startsWith('qualifying') ?? false;
+  const isRace = currentPhase?.startsWith('race_') ?? false;
+
+  const sessionEnded = useMemo(() => {
+    if (!liveSessionId || isScrubbing) return false;
+    const cs = compSessions.find(s => s.id === liveSessionId);
+    return cs ? cs.end_time !== null && cs.end_time !== undefined : false;
+  }, [liveSessionId, compSessions, isScrubbing]);
+
+  const laps = liveSessionId ? (sessionLaps.get(liveSessionId) || []) : [];
+  const hasData = laps.length > 0 || liveEntries.length > 0;
+
+  const [events, setEvents] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!liveSessionId) { setEvents([]); return; }
+    let cancelled = false;
+    const fetchEvents = async () => {
+      try {
+        const res = await fetch(`${COLLECTOR_URL}/db/events?session=${liveSessionId}`);
+        if (res.ok && !cancelled) setEvents(await res.json());
+      } catch {}
+    };
+    fetchEvents();
+    const timer = setInterval(fetchEvents, 3000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [liveSessionId]);
+
+  const { s1Events, snapshots } = useMemo(() => parseSessionEvents(events), [events]);
+
+  const replayLaps = useMemo(() => buildReplayLaps(laps as any), [laps]);
+
+  const sessionStartTime = useMemo(() => {
+    if (!liveSessionId) return undefined;
+    const cs = compSessions.find(s => s.id === liveSessionId);
+    return cs?.start_time ?? undefined;
+  }, [liveSessionId, compSessions]);
+
+  const durationSec = useMemo(() => {
+    if (!sessionStartTime) return 0;
+    const cs = compSessions.find(s => s.id === liveSessionId);
+    const endTime = cs?.end_time ?? Date.now();
+    return Math.max(0, (endTime - sessionStartTime) / 1000);
+  }, [sessionStartTime, liveSessionId, compSessions, laps]);
+
+  const mappedLiveEntries = useMemo(() => {
+    return liveEntries.map((e: any) => ({
+      position: e.position ?? 0,
+      pilot: e.pilot,
+      kart: e.kart ?? 0,
+      lastLap: e.lastLap ?? null,
+      s1: e.s1 ?? null,
+      s2: e.s2 ?? null,
+      bestLap: e.bestLap ?? null,
+      lapNumber: e.lapNumber ?? 0,
+      bestS1: e.bestS1 ?? null,
+      bestS2: e.bestS2 ?? null,
+      progress: e.progress ?? null,
+      currentLapSec: null,
+      previousLapSec: null,
+    }));
+  }, [liveEntries]);
+
+  const { raceGroup, isRace: isRacePhase } = useMemo(() => extractCompetitionReplayProps(currentPhase), [currentPhase]);
+
+  const isCL = competition.format === 'champions_league';
+  const excludedPilots = new Set<string>(competition.results?.excludedPilots || []);
+
+  const { startPositions, totalPilots } = useMemo(() => {
+    if (!isRace) return { startPositions: undefined, totalPilots: 0 };
+
+    const raceMatch = currentPhase!.match(/^race_(\d+)_group_(\d+)$/);
+    const raceNum = raceMatch ? parseInt(raceMatch[1]) : 1;
+    const groupNum = raceMatch ? parseInt(raceMatch[2]) : 1;
+
+    const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith('qualifying'));
+    const qualiData = new Map<string, { bestTime: number; pilot: string }>();
+    for (const qs of qualiSessions) {
+      for (const l of (sessionLaps.get(qs.sessionId) || [])) {
+        const sec = parseLapSec(l.lap_time);
+        if (sec === null || sec < 38) continue;
+        const ex = qualiData.get(l.pilot);
+        if (!ex || sec < ex.bestTime) qualiData.set(l.pilot, { bestTime: sec, pilot: l.pilot });
+      }
+    }
+    const qualiSorted = [...qualiData.entries()]
+      .filter(([p]) => !excludedPilots.has(p))
+      .sort((a, b) => a[1].bestTime - b[1].bestTime);
+    const maxQualified = isCL ? 24 : 36;
+    const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
+    const maxGroups = competition.results?.groupCountOverride ?? (qualifiedPilots.length <= 13 ? 1 : qualifiedPilots.length <= 26 ? 2 : 3);
+
+    let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
+    for (let r = 1; r < raceNum; r++) {
+      const rSessions = competition.sessions.filter(s => s.phase?.startsWith(`race_${r}_`));
+      const raceTimes: { pilot: string; time: number }[] = [];
+      for (const rs of rSessions) {
+        for (const l of (sessionLaps.get(rs.sessionId) || [])) {
+          const sec = parseLapSec(l.lap_time);
+          if (sec === null || sec < 38) continue;
+          const ex = raceTimes.find(rt => rt.pilot === l.pilot);
+          if (!ex) raceTimes.push({ pilot: l.pilot, time: sec });
+          else if (sec < ex.time) ex.time = sec;
+        }
+      }
+      if (raceTimes.length > 0) prevRaceTimes = raceTimes.filter(r => !excludedPilots.has(r.pilot));
+    }
+
+    const prevSorted = [...prevRaceTimes]
+      .filter(p => !excludedPilots.has(p.pilot))
+      .sort((a, b) => a.time - b.time)
+      .slice(0, maxQualified);
+    const groups = splitIntoGroups(prevSorted.map(p => p.pilot), maxGroups);
+    const sp = new Map<string, number>();
+    if (groupNum <= groups.length) {
+      const g = groups[groupNum - 1];
+      g.pilots.forEach((p, pi) => { sp.set(p, g.pilots.length - pi); });
+    }
+
+    const totalPilotsOverride = competition.results?.totalPilotsOverride ?? null;
+    const pilotsLocked = competition.results?.totalPilotsLocked ?? false;
+    const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
+
+    return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
+  }, [competition, sessionLaps, currentPhase, excludedPilots, isCL]);
+
+  if (!liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded) {
+    return (
+      <div className="card p-0 overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-dark-800">
+          <h3 className="text-dark-500 font-semibold text-sm">Немає активного заїзду</h3>
+        </div>
+      </div>
+    );
+  }
+
+  const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase) : '';
+
+  return (
+    <div>
+      <div className="px-1 py-1.5">
+        <h3 className="text-white font-semibold text-sm">{phaseLabel}</h3>
+      </div>
+      <SessionReplay
+        laps={replayLaps}
+        durationSec={durationSec}
+        sessionStartTime={sessionStartTime}
+        isLive={!sessionEnded}
+        autoPlay
+        liveEntries={isScrubbing ? undefined : mappedLiveEntries}
+        s1Events={s1Events}
+        snapshots={snapshots}
+        startPositions={startPositions}
+        raceGroup={raceGroup}
+        totalQualifiedPilots={totalPilots}
+        defaultSortMode={isRace ? 'race' : 'qualifying'}
+        showScrubber={false}
+      />
+    </div>
+  );
+}
+
+
+function getCompetitionDisplayName(c: Competition): string {
+  let name = c.name.replace(/Тр\.\s*/g, 'Траса ');
+  if (c.sessions.length > 0) {
+    const firstSid = c.sessions[0].sessionId;
+    const m = firstSid.match(/session-(\d+)/);
+    if (m) {
+      const d = new Date(parseInt(m[1]));
+      const realDate = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getFullYear()).slice(2)}`;
+      name = name.replace(/\d{2}\.\d{2}\.\d{2}/, realDate);
+    }
+  }
+  return name;
+}
+
+function CompetitionListItem({ competition: c, type }: { competition: Competition; type: string }) {
+  let top3: { pilot: string; totalPoints: number }[] = [];
+  try {
+    const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
+    const pilots = results?.standings?.pilots;
+    if (Array.isArray(pilots)) {
+      top3 = pilots.slice(0, 3).map((p: any) => ({ pilot: p.pilot, totalPoints: p.totalPoints }));
+    }
+  } catch {}
+
+  return (
+    <Link to={`/results/${type}/${c.id}`}
+      className="card p-4 block hover:bg-dark-700/50 transition-colors">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="text-white font-medium truncate">{getCompetitionDisplayName(c)}</div>
+          {top3.length > 0 && (
+            <div className="flex flex-col shrink-0">
+              {top3.map((p, i) => (
+                <span key={p.pilot} className="text-dark-400 text-[10px] leading-tight whitespace-nowrap">
+                  {i + 1}. {p.pilot} — {p.totalPoints}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <span className={`px-2 py-0.5 rounded text-[10px] font-medium shrink-0 ${
+          c.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
+        }`}>
+          {c.status === 'finished' ? 'Завершено' : 'Live'}
+        </span>
+      </div>
+    </Link>
   );
 }

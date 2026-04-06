@@ -1,15 +1,18 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds, mergePilotNames, shortName, fetchRaceStartPositions } from '../../utils/timing';
+import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
 import { useTrack } from '../../services/trackContext';
-import { useViewPrefs } from '../../services/viewPrefs';
+import { trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
+import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
+import TableLayoutBar from '../../components/TableLayoutBar';
 import type { TimingEntry } from '../../types';
+import { type DbLap, buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
 
 interface DbSession {
   id: string;
@@ -24,20 +27,6 @@ interface DbSession {
   best_lap_time: string | null;
   best_lap_pilot: string | null;
   merged_session_ids?: string[];
-}
-
-interface DbLap {
-  id: number;
-  session_id: string;
-  pilot: string;
-  kart: number;
-  lap_number: number;
-  lap_time: string | null;
-  s1: string | null;
-  s2: string | null;
-  best_lap: string | null;
-  position: number | null;
-  ts: number;
 }
 
 function fmtTime(ms: number): string {
@@ -55,7 +44,8 @@ function fmtDuration(startMs: number, endMs: number): string {
 export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const { allTracks } = useTrack();
-  const { isOwner } = useAuth();
+  const { isOwner, hasPermission } = useAuth();
+  const canChangeTrack = hasPermission('change_track');
   const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
   const [dbSession, setDbSession] = useState<DbSession | null>(null);
@@ -159,7 +149,8 @@ export default function SessionDetail() {
     return () => clearInterval(timer);
   }, [dbSession]);
 
-  const { prefs, toggle } = useViewPrefs();
+  const { isSectionVisible, getPageLayout } = useLayoutPrefs();
+  const sessionLayout = getPageLayout('sessionDetail');
 
   const handleRenamePilot = async (oldName: string, newName: string) => {
     if (!sessionId) return;
@@ -172,6 +163,19 @@ export default function SessionDetail() {
       }).catch(() => {});
     }
     window.location.reload();
+  };
+
+  const handleChangeTrack = async (newTrackId: number) => {
+    if (!sessionId || !dbSession) return;
+    const sessionIds = dbSession.merged_session_ids || [sessionId];
+    try {
+      await fetch(`${COLLECTOR_URL}/db/update-sessions-track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ sessionIds, trackId: newTrackId }),
+      });
+      setDbSession({ ...dbSession, track_id: newTrackId });
+    } catch { /* ignore */ }
   };
 
   const compId = (dbSession as any)?.competition_id;
@@ -207,43 +211,27 @@ export default function SessionDetail() {
     );
   }
 
-  // Merge "Карт X" → real pilot name and build stats
   const mergedLaps = mergePilotNames(dbLaps);
-
-  const pilotMap = new Map<string, { kart: number; laps: DbLap[]; bestLap: number; bestS1: number; bestS2: number }>();
-  for (const lap of mergedLaps) {
-    if (!pilotMap.has(lap.pilot)) pilotMap.set(lap.pilot, { kart: lap.kart, laps: [], bestLap: Infinity, bestS1: Infinity, bestS2: Infinity });
-    const p = pilotMap.get(lap.pilot)!;
-    p.laps.push(lap);
-    const isExcluded = sessionId && excludedLaps.has(`${sessionId}|${lap.pilot}|${lap.ts}`);
-    if (isExcluded) continue;
-    if (lap.lap_time) {
-      const sec = parseLapTime(lap.lap_time);
-      if (sec !== null && sec < p.bestLap) p.bestLap = sec;
-    }
-    if (lap.s1) {
-      const v = parseLapTime(lap.s1);
-      if (v !== null && v >= 10 && v < p.bestS1) p.bestS1 = v;
-    }
-    if (lap.s2) {
-      const v = parseLapTime(lap.s2);      if (v !== null && v >= 10 && v < p.bestS2) p.bestS2 = v;
-    }
-  }
-  const pilots = [...pilotMap.entries()]
-    .sort((a, b) => a[1].bestLap - b[1].bestLap)
-    .map(([name, data], i) => ({ name, ...data, position: i + 1 }));
+  const pilots = buildPilotLaps(
+    mergedLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time, s1: l.s1, s2: l.s2, ts: l.ts })),
+    excludedLaps.size > 0 ? excludedLaps : undefined,
+    sessionId,
+  );
 
   const dateStr = new Date(dbSession.start_time).toLocaleDateString('uk-UA', { day: '2-digit', month: 'long', year: 'numeric' });
   const pilotCount = pilots.length > 0 ? pilots.length : (liveEntries.length > 0 ? liveEntries.length : (dbSession.real_pilot_count ?? 0));
-  const raceNum = dbSession.race_number;
 
   const currentIdx = daySessions.findIndex(s => s.id === sessionId);
   const dayOrder = (dbSession as any).day_order ?? (currentIdx >= 0 ? currentIdx + 1 : null);
   const prevSession = currentIdx > 0 ? daySessions[currentIdx - 1] : null;
   const nextSession = currentIdx >= 0 && currentIdx < daySessions.length - 1 ? daySessions[currentIdx + 1] : null;
 
+  const compPhaseStr = (dbSession as any).competition_phase as string | null;
+  const { raceGroup, isRace } = extractCompetitionReplayProps(compPhaseStr);
+
   return (
     <div className="space-y-6">
+      <TableLayoutBar pageId="sessionDetail" sections={PAGE_SECTIONS.sessionDetail} />
       <div className="flex items-center gap-3">
         <Link to="/sessions" className="text-dark-400 hover:text-white transition-colors flex-shrink-0">
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -254,12 +242,32 @@ export default function SessionDetail() {
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl font-bold text-white">
               Заїзд {dayOrder ?? ''}
-              <span className="text-dark-500 font-normal text-sm ml-2">Траса #{dbSession.track_id}</span>
             </h1>
+            <div className="flex items-center gap-1 border border-dark-700 rounded px-2 py-1">
+              <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+              {canChangeTrack ? (
+                <select
+                  value={dbSession.track_id}
+                  onChange={(e) => handleChangeTrack(parseInt(e.target.value, 10))}
+                  className="bg-transparent text-dark-300 text-xs outline-none w-10 cursor-pointer"
+                >
+                  {[...allTracks].sort((a, b) => {
+                    const aR = isReverseTrack(a.id) ? 1 : 0;
+                    const bR = isReverseTrack(b.id) ? 1 : 0;
+                    if (aR !== bR) return aR - bR;
+                    return baseTrackId(a.id) - baseTrackId(b.id);
+                  }).map((t) => (
+                    <option key={t.id} value={t.id}>{trackDisplayId(t.id)}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-dark-300 text-xs font-mono">{trackDisplayId(dbSession.track_id)}</span>
+              )}
+            </div>
             <SessionTypeChanger
               sessionId={sessionId!}
               currentFormat={(dbSession as any).competition_format || null}
-              currentPhase={(dbSession as any).competition_phase || null}
+              currentPhase={compPhaseStr}
               currentCompetitionId={(dbSession as any).competition_id || null}
               onChanged={() => window.location.reload()}
             />
@@ -303,7 +311,6 @@ export default function SessionDetail() {
         </div>
       ) : pilots.length === 0 && liveEntries.length > 0 ? (
         <>
-          {/* Live entries (no completed laps yet) */}
           {!dbSession.end_time && (
             <div className="flex items-center gap-2 text-green-400 text-xs">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
@@ -331,7 +338,7 @@ export default function SessionDetail() {
                     <tr key={e.pilot} className="table-row">
                       <td className="table-cell text-center font-mono font-bold text-white">{e.position || i + 1}</td>
                       <td className="table-cell text-left text-white">{e.pilot}</td>
-                      <td className="table-cell text-center font-mono text-dark-300">{e.kart}</td>
+                      <td className={`table-cell text-center font-mono ${KART_COLOR}`}>{e.kart}</td>
                       <td className="table-cell text-center font-mono text-dark-300">{e.lapNumber || 0}</td>
                       <td className="table-cell text-right font-mono text-dark-300">{toSeconds(e.lastLap)}</td>
                       <td className="table-cell text-right font-mono text-green-400 font-semibold">{toSeconds(e.bestLap)}</td>
@@ -351,97 +358,67 @@ export default function SessionDetail() {
             </div>
           )}
 
-          {/* Replay (only for finished sessions with laps) */}
           {dbSession.end_time && dbLaps.length > 0 && (() => {
-            const replayLaps = mergePilotNames(mergedLaps)
-              .filter(l => l.lap_time)
-              .map(l => ({
-                pilot: l.pilot,
-                kart: l.kart,
-                lapNumber: l.lap_number,
-                lapTime: l.lap_time!,
-                s1: l.s1 || '',
-                s2: l.s2 || '',
-                position: l.position || 0,
-                ts: l.ts,
-              }));
+            const replayLaps = buildReplayLaps(mergedLaps);
             const realDurationSec = dbSession.end_time
               ? Math.round((dbSession.end_time - dbSession.start_time) / 1000)
-              : Math.max(...dbLaps.map(l => l.lap_number), 1) * (parseLapTime(dbLaps.find(l => l.lap_time)?.lap_time || '') || 42) + 30;
+              : Math.max(...dbLaps.map(l => l.lap_number), 1) * (parseTime(dbLaps.find(l => l.lap_time)?.lap_time ?? null) || 42) + 30;
             const track = allTracks.find(t => t.id === dbSession.track_id) || allTracks[0];
 
-            return replayLaps.length > 0 ? (
-              <>
-                <SessionReplay
-                  laps={replayLaps}
-                  durationSec={realDurationSec}
-                  sessionStartTime={dbSession.start_time}
-                  raceNumber={dbSession.race_number}
-                  autoPlay={true}
-                  s1Events={s1Events}
-                  snapshots={replaySnapshots}
-                  startPositions={startPositions}
-                  raceGroup={(dbSession as any).competition_phase?.match(/group_(\d+)/)?.[1] ? parseInt((dbSession as any).competition_phase.match(/group_(\d+)/)[1]) : undefined}
-                  totalQualifiedPilots={totalQualifiedPilots || undefined}
-                  defaultSortMode={(dbSession as any).competition_phase?.startsWith('race_') ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
-                  onEntriesUpdate={setTrackEntries}
-                  renderScrubber={(scrubber) => (
-                    <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
-                      {scrubber}
-                    </div>
-                  )}
-                />
-                {prefs.showTrack && track?.svgPath ? (
-                  <div className="relative">
-                    <button onClick={() => toggle('showTrack')}
-                      className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
-                      сховати
-                    </button>
-                    <TrackMap track={track} entries={trackEntries} static />
-                  </div>
-                ) : null}
-              </>
-            ) : null;
-          })()}
-
-          {!prefs.showTrack && (
-            <button onClick={() => toggle('showTrack')}
-              className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
-              Показати трек
-            </button>
-          )}
-
-          {prefs.showLapsByPilots ? (
-            <div className="relative">
-              <button onClick={() => toggle('showLapsByPilots')}
-                className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] bg-dark-900/80 text-dark-400 hover:text-white transition-colors">
-                сховати
-              </button>
-              <LapsByPilots pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
+            const lapsByPilotsEl = (
+              <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
                 excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
                 onToggleLap={isOwner && compId ? handleToggleLap : undefined}
                 sessionId={sessionId} />
-            </div>
-          ) : (
-            <button onClick={() => toggle('showLapsByPilots')}
-              className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-dark-800 text-dark-500 hover:text-white transition-colors">
-              Показати кола по пілотах
-            </button>
+            );
+
+            return replayLaps.length > 0 ? (
+              <SessionReplay
+                laps={replayLaps}
+                durationSec={realDurationSec}
+                sessionStartTime={dbSession.start_time}
+                raceNumber={dbSession.race_number}
+                autoPlay={true}
+                s1Events={s1Events}
+                snapshots={replaySnapshots}
+                startPositions={startPositions}
+                raceGroup={raceGroup}
+                totalQualifiedPilots={totalQualifiedPilots || undefined}
+                defaultSortMode={isRace ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
+                onEntriesUpdate={setTrackEntries}
+                renderScrubber={(scrubber) => (
+                  <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+                    {scrubber}
+                  </div>
+                )}
+                renderContent={({ scrubber, table }) => {
+                  const sectionMap: Record<string, ReactNode> = {
+                    replay: scrubber,
+                    timingTable: table,
+                    track: track?.svgPath ? <TrackMap track={track} entries={trackEntries} static /> : null,
+                    lapsByPilots: lapsByPilotsEl,
+                  };
+                  return (
+                    <>
+                      {sessionLayout.map(s => {
+                        if (!s.visible || !sectionMap[s.id]) return null;
+                        return <div key={s.id}>{sectionMap[s.id]}</div>;
+                      })}
+                    </>
+                  );
+                }}
+              />
+            ) : lapsByPilotsEl;
+          })()}
+
+          {!(dbSession.end_time && dbLaps.length > 0) && (
+            <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
+              excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
+              onToggleLap={isOwner && compId ? handleToggleLap : undefined}
+              sessionId={sessionId} />
           )}
         </>
       )}
     </div>
   );
-}
-
-// ============================================================
-// Helpers for DB session display
-// ============================================================
-
-function parseLapTime(t: string): number | null {
-  const lapMatch = t.match(/^(\d+):(\d+\.\d+)$/);
-  if (lapMatch) return parseInt(lapMatch[1]) * 60 + parseFloat(lapMatch[2]);
-  const secMatch = t.match(/^\d+\.\d+$/);
-  if (secMatch) return parseFloat(t);
-  return null;
 }

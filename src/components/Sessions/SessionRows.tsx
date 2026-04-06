@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { shortName as shortPilotName } from '../../utils/timing';
+import { trackDisplayId } from '../../data/tracks';
 
 interface CompetitionEvent {
   id: string;
@@ -45,7 +46,7 @@ export function SessionRows({ events, showDate = false }: { events: CompetitionE
       currentTrack = ev.trackConfigId;
       rows.push(
         <div key={`track-${ev.id}-${currentTrack}`} className="text-dark-400 text-xs font-semibold pt-2 pb-1 px-1">
-          Траса {currentTrack}
+          Траса {trackDisplayId(currentTrack)}
         </div>
       );
     }
@@ -120,7 +121,7 @@ export function SessionCheckboxRows({ events, selected, onToggle, showDate = fal
         return (
           <div key={ev.id}>
             {trackChanged && (
-              <div className="text-dark-400 text-xs font-semibold pt-2 pb-1 px-1">Траса {currentTrack}</div>
+              <div className="text-dark-400 text-xs font-semibold pt-2 pb-1 px-1">Траса {trackDisplayId(currentTrack)}</div>
             )}
             <label className="flex items-center gap-2 px-2 py-1 rounded hover:bg-dark-800/50 cursor-pointer text-xs text-dark-300">
               <input type="checkbox" checked={selected.has(ev.id)}

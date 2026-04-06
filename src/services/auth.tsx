@@ -115,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [moderators, setModerators] = useState<ModeratorEntry[]>([]);
+  const [localhostLoggedOut, setLocalhostLoggedOut] = useState(false);
 
   // Load moderators
   useEffect(() => {
@@ -143,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Build AppUser: localhost → auto owner, otherwise from Firebase
-  const user: AppUser | null = IS_LOCALHOST
+  const user: AppUser | null = (IS_LOCALHOST && !localhostLoggedOut)
     ? LOCALHOST_OWNER
     : firebaseUser && firebaseUser.email ? {
     uid: firebaseUser.uid,
@@ -154,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   } : null;
 
   const loginWithGoogle = useCallback(async () => {
+    if (IS_LOCALHOST) { setLocalhostLoggedOut(false); return; }
     if (!auth || !googleProvider) return;
     try {
       await signInWithPopup(auth, googleProvider);
@@ -163,6 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    if (IS_LOCALHOST) { setLocalhostLoggedOut(true); return; }
     if (!auth) return;
     await signOut(auth);
   }, []);

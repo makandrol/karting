@@ -1,14 +1,7 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { toSeconds, toHundredths, shortName, parseTime, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
+import { toSeconds, toHundredths, parseTime, getTimeColor, COLOR_CLASSES, KART_COLOR } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
-
-function parseLapTime(t: string): number | null {
-  const lapMatch = t.match(/^(\d+):(\d+\.\d+)$/);
-  if (lapMatch) return parseInt(lapMatch[1]) * 60 + parseFloat(lapMatch[2]);
-  const secMatch = t.match(/^\d+\.\d+$/);
-  if (secMatch) return parseFloat(t);
-  return null;
-}
 
 export interface LapData {
   pilot: string;
@@ -46,15 +39,15 @@ export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sess
     const isExcluded = sessionId && lap.ts && excludedLaps?.has(`${sessionId}|${lap.pilot}|${lap.ts}`);
     if (isExcluded) continue;
     if (lap.lap_time) {
-      const sec = parseLapTime(lap.lap_time);
+      const sec = parseTime(lap.lap_time);
       if (sec !== null && sec < p.bestLap) p.bestLap = sec;
     }
     if (lap.s1) {
-      const v = parseLapTime(lap.s1);
+      const v = parseTime(lap.s1);
       if (v !== null && v >= 10 && v < p.bestS1) p.bestS1 = v;
     }
     if (lap.s2) {
-      const v = parseLapTime(lap.s2);
+      const v = parseTime(lap.s2);
       if (v !== null && v >= 10 && v < p.bestS2) p.bestS2 = v;
     }
   }
@@ -63,7 +56,17 @@ export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sess
     .map(([name, data]) => ({ name, ...data }));
 }
 
+function compactName(name: string): string {
+  if (!name || name.length <= 10) return name;
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length < 2) return name.slice(0, 10);
+  const surname = parts[0];
+  if (surname.length > 7) return name.slice(0, 10);
+  return `${surname} ${parts[1][0]}.`;
+}
+
 export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId }: LapsByPilotsProps) {
+  const [viewMode, setViewMode] = useState<'all' | 'main'>('all');
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
   const overallBestS2 = Math.min(...pilots.map(p => p.bestS2).filter(v => v < Infinity));
@@ -75,31 +78,51 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
   }
   const hasReplayState = !isLive && currentEntries.length > 0 && currentEntries.some(e => e.lapNumber >= 0);
 
-  if (maxLaps === 0) return null;
+  if (maxLaps === 0) {
+    return (
+      <div className="card p-0 overflow-hidden">
+        <div className="text-center py-6 text-dark-500 text-xs">Ще немає зафіксованих кіл</div>
+      </div>
+    );
+  }
 
   return (
     <div className="card p-0 overflow-hidden">
-      <div className="px-4 py-3 border-b border-dark-800">
-        <h3 className="text-white font-semibold">Кола по пілотах</h3>
+      <div className="px-4 py-3 border-b border-dark-800 flex items-center gap-3">
+        <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
+          <span className="text-dark-500 text-[9px]">Вид:</span>
+          <span className="flex rounded overflow-hidden">
+            <button onClick={() => setViewMode('all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${viewMode === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
+            <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+            <button onClick={() => setViewMode('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${viewMode === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
+          </span>
+        </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-[10px]">
+        <table className="text-[10px]">
           <thead>
             <tr className="table-header">
               <th className="table-cell text-center w-8">Коло</th>
               {pilots.map(p => (
-                <th key={p.name} className="table-cell text-left min-w-[60px]">
-                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]">
-                    {shortName(p.name)}
+                <th key={p.name} className="table-cell text-left min-w-[100px]">
+                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
+                    {compactName(p.name)}
                   </Link>
-                  {onRenamePilot && (
-                    <button onClick={(e) => {
-                      e.stopPropagation();
-                      const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
-                      if (newName && newName !== p.name) onRenamePilot(p.name, newName);
-                    }} className="ml-0.5 text-dark-500 hover:text-primary-400 text-[8px]">✎</button>
-                  )}
-                  <div className="text-dark-600 text-[10px] font-normal">К{p.laps[0]?.kart}</div>
+                  <div className="flex items-center justify-center gap-1 font-normal">
+                    <span className={`${KART_COLOR} text-[11px]`}>К{p.laps[0]?.kart}</span>
+                    {onRenamePilot && (
+                      <button
+                        type="button"
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
+                          if (newName && newName !== p.name) onRenamePilot(p.name, newName);
+                        }}
+                        className="text-dark-500 hover:text-primary-400 text-[10px] cursor-pointer p-0.5 leading-none"
+                      >✎</button>
+                    )}
+                  </div>
                 </th>
               ))}
             </tr>
@@ -117,12 +140,12 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   );
                   const lapKey = sessionId && lap.ts ? `${sessionId}|${p.name}|${lap.ts}` : '';
                   const isExcluded = lapKey ? excludedLaps?.has(lapKey) : false;
-                  const sec = parseLapTime(lap.lap_time);
+                  const sec = parseTime(lap.lap_time);
                   const isPB = !isExcluded && sec !== null && Math.abs(sec - p.bestLap) < 0.002;
                   const isOverall = !isExcluded && sec !== null && Math.abs(sec - overallBest) < 0.002;
 
-                  const s1Val = lap.s1 ? parseLapTime(lap.s1) : null;
-                  const s2Val = lap.s2 ? parseLapTime(lap.s2) : null;
+                  const s1Val = lap.s1 ? parseTime(lap.s1) : null;
+                  const s2Val = lap.s2 ? parseTime(lap.s2) : null;
                   const s1Str = s1Val !== null && s1Val >= 10 ? (p.bestS1 < Infinity ? String(p.bestS1) : null) : null;
                   const s2Str = s2Val !== null && s2Val >= 10 ? (p.bestS2 < Infinity ? String(p.bestS2) : null) : null;
                   const s1Color = s1Val !== null && s1Val >= 10 ? getTimeColor(lap.s1!, s1Str, overallBestS1 < Infinity ? overallBestS1 : null) : 'none';
@@ -142,7 +165,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                           </button>
                         )}
                       </div>
-                      {!isExcluded && ((s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10)) ? (
+                      {viewMode === 'all' && !isExcluded && ((s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10)) ? (
                         <div className="text-[8px] leading-tight mt-0.5">
                           <span className={s1Color === 'purple' ? 'text-purple-400' : s1Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s1Val !== null && s1Val >= 10 ? toHundredths(lap.s1!) : '—'}</span>
                           <span className="text-dark-700"> </span>

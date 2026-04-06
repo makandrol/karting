@@ -129,15 +129,14 @@ export default function CompetitionTimeline({ format, sessions, sessionTimes, cu
         <div className="flex items-center gap-2">
           {activePhaseLabel ? (
             <span onClick={() => activeSession && navigate(`/sessions/${activeSession.sessionId}`)}
-              className="text-white text-xs font-semibold cursor-pointer hover:text-primary-400 transition-colors">{activePhaseLabel}</span>
+              className="text-blue-400 text-xs font-semibold cursor-pointer hover:text-blue-300 underline underline-offset-2 transition-colors">{activePhaseLabel}</span>
           ) : currentTime !== null ? (
             <span className="text-dark-400 text-xs">Перерва</span>
           ) : (
             <span className="text-dark-400 text-xs">Таймлайн змагання</span>
           )}
           {currentTime !== null && activeSession && (
-            <span onClick={() => navigate(`/sessions/${activeSession.sessionId}`)}
-              className="text-dark-500 text-[10px] font-mono cursor-pointer hover:text-dark-300 transition-colors">{fmtTime(currentTime)}</span>
+            <span className="text-dark-500 text-[10px] font-mono">{fmtTime(currentTime)}</span>
           )}
           {currentTime !== null && !activeSession && (
             <span className="text-dark-500 text-[10px] font-mono">{fmtTime(currentTime)}</span>

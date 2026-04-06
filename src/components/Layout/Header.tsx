@@ -19,10 +19,10 @@ export default function Header() {
   const dropdownPosRef = useRef<{ top: number; left: number; right: number }>({ top: 0, left: 0, right: 0 });
 
   const role = user?.role ?? 'user';
-  const mainPages = getVisiblePages('main', role);
-  const competitionPages = getVisiblePages('competitions', role);
-  const otherPages = getVisiblePages('other', role);
-  const adminPages = (isOwner || isModerator) ? getVisiblePages('admin', role) : [];
+  const email = user?.email;
+  const mainPages = getVisiblePages('main', role, email);
+  const otherPages = getVisiblePages('other', role, email);
+  const adminPages = (isOwner || isModerator) ? getVisiblePages('admin', role, email) : [];
 
   const [activeCompName, setActiveCompName] = useState<string | null>(null);
   useEffect(() => {
@@ -92,8 +92,9 @@ export default function Header() {
           <ChevronDown />
         </button>
         {isOpen && (
-          <div className="fixed w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
-            style={align === 'right' ? { top: dropdownPosRef.current.top, right: dropdownPosRef.current.right } : { top: dropdownPosRef.current.top, left: dropdownPosRef.current.left }}>
+          <div data-dropdown className="fixed w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
+            style={align === 'right' ? { top: dropdownPosRef.current.top, right: dropdownPosRef.current.right } : { top: dropdownPosRef.current.top, left: dropdownPosRef.current.left }}
+            onMouseEnter={() => openDd(id)} onMouseLeave={closeDd}>
             {items.map(item => {
               const isLiveItem = item.path === '/results/current';
               const hasActiveLive = !!activeCompName;
@@ -150,9 +151,6 @@ export default function Header() {
               </Link>
             ))}
 
-            {competitionPages.length > 0 && (
-              <Dropdown id="comp" label="Змагання" items={competitionPages.map(p => ({ label: p.label, path: p.path }))} />
-            )}
             {otherPages.length > 0 && (
               <Dropdown id="other" label="Інше" items={otherPages.map(p => ({ label: p.label, path: p.path }))} />
             )}
@@ -166,7 +164,7 @@ export default function Header() {
           {/* Auth — always visible */}
           <div className="flex items-center flex-shrink-0">
             {user ? (
-              <UserDropdown user={user} openDropdown={openDropdown} openDd={openDd} closeDd={closeDd} toggleDd={toggleDd} logout={logout} dropdownPosRef={dropdownPosRef} />
+              <UserDropdown user={user} openDropdown={openDropdown} toggleDd={toggleDd} logout={logout} dropdownPosRef={dropdownPosRef} />
             ) : (
               <Link to="/login" className="px-2 py-1.5 rounded-lg text-xs text-dark-400 hover:text-white whitespace-nowrap">
                 Вхід
@@ -179,25 +177,25 @@ export default function Header() {
   );
 }
 
-function UserDropdown({ user, openDropdown, openDd, closeDd, toggleDd, logout, dropdownPosRef }: {
+function UserDropdown({ user, openDropdown, toggleDd, logout, dropdownPosRef }: {
   user: { photo?: string | null; name: string; role: string };
   openDropdown: string | null;
-  openDd: (id: string) => void; closeDd: () => void; toggleDd: (id: string) => void;
+  toggleDd: (id: string) => void;
   logout: () => void;
   dropdownPosRef: React.MutableRefObject<{ top: number; left: number; right: number }>;
 }) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const isOpen = openDropdown === 'user';
-  const handleOpen = (opener: (id: string) => void) => {
+  const handleToggle = () => {
     if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
       dropdownPosRef.current = { top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right };
     }
-    opener('user');
+    toggleDd('user');
   };
   return (
-    <div data-dropdown onMouseEnter={() => handleOpen(openDd)} onMouseLeave={closeDd}>
-      <button ref={btnRef} onClick={() => handleOpen(toggleDd)}
+    <div data-dropdown>
+      <button ref={btnRef} onClick={handleToggle}
         className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-dark-300 hover:text-white hover:bg-dark-800 transition-colors whitespace-nowrap">
         {user.photo ? (
           <img src={user.photo} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
@@ -207,12 +205,12 @@ function UserDropdown({ user, openDropdown, openDd, closeDd, toggleDd, logout, d
         <span className="max-w-[80px] truncate hidden sm:inline">{user.name}</span>
       </button>
       {isOpen && (
-        <div className="fixed w-44 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
+        <div data-dropdown className="fixed w-44 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
           style={{ top: dropdownPosRef.current.top, right: dropdownPosRef.current.right }}>
-          <Link to="/login" className="block px-4 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
+          <Link to="/login" onClick={() => toggleDd('user')} className="block px-4 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
             Профіль
           </Link>
-          <button onClick={logout}
+          <button onClick={() => { toggleDd('user'); logout(); }}
             className="block w-full text-left px-4 py-2 text-sm text-dark-300 hover:text-red-400 hover:bg-dark-800 transition-colors">
             Вийти
           </button>
