@@ -370,6 +370,19 @@ export default function LeagueResults({ format, competitionId, sessions, session
     return s;
   }, [customTopOrder, hiddenTopGrps, hiddenSubGrps, topById]);
 
+  const sortColId = useMemo((): string | null => {
+    if (sortKey === 'total') return '__total__';
+    if (sortKey === 'quali_time') return 'q_time';
+    const qm = sortKey.match(/^quali_(\d+)_time$/);
+    if (qm) return `q${qm[1]}_time`;
+    if (sortKey === 'race_2_cumsum') return 'r2_sum';
+    const rm = sortKey.match(/^race_(\d+)_(time|points)$/);
+    if (rm) return `r${rm[1]}_${rm[2] === 'points' ? 'sum' : 'time'}`;
+    return null;
+  }, [sortKey]);
+  const isSortCol = (colId: string) => colId === sortColId;
+  const SORT_HL = 'bg-primary-600/10';
+
   if (!scoring) return <div className="card text-center py-6 text-dark-500">Завантаження балів...</div>;
   if (sortedData.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
 
@@ -449,19 +462,6 @@ export default function LeagueResults({ format, competitionId, sessions, session
     return showRace(n);
   };
   const thClass = (base: string, colId?: string) => colId && isSortCol(colId) ? `${base} ${SORT_HL}` : base;
-
-  const sortColId = useMemo((): string | null => {
-    if (sortKey === 'total') return '__total__';
-    if (sortKey === 'quali_time') return 'q_time';
-    const qm = sortKey.match(/^quali_(\d+)_time$/);
-    if (qm) return `q${qm[1]}_time`;
-    if (sortKey === 'race_2_cumsum') return 'r2_sum';
-    const rm = sortKey.match(/^race_(\d+)_(time|points)$/);
-    if (rm) return `r${rm[1]}_${rm[2] === 'points' ? 'sum' : 'time'}`;
-    return null;
-  }, [sortKey]);
-  const isSortCol = (colId: string) => colId === sortColId;
-  const SORT_HL = 'bg-primary-600/10';
 
   const topOrder = showCustom ? customTopOrder : DEFAULT_TOP_ORDER;
 
