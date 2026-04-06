@@ -213,76 +213,101 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const QUALI_COLS_H = ['q_kart', 'q_time', 'q_speed'] as const;
   const RACE_COLS_H = ['kart', 'time', 'speed', 'group', 'start', 'finish', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
 
-  type GrpId = string;
-  const GROUP_DEFS = useMemo(() => {
-    const groups: { id: GrpId; label: string; cols: string[] }[] = [
-      { id: 'quali', label: 'Квала', cols: [...QUALI_COLS_H] },
+  type TopGrpId = string;
+  const SUB_GROUPS = [
+    { id: 'time', label: 'Час', cols: ['kart', 'time', 'speed'] },
+    { id: 'pos', label: 'Поз', cols: ['group', 'start', 'finish'] },
+    { id: 'pts', label: 'Бали', cols: ['pos_pts', 'overtake', 'penalties', 'sum'] },
+  ] as const;
+  const TOP_GROUPS = useMemo(() => {
+    const groups: { id: TopGrpId; label: string; allCols: string[] }[] = [
+      { id: 'quali', label: 'Квала', allCols: [...QUALI_COLS_H] },
     ];
     for (let r = 1; r <= raceCount; r++) {
-      groups.push({ id: `r${r}_time`, label: `Г${r}:Час`, cols: ['kart', 'time', 'speed'].map(c => `r${r}_${c}`) });
-      groups.push({ id: `r${r}_pos`, label: `Г${r}:Поз`, cols: ['group', 'start', 'finish'].map(c => `r${r}_${c}`) });
-      groups.push({ id: `r${r}_pts`, label: `Г${r}:Бали`, cols: ['pos_pts', 'overtake', 'penalties', 'sum'].map(c => `r${r}_${c}`) });
+      groups.push({
+        id: `r${r}`,
+        label: `Г${r}`,
+        allCols: RACE_COLS_H.map(c => `r${r}_${c}`),
+      });
     }
     return groups;
   }, [raceCount]);
-  const DEFAULT_GRP_ORDER = useMemo(() => GROUP_DEFS.map(g => g.id), [GROUP_DEFS]);
-  const grpById = useMemo(() => new Map(GROUP_DEFS.map(g => [g.id, g])), [GROUP_DEFS]);
+  const DEFAULT_TOP_ORDER = useMemo(() => TOP_GROUPS.map(g => g.id), [TOP_GROUPS]);
+  const topById = useMemo(() => new Map(TOP_GROUPS.map(g => [g.id, g])), [TOP_GROUPS]);
 
-  const [customGrpOrder, setCustomGrpOrder] = useState<GrpId[]>(() => {
+  const [customTopOrder, setCustomTopOrder] = useState<TopGrpId[]>(() => {
     const saved = loadSettings()?.customGrpOrder;
     if (saved && Array.isArray(saved)) {
-      const validSet = new Set(DEFAULT_GRP_ORDER);
+      const validSet = new Set(DEFAULT_TOP_ORDER);
       const ordered = saved.filter((g: string) => validSet.has(g));
-      const missing = DEFAULT_GRP_ORDER.filter(g => !ordered.includes(g));
+      const missing = DEFAULT_TOP_ORDER.filter(g => !ordered.includes(g));
       return [...ordered, ...missing];
     }
-    return [...DEFAULT_GRP_ORDER];
+    return [...DEFAULT_TOP_ORDER];
   });
-  const [hiddenGrps, setHiddenGrps] = useState<Set<GrpId>>(() => new Set(loadSettings()?.hiddenGrps || []));
+  const [hiddenTopGrps, setHiddenTopGrps] = useState<Set<TopGrpId>>(() => new Set(loadSettings()?.hiddenGrps || []));
+  const [hiddenSubGrps, setHiddenSubGrps] = useState<Set<string>>(() => new Set(loadSettings()?.hiddenSubGrps || []));
   useEffect(() => {
-    const validSet = new Set(DEFAULT_GRP_ORDER);
-    setCustomGrpOrder(prev => {
+    const validSet = new Set(DEFAULT_TOP_ORDER);
+    setCustomTopOrder(prev => {
       const ordered = prev.filter(g => validSet.has(g));
-      const missing = DEFAULT_GRP_ORDER.filter(g => !ordered.includes(g));
-      return ordered.length === DEFAULT_GRP_ORDER.length && missing.length === 0 ? prev : [...ordered, ...missing];
+      const missing = DEFAULT_TOP_ORDER.filter(g => !ordered.includes(g));
+      return ordered.length === DEFAULT_TOP_ORDER.length && missing.length === 0 ? prev : [...ordered, ...missing];
     });
-  }, [DEFAULT_GRP_ORDER]);
+  }, [DEFAULT_TOP_ORDER]);
 
-  const toggleGrp = useCallback((gid: GrpId) => {
-    setHiddenGrps(prev => {
+  const toggleTopGrp = useCallback((gid: TopGrpId) => {
+    setHiddenTopGrps(prev => {
       const n = new Set(prev);
       n.has(gid) ? n.delete(gid) : n.add(gid);
       saveSettings({ hiddenGrps: [...n] });
       return n;
     });
   }, [saveSettings]);
+  const toggleSubGrp = useCallback((raceId: string, subId: string) => {
+    const key = `${raceId}_${subId}`;
+    setHiddenSubGrps(prev => {
+      const n = new Set(prev);
+      n.has(key) ? n.delete(key) : n.add(key);
+      saveSettings({ hiddenSubGrps: [...n] });
+      return n;
+    });
+  }, [saveSettings]);
 
-  const [dragGrp, setDragGrp] = useState<GrpId | null>(null);
-  const handleGrpDragStart = useCallback((gid: GrpId) => { setDragGrp(gid); }, []);
-  const handleGrpDragOver = useCallback((e: React.DragEvent, target: GrpId) => {
+  const [dragTopGrp, setDragTopGrp] = useState<TopGrpId | null>(null);
+  const handleTopDragStart = useCallback((gid: TopGrpId) => { setDragTopGrp(gid); }, []);
+  const handleTopDragOver = useCallback((e: React.DragEvent, target: TopGrpId) => {
     e.preventDefault();
-    if (!dragGrp || dragGrp === target) return;
-    setCustomGrpOrder(prev => {
+    if (!dragTopGrp || dragTopGrp === target) return;
+    setCustomTopOrder(prev => {
       const order = [...prev];
-      const fi = order.indexOf(dragGrp), ti = order.indexOf(target);
+      const fi = order.indexOf(dragTopGrp), ti = order.indexOf(target);
       if (fi === -1 || ti === -1) return prev;
       order.splice(fi, 1);
-      order.splice(ti, 0, dragGrp);
+      order.splice(ti, 0, dragTopGrp);
       saveSettings({ customGrpOrder: order });
       return order;
     });
-  }, [dragGrp, saveSettings]);
-  const handleGrpDragEnd = useCallback(() => { setDragGrp(null); }, []);
+  }, [dragTopGrp, saveSettings]);
+  const handleTopDragEnd = useCallback(() => { setDragTopGrp(null); }, []);
 
   const customVisibleCols = useMemo(() => {
     const s = new Set<string>();
-    for (const gid of customGrpOrder) {
-      if (hiddenGrps.has(gid)) continue;
-      const g = grpById.get(gid);
-      if (g) g.cols.forEach(c => s.add(c));
+    for (const gid of customTopOrder) {
+      if (hiddenTopGrps.has(gid)) continue;
+      const g = topById.get(gid);
+      if (!g) continue;
+      if (gid === 'quali') {
+        g.allCols.forEach(c => s.add(c));
+      } else {
+        for (const sg of SUB_GROUPS) {
+          if (hiddenSubGrps.has(`${gid}_${sg.id}`)) continue;
+          sg.cols.forEach(c => s.add(`${gid}_${c}`));
+        }
+      }
     }
     return s;
-  }, [customGrpOrder, hiddenGrps, grpById]);
+  }, [customTopOrder, hiddenTopGrps, hiddenSubGrps, topById]);
 
   if (!scoring) return <div className="card text-center py-6 text-dark-500">Завантаження балів...</div>;
   if (sortedData.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
@@ -317,7 +342,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const effectiveHidden = (() => {
     if (showCustom) {
       const hidden = new Set<string>();
-      for (const g of GROUP_DEFS) g.cols.forEach(c => { if (!customVisibleCols.has(c)) hidden.add(c); });
+      for (const g of TOP_GROUPS) g.allCols.forEach(c => { if (!customVisibleCols.has(c)) hidden.add(c); });
       return hidden;
     }
     const preset = PRESET_COLS[activeMode || 'all'] || PRESET_COLS.all;
@@ -331,18 +356,22 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const colVisible = (colId: string) => !effectiveHidden.has(colId);
   const qualiVisible = () => {
-    if (showCustom) return !hiddenGrps.has('quali');
+    if (showCustom) return !hiddenTopGrps.has('quali');
     if (activeMode) return PRESET_COLS[activeMode]?.quali.length > 0;
     return showQuali;
   };
   const raceVisible = (n: number) => {
-    if (showCustom) return [`r${n}_time`, `r${n}_pos`, `r${n}_pts`].some(gid => !hiddenGrps.has(gid));
+    if (showCustom) {
+      const gid = `r${n}`;
+      if (hiddenTopGrps.has(gid)) return false;
+      return !SUB_GROUPS.every(sg => hiddenSubGrps.has(`${gid}_${sg.id}`));
+    }
     if (activeMode) return RACE_COLS.some(c => colVisible(raceColId(n, c)));
     return showRace(n);
   };
   const thClass = (base: string, _colId?: string) => base;
 
-  const grpOrder = showCustom ? customGrpOrder : DEFAULT_GRP_ORDER;
+  const topOrder = showCustom ? customTopOrder : DEFAULT_TOP_ORDER;
 
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && r.quali).length;
   Promise.resolve().then(() => {
@@ -438,26 +467,47 @@ export default function LeagueResults({ format, competitionId, sessions, session
               {showCustom && (
                 <>
                   <span className="text-dark-700 text-[9px]">|</span>
-                  {customGrpOrder.map(gid => {
-                    const g = grpById.get(gid);
+                  {customTopOrder.map(gid => {
+                    const g = topById.get(gid);
                     if (!g) return null;
-                    const visible = !hiddenGrps.has(gid);
+                    const topHidden = hiddenTopGrps.has(gid);
+                    const isRace = gid !== 'quali';
+                    const allSubsHidden = isRace && SUB_GROUPS.every(sg => hiddenSubGrps.has(`${gid}_${sg.id}`));
+                    const visible = !topHidden && !allSubsHidden;
                     return (
-                      <button
-                        key={gid}
+                      <span key={gid} className="inline-flex items-center border border-dark-700 rounded-lg overflow-hidden"
                         draggable
-                        onDragStart={() => handleGrpDragStart(gid)}
-                        onDragOver={(e) => handleGrpDragOver(e, gid)}
-                        onDragEnd={handleGrpDragEnd}
-                        onClick={() => toggleGrp(gid)}
-                        className={`px-1.5 py-0.5 rounded text-[9px] transition-colors cursor-grab active:cursor-grabbing ${
-                          dragGrp === gid ? 'ring-1 ring-primary-400 opacity-60' : ''
-                        } ${
-                          visible ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
-                        }`}
+                        onDragStart={() => handleTopDragStart(gid)}
+                        onDragOver={(e) => handleTopDragOver(e, gid)}
+                        onDragEnd={handleTopDragEnd}
                       >
-                        {g.label}
-                      </button>
+                        <button
+                          onClick={() => toggleTopGrp(gid)}
+                          className={`px-1.5 py-0.5 text-[9px] font-semibold transition-colors cursor-grab active:cursor-grabbing ${
+                            dragTopGrp === gid ? 'ring-1 ring-primary-400 opacity-60' : ''
+                          } ${visible ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}
+                        >
+                          {g.label}
+                        </button>
+                        {isRace && visible && <>
+                          <span className="text-dark-700 text-[9px] flex items-center px-0.5">|</span>
+                          {SUB_GROUPS.map((sg) => {
+                          const subKey = `${gid}_${sg.id}`;
+                          const subVis = !hiddenSubGrps.has(subKey);
+                          return (
+                              <button
+                                key={sg.id}
+                                onClick={() => toggleSubGrp(gid, sg.id)}
+                                className={`px-1 py-0.5 text-[9px] transition-colors ${
+                                  subVis ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
+                                }`}
+                              >
+                                {sg.label}
+                              </button>
+                          );
+                        })}
+                        </>}
+                      </span>
                     );
                   })}
                 </>
@@ -467,30 +517,58 @@ export default function LeagueResults({ format, competitionId, sessions, session
           <div className="overflow-x-auto">
             <table className="text-[10px] border-separate border-spacing-0" style={{ tableLayout: 'auto', width: 'auto' }}>
               {showCustom ? (() => {
-                const visGrps = grpOrder.filter(gid => !hiddenGrps.has(gid)).map(gid => grpById.get(gid)!).filter(Boolean);
-                const COL_HEADER: Record<string, string> = {
-                  q_kart: 'Карт', q_time: 'Час', q_speed: 'Швидк.',
-                };
-                const raceColHeader = (col: string) => {
-                  const base = col.replace(/^r\d+_/, '');
-                  const map: Record<string, string> = { kart: 'Карт', time: 'Час', speed: 'Швидк.', group: 'Група', start: 'Старт', finish: 'Фініш', pos_pts: 'Позиція', overtake: 'Обгони', penalties: 'Штрафи', sum: 'Сума' };
-                  return map[base] || base;
-                };
-                const colHeader = (col: string) => COL_HEADER[col] || raceColHeader(col);
+                const visTop = topOrder.filter(gid => !hiddenTopGrps.has(gid));
+                const cv = (colId: string) => customVisibleCols.has(colId);
                 return <>
                   <thead>
                     <tr className="bg-dark-800/50">
-                      <th rowSpan={2} className={`px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-[28px] bg-dark-900 ${STICKY_NUM} z-20`}>#</th>
-                      <th rowSpan={2} className={`px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px] bg-dark-900 ${STICKY_PILOT} z-20`}>Пілот</th>
-                      <th rowSpan={2} className="px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10"><span className={TH_R}>Сума</span></th>
-                      {visGrps.map(g => (
-                        <th key={g.id} colSpan={g.cols.length} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">{g.label}</th>
-                      ))}
+                      <th rowSpan={3} className={`px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-[28px] bg-dark-900 ${STICKY_NUM} z-20`}>#</th>
+                      <th rowSpan={3} className={`px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px] bg-dark-900 ${STICKY_PILOT} z-20`}>Пілот</th>
+                      <th rowSpan={3} className="px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10"><span className={TH_R}>Сума</span></th>
+                      {visTop.map(gid => {
+                        if (gid === 'quali') {
+                          const cnt = QUALI_COLS.filter(c => cv(c)).length;
+                          return cnt > 0 ? <th key={gid} colSpan={cnt} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Квала</th> : null;
+                        }
+                        const rn = parseInt(gid.replace('r', ''));
+                        const cnt = RACE_COLS.filter(c => cv(raceColId(rn, c))).length;
+                        return cnt > 0 ? <th key={gid} colSpan={cnt} className="px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700">Гонка {rn}</th> : null;
+                      })}
                     </tr>
                     <tr className="bg-dark-800/30">
-                      {visGrps.flatMap(g => g.cols.map(col => (
-                        <th key={col} className={TH_V}><span className={TH_R}>{colHeader(col)}</span></th>
-                      )))}
+                      {visTop.map(gid => {
+                        if (gid === 'quali') return <Fragment key={gid}>
+                          {cv('q_kart') && <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>}
+                          {cv('q_time') && <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>}
+                          {cv('q_speed') && <th rowSpan={2} className={TH_V}><span className={TH_R}>Швидк.</span></th>}
+                        </Fragment>;
+                        const rn = parseInt(gid.replace('r', ''));
+                        const subCols = ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
+                        const visSub = subCols.filter(c => cv(raceColId(rn, c)));
+                        return <Fragment key={gid}>
+                          {cv(raceColId(rn, 'kart')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>}
+                          {cv(raceColId(rn, 'time')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>}
+                          {cv(raceColId(rn, 'speed')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Швидк.</span></th>}
+                          {cv(raceColId(rn, 'group')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Група</span></th>}
+                          {cv(raceColId(rn, 'start')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Старт</span></th>}
+                          {cv(raceColId(rn, 'finish')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Фініш</span></th>}
+                          {visSub.length > 0 && <th colSpan={visSub.length} className="px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30">Бали</th>}
+                        </Fragment>;
+                      })}
+                    </tr>
+                    <tr className="bg-dark-800/20">
+                      {visTop.map(gid => {
+                        if (gid === 'quali') return null;
+                        const rn = parseInt(gid.replace('r', ''));
+                        const subCols = ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
+                        if (!subCols.some(c => cv(raceColId(rn, c)))) return null;
+                        return <Fragment key={gid}>
+                          {cv(raceColId(rn, 'pos_pts')) && <th className={TH_V}><span className={TH_R}>Позиція</span></th>}
+                          {cv(raceColId(rn, 'overtake')) && <th className={TH_V}><span className={TH_R}>Обгони</span></th>}
+                          {cv(raceColId(rn, 'penalties')) && <th className={TH_V}><span className={TH_R}>Штрафи</span></th>}
+                          {cv(raceColId(rn, 'sum')) && <th className={TH_V}><span className={TH_R}>Сума</span></th>}
+                        </Fragment>;
+                      })}
                     </tr>
                   </thead>
                   <tbody>
@@ -582,7 +660,11 @@ export default function LeagueResults({ format, competitionId, sessions, session
                               )}
                             </td>
                             <td className={`px-1 py-1 text-center font-mono text-green-400 font-bold ${SECTION_BORDER}`}>{row.totalPoints || '—'}</td>
-                            {visGrps.flatMap(g => g.cols.map(col => cellForCol(col)))}
+                            {visTop.flatMap(gid => {
+                              const g = topById.get(gid);
+                              if (!g) return [];
+                              return g.allCols.filter(c => cv(c)).map(col => cellForCol(col));
+                            })}
                           </tr>
                         );
                       });
