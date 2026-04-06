@@ -278,6 +278,12 @@ export function getSprintPositionPoints(finishPos: number): number {
   return Math.max(pts, 0);
 }
 
+export function getSprintFinalPoints(finishPos: number, precedingPilots: number): number {
+  if (finishPos < 1) return 0;
+  const pts = 180 - (precedingPilots + finishPos - 1) * 3;
+  return Math.max(pts, 0);
+}
+
 export function computeSprintStandings(params: ComputeStandingsParams): PilotRow[] {
   const { sessions, sessionLaps, scoring, edits, excludedPilots, maxGroups, pilotsOverride, pilotsLocked, liveSessionId, livePhase, livePositions } = params;
 
@@ -329,7 +335,7 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
     activePhase = livePhase;
   }
 
-  const buildRaceData = (raceSessions: CompSession[], startPositions: Map<string, { group: number; startPos: number }>, raceIndex: number, shouldShowStart: boolean) => {
+  const buildRaceData = (raceSessions: CompSession[], startPositions: Map<string, { group: number; startPos: number }>, raceIndex: number, shouldShowStart: boolean, posPointsFn?: (finishPos: number, group: number) => number) => {
     const rData = new Map<string, PilotRaceData>();
     const raceTimes: { pilot: string; time: number; group: number }[] = [];
 
@@ -375,7 +381,7 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
         const finishPos = edit?.finishPos ?? (i + 1);
         const group = isDisq ? 0 : (sp?.group ?? groupNum);
         const penalties = edit?.penalties ?? 0;
-        const posPoints = getSprintPositionPoints(finishPos);
+        const posPoints = posPointsFn ? posPointsFn(finishPos, group) : getSprintPositionPoints(finishPos);
 
         rData.set(pilot, {
           kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
@@ -462,7 +468,9 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
       if (excludedPilots.has(pilot)) continue;
       const r1 = race1Data.get(pilot);
       const r2 = race2Data.get(pilot);
-      const pts = (r1?.totalRacePoints ?? 0) + (r2?.totalRacePoints ?? 0);
+      const q1 = quali1Data.get(pilot);
+      const q2 = quali2Data.get(pilot);
+      const pts = (q1?.speedPoints ?? 0) + (q2?.speedPoints ?? 0) + (r1?.totalRacePoints ?? 0) + (r2?.totalRacePoints ?? 0);
       pointsMap.set(pilot, pts);
     }
     const sorted = [...pointsMap.entries()]
@@ -473,19 +481,43 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
         return q1a - q1b;
       })
       .slice(0, maxQualified);
-    const groups = splitIntoGroupsSprint(sorted.map(([p]) => p), maxGroups);
+
+    const n = sorted.length;
+    let groupCount: number;
+    if (n <= 14) groupCount = 1;
+    else if (n <= 29) groupCount = 2;
+    else groupCount = 3;
+    if (maxGroups !== undefined) groupCount = Math.min(groupCount, maxGroups);
+
+    const buckets: string[][] = Array.from({ length: groupCount }, () => []);
+    const baseSize = Math.floor(n / groupCount);
+    let remainder = n % groupCount;
+    let idx = 0;
+    for (let g = 0; g < groupCount; g++) {
+      const size = baseSize + (remainder > 0 ? 1 : 0);
+      if (remainder > 0) remainder--;
+      buckets[g] = sorted.slice(idx, idx + size).map(([p]) => p);
+      idx += size;
+    }
+
     const sp = new Map<string, { group: number; startPos: number }>();
-    groups.forEach((g, gi) => {
+    buckets.forEach((gPilots, gi) => {
       const gNum = gi + 1;
-      g.pilots.forEach((p, pi) => {
+      gPilots.forEach((p, pi) => {
         sp.set(p, { group: gNum, startPos: pi + 1 });
       });
     });
-    return sp;
+    return { sp, groupSizes: buckets.map(b => b.length) };
   };
 
-  const finalStartPos = computeFinalStart();
-  const { rData: finalData } = buildRaceData(getFinalSessions(), finalStartPos, 3, shouldShowRaceStart('final'));
+  const { sp: finalStartPos, groupSizes: finalGroupSizes } = computeFinalStart();
+  const finalPrecedingByGroup = new Map<number, number>();
+  finalPrecedingByGroup.set(1, 0);
+  finalPrecedingByGroup.set(2, finalGroupSizes[0] || 0);
+  finalPrecedingByGroup.set(3, (finalGroupSizes[0] || 0) + (finalGroupSizes[1] || 0));
+  const finalPosPointsFn = (finishPos: number, group: number) => getSprintFinalPoints(finishPos, finalPrecedingByGroup.get(group) || 0);
+
+  const { rData: finalData } = buildRaceData(getFinalSessions(), finalStartPos, 3, shouldShowRaceStart('final'), finalPosPointsFn);
 
   const raceResults = [race1Data, race2Data, finalData];
 
