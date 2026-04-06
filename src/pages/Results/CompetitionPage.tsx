@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups } from '../../data/competitions';
+import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint } from '../../data/competitions';
 import { toSeconds, isValidSession, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
@@ -1135,7 +1135,10 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     const raceNum = raceMatch ? parseInt(raceMatch[1]) : (finalMatch ? 3 : 1);
     const groupNum = raceMatch ? parseInt(raceMatch[2]) : (finalMatch ? parseInt(finalMatch[1]) : 1);
 
-    const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith('qualifying'));
+    const isSprint = competition.format === 'sprint';
+
+    const qualiPhasePrefix = isSprint ? `qualifying_${raceNum}_` : 'qualifying';
+    const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith(qualiPhasePrefix));
     const qualiData = new Map<string, { bestTime: number; pilot: string }>();
     for (const qs of qualiSessions) {
       for (const l of (sessionLaps.get(qs.sessionId) || [])) {
@@ -1150,6 +1153,20 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
       .sort((a, b) => a[1].bestTime - b[1].bestTime);
     const maxQualified = isCL ? 24 : 36;
     const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
+
+    if (isSprint) {
+      const groups = splitIntoGroupsSprint(qualifiedPilots);
+      const sp = new Map<string, number>();
+      if (groupNum <= groups.length) {
+        const g = groups[groupNum - 1];
+        g.pilots.forEach((p, pi) => { sp.set(p, pi + 1); });
+      }
+      const totalPilotsOverride = competition.results?.totalPilotsOverride ?? null;
+      const pilotsLocked = competition.results?.totalPilotsLocked ?? false;
+      const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
+      return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
+    }
+
     const maxGroups = competition.results?.groupCountOverride ?? (qualifiedPilots.length <= 13 ? 1 : qualifiedPilots.length <= 26 ? 2 : 3);
 
     let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
