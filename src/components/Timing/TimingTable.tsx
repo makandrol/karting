@@ -5,21 +5,23 @@ import { parseTime, toSeconds, toHundredths, getTimeColor, COLOR_CLASSES, shortN
 
 export type SortMode = 'qualifying' | 'race';
 
-const ALL_COL_IDS = ['start', 'arrows', 'change', 'pilot', 'points', 'kart', 'last', 's1', 's2', 'best', 'bestS1', 'bestS2', 'tb', 'laps'] as const;
+const ALL_COL_IDS = ['start', 'arrows', 'change', 'pilot', 'points', 'kart', 'gap', 'last', 's1', 's2', 'best', 'bestS1', 'bestS2', 'tb', 'loss', 'laps'] as const;
 type ColId = typeof ALL_COL_IDS[number];
 const DEFAULT_ORDER: ColId[] = [...ALL_COL_IDS];
 const COL_LABELS: Record<ColId, string> = {
   start: 'Start', arrows: '', change: 'Δ', pilot: 'Pilot', points: 'P',
-  kart: 'Kart', last: 'Last', s1: 'S1', s2: 'S2',
-  best: 'Best', bestS1: 'B.S1', bestS2: 'B.S2', tb: 'TB', laps: 'L',
+  kart: 'Kart', gap: 'Gap', last: 'Last', s1: 'S1', s2: 'S2',
+  best: 'Best', bestS1: 'B.S1', bestS2: 'B.S2', tb: 'TB', loss: 'Loss', laps: 'L',
 };
 const COL_WIDTHS: Record<ColId, string> = {
   start: 'w-[120px]', arrows: 'min-w-[100px] w-[100px]', change: 'w-5', pilot: 'min-w-[150px]', points: 'w-8',
-  kart: 'w-12', last: 'w-16', s1: 'w-14', s2: 'w-14',
-  best: 'w-16', bestS1: 'w-14', bestS2: 'w-14', tb: 'w-28', laps: 'w-8',
+  kart: 'w-12', gap: 'w-16', last: 'w-16', s1: 'w-14', s2: 'w-14',
+  best: 'w-16', bestS1: 'w-14', bestS2: 'w-14', tb: 'w-16', loss: 'w-16', laps: 'w-8',
 };
 const ALL_COLS_SET = new Set<ColId>(ALL_COL_IDS);
-const MAIN_VISIBLE = new Set<ColId>(['start', 'arrows', 'change', 'pilot', 'points', 'kart', 'last', 'best', 'laps']);
+const MAIN_QUAL_VISIBLE = new Set<ColId>(['start', 'arrows', 'change', 'pilot', 'points', 'kart', 'last', 'best', 'laps']);
+const MAIN_RACE_VISIBLE = new Set<ColId>(['change', 'pilot', 'points', 'kart', 'gap', 'last', 'best', 'laps']);
+const RACE_ONLY_COLS = new Set<ColId>(['gap']);
 const START_GROUP: ColId[] = ['start', 'arrows'];
 const START_GROUP_SET = new Set<ColId>(START_GROUP);
 
@@ -114,7 +116,7 @@ export default function TimingTable({
   const handleDragEnd = useCallback(() => { setDragCol(null); }, []);
 
   const customState = customCols[sortMode];
-  const visibleCols: Set<ColId> = columnFilter === 'all' ? ALL_COLS_SET : columnFilter === 'main' ? MAIN_VISIBLE : customState.visible;
+  const visibleCols: Set<ColId> = columnFilter === 'all' ? ALL_COLS_SET : columnFilter === 'main' ? (sortMode === 'race' ? MAIN_RACE_VISIBLE : MAIN_QUAL_VISIBLE) : customState.visible;
   const baseOrder: ColId[] = columnFilter === 'custom' ? customState.order : DEFAULT_ORDER;
   const colOrder: ColId[] = useMemo(() => {
     if (columnFilter !== 'custom') return baseOrder;
@@ -139,6 +141,7 @@ export default function TimingTable({
 
   const isColVisible = (id: ColId) => {
     if (START_GROUP_SET.has(id) && !hasStartData) return false;
+    if (RACE_ONLY_COLS.has(id) && sortMode !== 'race') return false;
     return visibleCols.has(id);
   };
 
@@ -190,6 +193,26 @@ export default function TimingTable({
   const visibleColList = colOrder.filter(c => isColVisible(c));
   const showArrowsCol = visibleColList.includes('arrows');
 
+  const gapMap = useMemo(() => {
+    if (sortMode !== 'race') return new Map<string, string>();
+    const map = new Map<string, string>();
+    const sorted = [...entries].filter(e => e.lapNumber >= 0).sort((a, b) => a.position - b.position);
+    for (let i = 0; i < sorted.length; i++) {
+      const e = sorted[i];
+      if (i === 0) { map.set(e.pilot, '—'); continue; }
+      const prev = sorted[i - 1];
+      const eLap = parseTime(e.bestLap);
+      const pLap = parseTime(prev.bestLap);
+      if (eLap !== null && pLap !== null) {
+        const diff = eLap - pLap;
+        map.set(e.pilot, `${diff >= 0 ? '+' : ''}${diff.toFixed(3)}`);
+      } else {
+        map.set(e.pilot, '—');
+      }
+    }
+    return map;
+  }, [entries, sortMode]);
+
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-3 border-b border-dark-800 flex items-center gap-3 flex-wrap">
@@ -233,7 +256,7 @@ export default function TimingTable({
                   Start
                 </button>
               )}
-              {customState.order.filter(c => !START_GROUP_SET.has(c)).map(col => (
+              {customState.order.filter(c => !START_GROUP_SET.has(c) && !(RACE_ONLY_COLS.has(c) && sortMode !== 'race')).map(col => (
                 <button
                   key={col}
                   draggable
@@ -354,6 +377,9 @@ export default function TimingTable({
                   })()}</td>
                 ) : null,
                 kart: <td key="kart" className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>,
+                gap: sortMode === 'race' ? (
+                  <td key="gap" className="table-cell text-center font-mono text-[11px] text-dark-400 whitespace-nowrap">{notStarted ? '' : (gapMap.get(e.pilot) ?? '—')}</td>
+                ) : null,
                 last: <td key="last" className={`table-cell text-center font-mono font-semibold ${notStarted ? '' : COLOR_CLASSES[lapColor]}`}>{notStarted ? '' : (e.lastLap ? toSeconds(e.lastLap) : '—')}</td>,
                 s1: <td key="s1" className={`table-cell text-center font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s1Color]}`}>{notStarted ? '' : (e.s1 && (parseTime(e.s1) ?? 0) >= 10 ? toHundredths(e.s1) : '—')}</td>,
                 s2: <td key="s2" className={`table-cell text-center font-mono text-[11px] ${notStarted ? '' : COLOR_CLASSES[s2Color]}`}>{notStarted ? '' : (e.s2 && (parseTime(e.s2) ?? 0) >= 10 ? toHundredths(e.s2) : '—')}</td>,
@@ -366,9 +392,18 @@ export default function TimingTable({
                   const s2v = parseTime(e.bestS2);
                   if (s1v === null || s1v < 10 || s2v === null || s2v < 10) return '—';
                   const tb = s1v + s2v;
+                  return tb.toFixed(3);
+                })()}</td>,
+                loss: <td key="loss" className="table-cell text-center font-mono text-[11px] text-dark-500 whitespace-nowrap">{(() => {
+                  if (notStarted) return '';
+                  const s1v = parseTime(e.bestS1);
+                  const s2v = parseTime(e.bestS2);
+                  if (s1v === null || s1v < 10 || s2v === null || s2v < 10) return '—';
+                  const tb = s1v + s2v;
                   const bestLapV = parseTime(e.bestLap);
-                  const diff = bestLapV !== null ? tb - bestLapV : null;
-                  return <>{tb.toFixed(3)}{diff !== null && <span className="text-[9px] text-dark-500"> ({diff < 0 ? '' : '+'}{diff.toFixed(3)})</span>}</>;
+                  if (bestLapV === null) return '—';
+                  const diff = bestLapV - tb;
+                  return `${diff >= 0 ? '+' : ''}${diff.toFixed(3)}`;
                 })()}</td>,
                 laps: <td key="laps" className="table-cell text-center font-mono text-dark-500">{notStarted ? '' : e.lapNumber}</td>,
               };
