@@ -563,13 +563,40 @@ export interface CompetitionStandings {
   pilots: StandingsPilot[];
 }
 
-export function rowsToStandings(rows: PilotRow[], excludedPilots: Set<string>): CompetitionStandings {
+export function sprintAwareSort(a: PilotRow, b: PilotRow, format?: string): number {
+  const diff = b.totalPoints - a.totalPoints;
+  if (diff !== 0) return diff;
+
+  if (format === 'sprint') {
+    const q1a = a.qualis?.[0]?.bestTime ?? Infinity;
+    const q1b = b.qualis?.[0]?.bestTime ?? Infinity;
+    if (q1a !== q1b) return q1a - q1b;
+
+    const r1a = a.races[0]?.totalRacePoints ?? 0;
+    const r1b = b.races[0]?.totalRacePoints ?? 0;
+    if (r1a !== r1b) return r1b - r1a;
+
+    const q2a = a.qualis?.[1]?.bestTime ?? Infinity;
+    const q2b = b.qualis?.[1]?.bestTime ?? Infinity;
+    if (q2a !== q2b) return q2a - q2b;
+
+    const r2a = a.races[1]?.totalRacePoints ?? 0;
+    const r2b = b.races[1]?.totalRacePoints ?? 0;
+    if (r2a !== r2b) return r2b - r2a;
+
+    const fa = a.races[2]?.totalRacePoints ?? 0;
+    const fb = b.races[2]?.totalRacePoints ?? 0;
+    if (fa !== fb) return fb - fa;
+
+    return 0;
+  }
+
+  return (a.quali?.bestTime ?? Infinity) - (b.quali?.bestTime ?? Infinity);
+}
+
+export function rowsToStandings(rows: PilotRow[], excludedPilots: Set<string>, format?: string): CompetitionStandings {
   const included = rows.filter(r => !excludedPilots.has(r.pilot));
-  included.sort((a, b) => {
-    const diff = b.totalPoints - a.totalPoints;
-    if (diff !== 0) return diff;
-    return (a.quali?.bestTime ?? Infinity) - (b.quali?.bestTime ?? Infinity);
-  });
+  included.sort((a, b) => sprintAwareSort(a, b, format));
 
   const pilots: StandingsPilot[] = included.map(r => ({
     pilot: r.pilot,

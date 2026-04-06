@@ -6,7 +6,7 @@ import { COLLECTOR_URL } from '../../services/config';
 import {
   type SessionLap, type CompSession, type ScoringData,
   type PilotQualiData, type PilotRaceData, type PilotRow, type ManualEdits,
-  computeStandings, computeSprintStandings, rowsToStandings,
+  computeStandings, computeSprintStandings, rowsToStandings, sprintAwareSort,
 } from '../../utils/scoring';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
@@ -212,9 +212,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
       return 0;
     };
     included.sort((a, b) => {
+      if (sortKey === 'total') return sprintAwareSort(a, b, format);
       const diff = sortDir === 'asc' ? getValue(a) - getValue(b) : getValue(b) - getValue(a);
       if (diff !== 0) return diff;
-      return (a.quali?.bestTime ?? Infinity) - (b.quali?.bestTime ?? Infinity);
+      return sprintAwareSort(a, b, format);
     });
     const result = [...included, ...excluded];
     sortedDataRef.current = result;
@@ -451,7 +452,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     onAutoGroups?.(autoGroupsByQuali);
 
     if (data.length > 0 && onSaveResults) {
-      const standings = rowsToStandings(data, excludedPilots);
+      const standings = rowsToStandings(data, excludedPilots, format);
       const json = JSON.stringify(standings.pilots);
       const now = Date.now();
       if (json !== lastStandingsJsonRef.current && now - lastStandingsPushTsRef.current > 10_000) {
