@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime } from '../../utils/timing';
+import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
@@ -307,7 +307,7 @@ export default function SessionDetail() {
                     <tr key={e.pilot} className="table-row">
                       <td className="table-cell text-center font-mono font-bold text-white">{e.position || i + 1}</td>
                       <td className="table-cell text-left text-white">{e.pilot}</td>
-                      <td className="table-cell text-center font-mono text-dark-300">{e.kart}</td>
+                      <td className={`table-cell text-center font-mono ${KART_COLOR}`}>{e.kart}</td>
                       <td className="table-cell text-center font-mono text-dark-300">{e.lapNumber || 0}</td>
                       <td className="table-cell text-right font-mono text-dark-300">{toSeconds(e.lastLap)}</td>
                       <td className="table-cell text-right font-mono text-green-400 font-semibold">{toSeconds(e.bestLap)}</td>

@@ -1,4 +1,5 @@
 import type { RaceResult } from '../../types';
+import { KART_COLOR } from '../../utils/timing';
 
 interface ResultsTableProps {
   results: RaceResult[];
@@ -36,7 +37,7 @@ export default function ResultsTable({ results, title }: ResultsTableProps) {
                 <td className="table-cell text-left font-medium text-white">
                   {r.pilot}
                 </td>
-                <td className="table-cell text-center font-mono text-dark-300">
+                <td className={`table-cell text-center font-mono ${KART_COLOR}`}>
                   {r.kart || '—'}
                 </td>
                 <td className="table-cell text-right font-mono text-green-400">

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { toSeconds, toHundredths, parseTime, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
+import { toSeconds, toHundredths, parseTime, getTimeColor, COLOR_CLASSES, KART_COLOR } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
 
 export interface LapData {
@@ -97,7 +97,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                     {compactName(p.name)}
                   </Link>
                   <div className="flex items-center gap-1 font-normal">
-                    <span className="text-white text-[11px]">К{p.laps[0]?.kart}</span>
+                    <span className={`${KART_COLOR} text-[11px]`}>К{p.laps[0]?.kart}</span>
                     {onRenamePilot && (
                       <button
                         type="button"

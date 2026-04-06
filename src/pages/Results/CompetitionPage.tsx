@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups } from '../../data/competitions';
-import { toSeconds, isValidSession } from '../../utils/timing';
+import { toSeconds, isValidSession, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
@@ -504,7 +504,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
                       <tr key={p.pilot} className="table-row">
                         <td className="table-cell text-center font-mono text-white font-bold">{i + 1}</td>
                         <td className="table-cell text-left text-white">{p.pilot}</td>
-                        <td className="table-cell text-center font-mono text-dark-300">{p.kart}</td>
+                        <td className={`table-cell text-center font-mono ${KART_COLOR}`}>{p.kart}</td>
                         <td className={`table-cell text-right font-mono font-semibold ${i === 0 ? 'text-purple-400' : 'text-green-400'}`}>
                           {toSeconds(p.bestTimeStr)}
                         </td>

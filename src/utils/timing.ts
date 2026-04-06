@@ -33,6 +33,8 @@ export const COLOR_CLASSES: Record<TimeColor, string> = {
   none: 'text-dark-500',
 };
 
+export const KART_COLOR = 'text-blue-400/70';
+
 /** "Апанасенко Олексій" → "Апанасенко О.", but keep short names and "Карт X" as-is */
 export function shortName(name: string): string {
   if (!name || name.length <= 10 || /^Карт\s/i.test(name)) return name;

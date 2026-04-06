@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
 import type { TimingMode } from '../../services/timingPoller';
-import { parseTime, getTimeColor, COLOR_CLASSES, type TimeColor } from '../../utils/timing';
+import { parseTime, getTimeColor, COLOR_CLASSES, KART_COLOR, type TimeColor } from '../../utils/timing';
 
 interface TimingBoardProps {
   entries: TimingEntry[];
@@ -186,7 +186,7 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
                         </div>
                       )}
                     </td>
-                    <td className="table-cell text-center font-mono text-dark-300 text-sm">
+                    <td className={`table-cell text-center font-mono ${KART_COLOR} text-sm`}>
                       <Link
                         to={`/info/karts/${entry.kart}`}
                         className="hover:text-primary-400 transition-colors"

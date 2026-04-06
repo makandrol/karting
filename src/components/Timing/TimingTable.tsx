@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import type { TimingEntry } from '../../types';
-import { parseTime, toSeconds, toHundredths, getTimeColor, COLOR_CLASSES, shortName, type TimeColor } from '../../utils/timing';
+import { parseTime, toSeconds, toHundredths, getTimeColor, COLOR_CLASSES, KART_COLOR, shortName, type TimeColor } from '../../utils/timing';
 
 export type SortMode = 'qualifying' | 'race';
 
@@ -376,7 +376,7 @@ export default function TimingTable({
                     return total_pts || '—';
                   })()}</td>
                 ) : null,
-                kart: <td key="kart" className="table-cell text-center font-mono text-dark-300">{notStarted ? '' : (e.kart || '—')}</td>,
+                kart: <td key="kart" className={`table-cell text-center font-mono ${KART_COLOR}`}>{notStarted ? '' : (e.kart || '—')}</td>,
                 gap: sortMode === 'race' ? (
                   <td key="gap" className="table-cell text-center font-mono text-[11px] text-dark-400 whitespace-nowrap">{notStarted ? '' : (gapMap.get(e.pilot) ?? '—')}</td>
                 ) : null,

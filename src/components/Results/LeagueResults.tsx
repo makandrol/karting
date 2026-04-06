@@ -1,5 +1,5 @@
 import { useMemo, Fragment, useState, useEffect, useCallback, useRef } from 'react';
-import { toSeconds } from '../../utils/timing';
+import { toSeconds, KART_COLOR } from '../../utils/timing';
 import { useLayoutPrefs } from '../../services/layoutPrefs';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL } from '../../services/config';
@@ -613,7 +613,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
                         const stickyBg = isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'bg-dark-900';
                         const cellForCol = (col: string): React.ReactNode => {
-                          if (col === 'q_kart') return <td key={col} className={`px-1 py-1 text-center font-mono text-blue-400/70 border-r border-dark-700/30`}>{row.quali?.kart || '—'}</td>;
+                          if (col === 'q_kart') return <td key={col} className={`px-1 py-1 text-center font-mono ${KART_COLOR} border-r border-dark-700/30`}>{row.quali?.kart || '—'}</td>;
                           if (col === 'q_time') return <td key={col} className={`px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30`}>{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>;
                           if (col === 'q_speed') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>;
                           const m = col.match(/^r(\d+)_(.+)$/);
@@ -621,7 +621,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           const rn = parseInt(m[1]), base = m[2];
                           const race = row.races[rn - 1];
                           const posChange = race && race.startPos > 0 && race.finishPos > 0 ? race.startPos - race.finishPos : 0;
-                          if (base === 'kart') return <td key={col} className={`px-1 py-1 text-center font-mono text-blue-400/70 border-r border-dark-700/30`}>{race?.kart || '—'}</td>;
+                          if (base === 'kart') return <td key={col} className={`px-1 py-1 text-center font-mono ${KART_COLOR} border-r border-dark-700/30`}>{race?.kart || '—'}</td>;
                           if (base === 'time') return <td key={col} className={`px-1 py-1 text-center font-mono text-yellow-300/70 border-r border-dark-700/30`}>{race ? toSeconds(race.bestTimeStr) : '—'}</td>;
                           if (base === 'speed') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>;
                           if (base === 'group') return <td key={col} className={`px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30`}>{race?.group || '—'}</td>;
@@ -830,7 +830,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       const lastCol = visCols[visCols.length - 1];
                       const qBorder = (c: string) => c === lastCol ? SECTION_BORDER : 'border-r border-dark-700/30';
                       return <>
-                        {colVisible('q_kart') && <td className={`px-1 py-1 text-center font-mono text-blue-400/70 ${qBorder('q_kart')}`}>{row.quali?.kart || '—'}</td>}
+                        {colVisible('q_kart') && <td className={`px-1 py-1 text-center font-mono ${KART_COLOR} ${qBorder('q_kart')}`}>{row.quali?.kart || '—'}</td>}
                         {colVisible('q_time') && <td className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${qBorder('q_time')}`}>{row.quali ? toSeconds(row.quali.bestTimeStr) : '—'}</td>}
                         {colVisible('q_speed') && <td className={`px-1 py-1 text-center font-mono ${qBorder('q_speed')}`}>{row.quali?.speedPoints ? <span className="text-green-400/80">{row.quali.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                       </>;
@@ -857,7 +857,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                               </span>
                             ) : '—'}
                           </td>}
-                          {cv('kart') && <td className={`px-1 py-1 text-center font-mono text-blue-400/70 ${rBorder('kart')}`}>{race?.kart || '—'}</td>}
+                          {cv('kart') && <td className={`px-1 py-1 text-center font-mono ${KART_COLOR} ${rBorder('kart')}`}>{race?.kart || '—'}</td>}
                           {cv('time') && <td className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${rBorder('time')}`}>{race ? toSeconds(race.bestTimeStr) : '—'}</td>}
                           {cv('speed') && <td className={`px-1 py-1 text-center font-mono ${rBorder('speed')}`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                           {cv('pos_pts') && <td className={`px-1 py-1 text-center font-mono ${rBorder('pos_pts')}`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>}
