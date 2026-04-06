@@ -14,7 +14,7 @@ const COL_LABELS: Record<ColId, string> = {
   best: 'Best', bestS1: 'B.S1', bestS2: 'B.S2', tb: 'TB', laps: 'L',
 };
 const COL_WIDTHS: Record<ColId, string> = {
-  start: 'w-[120px]', arrows: 'min-w-[80px] w-[80px]', change: 'w-5', pilot: 'min-w-[150px]', points: 'w-8',
+  start: 'w-[120px]', arrows: 'min-w-[100px] w-[100px]', change: 'w-5', pilot: 'min-w-[150px]', points: 'w-8',
   kart: 'w-12', last: 'w-16', s1: 'w-14', s2: 'w-14',
   best: 'w-16', bestS1: 'w-14', bestS2: 'w-14', tb: 'w-16', laps: 'w-8',
 };
@@ -155,7 +155,7 @@ export default function TimingTable({
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
   const [tbodyH, setTbodyH] = useState(0);
   const n = entries.filter(e => e.lapNumber >= 0).length;
-  const arrowW = 80;
+  const arrowW = 100;
 
   useEffect(() => {
     if (!tbodyRef.current) return;
@@ -277,7 +277,7 @@ export default function TimingTable({
                   </td>
                 ) : null,
                 arrows: (showArrowsCol && rowIdx === 0 && !notStarted) ? (
-                  <td key="arrows" rowSpan={n} className="p-0 relative" style={{ minWidth: arrowW, width: arrowW }}>
+                  <td key="arrows" rowSpan={n} className="p-0 relative" style={{ minWidth: 100, width: 100 }}>
                     {tbodyH > 0 && (
                       <svg width={arrowW} height={tbodyH} className="absolute top-0 left-0 block">
                         {arrows.map((a, j) => (
