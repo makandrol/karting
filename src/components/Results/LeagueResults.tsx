@@ -336,6 +336,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const showEditsOnly = hiddenGroups.has('__positions_only');
   const showPointsOnly = hiddenGroups.has('__points_only');
   const showTimeOnly = hiddenGroups.has('__time_only');
+  const showEditMode = hiddenGroups.has('__edit');
   const showCustom = hiddenGroups.has('__custom');
   const showQuali = !hiddenGroups.has('quali');
   const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
@@ -345,12 +346,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const PRESET_COLS: Record<string, { quali: string[]; race: string[] }> = {
     all: { quali: [...QUALI_COLS], race: [...RACE_COLS] },
-    points: { quali: ['q_speed'], race: ['speed', 'pos_pts', 'overtake', 'penalties', 'sum'] },
-    time: { quali: ['q_kart', 'q_time'], race: ['kart', 'time'] },
-    positions: { quali: [], race: ['start', 'finish', 'penalties', 'sum'] },
+    positions: { quali: [], race: ['group', 'start', 'finish'] },
+    time: { quali: ['q_kart', 'q_time'], race: ['kart', 'time', 'speed'] },
+    points: { quali: ['q_speed'], race: ['pos_pts', 'overtake', 'penalties', 'sum'] },
+    edit: { quali: [], race: ['start', 'finish', 'penalties', 'sum'] },
   };
 
-  const activeMode = showAll ? 'all' : showPointsOnly ? 'points' : showTimeOnly ? 'time' : showEditsOnly ? 'positions' : showCustom ? 'custom' : null;
+  const activeMode = showAll ? 'all' : showPointsOnly ? 'points' : showTimeOnly ? 'time' : showEditsOnly ? 'positions' : showEditMode ? 'edit' : showCustom ? 'custom' : null;
 
   const effectiveHidden = (() => {
     if (showCustom) {
@@ -421,6 +423,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
       n.delete('__positions_only');
       n.delete('__points_only');
       n.delete('__time_only');
+      n.delete('__edit');
       n.delete('__custom');
       if (mode === 'all') {
         n.delete('quali');
@@ -438,6 +441,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
         n.delete('quali');
         for (let i = 1; i <= raceCount; i++) n.delete(`race_${i}`);
         n.add('__time_only');
+      } else if (mode === 'edit') {
+        n.delete('quali');
+        for (let i = 1; i <= raceCount; i++) n.delete(`race_${i}`);
+        n.add('__edit');
       } else if (mode === 'custom') {
         n.delete('quali');
         for (let i = 1; i <= raceCount; i++) n.delete(`race_${i}`);
@@ -469,11 +476,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
               <span className="flex rounded overflow-hidden">
                 <button onClick={() => setViewMode(showAll ? '' : 'all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showAll ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
                 <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-                <button onClick={() => setViewMode(showPointsOnly ? '' : 'points')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showPointsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Бали</button>
+                <button onClick={() => setViewMode(showEditsOnly ? '' : 'positions')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Поз</button>
                 <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
                 <button onClick={() => setViewMode(showTimeOnly ? '' : 'time')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showTimeOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Час</button>
                 <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-                <button onClick={() => setViewMode(showEditsOnly ? '' : 'positions')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showEditsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Поз</button>
+                <button onClick={() => setViewMode(showPointsOnly ? '' : 'points')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showPointsOnly ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Бали</button>
+                <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+                <button onClick={() => setViewMode(showEditMode ? '' : 'edit')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showEditMode ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Ред</button>
                 <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
                 <button onClick={() => setViewMode(showCustom ? '' : 'custom')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showCustom ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Своє</button>
               </span>
