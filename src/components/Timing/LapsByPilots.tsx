@@ -10,6 +10,7 @@ export interface LapData {
   s1?: string | null;
   s2?: string | null;
   ts?: number;
+  position?: number | null;
 }
 
 interface PilotLaps {
@@ -28,6 +29,7 @@ interface LapsByPilotsProps {
   excludedLaps?: Set<string>;
   onToggleLap?: (key: string) => void;
   sessionId?: string;
+  startPositions?: Map<string, number>;
 }
 
 export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sessionId?: string): PilotLaps[] {
@@ -65,7 +67,7 @@ function compactName(name: string): string {
   return `${surname} ${parts[1][0]}.`;
 }
 
-export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId }: LapsByPilotsProps) {
+export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId, startPositions }: LapsByPilotsProps) {
   const [viewMode, setViewMode] = useState<'all' | 'main'>('main');
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
@@ -157,6 +159,16 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   const s1Color = s1Val !== null && s1Val >= 10 ? getTimeColor(lap.s1!, s1Str, overallBestS1 < Infinity ? overallBestS1 : null) : 'none';
                   const s2Color = s2Val !== null && s2Val >= 10 ? getTimeColor(lap.s2!, s2Str, overallBestS2 < Infinity ? overallBestS2 : null) : 'none';
 
+                  let posDelta = 0;
+                  if (startPositions && startPositions.size > 0 && lap.position != null && lap.position > 0) {
+                    const prevPos = lapIdx === 0
+                      ? (startPositions.get(p.name) ?? null)
+                      : (p.laps[lapIdx - 1]?.position ?? null);
+                    if (prevPos != null && prevPos > 0) {
+                      posDelta = prevPos - lap.position;
+                    }
+                  }
+
                   return (
                     <td key={p.name} className={`table-cell text-left font-mono ${
                       isExcluded ? 'opacity-40' :
@@ -164,6 +176,11 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                     } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>
                       <div className={`relative group ${isExcluded ? 'line-through decoration-red-400' : ''}`}>
                         {toSeconds(lap.lap_time)}
+                        {posDelta !== 0 && (
+                          <span className={`ml-1 text-[8px] font-bold ${posDelta > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {posDelta > 0 ? `▲${posDelta}` : `▼${Math.abs(posDelta)}`}
+                          </span>
+                        )}
                         {onToggleLap && lapKey && (
                           <button onClick={(e) => { e.stopPropagation(); onToggleLap(lapKey); }}
                             className={`absolute -right-1 -top-1 w-3.5 h-3.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none opacity-0 group-hover:opacity-100 transition-all ${isExcluded ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30 !opacity-100' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}`}>

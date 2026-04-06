@@ -119,7 +119,7 @@ export default function Timing() {
 
   const replayData = buildReplayLaps(replayLaps);
 
-  const replayPilots = buildPilotLaps(replayLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time, s1: l.s1, s2: l.s2 })));
+  const replayPilots = buildPilotLaps(replayLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time, s1: l.s1, s2: l.s2, position: l.position })));
   const { isSectionVisible, getPageLayout } = useLayoutPrefs();
   const timingLayout = getPageLayout('timing');
   const hasReplayData = sessionStartTime != null && currentSessionId != null;
@@ -269,7 +269,7 @@ export default function Timing() {
                   replay: scrubber,
                   timingTable: table,
                   track: <TrackMap track={currentTrack} entries={trackEntries} static />,
-                  lapsByPilots: <LapsByPilots pilots={replayPilots} currentEntries={trackEntries} isLive />,
+                  lapsByPilots: <LapsByPilots pilots={replayPilots} currentEntries={trackEntries} isLive startPositions={liveIsRace ? startPositions : undefined} />,
                   history: (
                     <DayTimeline
                       isTimingOnline={isLive}
