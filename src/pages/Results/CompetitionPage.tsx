@@ -527,18 +527,22 @@ function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScr
   isOwner: boolean;
   children: Record<string, ReactNode>;
 }) {
-  const { isSectionVisible } = useLayoutPrefs();
+  const { isSectionVisible, getPageLayout } = useLayoutPrefs();
 
   const sectionsForBar = [
     ...PAGE_SECTIONS.competition,
     ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
   ];
 
-  return (
-    <div className="space-y-4">
-      <TableLayoutBar pageId="competition" sections={sectionsForBar} />
-      {isSectionVisible('competition', 'timeline') && sessionTimes.length > 0 && (
+  const layout = getPageLayout('competition');
+
+  const renderSection = (sectionId: string) => {
+    if (!isSectionVisible('competition', sectionId)) return null;
+    if (sectionId === 'timeline') {
+      if (sessionTimes.length === 0) return null;
+      return (
         <CompetitionTimeline
+          key="timeline"
           format={competition.format}
           sessions={competition.sessions}
           sessionTimes={sessionTimes}
@@ -546,16 +550,16 @@ function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScr
           onTimeChange={(t) => { setScrubTime(t); if (t !== null) setLiveEnabled(false); else setLiveEnabled(true); }}
           isLive={competition.status === 'live' && !allSessionsEnded}
         />
-      )}
-      {isSectionVisible('competition', 'liveSession') && (
-        children['liveSession']
-      )}
-      {isSectionVisible('competition', 'leaguePoints') && (
-        children['leaguePoints']
-      )}
-      {isSectionVisible('competition', 'sessions') && (
-        children['sessions']
-      )}
+      );
+    }
+    if (children[sectionId] !== undefined) return children[sectionId];
+    return null;
+  };
+
+  return (
+    <div className="space-y-4">
+      <TableLayoutBar pageId="competition" sections={sectionsForBar} />
+      {layout.map(s => renderSection(s.id))}
     </div>
   );
 }
