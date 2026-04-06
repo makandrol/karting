@@ -175,7 +175,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     } catch {}
   }, [competitionId, user]);
 
-  type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points` | `quali_${number}_time`;
+  type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points` | `quali_${number}_time` | 'race_2_cumsum';
   const [sortKey, setSortKey] = useState<SortKey>(() => saved?.sortKey || 'total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => saved?.sortDir || 'desc');
   const toggleSort = (key: SortKey, fixedDir?: 'asc' | 'desc') => {
@@ -209,6 +209,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
       if (sortKey === 'quali_time') return row.quali?.bestTime ?? Infinity;
       const qm = sortKey.match(/^quali_(\d+)_time$/);
       if (qm) { const qi = parseInt(qm[1]) - 1; return row.qualis?.[qi]?.bestTime ?? Infinity; }
+      if (sortKey === 'race_2_cumsum') {
+        return (row.qualis?.[0]?.speedPoints ?? 0) + (row.races[0]?.totalRacePoints ?? 0)
+             + (row.qualis?.[1]?.speedPoints ?? 0) + (row.races[1]?.totalRacePoints ?? 0);
+      }
       const m = sortKey.match(/^race_(\d+)_(time|points)$/);
       if (m) { const ri = parseInt(m[1]) - 1; const race = row.races[ri]; return m[2] === 'time' ? (race?.bestTime ?? Infinity) : (race?.totalRacePoints ?? 0); }
       return 0;
@@ -527,6 +531,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 <SortBtn k="race_1_points" label="Г1" fixedDir="desc" />
                 <SortBtn k="quali_2_time" label="Кв2" fixedDir="asc" />
                 <SortBtn k="race_2_points" label="Г2" fixedDir="desc" />
+                <SortBtn k="race_2_cumsum" label="Г2 сума" fixedDir="desc" />
                 <SortBtn k="race_3_points" label="Фінал" fixedDir="desc" />
               </>) : (<>
                 <SortBtn k="quali_time" label="Квала" fixedDir="asc" />
