@@ -1053,6 +1053,15 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   compSessions: SessionTableRow[];
   isScrubbing: boolean;
 }) {
+  const excludedLapSet = useMemo(() => new Set(competition.results?.excludedLaps || []), [competition.results?.excludedLaps]);
+  const effectiveLaps = useMemo(() => {
+    if (excludedLapSet.size === 0) return sessionLaps;
+    const filtered = new Map<string, SessionLap[]>();
+    for (const [sid, laps] of sessionLaps) {
+      filtered.set(sid, laps.filter(l => !excludedLapSet.has(`${sid}|${l.pilot}|${l.ts}`)));
+    }
+    return filtered;
+  }, [sessionLaps, excludedLapSet]);
   const currentPhase = useMemo(() => {
     if (!liveSessionId) return null;
     const s = competition.sessions.find(cs => cs.sessionId === liveSessionId);
@@ -1068,7 +1077,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     return cs ? cs.end_time !== null && cs.end_time !== undefined : false;
   }, [liveSessionId, compSessions, isScrubbing]);
 
-  const laps = liveSessionId ? (sessionLaps.get(liveSessionId) || []) : [];
+  const laps = liveSessionId ? (effectiveLaps.get(liveSessionId) || []) : [];
   const hasData = laps.length > 0 || liveEntries.length > 0;
 
   const [events, setEvents] = useState<any[]>([]);
@@ -1141,7 +1150,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith(qualiPhasePrefix));
     const qualiData = new Map<string, { bestTime: number; pilot: string }>();
     for (const qs of qualiSessions) {
-      for (const l of (sessionLaps.get(qs.sessionId) || [])) {
+      for (const l of (effectiveLaps.get(qs.sessionId) || [])) {
         const sec = parseLapSec(l.lap_time);
         if (sec === null || sec < 38) continue;
         const ex = qualiData.get(l.pilot);
@@ -1174,7 +1183,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
       const rSessions = competition.sessions.filter(s => s.phase?.startsWith(`race_${r}_`));
       const raceTimes: { pilot: string; time: number }[] = [];
       for (const rs of rSessions) {
-        for (const l of (sessionLaps.get(rs.sessionId) || [])) {
+        for (const l of (effectiveLaps.get(rs.sessionId) || [])) {
           const sec = parseLapSec(l.lap_time);
           if (sec === null || sec < 38) continue;
           const ex = raceTimes.find(rt => rt.pilot === l.pilot);
@@ -1201,7 +1210,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
 
     return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
-  }, [competition, sessionLaps, currentPhase, excludedPilots, isCL]);
+  }, [competition, effectiveLaps, currentPhase, excludedPilots, isCL]);
 
   if (!liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded) {
     return (
@@ -1232,6 +1241,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
         startPositions={startPositions}
         raceGroup={raceGroup}
         totalQualifiedPilots={totalPilots}
+        hidePoints={isSprint}
         defaultSortMode={isRace ? 'race' : 'qualifying'}
         showScrubber={false}
       />

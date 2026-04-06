@@ -37,6 +37,7 @@ export interface TimingTableProps {
   raceGroup?: number;
   totalQualifiedPilots?: number;
   isCompetitionRace?: boolean;
+  hidePoints?: boolean;
 }
 
 function arrowColor(diff: number): string {
@@ -50,7 +51,7 @@ export default function TimingTable({
   entries, sortMode, onSortModeChange,
   columnFilter: controlledColumnFilter, onColumnFilterChange,
   startPositions, startGrid,
-  raceGroup, totalQualifiedPilots, isCompetitionRace,
+  raceGroup, totalQualifiedPilots, isCompetitionRace, hidePoints,
 }: TimingTableProps) {
   const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>('all');
   const columnFilter = controlledColumnFilter ?? internalColumnFilter;
@@ -282,7 +283,7 @@ export default function TimingTable({
               <th className="table-cell text-center w-6">#</th>
               {visibleColList.map(col => {
                 if (col === 'change' && sortMode !== 'race') return null;
-                if (col === 'points' && !(sortMode === 'race' && raceGroup)) return null;
+                if (col === 'points' && (hidePoints || !(sortMode === 'race' && raceGroup))) return null;
                 if (col === 'arrows') return <th key={col} className="table-cell" style={{ width: arrowW }} />;
                 const align = col === 'pilot' || col === 'start' ? 'text-left' : 'text-center';
                 const extra = (col === 'change' || col === 'points') ? ' text-dark-500' : '';
@@ -350,7 +351,7 @@ export default function TimingTable({
                     </div>
                   </td>
                 ),
-                points: (sortMode === 'race' && raceGroup && scoringData) ? (
+                points: (sortMode === 'race' && raceGroup && scoringData && !hidePoints) ? (
                   <td key="points" className="table-cell text-center font-mono text-[10px] text-green-400/70">{(() => {
                     if (notStarted) return '';
                     const st = e.currentLapSec;

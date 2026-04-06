@@ -257,6 +257,7 @@ export default function Timing() {
               startPositions={startPositions}
               raceGroup={liveRaceGroup}
               totalQualifiedPilots={totalQualifiedPilots || undefined}
+              hidePoints={liveSessionComp.format === 'sprint'}
               defaultSortMode={liveIsRace ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
               onEntriesUpdate={setTrackEntries}
               renderScrubber={(scrubber) => (
