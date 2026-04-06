@@ -14,7 +14,7 @@ const COL_LABELS: Record<ColId, string> = {
   best: 'Best', bestS1: 'B.S1', bestS2: 'B.S2', tb: 'TB', laps: 'L',
 };
 const COL_WIDTHS: Record<ColId, string> = {
-  start: 'w-[120px]', arrows: 'w-[80px]', change: 'w-5', pilot: 'w-[140px] max-w-[200px]', points: 'w-8',
+  start: 'w-[120px]', arrows: 'w-[80px]', change: 'w-5', pilot: 'w-[200px] max-w-[200px]', points: 'w-8',
   kart: 'w-12', last: 'w-16', s1: 'w-14', s2: 'w-14',
   best: 'w-16', bestS1: 'w-14', bestS2: 'w-14', tb: 'w-16', laps: 'w-8',
 };
