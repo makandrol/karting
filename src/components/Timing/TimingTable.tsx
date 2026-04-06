@@ -277,9 +277,9 @@ export default function TimingTable({
                   </td>
                 ) : null,
                 arrows: (showArrowsCol && rowIdx === 0 && !notStarted) ? (
-                  <td key="arrows" rowSpan={n} className="p-0 relative overflow-hidden" style={{ width: arrowW }}>
+                  <td key="arrows" rowSpan={n} className="p-0" style={{ width: arrowW }}>
                     {tbodyH > 0 && (
-                      <svg width={arrowW} height={tbodyH} className="absolute top-0 left-0 block">
+                      <svg viewBox={`0 0 ${arrowW} ${tbodyH}`} preserveAspectRatio="none" width="100%" height={tbodyH} className="block">
                         {arrows.map((a, j) => (
                           <g key={j}>
                             <path d={a.d} fill="none" stroke={a.col} strokeWidth="1.5" strokeLinecap="round" />
