@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toSeconds, toHundredths, parseTime, getTimeColor, COLOR_CLASSES, KART_COLOR } from '../../utils/timing';
 import type { TimingEntry } from '../../types';
@@ -65,6 +66,7 @@ function compactName(name: string): string {
 }
 
 export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId }: LapsByPilotsProps) {
+  const [viewMode, setViewMode] = useState<'all' | 'main'>('all');
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
   const overallBestS2 = Math.min(...pilots.map(p => p.bestS2).filter(v => v < Infinity));
@@ -86,6 +88,16 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
 
   return (
     <div className="card p-0 overflow-hidden">
+      <div className="px-4 py-3 border-b border-dark-800 flex items-center gap-3">
+        <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
+          <span className="text-dark-500 text-[9px]">Вид:</span>
+          <span className="flex rounded overflow-hidden">
+            <button onClick={() => setViewMode('all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${viewMode === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
+            <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+            <button onClick={() => setViewMode('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${viewMode === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
+          </span>
+        </div>
+      </div>
       <div className="overflow-x-auto">
         <table className="text-[10px]">
           <thead>
@@ -96,7 +108,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
                     {compactName(p.name)}
                   </Link>
-                  <div className="flex items-center gap-1 font-normal">
+                  <div className="flex items-center justify-center gap-1 font-normal">
                     <span className={`${KART_COLOR} text-[11px]`}>К{p.laps[0]?.kart}</span>
                     {onRenamePilot && (
                       <button
@@ -153,7 +165,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                           </button>
                         )}
                       </div>
-                      {!isExcluded && ((s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10)) ? (
+                      {viewMode === 'all' && !isExcluded && ((s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10)) ? (
                         <div className="text-[8px] leading-tight mt-0.5">
                           <span className={s1Color === 'purple' ? 'text-purple-400' : s1Color === 'green' ? 'text-green-400' : 'text-dark-500'}>{s1Val !== null && s1Val >= 10 ? toHundredths(lap.s1!) : '—'}</span>
                           <span className="text-dark-700"> </span>
