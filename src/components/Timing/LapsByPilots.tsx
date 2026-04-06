@@ -92,18 +92,25 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
             <tr className="table-header">
               <th className="table-cell text-center w-8">Коло</th>
               {pilots.map(p => (
-                <th key={p.name} className="table-cell text-left min-w-[60px]">
+                <th key={p.name} className="table-cell text-left min-w-[100px]">
                   <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
                     {compactName(p.name)}
                   </Link>
-                  {onRenamePilot && (
-                    <button onClick={(e) => {
-                      e.stopPropagation();
-                      const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
-                      if (newName && newName !== p.name) onRenamePilot(p.name, newName);
-                    }} className="ml-0.5 text-dark-500 hover:text-primary-400 text-[8px]">✎</button>
-                  )}
-                  <div className="text-dark-600 text-[10px] font-normal">К{p.laps[0]?.kart}</div>
+                  <div className="flex items-center gap-1 font-normal">
+                    <span className="text-white text-[11px]">К{p.laps[0]?.kart}</span>
+                    {onRenamePilot && (
+                      <button
+                        type="button"
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
+                          if (newName && newName !== p.name) onRenamePilot(p.name, newName);
+                        }}
+                        className="text-dark-500 hover:text-primary-400 text-[10px] cursor-pointer p-0.5 leading-none"
+                      >✎</button>
+                    )}
+                  </div>
                 </th>
               ))}
             </tr>
