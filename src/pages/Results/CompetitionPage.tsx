@@ -169,6 +169,12 @@ export default function CompetitionPage() {
 
   return (
     <div className="space-y-4">
+      {(competition.format === 'light_league' || competition.format === 'champions_league') && (
+        <TableLayoutBar pageId="competition" sections={[
+          ...PAGE_SECTIONS.competition,
+          ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
+        ]} />
+      )}
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -453,7 +459,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     };
 
     return (
-      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled} isOwner={isOwner}>
+      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled}>
         {sectionMap}
       </CompetitionLayoutWrapper>
     );
@@ -517,22 +523,16 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   );
 }
 
-function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, isOwner, children }: {
+function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, children }: {
   sessionTimes: { sessionId: string; phase: string | null; startTime: number; endTime: number | null }[];
   competition: Competition;
   scrubTime: number | null;
   setScrubTime: (t: number | null) => void;
   allSessionsEnded: boolean;
   setLiveEnabled: (v: boolean | ((prev: boolean) => boolean)) => void;
-  isOwner: boolean;
   children: Record<string, ReactNode>;
 }) {
   const { isSectionVisible, getPageLayout } = useLayoutPrefs();
-
-  const sectionsForBar = [
-    ...PAGE_SECTIONS.competition,
-    ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
-  ];
 
   const layout = getPageLayout('competition');
 
@@ -558,7 +558,6 @@ function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScr
 
   return (
     <div className="space-y-4">
-      <TableLayoutBar pageId="competition" sections={sectionsForBar} />
       {layout.map(s => renderSection(s.id))}
     </div>
   );
