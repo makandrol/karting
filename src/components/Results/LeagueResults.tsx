@@ -211,12 +211,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
   }, [data, sortKey, sortDir, excludedPilots]);
 
   const QUALI_COLS_H = ['q_kart', 'q_time', 'q_speed'] as const;
-  const RACE_COLS_H = ['kart', 'time', 'speed', 'group', 'start', 'finish', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
+  const RACE_COLS_H = ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
 
   type TopGrpId = string;
   const SUB_GROUPS = [
-    { id: 'time', label: 'Час', cols: ['kart', 'time', 'speed'] },
     { id: 'pos', label: 'Поз', cols: ['group', 'start', 'finish'] },
+    { id: 'time', label: 'Час', cols: ['kart', 'time', 'speed'] },
     { id: 'pts', label: 'Бали', cols: ['pos_pts', 'overtake', 'penalties', 'sum'] },
   ] as const;
   const TOP_GROUPS = useMemo(() => {
@@ -257,13 +257,26 @@ export default function LeagueResults({ format, competitionId, sessions, session
   }, [DEFAULT_TOP_ORDER]);
 
   const toggleTopGrp = useCallback((gid: TopGrpId) => {
+    const isRace = gid !== 'quali';
+    if (isRace) {
+      const allSubsHidden = SUB_GROUPS.every(sg => hiddenSubGrps.has(`${gid}_${sg.id}`));
+      if (allSubsHidden) {
+        setHiddenSubGrps(prev => {
+          const n = new Set(prev);
+          SUB_GROUPS.forEach(sg => n.delete(`${gid}_${sg.id}`));
+          saveSettings({ hiddenSubGrps: [...n] });
+          return n;
+        });
+        return;
+      }
+    }
     setHiddenTopGrps(prev => {
       const n = new Set(prev);
       n.has(gid) ? n.delete(gid) : n.add(gid);
       saveSettings({ hiddenGrps: [...n] });
       return n;
     });
-  }, [saveSettings]);
+  }, [saveSettings, hiddenSubGrps]);
   const toggleSubGrp = useCallback((raceId: string, subId: string) => {
     const key = `${raceId}_${subId}`;
     setHiddenSubGrps(prev => {
@@ -327,7 +340,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const showQuali = !hiddenGroups.has('quali');
   const showRace = (n: number) => !hiddenGroups.has(`race_${n}`);
   const QUALI_COLS = ['q_kart', 'q_time', 'q_speed'] as const;
-  const RACE_COLS = ['kart', 'time', 'speed', 'group', 'start', 'finish', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
+  const RACE_COLS = ['group', 'start', 'finish', 'kart', 'time', 'speed', 'pos_pts', 'overtake', 'penalties', 'sum'] as const;
   const raceColId = (raceNum: number, col: string) => `r${raceNum}_${col}`;
 
   const PRESET_COLS: Record<string, { quali: string[]; race: string[] }> = {
@@ -543,16 +556,17 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           {cv('q_speed') && <th rowSpan={2} className={TH_V}><span className={TH_R}>Швидк.</span></th>}
                         </Fragment>;
                         const rn = parseInt(gid.replace('r', ''));
-                        const subCols = ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
-                        const visSub = subCols.filter(c => cv(raceColId(rn, c)));
+                        const posCols = ['group', 'start', 'finish'] as const;
+                        const timeCols = ['kart', 'time', 'speed'] as const;
+                        const ptsCols = ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
+                        const visPos = posCols.filter(c => cv(raceColId(rn, c)));
+                        const visTime = timeCols.filter(c => cv(raceColId(rn, c)));
+                        const visPts = ptsCols.filter(c => cv(raceColId(rn, c)));
+                        const subHdr = "px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30";
                         return <Fragment key={gid}>
-                          {cv(raceColId(rn, 'kart')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Карт</span></th>}
-                          {cv(raceColId(rn, 'time')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Час</span></th>}
-                          {cv(raceColId(rn, 'speed')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Швидк.</span></th>}
-                          {cv(raceColId(rn, 'group')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Група</span></th>}
-                          {cv(raceColId(rn, 'start')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Старт</span></th>}
-                          {cv(raceColId(rn, 'finish')) && <th rowSpan={2} className={TH_V}><span className={TH_R}>Фініш</span></th>}
-                          {visSub.length > 0 && <th colSpan={visSub.length} className="px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30">Бали</th>}
+                          {visPos.length > 0 && <th colSpan={visPos.length} className={subHdr}>Позиція</th>}
+                          {visTime.length > 0 && <th colSpan={visTime.length} className={subHdr}>Час</th>}
+                          {visPts.length > 0 && <th colSpan={visPts.length} className={subHdr}>Бали</th>}
                         </Fragment>;
                       })}
                     </tr>
@@ -560,13 +574,15 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       {visTop.map(gid => {
                         if (gid === 'quali') return null;
                         const rn = parseInt(gid.replace('r', ''));
-                        const subCols = ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
-                        if (!subCols.some(c => cv(raceColId(rn, c)))) return null;
+                        const allSubCols = [
+                          { col: 'group', label: 'Група' }, { col: 'start', label: 'Старт' }, { col: 'finish', label: 'Фініш' },
+                          { col: 'kart', label: 'Карт' }, { col: 'time', label: 'Час' }, { col: 'speed', label: 'Швидк.' },
+                          { col: 'pos_pts', label: 'Позиція' }, { col: 'overtake', label: 'Обгони' }, { col: 'penalties', label: 'Штрафи' }, { col: 'sum', label: 'Сума' },
+                        ];
+                        const visible = allSubCols.filter(sc => cv(raceColId(rn, sc.col)));
+                        if (visible.length === 0) return null;
                         return <Fragment key={gid}>
-                          {cv(raceColId(rn, 'pos_pts')) && <th className={TH_V}><span className={TH_R}>Позиція</span></th>}
-                          {cv(raceColId(rn, 'overtake')) && <th className={TH_V}><span className={TH_R}>Обгони</span></th>}
-                          {cv(raceColId(rn, 'penalties')) && <th className={TH_V}><span className={TH_R}>Штрафи</span></th>}
-                          {cv(raceColId(rn, 'sum')) && <th className={TH_V}><span className={TH_R}>Сума</span></th>}
+                          {visible.map(sc => <th key={sc.col} className={TH_V}><span className={TH_R}>{sc.label}</span></th>)}
                         </Fragment>;
                       })}
                     </tr>
@@ -700,20 +716,18 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   {Array.from({ length: raceCount }, (_, i) => {
                     const rn = i + 1;
                     if (!raceVisible(rn)) return null;
-                    const subCols = ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
-                    const visibleSubCols = subCols.filter(c => colVisible(raceColId(rn, c)));
+                    const posCols = ['group', 'start', 'finish'] as const;
+                    const timeCols = ['kart', 'time', 'speed'] as const;
+                    const ptsCols = ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
+                    const visPos = posCols.filter(c => colVisible(raceColId(rn, c)));
+                    const visTime = timeCols.filter(c => colVisible(raceColId(rn, c)));
+                    const visPts = ptsCols.filter(c => colVisible(raceColId(rn, c)));
+                    const subHdr = "px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30";
                     return (
                       <Fragment key={i}>
-                        {colVisible(raceColId(rn, 'kart')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Карт</span></th>}
-                        {colVisible(raceColId(rn, 'time')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Час</span></th>}
-                        {colVisible(raceColId(rn, 'speed')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Швидк.</span></th>}
-                        {colVisible(raceColId(rn, 'group')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Група</span></th>}
-                        {colVisible(raceColId(rn, 'start')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Старт</span></th>}
-                        {colVisible(raceColId(rn, 'finish')) && <th rowSpan={2} className={thClass(TH_V)}><span className={TH_R}>Фініш</span></th>}
-                        {visibleSubCols.length > 0 && (
-                          <th colSpan={visibleSubCols.length}
-                            className="px-1 py-0.5 text-center text-dark-500 text-[9px] border-r border-dark-700/30 border-b border-dark-700/30">Бали</th>
-                        )}
+                        {visPos.length > 0 && <th colSpan={visPos.length} className={subHdr}>Позиція</th>}
+                        {visTime.length > 0 && <th colSpan={visTime.length} className={subHdr}>Час</th>}
+                        {visPts.length > 0 && <th colSpan={visPts.length} className={subHdr}>Бали</th>}
                       </Fragment>
                     );
                   })}
@@ -722,11 +736,14 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   {Array.from({ length: raceCount }, (_, i) => {
                     const rn = i + 1;
                     if (!raceVisible(rn)) return null;
-                    const subCols = ['pos_pts', 'overtake', 'penalties', 'sum'] as const;
-                    const anyVisible = subCols.some(c => colVisible(raceColId(rn, c)));
-                    if (!anyVisible) return null;
                     return (
                       <Fragment key={i}>
+                        {colVisible(raceColId(rn, 'group')) && <th className={thClass(TH_V)}><span className={TH_R}>Група</span></th>}
+                        {colVisible(raceColId(rn, 'start')) && <th className={thClass(TH_V)}><span className={TH_R}>Старт</span></th>}
+                        {colVisible(raceColId(rn, 'finish')) && <th className={thClass(TH_V)}><span className={TH_R}>Фініш</span></th>}
+                        {colVisible(raceColId(rn, 'kart')) && <th className={thClass(TH_V)}><span className={TH_R}>Карт</span></th>}
+                        {colVisible(raceColId(rn, 'time')) && <th className={thClass(TH_V)}><span className={TH_R}>Час</span></th>}
+                        {colVisible(raceColId(rn, 'speed')) && <th className={thClass(TH_V)}><span className={TH_R}>Швидк.</span></th>}
                         {colVisible(raceColId(rn, 'pos_pts')) && <th className={thClass(TH_V)}><span className={TH_R}>Позиція</span></th>}
                         {colVisible(raceColId(rn, 'overtake')) && <th className={thClass(TH_V)}><span className={TH_R}>Обгони</span></th>}
                         {colVisible(raceColId(rn, 'penalties')) && <th className={thClass(TH_V)}><span className={TH_R}>Штрафи</span></th>}
@@ -824,9 +841,6 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       const rBorder = (c: string) => c === lastRaceCol ? SECTION_BORDER : 'border-r border-dark-700/30';
                       return (
                         <Fragment key={ri}>
-                          {cv('kart') && <td className={`px-1 py-1 text-center font-mono text-blue-400/70 ${rBorder('kart')}`}>{race?.kart || '—'}</td>}
-                          {cv('time') && <td className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${rBorder('time')}`}>{race ? toSeconds(race.bestTimeStr) : '—'}</td>}
-                          {cv('speed') && <td className={`px-1 py-1 text-center font-mono ${rBorder('speed')}`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                           {cv('group') && <td className={`px-1 py-1 text-center font-mono text-dark-500 ${rBorder('group')}`}>{race?.group || '—'}</td>}
                           {cv('start') && <td className={`px-1 py-1 text-center font-mono text-dark-400 ${rBorder('start')}`}>
                             {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell editingRef={editingRef} value={race.startPos} onChange={v => setEdit(row.pilot, rn, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}
@@ -839,6 +853,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
                               </span>
                             ) : '—'}
                           </td>}
+                          {cv('kart') && <td className={`px-1 py-1 text-center font-mono text-blue-400/70 ${rBorder('kart')}`}>{race?.kart || '—'}</td>}
+                          {cv('time') && <td className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${rBorder('time')}`}>{race ? toSeconds(race.bestTimeStr) : '—'}</td>}
+                          {cv('speed') && <td className={`px-1 py-1 text-center font-mono ${rBorder('speed')}`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                           {cv('pos_pts') && <td className={`px-1 py-1 text-center font-mono ${rBorder('pos_pts')}`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                           {cv('overtake') && <td className={`px-1 py-1 text-center font-mono ${rBorder('overtake')}`}>{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>}
                           {cv('penalties') && <td className={`px-1 py-1 text-center font-mono ${rBorder('penalties')}`}>
