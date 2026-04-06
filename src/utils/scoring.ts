@@ -160,7 +160,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
       const activeRaceMatch = activePhase.match(/race_(\d+)_/);
       if (activeRaceMatch) {
         const activeRaceNum = parseInt(activeRaceMatch[1]);
-        shouldShowStartPositions = r === activeRaceNum + 1;
+        shouldShowStartPositions = r === activeRaceNum || r === activeRaceNum + 1;
       }
     } else {
       shouldShowStartPositions = true;
@@ -450,9 +450,10 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
   const shouldShowRaceStart = (raceKey: string) => {
     if (!activePhase) return true;
     if (activePhase.startsWith(`qualifying_1_`)) return raceKey === 'race_1';
-    if (activePhase.startsWith(`race_1_`)) return raceKey === 'qualifying_2' || raceKey === 'race_2';
-    if (activePhase.startsWith(`qualifying_2_`)) return raceKey === 'race_2';
-    if (activePhase.startsWith(`race_2_`)) return raceKey === 'final';
+    if (activePhase.startsWith(`race_1_`)) return raceKey === 'race_1' || raceKey === 'race_2';
+    if (activePhase.startsWith(`qualifying_2_`)) return raceKey === 'race_1' || raceKey === 'race_2';
+    if (activePhase.startsWith(`race_2_`)) return raceKey === 'race_2' || raceKey === 'final';
+    if (activePhase.startsWith(`final_`)) return raceKey === 'final';
     return true;
   };
 
