@@ -8,7 +8,7 @@ import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilo
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
 import { useTrack } from '../../services/trackContext';
-import { trackDisplayId } from '../../data/tracks';
+import { trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import type { TimingEntry } from '../../types';
@@ -44,7 +44,8 @@ function fmtDuration(startMs: number, endMs: number): string {
 export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const { allTracks } = useTrack();
-  const { isOwner } = useAuth();
+  const { isOwner, hasPermission } = useAuth();
+  const canChangeTrack = hasPermission('change_track');
   const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
   const [dbSession, setDbSession] = useState<DbSession | null>(null);
@@ -164,6 +165,19 @@ export default function SessionDetail() {
     window.location.reload();
   };
 
+  const handleChangeTrack = async (newTrackId: number) => {
+    if (!sessionId || !dbSession) return;
+    const sessionIds = dbSession.merged_session_ids || [sessionId];
+    try {
+      await fetch(`${COLLECTOR_URL}/db/update-sessions-track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ sessionIds, trackId: newTrackId }),
+      });
+      setDbSession({ ...dbSession, track_id: newTrackId });
+    } catch { /* ignore */ }
+  };
+
   const compId = (dbSession as any)?.competition_id;
   const handleToggleLap = async (lapKey: string) => {
     if (!compId) return;
@@ -231,7 +245,24 @@ export default function SessionDetail() {
             </h1>
             <div className="flex items-center gap-1 border border-dark-700 rounded px-2 py-1">
               <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-              <span className="text-dark-300 text-xs font-mono">{trackDisplayId(dbSession.track_id)}</span>
+              {canChangeTrack ? (
+                <select
+                  value={dbSession.track_id}
+                  onChange={(e) => handleChangeTrack(parseInt(e.target.value, 10))}
+                  className="bg-transparent text-dark-300 text-xs outline-none w-10 cursor-pointer"
+                >
+                  {[...allTracks].sort((a, b) => {
+                    const aR = isReverseTrack(a.id) ? 1 : 0;
+                    const bR = isReverseTrack(b.id) ? 1 : 0;
+                    if (aR !== bR) return aR - bR;
+                    return baseTrackId(a.id) - baseTrackId(b.id);
+                  }).map((t) => (
+                    <option key={t.id} value={t.id}>{trackDisplayId(t.id)}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-dark-300 text-xs font-mono">{trackDisplayId(dbSession.track_id)}</span>
+              )}
             </div>
             <SessionTypeChanger
               sessionId={sessionId!}
