@@ -57,7 +57,8 @@
 ### Shared Patterns
 - `SessionsTable` — used everywhere for session lists
 - `DateNavigator` — single-select (Sessions) or multi-select (Karts, KartDetail)
-- `SessionReplay` — used on Timing (live) and SessionDetail (replay)
+- `SessionReplay` — used on Timing (live), SessionDetail (replay), and CompetitionPage (live, `showScrubber=false`)
+- `TimingTable` — standalone timing table used inside SessionReplay. Column visibility (Все/Осн/Своє), sort modes, Start+arrows columns
 - `LapsByPilots` — used on Timing (isLive) and SessionDetail (with highlight)
 - `SessionTypeChanger` — used on Timing and SessionDetail
 - `TrackMap` with `static` prop for replay, without for live animation
@@ -123,6 +124,12 @@
 26. **Settings expiry**: Competition filters and kart date selections expire at end of day. Use `loadWithExpiry()`/`saveWithExpiry()`.
 27. **Mobile**: `html, body { overflow-x: hidden }`, header dropdowns use `position: fixed`, Tailwind `hoverOnlyWhenSupported: true`, today highlighted green
 28. **Competitions page**: `/results` shows unified list with date navigator + type filters. "Змагання" is a direct Link in header (not dropdown).
+29. **TimingTable**: Reusable component in `components/Timing/TimingTable.tsx`. DO NOT inline table JSX in SessionReplay — all table rendering goes through TimingTable.
+30. **Column visibility**: `start` and `arrows` columns are `RACE_ONLY_COLS` — auto-hidden when not in race mode or no start data. They are fixed-position (not draggable) in custom mode.
+31. **Layout prefs**: `layoutPrefs.tsx` manages page-level section visibility. `updateLocal()` must fall back to `HARDCODED_DEFAULTS` version when `serverDefaults` is empty. See bugfix in v0.9.195.
+32. **Competition live table**: Uses `SessionReplay(showScrubber=false)` with events fetched on 3s interval. Do NOT create separate live table components.
+33. **LeagueResults toolbar order**: "Сорт:" first row, "Вид:" second row.
+34. **CompetitionTimeline links**: Only session name is a link; time display is plain text.
 
 ## File Structure
 ```
@@ -140,11 +147,11 @@ karting/
 ├── src/
 │   ├── components/
 │   │   ├── Layout/          # Header (fixed dropdowns, UserDropdown), Footer, Layout
-│   │   ├── Timing/          # SessionReplay, DayTimeline, CompetitionControl,
+│   │   ├── Timing/          # SessionReplay, TimingTable, DayTimeline, CompetitionControl,
 │   │   │                    #   LapsByPilots, SessionTypeChanger, TimingBoard
 │   │   ├── Track/           # TrackMap
 │   │   ├── Sessions/        # DateNavigator (green today), SessionsTable, SessionRows
-│   │   └── Results/         # LeagueResults (unified view modes, standings push)
+│   │   └── Results/         # LeagueResults, CompetitionTimeline, TableLayoutBar
 │   ├── pages/
 │   │   ├── Info/            # Timing, Onboard, Karts (date expiry), KartDetail, Tracks, Videos
 │   │   ├── Sessions/        # SessionsList, SessionDetail
@@ -156,14 +163,16 @@ karting/
 │   │   ├── auth.tsx         # Firebase Auth + roles + localhost auto-owner
 │   │   ├── timingPoller.ts  # Live timing hook (bestS1/S2 tracking, kart Number conversion)
 │   │   ├── viewPrefs.ts     # Per-user view preferences
+│   │   ├── layoutPrefs.tsx  # Page-level section visibility + ordering (server defaults + local overrides)
 │   │   ├── pageVisibility.tsx # Page visibility config (competitions in main group)
 │   │   ├── config.ts        # Collector URL
 │   │   └── firebase.ts      # Firebase init
 │   ├── utils/
 │   │   ├── timing.ts        # parseTime, toSeconds, toHundredths, getTimeColor,
 │   │   │                    #   mergePilotNames, shortName, fetchRaceStartPositions
-│   │   └── scoring.ts       # computeStandings, rowsToStandings, calcOvertakePoints,
-│   │                        #   getPositionPoints, parseLapSec (shared scoring module)
+│   │   ├── scoring.ts       # computeStandings, rowsToStandings, calcOvertakePoints,
+│   │   │                    #   getPositionPoints, parseLapSec (shared scoring module)
+│   │   └── session.ts       # buildReplayLaps, extractCompetitionReplayProps
 │   ├── data/
 │   │   ├── tracks.ts        # Track configurations
 │   │   ├── competitions.ts  # Competition configs + PHASE_CONFIGS + splitIntoGroups
@@ -175,7 +184,7 @@ karting/
 ├── public/data/
 │   └── scoring.json         # Scoring rules (editable via /admin/scoring)
 ├── docs/                    # This documentation
-├── package.json             # v0.9.161
+├── package.json             # v0.9.195
 ├── vite.config.ts
 ├── tailwind.config.js       # hoverOnlyWhenSupported: true
 ├── tsconfig.json            # resolveJsonModule enabled

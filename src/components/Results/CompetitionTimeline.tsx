@@ -136,8 +136,7 @@ export default function CompetitionTimeline({ format, sessions, sessionTimes, cu
             <span className="text-dark-400 text-xs">Таймлайн змагання</span>
           )}
           {currentTime !== null && activeSession && (
-            <span onClick={() => navigate(`/sessions/${activeSession.sessionId}`)}
-              className="text-blue-400/60 text-[10px] font-mono cursor-pointer hover:text-blue-300 transition-colors">{fmtTime(currentTime)}</span>
+            <span className="text-dark-500 text-[10px] font-mono">{fmtTime(currentTime)}</span>
           )}
           {currentTime !== null && !activeSession && (
             <span className="text-dark-500 text-[10px] font-mono">{fmtTime(currentTime)}</span>

@@ -117,6 +117,7 @@ Frontend's `parseSessionEvents()` builds an incremental position timeline from a
 sequenceDiagram
     participant Page as Session Page
     participant SR as SessionReplay
+    participant TT as TimingTable
     participant Track as TrackMap
 
     Page->>Page: Fetch laps + events
@@ -131,9 +132,20 @@ sequenceDiagram
         Note over SR: 3. Display S1: prevLap.s1 or mid-lap s1Event
         Note over SR: 4. Display S2, lastLap from data/live
         Note over SR: 5. Sort (qualifying=bestLap, race=laps+progress+positions)
+        SR->>TT: entries, sortMode, columnFilter, startPositions, startGrid
         SR->>Track: entries with positions + progress
     end
 ```
+
+### TimingTable Component
+Standalone reusable timing table with full column management:
+- Квала/Гонка sort mode toggle
+- Вид: (Все/Осн/Своє) column visibility bar with draggable pills
+- Start column + SVG Bezier curved arrows (race mode only)
+- `Δ` column for position change
+- Pilot progress bar with bordered outline
+- Column order/visibility persisted per sort mode in localStorage
+- `start` and `arrows` columns are fixed-position, auto-shown/hidden based on race data
 
 ### Sort Modes
 
@@ -257,12 +269,18 @@ The timing system sometimes shows "Карт X" for initial laps. `mergePilotName
 - Standings auto-pushed to collector every 10s (debounced) via `onSaveResults({ standings })`
 
 ### View Modes (LeagueResults)
-- Все/Бали/Час/Поз/Ост — unified column visibility system via `PRESET_COLS`
-- "Ост" (custom): user clicks column headers to toggle visibility
-- Clicking group headers (Квала, Гонка N) toggles all sub-columns
-- Clicking "Бали" sub-header toggles all 4 point columns
+- Все/Бали/Час/Поз/Ред/Своє — unified column visibility system
+- "Своє" (custom): draggable group pills, click to toggle groups/sub-columns
 - Custom column set persisted per user+competition in localStorage
 - Tap-to-select pilot rows (stays highlighted until tapped again)
+- Toolbar: "Сорт:" first row, "Вид:" second row
+
+### View Preferences & Layout Prefs
+- `layoutPrefs.tsx` — page-level section visibility (Таймлайн, Заїзд, Результати, Список заїздів)
+- `TableLayoutBar` — draggable section pills with toggle
+- Server defaults from collector `/view-defaults` with version-based override
+- Fallback to `HARDCODED_DEFAULTS` when server unreachable
+- `updateLocal()` correctly uses `serverDefaults || HARDCODED_DEFAULTS` for version
 
 ### Competition Page (Unified)
 - Single `/results` route shows ALL competitions
@@ -290,3 +308,13 @@ The timing system sometimes shows "Карт X" for initial laps. `mergePilotName
 
 ### View Preferences
 User view preferences (show/hide track, laps-by-pilots, league tables) persisted in localStorage by user email.
+
+### Layout Preferences (`layoutPrefs.tsx`)
+Page-level section visibility system with server defaults + local overrides:
+- `LayoutPrefsProvider` wraps the app, provides `useLayoutPrefs()` hook
+- `toggleSection(pageId, sectionId)` — flip visibility, persist to localStorage
+- `reorderSections(pageId, fromIdx, toIdx)` — drag to reorder sections
+- Server defaults fetched from collector `GET /view-defaults` with version numbers
+- When server bumps version, local overrides reset to server defaults
+- `HARDCODED_DEFAULTS` fallback when server unreachable (competition version: 2)
+- Competition sections: timeline, liveSession, leaguePoints, sessions (default: sessions hidden)

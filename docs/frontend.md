@@ -41,7 +41,7 @@ React 18 SPA with TypeScript, Vite, Tailwind CSS. Firebase Auth for Google Sign-
 ## Key Components
 
 ### `SessionReplay` (`components/Timing/SessionReplay.tsx`)
-The core replay component used on both Timing (live) and SessionDetail pages.
+The core replay component used on Timing (live), SessionDetail (replay), and CompetitionPage (live, `showScrubber=false`).
 
 **Props:**
 - `laps` — lap data array with pilot, kart, lapNumber, lapTime, s1, s2, position, ts
@@ -55,7 +55,9 @@ The core replay component used on both Timing (live) and SessionDetail pages.
 - `raceGroup?` — group number (1/2/3) for points calculation
 - `totalQualifiedPilots?` — for position points scoring table
 - `defaultSortMode?` — `'qualifying'` or `'race'` (auto-set from competition phase)
+- `showScrubber?` — `true` (default) or `false` (competition page hides scrubber)
 - `autoPlay?`, `raceNumber?`, `onTimeUpdate?`, `onEntriesUpdate?`, `renderScrubber?`
+- `columnFilter?`, `onColumnFilterChange?` — controlled column filter mode
 
 **Exported utilities:**
 - `S1Event` interface
@@ -63,17 +65,38 @@ The core replay component used on both Timing (live) and SessionDetail pages.
 - `ReplaySortMode` type
 - `parseSessionEvents(rawEvents)` — parses all event types into s1Events + position timeline
 
+**Internal structure:** Manages replay logic (animation loop, `getEntriesAtTime`, pilotTimelines, scrubber). Renders `<TimingTable>` internally with computed entries.
+
+### `TimingTable` (`components/Timing/TimingTable.tsx`)
+Standalone reusable timing table extracted from SessionReplay. Used in ALL places where a timing table appears (timing page, session detail, competition live session).
+
+**Props:**
+- `entries: TimingEntry[]` — pre-computed entries to display
+- `sortMode: SortMode` — `'qualifying'` or `'race'`
+- `onSortModeChange` — callback to switch sort mode
+- `columnFilter?` / `onColumnFilterChange?` — controlled/uncontrolled column filter
+- `startPositions?` — `Map<string, number>` for race start data
+- `startGrid?` — `Map<number, string>` for Start column display
+- `raceGroup?` / `totalQualifiedPilots?` — for points calculation
+
 **Table columns:**
 - `#` — current position
-- Pilot name (with progress bar)
-- `+/-` — position change vs start (race mode only, green ↑ / red ↓)
+- `Start` — pilot name at start position (race mode only, with start data)
+- `↔` (arrows) — SVG Bezier curved arrows from start to finish position (race mode only)
+- `Δ` — position change vs start (race mode only, green ↑ / red ↓)
+- Pilot name (with progress bar — bordered outline, full-width, yellow fill)
 - `P` — race points: position + overtake (race mode + competition only)
 - Kart, Last lap, S1, S2, Best lap, Best S1, Best S2, TB (theoretical best = bestS1 + bestS2), L (lap count)
-- Onboard link (camera icon)
 
-**Sort modes (toggle in scrubber bar):**
-- **Квала**: by best lap time
-- **Гонка**: by laps desc → progress → recorded position → snapshot position → start position
+**Column visibility system ("Вид:"):**
+- `Все` — all columns visible
+- `Осн` — main columns only (hides S1, S2, bestS1, bestS2, TB)
+- `Своє` — custom: draggable column pills, click to toggle on/off, persisted per sort mode in localStorage
+- `start` and `arrows` columns are fixed-position (always first, not draggable) and only visible when `sortMode === 'race'` AND start data exists
+
+**Sort mode buttons:** Квала / Гонка toggle
+
+**Arrow rendering:** SVG Bezier curves in a `<td rowSpan={n}>` on the first row. Uses `ResizeObserver` on tbody for dynamic height. Colors: green shades (gained positions), red shades (lost), gray (same).
 
 ### `LapsByPilots` (`components/Timing/LapsByPilots.tsx`)
 Laps-by-pilots grid. Each cell shows lap time + S1/S2 (hundredths, green/purple only).
@@ -105,11 +128,12 @@ Full scoring table for Light League / Champions League competitions. Uses shared
 - Speed points column after Час
 - Points highlighted green, penalties red
 - **Standings push**: calls `onSaveResults({ standings })` every 10s (debounced) to persist standings on collector
-- **View modes** (Все/Бали/Час/Поз/Ост): unified column visibility via `PRESET_COLS`
-  - "Ост" (custom): user clicks column headers to hide/show individual columns
+- **View modes** (Все/Бали/Час/Поз/Ред/Своє): unified column visibility via `PRESET_COLS`
+  - "Своє" (custom): draggable group pills, click to toggle groups/sub-groups
   - Clicking group headers (Квала, Гонка N) toggles all sub-columns
-  - Clicking "Бали" sub-header toggles all 4 point columns
+  - Clicking sub-groups (Поз, Час, Швидк, Бали) toggles individual columns
   - Custom column set persisted per user+competition in localStorage
+- **Toolbar layout**: "Сорт:" (first row), "Вид:" (second row)
 - **Tap-to-select**: pilot rows stay highlighted until tapped again
 - **Touch feedback**: `active:bg-dark-700/30` on table rows
 
@@ -137,8 +161,9 @@ Includes onboard link (camera icon) per kart row.
 - `TrackMap` — SVG track map with animated kart positions
 - `DayTimeline` — scrollable session activity timeline
 - `CompetitionControl` — inline competition detector controls
-- `CompetitionTimeline` (`components/Results/CompetitionTimeline.tsx`) — horizontal scrubber for competition page, shows sessions as green segments with phase labels, click to navigate to session detail
+- `CompetitionTimeline` (`components/Results/CompetitionTimeline.tsx`) — horizontal scrubber for competition page, shows sessions as green segments with phase labels, click to navigate to session detail. Session name is a clickable link; time display is plain text.
 - `CompetitionList` / `CompetitionListItem` (`pages/Results/CompetitionPage.tsx`) — unified list with date navigator, type filters, sort, top-3 pilots from stored standings
+- `TableLayoutBar` (`components/TableLayoutBar.tsx`) — "Вид:" bar for page-level section visibility (drag to reorder, click to toggle). Used on timing, session detail, competition pages.
 - `UserDropdown` (`components/Layout/Header.tsx`) — extracted user menu dropdown component with `position: fixed` positioning
 - `EditableCell` (`components/Results/LeagueResults.tsx`, top-level function) — input with focus protection, prefix support (for penalties "-"), MUST stay outside LeagueResults to prevent remount
 - `EditLog` (`components/Results/LeagueResults.tsx`) — shows audit log of all manual edits
@@ -161,6 +186,16 @@ Firebase Auth with role system:
 
 ### `viewPrefs.ts`
 Persists view preferences per user email in localStorage.
+
+### `layoutPrefs.tsx`
+Page-level section visibility and ordering system.
+- `LayoutPrefsProvider` — React context provider
+- `useLayoutPrefs()` — hook returning `isSectionVisible`, `toggleSection`, `reorderSections`, `resetPage`
+- `PAGE_SECTIONS` — definitions for each page: timing, sessionDetail, competition
+- Competition sections: Таймлайн, Заїзд, Результати, Список заїздів
+- Merges server defaults (from collector `/view-defaults`) with local overrides in localStorage
+- Version-based override: server can bump version to force reset user customizations
+- `HARDCODED_DEFAULTS` — fallback when server unreachable (competition version: 2)
 
 ### `pageVisibility.tsx`
 Manages which pages are visible per role. Groups: main, other, admin. Competitions moved from dropdown group to main nav as a direct Link to `/results`.
@@ -194,6 +229,10 @@ Pure functions extracted from LeagueResults for reuse:
 - `loadWithExpiry(storage, key)` — load value from storage, returns null if expired (end of day)
 - `saveWithExpiry(storage, key, value)` — save value to storage with end-of-day expiry timestamp
 
+### `utils/session.ts`
+- `buildReplayLaps(dbLaps)` — converts `DbLap[]` to `ReplayLap[]` format for SessionReplay
+- `extractCompetitionReplayProps(phase)` — extracts `raceGroup` and `isRace` from phase string
+
 ### `data/competitions.ts`
 Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseLabel()`, `getPhasesForFormat(format, groupCount)`.
 - `getPhasesForFormat()` — filters phases by group count (e.g. with 2 groups, skips qualifying_3/4 and group_3 phases)
@@ -205,10 +244,48 @@ Competition format configs with `PHASE_CONFIGS`, `splitIntoGroups()`, `getPhaseL
 - Dark theme with Tailwind CSS custom colors (`dark-*`, `primary-*`)
 - Header: NOT sticky (scrolls with page)
 - Footer: version + links only (no logo)
-- SessionReplay table: tight padding (`px-0.5 py-0.5`), narrow pilot column, thin progress bar
+- SessionReplay table: tight padding (`px-0.5 py-0.5`), narrow pilot column (`w-[140px]`), bordered progress bar (full-width, border-dark-600/50, yellow fill)
+- TimingTable: sort mode toggle (Квала/Гонка), Вид: bar (Все/Осн/Своє), draggable column pills in custom mode
 - Color coding: `text-purple-400` (overall best), `text-green-400` (PB), `text-yellow-400` (slower)
 
-## Recent Changes (v0.9.119)
+## Recent Changes (v0.9.191–0.9.195)
+
+### TimingTable extraction (v0.9.191)
+- Extracted reusable `TimingTable` component from `SessionReplay` (~280 lines)
+- Contains: sort mode buttons, Вид: bar (Все/Осн/Своє), draggable column pills, column persistence
+- New columns: `Start` (pilot name at start position) and `arrows` (SVG Bezier curved paths)
+- `RACE_ONLY_COLS = new Set(['start', 'arrows'])` — only shown in race mode with start data
+- `SessionReplay` now renders `<TimingTable>` internally instead of inline table JSX
+- Added `startGrid` memo to compute `Map<number, string>` from `startPositions`
+
+### Competition page rewrite (v0.9.191)
+- Replaced old `QualifyingLiveTable` and `RaceLiveTable` with `SessionReplay(showScrubber=false)`
+- `LiveSessionTable` fetches events (s1/snapshots) for active session on 3s interval
+- Computes `startPositions` from qualifying/previous race data inline
+- Converts laps via `buildReplayLaps()`, passes to `SessionReplay`
+- Full "Вид:" column selector now available in live timing on competition page
+
+### UI improvements (v0.9.192–0.9.194)
+- `Start` column header (was "Старт")
+- `Δ` column label (was "+/-") — both in column header and Вид pills
+- `Δ` column narrower (`w-5`, `px-0.5`)
+- Pilot column narrower (`w-[140px] max-w-[200px]`)
+- Progress bar: bordered outline (`border border-dark-600/50`), full-width, 2px height
+- Arrows stay in fixed position in custom (Своє) column mode — not draggable, always first
+- Competition timeline: only session name is a clickable link, time is plain text
+- Track selector icon changed from globe to finish flag
+- LeagueResults toolbar: Сорт: first row, Вид: second row (swapped)
+
+### Competition page sections (v0.9.193)
+- Added `sessions` section to live competition layout (was only in admin view)
+- All 4 pills in Вид bar now work: Таймлайн, Заїзд, Результати, Список заїздів
+
+### Layout prefs bugfix (v0.9.195)
+- Fixed `toggleSection` not persisting when server defaults unavailable
+- `updateLocal` now falls back to `HARDCODED_DEFAULTS` version when `serverDefaults` is empty
+- Previously: `basedOnVersion` was set to 0 (server empty), but hardcoded defaults had version 2, so `mergeDefaults` always ignored user's override
+
+## Previous Changes (v0.9.119)
 
 ### Scoring
 - Scoring data now loaded from collector API (`GET /scoring`) with fallback to static file

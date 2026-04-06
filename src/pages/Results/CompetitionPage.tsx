@@ -1,16 +1,18 @@
-import { useParams, Link, Navigate } from 'react-router-dom';
-import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups } from '../../data/competitions';
-import { toSeconds, isValidSession, shortName } from '../../utils/timing';
+import { toSeconds, isValidSession } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 import LeagueResults from '../../components/Results/LeagueResults';
 import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
-import { parseLapSec, getPositionPoints, calcOvertakePoints, type ScoringData } from '../../utils/scoring';
+import { parseLapSec } from '../../utils/scoring';
 import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
+import SessionReplay, { parseSessionEvents } from '../../components/Timing/SessionReplay';
+import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -172,7 +174,7 @@ export default function CompetitionPage() {
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl font-bold text-white">{getCompetitionDisplayName(competition).replace(/,?\s*Траса\s*\d+R?/, '')}</h1>
             <div className="flex items-center gap-1 border border-dark-700 rounded px-1.5 py-0.5">
-              <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
               <select
                 value={trackId ?? ''}
                 onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
@@ -444,9 +446,19 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       />
     );
 
+    const sessionsEl = compSessions.length > 0 ? (
+      <div key="sessions" className="card p-0 overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-dark-800">
+          <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
+        </div>
+        <SessionsTable sessions={compSessions} />
+      </div>
+    ) : null;
+
     const sectionMap: Record<string, React.ReactNode> = {
       leaguePoints: leagueResultsEl,
       liveSession: liveSessionEl,
+      sessions: sessionsEl,
     };
 
     return (
@@ -549,6 +561,9 @@ function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScr
       )}
       {isSectionVisible('competition', 'leaguePoints') && (
         children['leaguePoints']
+      )}
+      {isSectionVisible('competition', 'sessions') && (
+        children['sessions']
       )}
     </div>
   );
@@ -1044,13 +1059,6 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   compSessions: SessionTableRow[];
   isScrubbing: boolean;
 }) {
-  const [scoring, setScoring] = useState<ScoringData | null>(null);
-  useEffect(() => {
-    fetch(`${COLLECTOR_URL}/scoring`).then(r => r.ok ? r.json() : fetch('/data/scoring.json').then(r2 => r2.json())).then(setScoring).catch(() => {
-      fetch('/data/scoring.json').then(r => r.json()).then(setScoring).catch(() => {});
-    });
-  }, []);
-
   const currentPhase = useMemo(() => {
     if (!liveSessionId) return null;
     const s = competition.sessions.find(cs => cs.sessionId === liveSessionId);
@@ -1069,137 +1077,69 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   const laps = liveSessionId ? (sessionLaps.get(liveSessionId) || []) : [];
   const hasData = laps.length > 0 || liveEntries.length > 0;
 
-  if (!liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded) {
-    return (
-      <div className="card p-0 overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-dark-800">
-          <h3 className="text-dark-500 font-semibold text-sm">Немає активного заїзду</h3>
-        </div>
-      </div>
-    );
-  }
+  const [events, setEvents] = useState<any[]>([]);
 
-  const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase) : '';
+  useEffect(() => {
+    if (!liveSessionId) { setEvents([]); return; }
+    let cancelled = false;
+    const fetchEvents = async () => {
+      try {
+        const res = await fetch(`${COLLECTOR_URL}/db/events?session=${liveSessionId}`);
+        if (res.ok && !cancelled) setEvents(await res.json());
+      } catch {}
+    };
+    fetchEvents();
+    const timer = setInterval(fetchEvents, 3000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [liveSessionId]);
 
-  if (isQualifying) {
-    return <QualifyingLiveTable laps={laps} entries={liveEntries} phaseLabel={phaseLabel} />;
-  }
+  const { s1Events, snapshots } = useMemo(() => parseSessionEvents(events), [events]);
 
-  const raceMatch = currentPhase!.match(/^race_(\d+)_group_(\d+)$/);
-  const raceNum = raceMatch ? parseInt(raceMatch[1]) : 1;
-  const groupNum = raceMatch ? parseInt(raceMatch[2]) : 1;
+  const replayLaps = useMemo(() => buildReplayLaps(laps as any), [laps]);
 
-  const maxGroups = competition.results?.groupCountOverride ?? undefined;
+  const sessionStartTime = useMemo(() => {
+    if (!liveSessionId) return undefined;
+    const cs = compSessions.find(s => s.id === liveSessionId);
+    return cs?.start_time ?? undefined;
+  }, [liveSessionId, compSessions]);
+
+  const durationSec = useMemo(() => {
+    if (!sessionStartTime) return 0;
+    const cs = compSessions.find(s => s.id === liveSessionId);
+    const endTime = cs?.end_time ?? Date.now();
+    return Math.max(0, (endTime - sessionStartTime) / 1000);
+  }, [sessionStartTime, liveSessionId, compSessions, laps]);
+
+  const mappedLiveEntries = useMemo(() => {
+    return liveEntries.map((e: any) => ({
+      position: e.position ?? 0,
+      pilot: e.pilot,
+      kart: e.kart ?? 0,
+      lastLap: e.lastLap ?? null,
+      s1: e.s1 ?? null,
+      s2: e.s2 ?? null,
+      bestLap: e.bestLap ?? null,
+      lapNumber: e.lapNumber ?? 0,
+      bestS1: e.bestS1 ?? null,
+      bestS2: e.bestS2 ?? null,
+      progress: e.progress ?? null,
+      currentLapSec: null,
+      previousLapSec: null,
+    }));
+  }, [liveEntries]);
+
+  const { raceGroup, isRace: isRacePhase } = useMemo(() => extractCompetitionReplayProps(currentPhase), [currentPhase]);
+
+  const isCL = competition.format === 'champions_league';
   const excludedPilots = new Set<string>(competition.results?.excludedPilots || []);
 
-  return (
-    <RaceLiveTable
-      competition={competition}
-      laps={laps}
-      entries={liveEntries}
-      teams={liveTeams}
-      phaseLabel={phaseLabel}
-      raceNum={raceNum}
-      groupNum={groupNum}
-      scoring={scoring}
-      sessionLaps={sessionLaps}
-      excludedPilots={excludedPilots}
-      maxGroups={maxGroups}
-    />
-  );
-}
+  const { startPositions, totalPilots } = useMemo(() => {
+    if (!isRace) return { startPositions: undefined, totalPilots: 0 };
 
-function QualifyingLiveTable({ laps, entries, phaseLabel }: {
-  laps: SessionLap[];
-  entries: any[];
-  phaseLabel: string;
-}) {
-  const pilotBest = useMemo(() => {
-    const map = new Map<string, { pilot: string; kart: number; bestTime: number; bestTimeStr: string; lapCount: number }>();
-    for (const l of laps) {
-      if (!l.lap_time) continue;
-      const sec = parseLapSec(l.lap_time);
-      if (sec === null || sec < 38) continue;
-      const ex = map.get(l.pilot);
-      if (!ex) {
-        map.set(l.pilot, { pilot: l.pilot, kart: l.kart, bestTime: sec, bestTimeStr: l.lap_time!, lapCount: 1 });
-      } else {
-        ex.lapCount++;
-        if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
-      }
-    }
-    for (const e of entries) {
-      if (!map.has(e.pilot) && e.bestLap) {
-        const sec = parseLapSec(e.bestLap);
-        if (sec !== null && sec >= 38) {
-          map.set(e.pilot, { pilot: e.pilot, kart: e.kart ?? 0, bestTime: sec, bestTimeStr: e.bestLap, lapCount: e.lapNumber ?? 0 });
-        }
-      }
-    }
-    return [...map.values()].sort((a, b) => a.bestTime - b.bestTime);
-  }, [laps, entries]);
+    const raceMatch = currentPhase!.match(/^race_(\d+)_group_(\d+)$/);
+    const raceNum = raceMatch ? parseInt(raceMatch[1]) : 1;
+    const groupNum = raceMatch ? parseInt(raceMatch[2]) : 1;
 
-  if (pilotBest.length === 0) return null;
-
-  return (
-    <div className="card p-0 overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
-        <h3 className="text-white font-semibold text-sm">{phaseLabel}</h3>
-        <span className="text-dark-500 text-[10px]">{pilotBest.length} пілотів</span>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead><tr className="table-header">
-            <th className="table-cell text-center w-8">#</th>
-            <th className="table-cell text-left">Пілот</th>
-            <th className="table-cell text-center">Карт</th>
-            <th className="table-cell text-right">Найкращий час</th>
-            <th className="table-cell text-right">Gap</th>
-            <th className="table-cell text-center">Кола</th>
-          </tr></thead>
-          <tbody>
-            {pilotBest.map((p, i) => {
-              const gap = i === 0 ? '' : `+${(p.bestTime - pilotBest[0].bestTime).toFixed(3)}`;
-              return (
-                <tr key={p.pilot} className="table-row">
-                  <td className="table-cell text-center font-mono text-white font-bold">{i + 1}</td>
-                  <td className="table-cell text-left text-white">
-                    <Link to={`/pilots/${encodeURIComponent(p.pilot)}`} className="text-white hover:text-primary-400 transition-colors">
-                      {shortName(p.pilot)}
-                    </Link>
-                  </td>
-                  <td className="table-cell text-center font-mono text-dark-300">{p.kart}</td>
-                  <td className={`table-cell text-right font-mono font-semibold ${i === 0 ? 'text-purple-400' : 'text-green-400'}`}>
-                    {toSeconds(p.bestTimeStr)}
-                  </td>
-                  <td className="table-cell text-right font-mono text-dark-400 text-[11px]">{gap}</td>
-                  <td className="table-cell text-center font-mono text-dark-400">{p.lapCount}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum, groupNum, scoring, sessionLaps, excludedPilots, maxGroups }: {
-  competition: Competition;
-  laps: SessionLap[];
-  entries: any[];
-  teams: any[];
-  phaseLabel: string;
-  raceNum: number;
-  groupNum: number;
-  scoring: ScoringData | null;
-  sessionLaps: Map<string, SessionLap[]>;
-  excludedPilots: Set<string>;
-  maxGroups?: number;
-}) {
-  const isCL = competition.format === 'champions_league';
-
-  const { startPositions, startGrid, totalPilots } = useMemo(() => {
     const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith('qualifying'));
     const qualiData = new Map<string, { bestTime: number; pilot: string }>();
     for (const qs of qualiSessions) {
@@ -1214,11 +1154,10 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
       .filter(([p]) => !excludedPilots.has(p))
       .sort((a, b) => a[1].bestTime - b[1].bestTime);
     const maxQualified = isCL ? 24 : 36;
-    let qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
-    const effectiveMaxGroups = maxGroups ?? (qualifiedPilots.length <= 13 ? 1 : qualifiedPilots.length <= 26 ? 2 : 3);
+    const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
+    const maxGroups = competition.results?.groupCountOverride ?? (qualifiedPilots.length <= 13 ? 1 : qualifiedPilots.length <= 26 ? 2 : 3);
 
     let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
-
     for (let r = 1; r < raceNum; r++) {
       const rSessions = competition.sessions.filter(s => s.phase?.startsWith(`race_${r}_`));
       const raceTimes: { pilot: string; time: number }[] = [];
@@ -1238,204 +1177,56 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
       .filter(p => !excludedPilots.has(p.pilot))
       .sort((a, b) => a.time - b.time)
       .slice(0, maxQualified);
-    const groups = splitIntoGroups(prevSorted.map(p => p.pilot), effectiveMaxGroups);
+    const groups = splitIntoGroups(prevSorted.map(p => p.pilot), maxGroups);
     const sp = new Map<string, number>();
-    const grid = new Map<number, string>();
     if (groupNum <= groups.length) {
       const g = groups[groupNum - 1];
-      g.pilots.forEach((p, pi) => {
-        const pos = g.pilots.length - pi;
-        sp.set(p, pos);
-        grid.set(pos, p);
-      });
+      g.pilots.forEach((p, pi) => { sp.set(p, g.pilots.length - pi); });
     }
 
     const totalPilotsOverride = competition.results?.totalPilotsOverride ?? null;
     const pilotsLocked = competition.results?.totalPilotsLocked ?? false;
     const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
 
-    return { startPositions: sp, startGrid: grid, totalPilots: total };
-  }, [competition, sessionLaps, raceNum, groupNum, excludedPilots, maxGroups, isCL]);
+    return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
+  }, [competition, sessionLaps, currentPhase, excludedPilots, isCL]);
 
-  const raceData = useMemo(() => {
-    const lagMap = new Map<number, string>();
-    for (const t of teams) {
-      if (t.lag) lagMap.set(t.position ?? t.number, t.lag);
-    }
-
-    const pilotStats = new Map<string, { kart: number; bestTime: number; bestTimeStr: string; lapCount: number; lastPosition: number }>();
-    for (const l of laps) {
-      const sec = parseLapSec(l.lap_time);
-      if (sec === null || sec < 38) continue;
-      const ex = pilotStats.get(l.pilot);
-      if (!ex) {
-        pilotStats.set(l.pilot, { kart: l.kart, bestTime: sec, bestTimeStr: l.lap_time!, lapCount: 1, lastPosition: l.position ?? 99 });
-      } else {
-        ex.lapCount++;
-        if (l.position !== null) ex.lastPosition = l.position;
-        if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; }
-      }
-    }
-
-    for (const e of entries) {
-      const ps = pilotStats.get(e.pilot);
-      if (ps) {
-        ps.lastPosition = e.position;
-        ps.kart = e.kart ?? ps.kart;
-      } else if (e.pilot) {
-        pilotStats.set(e.pilot, { kart: e.kart ?? 0, bestTime: Infinity, bestTimeStr: '', lapCount: e.lapNumber ?? 0, lastPosition: e.position ?? 99 });
-      }
-    }
-
-    const sorted = [...pilotStats.entries()]
-      .filter(([p]) => !excludedPilots.has(p))
-      .sort((a, b) => {
-        if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
-        if (a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
-        return 0;
-      });
-
-    return sorted.map(([pilot, stats], i) => {
-      const finishPos = i + 1;
-      const startPos = startPositions.get(pilot) ?? 0;
-      const diff = startPos > 0 ? startPos - finishPos : 0;
-      const groupLabel = groupNum === 1 ? 'I' : groupNum === 2 ? 'II' : 'III';
-
-      let posPoints = 0;
-      let overtakePoints = 0;
-      if (scoring && startPos > 0) {
-        posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos);
-        overtakePoints = calcOvertakePoints(scoring, groupNum, startPos, finishPos, isCL);
-      }
-
-      const entryIdx = entries.findIndex((e: any) => e.pilot === pilot);
-      const lag = entryIdx >= 0 ? lagMap.get(entries[entryIdx].position) : null;
-
-      return {
-        pilot,
-        kart: stats.kart,
-        startPos,
-        finishPos,
-        diff,
-        gap: lag ?? null,
-        posPoints,
-        overtakePoints,
-        lapCount: stats.lapCount,
-      };
-    });
-  }, [laps, entries, teams, startPositions, scoring, totalPilots, groupNum, isCL, excludedPilots]);
-
-  if (raceData.length === 0) return null;
-
-  const n = raceData.length;
-  const arrowW = 96;
-  const tbodyRef = useRef<HTMLTableSectionElement>(null);
-  const [tbodyH, setTbodyH] = useState(0);
-
-  useEffect(() => {
-    if (!tbodyRef.current) return;
-    const obs = new ResizeObserver(([e]) => setTbodyH(e.contentRect.height));
-    obs.observe(tbodyRef.current);
-    return () => obs.disconnect();
-  }, [raceData.length]);
-
-  function arrowColor(diff: number): string {
-    if (diff === 0) return '#6b7280';
-    const abs = Math.abs(diff);
-    if (diff > 0) return abs >= 5 ? '#22c55e' : abs >= 3 ? '#4ade80' : '#86efac';
-    return abs >= 5 ? '#ef4444' : abs >= 3 ? '#f87171' : '#fca5a5';
+  if (!liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded) {
+    return (
+      <div className="card p-0 overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-dark-800">
+          <h3 className="text-dark-500 font-semibold text-sm">Немає активного заїзду</h3>
+        </div>
+      </div>
+    );
   }
 
-  const rowH = n > 0 ? tbodyH / n : 0;
-  const arrows = tbodyH > 0 ? raceData
-    .filter(r => r.startPos > 0 && r.startPos <= n)
-    .map(r => {
-      const sy = (r.startPos - 0.5) * rowH;
-      const fy = (r.finishPos - 0.5) * rowH;
-      const col = arrowColor(r.diff);
-      const w = arrowW;
-      return {
-        d: `M 2 ${sy} C ${w * 0.4} ${sy} ${w * 0.6} ${fy} ${w - 5} ${fy}`,
-        tip: `M ${w - 9} ${fy - 3} L ${w - 4} ${fy} L ${w - 9} ${fy + 3}`,
-        col,
-      };
-    }) : [];
+  const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase) : '';
 
   return (
-    <div className="card p-0 overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
+    <div>
+      <div className="px-1 py-1.5">
         <h3 className="text-white font-semibold text-sm">{phaseLabel}</h3>
-        <span className="text-dark-500 text-[10px]">{raceData.length} пілотів</span>
       </div>
-      <div className="overflow-x-auto">
-        <table className="text-xs [&_th]:px-1.5 [&_th]:py-1 [&_td]:px-1.5 [&_td]:py-1">
-          <thead>
-            <tr className="table-header">
-              <th className="text-left text-dark-300 font-semibold w-6">#</th>
-              <th className="text-left text-dark-300 font-semibold">Старт</th>
-              <th className="w-24"></th>
-              <th className="text-left text-dark-300 font-semibold">Фініш</th>
-              <th className="text-left text-dark-300 font-semibold">Gap</th>
-              <th className="text-left text-dark-300 font-semibold border-l border-dark-700" colSpan={2}>Бали</th>
-            </tr>
-            <tr className="table-header">
-              <th colSpan={4}></th>
-              <th></th>
-              <th className="text-left text-dark-500 text-[10px] border-l border-dark-700">Поз</th>
-              <th className="text-left text-dark-500 text-[10px]">Обг</th>
-            </tr>
-          </thead>
-          <tbody ref={tbodyRef}>
-            {raceData.map((r, i) => {
-              const startPilot = startGrid.get(r.finishPos);
-              return (
-                <tr key={r.pilot} className="table-row">
-                  <td className="font-mono text-white font-bold">{r.finishPos}</td>
-                  <td className="text-dark-400 whitespace-nowrap">
-                    {startPilot ? shortName(startPilot) : '—'}
-                  </td>
-                  {i === 0 ? (
-                    <td rowSpan={n} className="p-0 relative" style={{ width: arrowW }}>
-                      {tbodyH > 0 && (
-                        <svg width={arrowW} height={tbodyH} className="absolute top-0 left-0 block">
-                          {arrows.map((a, j) => (
-                            <g key={j}>
-                              <path d={a.d} fill="none" stroke={a.col} strokeWidth="1.5" strokeLinecap="round" />
-                              <path d={a.tip} fill="none" stroke={a.col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </g>
-                          ))}
-                        </svg>
-                      )}
-                    </td>
-                  ) : null}
-                  <td className="text-white whitespace-nowrap">
-                    {r.diff !== 0 || r.startPos > 0 ? (
-                      <span className="font-mono text-[11px] mr-1" style={{ color: arrowColor(r.diff) }}>
-                        {r.diff > 0 ? `▲${r.diff}` : r.diff < 0 ? `▼${Math.abs(r.diff)}` : '—'}
-                      </span>
-                    ) : null}
-                    <Link to={`/pilots/${encodeURIComponent(r.pilot)}`} className="text-white hover:text-primary-400 transition-colors">
-                      {shortName(r.pilot)}
-                    </Link>
-                  </td>
-                  <td className="font-mono text-dark-400 text-[11px]">
-                    {r.gap ? toSeconds(r.gap) : ''}
-                  </td>
-                  <td className="font-mono text-dark-300 border-l border-dark-700/30">
-                    {r.posPoints > 0 ? r.posPoints : '—'}
-                  </td>
-                  <td className="font-mono text-dark-300">
-                    {r.overtakePoints > 0 ? r.overtakePoints : '—'}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <SessionReplay
+        laps={replayLaps}
+        durationSec={durationSec}
+        sessionStartTime={sessionStartTime}
+        isLive={!sessionEnded}
+        autoPlay
+        liveEntries={isScrubbing ? undefined : mappedLiveEntries}
+        s1Events={s1Events}
+        snapshots={snapshots}
+        startPositions={startPositions}
+        raceGroup={raceGroup}
+        totalQualifiedPilots={totalPilots}
+        defaultSortMode={isRace ? 'race' : 'qualifying'}
+        showScrubber={false}
+      />
     </div>
   );
 }
+
 
 function getCompetitionDisplayName(c: Competition): string {
   let name = c.name.replace(/Тр\.\s*/g, 'Траса ');

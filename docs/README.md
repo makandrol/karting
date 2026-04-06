@@ -15,11 +15,37 @@
 
 A real-time karting timing dashboard for the "Жага Швидкості" karting track. Collects live timing data, stores it in SQLite, and provides a web interface for viewing sessions, replays, kart statistics, and managing competitions with live scoring.
 
-## Current State (v0.9.161)
+## Current State (v0.9.195)
 
-### Recent Changes (v0.9.119 → v0.9.161)
+### Recent Changes (v0.9.161 → v0.9.195)
 
-#### Scoring Module (NEW)
+#### TimingTable extraction (v0.9.191)
+- Extracted reusable `TimingTable` component from `SessionReplay`
+- Standalone table with sort modes (Квала/Гонка), Вид: bar (Все/Осн/Своє), draggable column pills
+- New columns: `Start` (pilot name at start position) and `arrows` (SVG Bezier curved paths from start to finish)
+- `SessionReplay` now uses `TimingTable` internally; retains replay logic
+- Column visibility persisted per sort mode in localStorage
+
+#### Competition page rewrite (v0.9.191)
+- Replaced old `QualifyingLiveTable`/`RaceLiveTable` with `SessionReplay(showScrubber=false)`
+- Full "Вид:" column selector available in live timing on competition page
+- `LiveSessionTable` fetches events, computes start positions, passes to `SessionReplay`
+- All 4 page-level sections wired up: Таймлайн, Заїзд, Результати, Список заїздів
+
+#### UI improvements (v0.9.192–0.9.194)
+- Column labels: `Start` (was "Старт"), `Δ` (was "+/-")
+- Narrower Δ column and pilot column
+- Progress bar: bordered outline, full-width
+- Arrows fixed in custom column mode (always first, not draggable)
+- Competition timeline: only session name is a link (not time)
+- Track icon: finish flag (was globe)
+- LeagueResults: Сорт: first row, Вид: second row
+
+#### Layout prefs bugfix (v0.9.195)
+- Fixed `toggleSection` not working when server defaults unavailable
+- `updateLocal` now falls back to `HARDCODED_DEFAULTS` version
+
+#### Scoring Module (v0.9.119→v0.9.161)
 - Extracted scoring logic from LeagueResults into `src/utils/scoring.ts`
 - Pure functions: `parseLapSec()`, `getOvertakeRate()`, `calcOvertakePoints()`, `getPositionPoints()`
 - `computeStandings(params)` — main function computing full competition scoring (qualifying, groups, races, points)
@@ -48,10 +74,9 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
 - `pageVisibility`: competitions moved from dropdown group to main nav
 
 #### LeagueResults View Modes
-- Added "Ост" (custom) view mode — user can click column headers to hide/show individual columns
-- All view modes (Все/Бали/Час/Поз/Ост) unified to use single column visibility system via `PRESET_COLS`
-- Clicking group headers (Квала, Гонка N) toggles all sub-columns
-- Clicking "Бали" sub-header toggles all 4 point columns
+- View modes: Все/Бали/Час/Поз/Ред/Своє — unified column visibility system
+- "Своє" (custom): draggable group pills (Квала, Гонка N) with sub-group toggles
+- Clicking group headers toggles all sub-columns
 - Custom column set persisted per user+competition in localStorage
 - Added tap-to-select pilot rows (stays highlighted until tapped again)
 
@@ -105,15 +130,16 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
   - Track: editable dropdown (admin), readonly for users
   - Pilot count: editable with lock/unlock (admin), auto-determined from qualifying data
   - Group count: dropdown (авто/1/2/3), auto-detected from qualifying session count
-- **View modes**: Все/Бали/Час/Поз/Ост toggle group for table columns
+- **View modes**: Все/Бали/Час/Поз/Ред/Своє toggle group for table columns
   - Все: all columns (Карт, Час, Швидк., Група, Старт, Фініш, all points)
   - Бали: speed + position/overtake/penalties/sum per race, quali speed points
   - Час/Поз: time/position focused views
-  - Ост (custom): user clicks column headers to hide/show, persisted per user+competition
+  - Ред: edit mode for manual start/finish/penalties
+  - Своє (custom): draggable group pills with sub-group toggles, persisted per user+competition
   - Clicking group headers (Квала, Гонка N) toggles all sub-columns
   - Clicking "Бали" sub-header toggles all 4 point columns
   - Tap-to-select pilot rows (highlighted until tapped again)
-- **Toolbar**: 3 rows — title, "Сорт:" buttons, "Вид:" toggles
+- **Toolbar**: 2 rows — "Сорт:" buttons (first), "Вид:" toggles (second)
 - **Sort**: by total, quali time, race times; tiebreaker by qualifying time
 - **Session type management**: dropdown to assign sessions to competitions
   - "Змінити етап (цей і далі)" — relinks current + subsequent sessions
@@ -161,5 +187,5 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
 - **Branches**: `main` (production), `dev` (development)
 - **Merge flow**: dev → main (no-ff merge) **ONLY when user explicitly asks**
 - **Versions**: Frontend `0.9.x` in package.json, Collector `0.3.x` in collector/package.json
-- **Current**: Frontend `0.9.161`, Collector `0.3.6`
+- **Current**: Frontend `0.9.195`, Collector `0.3.6`
 - **APP_VERSION**: auto-read from package.json (displayed in footer)

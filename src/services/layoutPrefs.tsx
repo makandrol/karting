@@ -204,7 +204,8 @@ export function LayoutPrefsProvider({ children }: { children: ReactNode }) {
   }, [layouts]);
 
   const updateLocal = useCallback((pageId: string, sections: SectionPref[]) => {
-    const version = serverDefaults[pageId]?.version ?? 0;
+    const server = serverDefaults[pageId] || HARDCODED_DEFAULTS[pageId];
+    const version = server?.version ?? 0;
     setLocalOverrides(prev => {
       const next = { ...prev, [pageId]: { sections, basedOnVersion: version } };
       saveLocal(email, next);
