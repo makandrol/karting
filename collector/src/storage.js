@@ -634,7 +634,7 @@ export const storage = {
         'race_1_group_1', 'race_1_group_2', 'race_1_group_3',
         'qualifying_2_group_1', 'qualifying_2_group_2', 'qualifying_2_group_3',
         'race_2_group_1', 'race_2_group_2', 'race_2_group_3',
-        'final_group_1', 'final_group_2', 'final_group_3',
+        'final_group_3', 'final_group_2', 'final_group_1',
       ],
       marathon: ['race'],
     };
@@ -748,7 +748,7 @@ export const storage = {
         'race_1_group_1', 'race_1_group_2', 'race_1_group_3',
         'qualifying_2_group_1', 'qualifying_2_group_2', 'qualifying_2_group_3',
         'race_2_group_1', 'race_2_group_2', 'race_2_group_3',
-        'final_group_1', 'final_group_2', 'final_group_3',
+        'final_group_3', 'final_group_2', 'final_group_1',
       ],
     };
     const phases = filterPhases(FULL_PHASES[comp.format] || [], groupCount, comp.format);
