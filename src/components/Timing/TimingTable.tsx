@@ -14,7 +14,7 @@ const COL_LABELS: Record<ColId, string> = {
   best: 'Best', bestS1: 'B.S1', bestS2: 'B.S2', tb: 'TB', laps: 'L',
 };
 const COL_WIDTHS: Record<ColId, string> = {
-  start: 'w-[120px]', arrows: 'w-[80px]', change: 'w-5', pilot: 'w-[160px] min-w-[160px]', points: 'w-8',
+  start: 'w-[120px]', arrows: 'w-[80px]', change: 'w-5', pilot: 'w-[200px] max-w-[200px]', points: 'w-8',
   kart: 'w-12', last: 'w-16', s1: 'w-14', s2: 'w-14',
   best: 'w-16', bestS1: 'w-14', bestS2: 'w-14', tb: 'w-16', laps: 'w-8',
 };
@@ -277,9 +277,9 @@ export default function TimingTable({
                   </td>
                 ) : null,
                 arrows: (showArrowsCol && rowIdx === 0 && !notStarted) ? (
-                  <td key="arrows" rowSpan={n} className="p-0" style={{ width: arrowW }}>
+                  <td key="arrows" rowSpan={n} className="p-0 relative" style={{ width: arrowW }}>
                     {tbodyH > 0 && (
-                      <svg viewBox={`0 0 ${arrowW} ${tbodyH}`} preserveAspectRatio="none" width="100%" height={tbodyH} className="block">
+                      <svg width={arrowW} height={tbodyH} className="absolute top-0 left-0 block">
                         {arrows.map((a, j) => (
                           <g key={j}>
                             <path d={a.d} fill="none" stroke={a.col} strokeWidth="1.5" strokeLinecap="round" />
