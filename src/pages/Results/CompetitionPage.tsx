@@ -171,22 +171,25 @@ export default function CompetitionPage() {
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl font-bold text-white">{getCompetitionDisplayName(competition).replace(/,?\s*Траса\s*\d+R?/, '')}</h1>
-            <select
-              value={trackId ?? ''}
-              onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
-              disabled={!canManage}
-              className={`bg-dark-800 text-dark-300 text-xs rounded px-0.5 py-0.5 border border-dark-700 outline-none focus:border-primary-500 w-14 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
-            >
-              <option value=""></option>
-              {[...TRACK_CONFIGS].sort((a, b) => {
-                const aR = isReverseTrack(a.id) ? 1 : 0;
-                const bR = isReverseTrack(b.id) ? 1 : 0;
-                if (aR !== bR) return aR - bR;
-                return baseTrackId(a.id) - baseTrackId(b.id);
-              }).map(t => (
-                <option key={t.id} value={t.id}>{trackDisplayId(t.id)}</option>
-              ))}
-            </select>
+            <div className="flex items-center gap-1 border border-dark-700 rounded px-1.5 py-0.5">
+              <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              <select
+                value={trackId ?? ''}
+                onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
+                disabled={!canManage}
+                className={`bg-transparent text-dark-300 text-xs outline-none w-10 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
+              >
+                <option value=""></option>
+                {[...TRACK_CONFIGS].sort((a, b) => {
+                  const aR = isReverseTrack(a.id) ? 1 : 0;
+                  const bR = isReverseTrack(b.id) ? 1 : 0;
+                  if (aR !== bR) return aR - bR;
+                  return baseTrackId(a.id) - baseTrackId(b.id);
+                }).map(t => (
+                  <option key={t.id} value={t.id}>{trackDisplayId(t.id)}</option>
+                ))}
+              </select>
+            </div>
             {(competition.format === 'light_league' || competition.format === 'champions_league') && (
               <CompetitionParams
                 pilotCount={pilotCount}
@@ -248,7 +251,7 @@ export default function CompetitionPage() {
       {isSectionVisible('competition', 'sessions') && compSessions.length > 0 && (
         <div className="card p-0 overflow-hidden">
           <div className="px-4 py-2.5 border-b border-dark-800">
-            <h3 className="text-white font-semibold text-sm">Заїзди ({compSessions.length})</h3>
+            <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
           </div>
           <SessionsTable sessions={compSessions} />
         </div>
@@ -541,11 +544,11 @@ function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScr
           isLive={competition.status === 'live' && !allSessionsEnded}
         />
       )}
+      {isSectionVisible('competition', 'liveSession') && (
+        children['liveSession']
+      )}
       {isSectionVisible('competition', 'leaguePoints') && (
-        <>
-          {children['leaguePoints']}
-          {children['liveSession']}
-        </>
+        children['leaguePoints']
       )}
     </div>
   );
@@ -1066,7 +1069,15 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   const laps = liveSessionId ? (sessionLaps.get(liveSessionId) || []) : [];
   const hasData = laps.length > 0 || liveEntries.length > 0;
 
-  if (!liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded) return null;
+  if (!liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded) {
+    return (
+      <div className="card p-0 overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-dark-800">
+          <h3 className="text-dark-500 font-semibold text-sm">Немає активного заїзду</h3>
+        </div>
+      </div>
+    );
+  }
 
   const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase) : '';
 
@@ -1133,7 +1144,7 @@ function QualifyingLiveTable({ laps, entries, phaseLabel }: {
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
-        <h3 className="text-white font-semibold text-sm">{phaseLabel} — Таймінг</h3>
+        <h3 className="text-white font-semibold text-sm">{phaseLabel}</h3>
         <span className="text-dark-500 text-[10px]">{pilotBest.length} пілотів</span>
       </div>
       <div className="overflow-x-auto">
@@ -1353,7 +1364,7 @@ function RaceLiveTable({ competition, laps, entries, teams, phaseLabel, raceNum,
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
-        <h3 className="text-white font-semibold text-sm">{phaseLabel} — Гонка</h3>
+        <h3 className="text-white font-semibold text-sm">{phaseLabel}</h3>
         <span className="text-dark-500 text-[10px]">{raceData.length} пілотів</span>
       </div>
       <div className="overflow-x-auto">

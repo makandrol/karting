@@ -459,14 +459,6 @@ export default function LeagueResults({ format, competitionId, sessions, session
         <div className="card p-0 overflow-hidden">
           <div className="px-4 py-2.5 border-b border-dark-800 space-y-1.5 overflow-x-auto">
             <div className="flex items-center gap-1.5 flex-wrap border border-dark-700 rounded-lg px-2.5 py-1">
-              <span className="text-dark-500 text-[9px]">Сорт:</span>
-              <SortBtn k="total" label="Сума" />
-              <SortBtn k="quali_time" label="Квала" fixedDir="asc" />
-              {Array.from({ length: raceCount }, (_, i) => (
-                <SortBtn key={i} k={`race_${i + 1}_time` as SortKey} label={`Г${i + 1} час`} fixedDir="asc" />
-              ))}
-            </div>
-            <div className="flex items-center gap-1.5 flex-wrap border border-dark-700 rounded-lg px-2.5 py-1">
               <span className="text-dark-500 text-[9px]">Вид:</span>
               <span className="flex rounded overflow-hidden">
                 <button onClick={() => setViewMode(showAll ? '' : 'all')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${showAll ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Все</button>
@@ -529,6 +521,14 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   })}
                 </>
               )}
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap border border-dark-700 rounded-lg px-2.5 py-1">
+              <span className="text-dark-500 text-[9px]">Сорт:</span>
+              <SortBtn k="total" label="Сума" />
+              <SortBtn k="quali_time" label="Квала" fixedDir="asc" />
+              {Array.from({ length: raceCount }, (_, i) => (
+                <SortBtn key={i} k={`race_${i + 1}_time` as SortKey} label={`Г${i + 1} час`} fixedDir="asc" />
+              ))}
             </div>
           </div>
           <div className="overflow-x-auto">
