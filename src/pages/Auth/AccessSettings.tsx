@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useAuth, ALL_PERMISSIONS, type ModeratorPermission } from '../../services/auth';
 import { Navigate } from 'react-router-dom';
 import { ALL_PAGES, usePageVisibility, type PageConfig } from '../../services/pageVisibility';
@@ -479,8 +479,10 @@ function TableDefaultsSection() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [dragState, setDragState] = useState<{ pageId: string; fromIdx: number } | null>(null);
+  const wasDragged = useRef(false);
 
   const handleToggle = (pageId: string, sectionId: string) => {
+    if (wasDragged.current) { wasDragged.current = false; return; }
     setLocal(prev => ({
       ...prev,
       [pageId]: prev[pageId].map(s => s.id === sectionId ? { ...s, visible: !s.visible } : s),
@@ -490,6 +492,7 @@ function TableDefaultsSection() {
 
   const handleDragStart = (pageId: string, idx: number) => {
     setDragState({ pageId, fromIdx: idx });
+    wasDragged.current = false;
   };
 
   const handleDrop = (pageId: string, toIdx: number) => {
@@ -497,6 +500,7 @@ function TableDefaultsSection() {
       setDragState(null);
       return;
     }
+    wasDragged.current = true;
     setLocal(prev => {
       const arr = [...prev[pageId]];
       const [moved] = arr.splice(dragState.fromIdx, 1);
@@ -537,6 +541,7 @@ function TableDefaultsSection() {
             {(local[pageId] || []).map((pref, i) => {
               const meta = sections.find(s => s.id === pref.id);
               if (!meta) return null;
+              const isDragging = dragState?.pageId === pageId && dragState.fromIdx === i;
               return (
                 <button
                   key={pref.id}
@@ -545,7 +550,9 @@ function TableDefaultsSection() {
                   onDragStart={() => handleDragStart(pageId, i)}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => handleDrop(pageId, i)}
+                  onDragEnd={() => setDragState(null)}
                   className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-grab active:cursor-grabbing select-none ${
+                    isDragging ? 'opacity-40 ring-1 ring-primary-400' :
                     pref.visible ? 'bg-green-500/20 text-green-400' : 'bg-dark-800 text-dark-500 hover:text-dark-300'
                   }`}
                 >
