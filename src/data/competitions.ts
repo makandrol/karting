@@ -248,9 +248,9 @@ export function splitIntoGroups(pilots: string[], maxGroups: number): LeagueGrou
 
 /**
  * Розбиває пілотів на групи за регламентом Спринту — "змійкою" (round-robin).
- * Перший пілот іде в найвищу групу, щоб група яка їде першою (найвищий номер)
- * мала більше пілотів при непарній кількості.
- * 1→Г2, 2→Г1, 3→Г2, 4→Г1... (для 3 груп: 1→Г3, 2→Г2, 3→Г1, 4→Г3...)
+ * Якщо кількість пілотів не ділиться порівну на групи, змійка починається
+ * з найвищої групи, щоб група яка їде першою мала більше пілотів.
+ * Парна: 1→Г1, 2→Г2, 3→Г1... Непарна: 1→Г2, 2→Г1, 3→Г2...
  * ≤14 → 1 група, 15-29 → 2 групи, 30+ → 3 групи.
  */
 export function splitIntoGroupsSprint(pilots: string[], maxGroups?: number): LeagueGroup[] {
@@ -263,9 +263,10 @@ export function splitIntoGroupsSprint(pilots: string[], maxGroups?: number): Lea
 
   if (maxGroups !== undefined) groupCount = Math.min(groupCount, maxGroups);
 
+  const reversed = n % groupCount !== 0;
   const buckets: string[][] = Array.from({ length: groupCount }, () => []);
   for (let i = 0; i < n; i++) {
-    const gi = (groupCount - 1) - (i % groupCount);
+    const gi = reversed ? (groupCount - 1) - (i % groupCount) : i % groupCount;
     buckets[gi].push(pilots[i]);
   }
 
