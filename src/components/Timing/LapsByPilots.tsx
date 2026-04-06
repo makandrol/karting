@@ -108,8 +108,8 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
                     {compactName(p.name)}
                   </Link>
-                  <div className="flex items-center justify-center gap-1 font-normal">
-                    <span className={`${KART_COLOR} text-[11px]`}>К{p.laps[0]?.kart}</span>
+                  <div className="flex items-center gap-1 font-normal">
+                    <span className={`${KART_COLOR} text-[11px]`}>Карт {p.laps[0]?.kart}</span>
                     {onRenamePilot && (
                       <button
                         type="button"
