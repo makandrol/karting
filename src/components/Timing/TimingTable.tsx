@@ -20,7 +20,8 @@ const COL_WIDTHS: Record<ColId, string> = {
 };
 const ALL_COLS_SET = new Set<ColId>(ALL_COL_IDS);
 const MAIN_VISIBLE = new Set<ColId>(['start', 'arrows', 'change', 'pilot', 'points', 'kart', 'last', 'best', 'laps']);
-const RACE_ONLY_COLS = new Set<ColId>(['start', 'arrows']);
+const START_GROUP: ColId[] = ['start', 'arrows'];
+const START_GROUP_SET = new Set<ColId>(START_GROUP);
 
 export interface TimingTableProps {
   entries: TimingEntry[];
@@ -80,10 +81,12 @@ export default function TimingTable({
   }, []);
 
   const toggleCustomCol = useCallback((col: ColId) => {
+    const cols = START_GROUP_SET.has(col) ? START_GROUP : [col];
     setCustomCols(prev => {
       const current = prev[sortMode];
       const nextVisible = new Set(current.visible);
-      nextVisible.has(col) ? nextVisible.delete(col) : nextVisible.add(col);
+      const isOn = nextVisible.has(col);
+      for (const c of cols) isOn ? nextVisible.delete(c) : nextVisible.add(c);
       const next = { visible: nextVisible, order: current.order };
       saveCustom(sortMode, next);
       return { ...prev, [sortMode]: next };
@@ -115,12 +118,12 @@ export default function TimingTable({
   const baseOrder: ColId[] = columnFilter === 'custom' ? customState.order : DEFAULT_ORDER;
   const colOrder: ColId[] = useMemo(() => {
     if (columnFilter !== 'custom') return baseOrder;
-    const fixed = DEFAULT_ORDER.filter(c => RACE_ONLY_COLS.has(c));
-    const rest = baseOrder.filter(c => !RACE_ONLY_COLS.has(c));
+    const fixed = DEFAULT_ORDER.filter(c => START_GROUP_SET.has(c));
+    const rest = baseOrder.filter(c => !START_GROUP_SET.has(c));
     const result: ColId[] = [];
     let fi = 0;
     for (const c of DEFAULT_ORDER) {
-      if (RACE_ONLY_COLS.has(c)) {
+      if (START_GROUP_SET.has(c)) {
         result.push(c);
         fi++;
       } else if (fi > 0 && result.length === fi) {
@@ -135,7 +138,7 @@ export default function TimingTable({
   const hasStartData = sortMode === 'race' && startPositions && startPositions.size > 0;
 
   const isColVisible = (id: ColId) => {
-    if (RACE_ONLY_COLS.has(id) && (!hasStartData)) return false;
+    if (START_GROUP_SET.has(id) && !hasStartData) return false;
     return visibleCols.has(id);
   };
 
@@ -220,7 +223,17 @@ export default function TimingTable({
           {columnFilter === 'custom' && (
             <>
               <span className="text-dark-700 text-[9px]">|</span>
-              {customState.order.filter(c => !RACE_ONLY_COLS.has(c)).map(col => (
+              {hasStartData && (
+                <button
+                  onClick={() => toggleCustomCol('start')}
+                  className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${
+                    visibleCols.has('start') ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
+                  }`}
+                >
+                  Start
+                </button>
+              )}
+              {customState.order.filter(c => !START_GROUP_SET.has(c)).map(col => (
                 <button
                   key={col}
                   draggable
