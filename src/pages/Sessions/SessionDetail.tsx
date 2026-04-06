@@ -113,7 +113,7 @@ export default function SessionDetail() {
             }
           } catch {}
         }
-        if (compId && compPhase?.startsWith('race_') && compFormat) {
+        if (compId && (compPhase?.startsWith('race_') || compPhase?.startsWith('final_')) && compFormat) {
           const sp = await fetchRaceStartPositions(COLLECTOR_URL, compId, compPhase, compFormat);
           if (active) { setStartPositions(sp.positions); setTotalQualifiedPilots(sp.totalQualified); }
         } else if (parsed.firstSnapshotPos) {

@@ -50,7 +50,7 @@ export default function Timing() {
 
   // Compute start positions from competition data (qualifying / previous race)
   useEffect(() => {
-    if (!liveSessionComp.competitionId || !liveSessionComp.phase?.startsWith('race_') || !liveSessionComp.format) {
+    if (!liveSessionComp.competitionId || !(liveSessionComp.phase?.startsWith('race_') || liveSessionComp.phase?.startsWith('final_')) || !liveSessionComp.format) {
       setStartPositions(new Map()); setTotalQualifiedPilots(0); return;
     }
     fetchRaceStartPositions(COLLECTOR_URL, liveSessionComp.competitionId, liveSessionComp.phase, liveSessionComp.format)

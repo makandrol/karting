@@ -101,10 +101,11 @@ export async function fetchRaceStartPositions(
 ): Promise<{ positions: Map<string, number>; totalQualified: number }> {
   const result = new Map<string, number>();
   const raceMatch = currentPhase.match(/^race_(\d+)_group_(\d+)$/);
-  if (!raceMatch) return { positions: result, totalQualified: 0 };
+  const finalMatch = !raceMatch ? currentPhase.match(/^final_group_(\d+)$/) : null;
+  if (!raceMatch && !finalMatch) return { positions: result, totalQualified: 0 };
 
-  const raceNum = parseInt(raceMatch[1]);
-  const groupNum = parseInt(raceMatch[2]);
+  const raceNum = raceMatch ? parseInt(raceMatch[1]) : 3;
+  const groupNum = raceMatch ? parseInt(raceMatch[2]) : parseInt(finalMatch![1]);
   const isSprint = format === 'sprint';
 
   try {
@@ -145,6 +146,143 @@ export async function fetchRaceStartPositions(
     const n = qualified.length;
 
     if (isSprint) {
+      if (finalMatch) {
+        const getSprintPosPoints = (pos: number) => {
+          if (pos < 1) return 0;
+          if (pos === 1) return 40;
+          if (pos === 2) return 37;
+          return Math.max(35 - (pos - 3) * 2, 0);
+        };
+
+        const fetchLapsForPhase = async (prefix: string) => {
+          const phaseSessions = sessions.filter(s => s.phase.startsWith(prefix));
+          const allLaps: { pilot: string; lap_time: string; ts: number; group: number }[] = [];
+          for (const ss of phaseSessions) {
+            const gMatch = ss.phase.match(/group_(\d+)/);
+            const gNum = gMatch ? parseInt(gMatch[1]) : 0;
+            const laps: { pilot: string; lap_time: string | null; ts: number; position?: number }[] =
+              await fetch(`${collectorUrl}/db/laps?session=${ss.sessionId}`).then(r => r.json()).catch(() => []);
+            for (const l of laps) {
+              if (!l.lap_time || excluded.has(l.pilot)) continue;
+              if (excludedLapKeys.has(`${ss.sessionId}|${l.pilot}|${l.ts}`)) continue;
+              const sec = parseTime(l.lap_time);
+              if (sec === null || sec < 38) continue;
+              allLaps.push({ pilot: l.pilot, lap_time: l.lap_time, ts: l.ts, group: gNum });
+            }
+          }
+          return allLaps;
+        };
+
+        const q1Laps = await fetchLapsForPhase('qualifying_1_');
+        const q2Laps = await fetchLapsForPhase('qualifying_2_');
+        const r1Laps = await fetchLapsForPhase('race_1_');
+        const r2Laps = await fetchLapsForPhase('race_2_');
+
+        const bestTimeByPilot = (laps: typeof q1Laps) => {
+          const map = new Map<string, number>();
+          for (const l of laps) {
+            const sec = parseTime(l.lap_time);
+            if (sec === null) continue;
+            const ex = map.get(l.pilot);
+            if (!ex || sec < ex) map.set(l.pilot, sec);
+          }
+          return map;
+        };
+
+        const q1Best = bestTimeByPilot(q1Laps);
+        const q2Best = bestTimeByPilot(q2Laps);
+
+        const raceFinish = (laps: typeof r1Laps) => {
+          const byGroup = new Map<number, Map<string, { lapCount: number; lastPos: number; lastTs: number; bestTime: number }>>();
+          for (const l of laps) {
+            const sec = parseTime(l.lap_time);
+            if (sec === null) continue;
+            let gMap = byGroup.get(l.group);
+            if (!gMap) { gMap = new Map(); byGroup.set(l.group, gMap); }
+            const ex = gMap.get(l.pilot);
+            if (!ex) {
+              gMap.set(l.pilot, { lapCount: 1, lastPos: 99, lastTs: l.ts, bestTime: sec });
+            } else {
+              ex.lapCount++;
+              if (l.ts > ex.lastTs) ex.lastTs = l.ts;
+              if (sec < ex.bestTime) ex.bestTime = sec;
+            }
+          }
+          const finishMap = new Map<string, { finishPos: number; group: number; bestTime: number }>();
+          for (const [group, pilots] of byGroup) {
+            const arr = [...pilots.entries()].sort((a, b) => {
+              if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
+              return a[1].lastTs - b[1].lastTs;
+            });
+            arr.forEach(([pilot, data], i) => finishMap.set(pilot, { finishPos: i + 1, group, bestTime: data.bestTime }));
+          }
+          return finishMap;
+        };
+
+        const r1Finish = raceFinish(r1Laps);
+        const r2Finish = raceFinish(r2Laps);
+
+        const speedForRace = (finishData: Map<string, { finishPos: number; group: number; bestTime: number }>) => {
+          const groups = new Map<number, { pilot: string; time: number }[]>();
+          for (const [pilot, d] of finishData) {
+            let arr = groups.get(d.group);
+            if (!arr) { arr = []; groups.set(d.group, arr); }
+            arr.push({ pilot, time: d.bestTime });
+          }
+          const speedMap = new Map<string, number>();
+          for (const [, pilots] of groups) {
+            pilots.sort((a, b) => a.time - b.time);
+            if (pilots.length > 0) speedMap.set(pilots[0].pilot, 1);
+          }
+          return speedMap;
+        };
+
+        const r1Speed = speedForRace(r1Finish);
+        const r2Speed = speedForRace(r2Finish);
+
+        const q1Sorted = [...q1Best.entries()].sort((a, b) => a[1] - b[1]);
+        const q1Fastest = q1Sorted.length > 0 ? q1Sorted[0][0] : null;
+        const q2Sorted = [...q2Best.entries()].sort((a, b) => a[1] - b[1]);
+        const q2Fastest = q2Sorted.length > 0 ? q2Sorted[0][0] : null;
+
+        const allPilots = new Set([...q1Best.keys(), ...q2Best.keys()]);
+        const pointsMap = new Map<string, number>();
+        for (const pilot of allPilots) {
+          if (excluded.has(pilot)) continue;
+          let pts = 0;
+          if (pilot === q1Fastest) pts += 1;
+          if (pilot === q2Fastest) pts += 1;
+          const r1 = r1Finish.get(pilot);
+          if (r1) pts += getSprintPosPoints(r1.finishPos) + (r1Speed.get(pilot) || 0);
+          const r2 = r2Finish.get(pilot);
+          if (r2) pts += getSprintPosPoints(r2.finishPos) + (r2Speed.get(pilot) || 0);
+          pointsMap.set(pilot, pts);
+        }
+
+        const sortedPilots = [...pointsMap.entries()]
+          .sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1];
+            return (q1Best.get(a[0]) ?? Infinity) - (q1Best.get(b[0]) ?? Infinity);
+          });
+
+        const totalN = sortedPilots.length;
+        let gc = totalN <= 14 ? 1 : totalN <= 29 ? 2 : 3;
+        const bSize = Math.floor(totalN / gc);
+        let rem = totalN % gc;
+        let bIdx = 0;
+        for (let g = 0; g < gc; g++) {
+          const size = bSize + (rem > 0 ? 1 : 0);
+          if (rem > 0) rem--;
+          if (g + 1 === groupNum) {
+            const gPilots = sortedPilots.slice(bIdx, bIdx + size);
+            gPilots.forEach(([p], pi) => { result.set(p, pi + 1); });
+            break;
+          }
+          bIdx += size;
+        }
+        return { positions: result, totalQualified: totalN };
+      }
+
       let groupCount: number;
       if (n <= 14) groupCount = 1;
       else if (n <= 29) groupCount = 2;
