@@ -163,10 +163,8 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       const pLaps = laps.filter(l => l.pilot === pilot);
       if (pLaps.length === 0) continue;
       
-      // First lap: find earliest ts for this pilot as anchor, then work backwards
       const firstTs = pLaps[0].ts;
       const firstLapSec = parseTime(pLaps[0].lapTime) || 42;
-      // The pilot started their first lap ~firstLapSec before it was completed
       const pilotStartMs = firstTs ? (firstTs - firstLapSec * 1000) : sessionStartTime;
       
       const completionTimes: number[] = [];
@@ -381,25 +379,25 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       }
     }
 
-    return result
+    const sorted = result
       .sort((a, b) => {
         if (a.lapNumber < 0 && b.lapNumber < 0) return 0;
         if (a.lapNumber < 0) return 1;
         if (b.lapNumber < 0) return -1;
         if (sortMode === 'race') {
           if (a.lapNumber !== b.lapNumber) return b.lapNumber - a.lapNumber;
-          const aP = a.progress ?? 0;
-          const bP = b.progress ?? 0;
-          if (Math.abs(aP - bP) > 0.01) return bP - aP;
-          const aLastPos = pilotLastPos.get(a.pilot) ?? 99;
-          const bLastPos = pilotLastPos.get(b.pilot) ?? 99;
-          if (aLastPos !== 99 || bLastPos !== 99) return aLastPos - bLastPos;
-          // Use snapshot positions (ground truth from timing system)
+          // Snapshot positions are ground truth from the timing system
           if (snapshotPositions) {
             const aSnap = snapshotPositions.get(a.pilot) ?? 99;
             const bSnap = snapshotPositions.get(b.pilot) ?? 99;
-            if (aSnap !== 99 || bSnap !== 99) return aSnap - bSnap;
+            if (aSnap !== 99 && bSnap !== 99 && aSnap !== bSnap) return aSnap - bSnap;
           }
+          const aLastPos = pilotLastPos.get(a.pilot) ?? 99;
+          const bLastPos = pilotLastPos.get(b.pilot) ?? 99;
+          if (aLastPos !== 99 && bLastPos !== 99 && aLastPos !== bLastPos) return aLastPos - bLastPos;
+          const aP = a.progress ?? 0;
+          const bP = b.progress ?? 0;
+          if (Math.abs(aP - bP) > 0.01) return bP - aP;
           return (startPositions?.get(a.pilot) ?? 99) - (startPositions?.get(b.pilot) ?? 99);
         }
         if (a.lapNumber === 0 && b.lapNumber === 0) return 0;
@@ -410,6 +408,79 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
         return aT - bT;
       })
       .map((e, i) => ({ ...e, position: i + 1 }));
+
+    // Compute precise gap for race mode using cumulative lap times
+    if (sortMode === 'race') {
+      // Build cumulative lap time sums per pilot (ms) — independent of poll timestamps
+      const pilotCumLapMs = new Map<string, number[]>();
+      for (const pilot of pilots) {
+        const pLaps = laps.filter(l => l.pilot === pilot);
+        const cumTimes: number[] = [];
+        let accum = 0;
+        for (const lap of pLaps) {
+          const lapSec = parseTime(lap.lapTime) || 42;
+          accum += lapSec * 1000;
+          cumTimes.push(accum);
+        }
+        pilotCumLapMs.set(pilot, cumTimes);
+      }
+
+      const currentMs = sessionStartTime ? sessionStartTime + timeSec * 1000 : 0;
+
+      for (let i = 0; i < sorted.length; i++) {
+        if (i === 0 || sorted[i].lapNumber < 0) { sorted[i].gap = null; continue; }
+        const ahead = sorted[i - 1];
+        const behind = sorted[i];
+        if (ahead.lapNumber < 0) { behind.gap = null; continue; }
+
+        const lapDiff = ahead.lapNumber - behind.lapNumber;
+        if (lapDiff > 0) {
+          behind.gap = `+${lapDiff}L`;
+          continue;
+        }
+
+        const cumA = pilotCumLapMs.get(ahead.pilot) || [];
+        const cumB = pilotCumLapMs.get(behind.pilot) || [];
+        const commonLap = Math.min(ahead.lapNumber, behind.lapNumber);
+
+        // Try S1 gap on current lap (if both passed S1 in this lap)
+        if (sessionStartTime && pilotS1Events.size > 0) {
+          const evtsA = pilotS1Events.get(ahead.pilot);
+          const evtsB = pilotS1Events.get(behind.pilot);
+          if (evtsA && evtsB) {
+            const tlA = pilotTimelines.get(ahead.pilot) || [];
+            const tlB = pilotTimelines.get(behind.pilot) || [];
+            const lastFinishA = commonLap > 0 ? tlA[commonLap - 1] : sessionStartTime;
+            const lastFinishB = commonLap > 0 ? tlB[commonLap - 1] : sessionStartTime;
+            if (lastFinishA && lastFinishB) {
+              let s1A: number | null = null;
+              let s1B: number | null = null;
+              for (let j = evtsA.length - 1; j >= 0; j--) {
+                if (evtsA[j].ts <= currentMs && evtsA[j].ts > lastFinishA) { s1A = evtsA[j].ts; break; }
+              }
+              for (let j = evtsB.length - 1; j >= 0; j--) {
+                if (evtsB[j].ts <= currentMs && evtsB[j].ts > lastFinishB) { s1B = evtsB[j].ts; break; }
+              }
+              if (s1A != null && s1B != null) {
+                const gapSec = (s1B - s1A) / 1000;
+                behind.gap = `+${Math.abs(gapSec).toFixed(2)}`;
+                continue;
+              }
+            }
+          }
+        }
+
+        // Fall back to cumulative lap time difference
+        if (commonLap > 0 && cumA.length >= commonLap && cumB.length >= commonLap) {
+          const gapMs = cumB[commonLap - 1] - cumA[commonLap - 1];
+          behind.gap = `+${Math.abs(gapMs / 1000).toFixed(2)}`;
+        } else {
+          behind.gap = null;
+        }
+      }
+    }
+
+    return sorted;
   }, [laps, pilots, sessionStartTime, pilotTimelines, pilotS1Events, snapshots, startPositions, liveEntries, sortMode]);
 
   const [entries, setEntries] = useState<TimingEntry[]>(() => getEntriesAtTime(0));
@@ -542,6 +613,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       startGrid={startGrid}
       raceGroup={raceGroup}
       totalQualifiedPilots={totalQualifiedPilots}
+      isCompetitionRace={raceGroup != null && raceGroup > 0}
     />
   );
 

@@ -8,6 +8,7 @@ export type SortMode = 'qualifying' | 'race';
 const ALL_COL_IDS = ['start', 'arrows', 'change', 'pilot', 'points', 'kart', 'gap', 'last', 's1', 's2', 'best', 'bestS1', 'bestS2', 'tb', 'loss', 'laps'] as const;
 type ColId = typeof ALL_COL_IDS[number];
 const DEFAULT_ORDER: ColId[] = [...ALL_COL_IDS];
+const RACE_ORDER: ColId[] = ['start', 'arrows', 'change', 'points', 'pilot', 'laps', 'gap', 'kart', 'last', 's1', 's2', 'best', 'bestS1', 'bestS2', 'tb', 'loss'];
 const COL_LABELS: Record<ColId, string> = {
   start: 'Start', arrows: '', change: 'Δ', pilot: 'Pilot', points: 'P',
   kart: 'Kart', gap: 'Gap', last: 'Last', s1: 'S1', s2: 'S2',
@@ -35,6 +36,7 @@ export interface TimingTableProps {
   startGrid?: Map<number, string>;
   raceGroup?: number;
   totalQualifiedPilots?: number;
+  isCompetitionRace?: boolean;
 }
 
 function arrowColor(diff: number): string {
@@ -48,7 +50,7 @@ export default function TimingTable({
   entries, sortMode, onSortModeChange,
   columnFilter: controlledColumnFilter, onColumnFilterChange,
   startPositions, startGrid,
-  raceGroup, totalQualifiedPilots,
+  raceGroup, totalQualifiedPilots, isCompetitionRace,
 }: TimingTableProps) {
   const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>('all');
   const columnFilter = controlledColumnFilter ?? internalColumnFilter;
@@ -56,23 +58,24 @@ export default function TimingTable({
 
   const [customCols, setCustomCols] = useState<Record<SortMode, { visible: Set<ColId>; order: ColId[] }>>(() => {
     const load = (mode: SortMode) => {
+      const modeOrder = mode === 'race' ? RACE_ORDER : DEFAULT_ORDER;
       try {
         const raw = localStorage.getItem(`karting_timing_cols_${mode}`);
         if (raw) {
           const parsed = JSON.parse(raw);
           if (parsed.order && parsed.hidden) {
             const order = (parsed.order as string[]).filter(c => ALL_COLS_SET.has(c as ColId)) as ColId[];
-            const missing = DEFAULT_ORDER.filter(c => !order.includes(c));
+            const missing = modeOrder.filter(c => !order.includes(c));
             const fullOrder = [...order, ...missing];
             const hidden = new Set(parsed.hidden as string[]);
             return { visible: new Set<ColId>(fullOrder.filter(c => !hidden.has(c))), order: fullOrder };
           }
           const visible = new Set((parsed as string[]).filter(c => ALL_COLS_SET.has(c as ColId)) as ColId[]);
           for (const c of ALL_COLS_SET) visible.add(c);
-          return { visible, order: [...DEFAULT_ORDER] };
+          return { visible, order: [...modeOrder] };
         }
       } catch {}
-      return { visible: new Set<ColId>(ALL_COLS_SET), order: [...DEFAULT_ORDER] };
+      return { visible: new Set<ColId>(ALL_COLS_SET), order: [...modeOrder] };
     };
     return { qualifying: load('qualifying'), race: load('race') };
   });
@@ -116,15 +119,16 @@ export default function TimingTable({
   const handleDragEnd = useCallback(() => { setDragCol(null); }, []);
 
   const customState = customCols[sortMode];
+  const modeDefaultOrder = sortMode === 'race' ? RACE_ORDER : DEFAULT_ORDER;
   const visibleCols: Set<ColId> = columnFilter === 'all' ? ALL_COLS_SET : columnFilter === 'main' ? (sortMode === 'race' ? MAIN_RACE_VISIBLE : MAIN_QUAL_VISIBLE) : customState.visible;
-  const baseOrder: ColId[] = columnFilter === 'custom' ? customState.order : DEFAULT_ORDER;
+  const baseOrder: ColId[] = columnFilter === 'custom' ? customState.order : modeDefaultOrder;
   const colOrder: ColId[] = useMemo(() => {
     if (columnFilter !== 'custom') return baseOrder;
-    const fixed = DEFAULT_ORDER.filter(c => START_GROUP_SET.has(c));
+    const fixed = modeDefaultOrder.filter(c => START_GROUP_SET.has(c));
     const rest = baseOrder.filter(c => !START_GROUP_SET.has(c));
     const result: ColId[] = [];
     let fi = 0;
-    for (const c of DEFAULT_ORDER) {
+    for (const c of modeDefaultOrder) {
       if (START_GROUP_SET.has(c)) {
         result.push(c);
         fi++;
@@ -135,7 +139,7 @@ export default function TimingTable({
     }
     if (result.length <= fixed.length) result.push(...rest);
     return result;
-  }, [columnFilter, baseOrder]);
+  }, [columnFilter, baseOrder, modeDefaultOrder]);
 
   const hasStartData = sortMode === 'race' && startPositions && startPositions.size > 0;
 
@@ -200,15 +204,7 @@ export default function TimingTable({
     for (let i = 0; i < sorted.length; i++) {
       const e = sorted[i];
       if (i === 0) { map.set(e.pilot, '—'); continue; }
-      const prev = sorted[i - 1];
-      const eLap = parseTime(e.bestLap);
-      const pLap = parseTime(prev.bestLap);
-      if (eLap !== null && pLap !== null) {
-        const diff = eLap - pLap;
-        map.set(e.pilot, `${diff >= 0 ? '+' : ''}${diff.toFixed(3)}`);
-      } else {
-        map.set(e.pilot, '—');
-      }
+      map.set(e.pilot, e.gap || '—');
     }
     return map;
   }, [entries, sortMode]);
@@ -216,24 +212,26 @@ export default function TimingTable({
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-3 border-b border-dark-800 flex items-center gap-3 flex-wrap">
-        <div className="flex bg-dark-800 rounded-md p-0.5">
-          <button
-            onClick={() => onSortModeChange('qualifying')}
-            className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-              sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
-            }`}
-          >
-            Квала
-          </button>
-          <button
-            onClick={() => onSortModeChange('race')}
-            className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
-              sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
-            }`}
-          >
-            Гонка
-          </button>
-        </div>
+        {isCompetitionRace && (
+          <div className="flex bg-dark-800 rounded-md p-0.5">
+            <button
+              onClick={() => onSortModeChange('qualifying')}
+              className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+              }`}
+            >
+              Квала
+            </button>
+            <button
+              onClick={() => onSortModeChange('race')}
+              className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
+              }`}
+            >
+              Гонка
+            </button>
+          </div>
+        )}
         <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1 flex-wrap">
           <span className="text-dark-500 text-[9px]">Вид:</span>
           <span className="flex rounded overflow-hidden">

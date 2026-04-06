@@ -213,7 +213,7 @@ export default function SessionDetail() {
 
   const mergedLaps = mergePilotNames(dbLaps);
   const pilots = buildPilotLaps(
-    mergedLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time, s1: l.s1, s2: l.s2, ts: l.ts })),
+    mergedLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time, s1: l.s1, s2: l.s2, ts: l.ts, position: l.position })),
     excludedLaps.size > 0 ? excludedLaps : undefined,
     sessionId,
   );
@@ -369,7 +369,8 @@ export default function SessionDetail() {
               <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
                 excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
                 onToggleLap={isOwner && compId ? handleToggleLap : undefined}
-                sessionId={sessionId} />
+                sessionId={sessionId}
+                startPositions={isRace ? startPositions : undefined} />
             );
 
             return replayLaps.length > 0 ? (
@@ -415,7 +416,8 @@ export default function SessionDetail() {
             <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
               excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
               onToggleLap={isOwner && compId ? handleToggleLap : undefined}
-              sessionId={sessionId} />
+              sessionId={sessionId}
+              startPositions={isRace ? startPositions : undefined} />
           )}
         </>
       )}

@@ -10,6 +10,7 @@ export interface LapData {
   s1?: string | null;
   s2?: string | null;
   ts?: number;
+  position?: number | null;
 }
 
 interface PilotLaps {
@@ -28,6 +29,7 @@ interface LapsByPilotsProps {
   excludedLaps?: Set<string>;
   onToggleLap?: (key: string) => void;
   sessionId?: string;
+  startPositions?: Map<string, number>;
 }
 
 export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sessionId?: string): PilotLaps[] {
@@ -65,8 +67,19 @@ function compactName(name: string): string {
   return `${surname} ${parts[1][0]}.`;
 }
 
-export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId }: LapsByPilotsProps) {
-  const [viewMode, setViewMode] = useState<'all' | 'main'>('all');
+export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId, startPositions }: LapsByPilotsProps) {
+  const [viewMode, setViewMode] = useState<'all' | 'main'>('main');
+  const [sortMode, setSortMode] = useState<'time' | 'position'>('time');
+  const isRace = startPositions != null && startPositions.size > 0;
+
+  const sortedPilots = isRace && sortMode === 'position'
+    ? [...pilots].sort((a, b) => {
+        const aPos = a.laps[a.laps.length - 1]?.position ?? Infinity;
+        const bPos = b.laps[b.laps.length - 1]?.position ?? Infinity;
+        return aPos - bPos;
+      })
+    : pilots;
+
   const overallBest = Math.min(...pilots.map(p => p.bestLap).filter(v => v < Infinity));
   const overallBestS1 = Math.min(...pilots.map(p => p.bestS1).filter(v => v < Infinity));
   const overallBestS2 = Math.min(...pilots.map(p => p.bestS2).filter(v => v < Infinity));
@@ -97,31 +110,47 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
             <button onClick={() => setViewMode('main')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${viewMode === 'main' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Осн</button>
           </span>
         </div>
+        {isRace && (
+          <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
+            <span className="text-dark-500 text-[9px]">Сорт:</span>
+            <span className="flex rounded overflow-hidden">
+              <button onClick={() => setSortMode('time')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${sortMode === 'time' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Час</button>
+              <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+              <button onClick={() => setSortMode('position')} className={`px-1.5 py-0.5 text-[9px] transition-colors ${sortMode === 'position' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>Поз</button>
+            </span>
+          </div>
+        )}
       </div>
       <div className="overflow-x-auto">
         <table className="text-[10px]">
           <thead>
             <tr className="table-header">
               <th className="table-cell text-center w-8">Коло</th>
-              {pilots.map(p => (
+              {sortedPilots.map(p => (
                 <th key={p.name} className="table-cell text-left min-w-[100px]">
                   <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
                     {compactName(p.name)}
                   </Link>
-                  <div className="flex items-center justify-center gap-1 font-normal">
-                    <span className={`${KART_COLOR} text-[11px]`}>К{p.laps[0]?.kart}</span>
-                    {onRenamePilot && (
-                      <button
-                        type="button"
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          const newName = prompt(`Перейменувати "${p.name}" на:`, p.name);
-                          if (newName && newName !== p.name) onRenamePilot(p.name, newName);
-                        }}
-                        className="text-dark-500 hover:text-primary-400 text-[10px] cursor-pointer p-0.5 leading-none"
-                      >✎</button>
-                    )}
+                  <div className="flex items-center gap-1 font-normal">
+                    <span className={`${KART_COLOR} text-[11px]`}>Карт {p.laps[0]?.kart}</span>
+                    {onRenamePilot && (() => {
+                      const pilotName = p.name;
+                      const rename = onRenamePilot;
+                      return (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onPointerDown={() => {
+                            setTimeout(() => {
+                              const newName = window.prompt(`Перейменувати "${pilotName}" на:`, pilotName);
+                              if (newName && newName !== pilotName) rename(pilotName, newName);
+                            }, 10);
+                          }}
+                          className="text-dark-500 hover:text-primary-400 cursor-pointer select-none"
+                          style={{ fontSize: 12, padding: '0 4px' }}
+                        >✎</span>
+                      );
+                    })()}
                   </div>
                 </th>
               ))}
@@ -131,7 +160,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
             {Array.from({ length: maxLaps }, (_, lapIdx) => (
               <tr key={lapIdx} className="table-row">
                 <td className="table-cell text-center font-mono text-dark-500">{lapIdx + 1}</td>
-                {pilots.map(p => {
+                {sortedPilots.map(p => {
                   const lap = p.laps[lapIdx];
                   const completed = completedLapsMap.get(p.name) ?? 0;
                   const isCurrent = hasReplayState && lapIdx === completed;
@@ -151,6 +180,16 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   const s1Color = s1Val !== null && s1Val >= 10 ? getTimeColor(lap.s1!, s1Str, overallBestS1 < Infinity ? overallBestS1 : null) : 'none';
                   const s2Color = s2Val !== null && s2Val >= 10 ? getTimeColor(lap.s2!, s2Str, overallBestS2 < Infinity ? overallBestS2 : null) : 'none';
 
+                  let posDelta = 0;
+                  if (startPositions && startPositions.size > 0 && lap.position != null && lap.position > 0) {
+                    const prevPos = lapIdx === 0
+                      ? (startPositions.get(p.name) ?? null)
+                      : (p.laps[lapIdx - 1]?.position ?? null);
+                    if (prevPos != null && prevPos > 0) {
+                      posDelta = prevPos - lap.position;
+                    }
+                  }
+
                   return (
                     <td key={p.name} className={`table-cell text-left font-mono ${
                       isExcluded ? 'opacity-40' :
@@ -158,6 +197,11 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                     } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>
                       <div className={`relative group ${isExcluded ? 'line-through decoration-red-400' : ''}`}>
                         {toSeconds(lap.lap_time)}
+                        {posDelta !== 0 && (
+                          <span className={`ml-1 text-[8px] font-bold ${posDelta > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {posDelta > 0 ? `▲${posDelta}` : `▼${Math.abs(posDelta)}`}
+                          </span>
+                        )}
                         {onToggleLap && lapKey && (
                           <button onClick={(e) => { e.stopPropagation(); onToggleLap(lapKey); }}
                             className={`absolute -right-1 -top-1 w-3.5 h-3.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none opacity-0 group-hover:opacity-100 transition-all ${isExcluded ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30 !opacity-100' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}`}>
