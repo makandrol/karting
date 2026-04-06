@@ -90,7 +90,8 @@ export function mergePilotNames<T extends { pilot: string; kart: number }>(laps:
 
 /**
  * Compute race start positions from qualifying or previous race results.
- * Returns Map<pilot, position_within_group> (reverse order = last in quali starts first).
+ * LL/CL: sequential block split, reverse start order (last in quali starts first).
+ * Sprint: snake split (reversed when uneven), direct start order, each race uses its own qualifying.
  */
 export async function fetchRaceStartPositions(
   collectorUrl: string,
@@ -104,6 +105,7 @@ export async function fetchRaceStartPositions(
 
   const raceNum = parseInt(raceMatch[1]);
   const groupNum = parseInt(raceMatch[2]);
+  const isSprint = format === 'sprint';
 
   try {
     const comp = await fetch(`${collectorUrl}/competitions/${encodeURIComponent(competitionId)}`).then(r => r.json());
@@ -113,7 +115,9 @@ export async function fetchRaceStartPositions(
     const excluded = new Set<string>(rawResults?.excludedPilots || []);
 
     let sourcePhasePrefix: string;
-    if (raceNum === 1) {
+    if (isSprint) {
+      sourcePhasePrefix = `qualifying_${raceNum}_`;
+    } else if (raceNum === 1) {
       sourcePhasePrefix = 'qualifying';
     } else {
       sourcePhasePrefix = `race_${raceNum - 1}_`;
@@ -136,9 +140,29 @@ export async function fetchRaceStartPositions(
     const sorted = [...pilotBest.entries()].sort((a, b) => a[1] - b[1]);
     const maxQualified = format === 'champions_league' ? 24 : 36;
     const qualified = sorted.slice(0, maxQualified).map(([p]) => p);
+    const n = qualified.length;
+
+    if (isSprint) {
+      let groupCount: number;
+      if (n <= 14) groupCount = 1;
+      else if (n <= 29) groupCount = 2;
+      else groupCount = 3;
+
+      const reversed = n % groupCount !== 0;
+      const buckets: string[][] = Array.from({ length: groupCount }, () => []);
+      for (let i = 0; i < n; i++) {
+        const gi = reversed ? (groupCount - 1) - (i % groupCount) : i % groupCount;
+        buckets[gi].push(qualified[i]);
+      }
+
+      const groupPilots = buckets[groupNum - 1] || [];
+      groupPilots.forEach((p, pi) => {
+        result.set(p, pi + 1);
+      });
+      return { positions: result, totalQualified: n };
+    }
 
     const maxGroups = format === 'champions_league' ? 2 : 3;
-    const n = qualified.length;
     let groupCount: number;
     if (maxGroups >= 3) {
       if (n <= 13) groupCount = 1;
