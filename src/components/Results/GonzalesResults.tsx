@@ -19,6 +19,9 @@ interface Props {
   excludedLapKeys?: string[];
   onSaveResults: (partial: Record<string, any>) => Promise<void>;
   gonzalesConfig?: GonzalesConfig;
+  onPilotCount?: (n: number) => void;
+  onAutoGroups?: (n: number) => void;
+  showKartManager?: boolean;
 }
 
 export interface GonzalesConfig {
@@ -34,6 +37,7 @@ type SortKey = 'average' | 'name' | `kart_${number}`;
 export default function GonzalesResults({
   competitionId, sessions, sessionLaps, liveSessionId, liveEnabled,
   onToggleLive, initialExcludedPilots, excludedLapKeys, onSaveResults, gonzalesConfig,
+  onPilotCount, onAutoGroups, showKartManager = false,
 }: Props) {
   const { hasPermission, isOwner } = useAuth();
   const canManage = hasPermission('manage_results');
@@ -42,7 +46,6 @@ export default function GonzalesResults({
   const [selectedPilot, setSelectedPilot] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('average');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [showKartManager, setShowKartManager] = useState(false);
 
   const [kartList, setKartList] = useState<number[]>(gonzalesConfig?.kartList || []);
   const [kartReplacements, setKartReplacements] = useState<Record<number, number>>(gonzalesConfig?.kartReplacements || {});
@@ -152,6 +155,19 @@ export default function GonzalesResults({
   const roundCount = Math.max(pilotCount, 12);
   const roundSessions = sessions.filter(s => s.phase && !s.phase.startsWith('qualifying'));
 
+  useEffect(() => {
+    if (pilotCount > 0) onPilotCount?.(pilotCount);
+  }, [pilotCount, onPilotCount]);
+
+  const autoGroupCount = useMemo(() => {
+    const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
+    return Math.max(qualiSessions.length, 1);
+  }, [sessions]);
+
+  useEffect(() => {
+    onAutoGroups?.(autoGroupCount);
+  }, [autoGroupCount, onAutoGroups]);
+
   const effectiveKarts = kartList.length > 0 ? kartList : data.karts;
   const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount), [effectiveKarts, pilotCount]);
 
@@ -217,12 +233,6 @@ export default function GonzalesResults({
             </label>
           ))}
         </div>
-        {canManage && (
-          <button onClick={() => setShowKartManager(v => !v)}
-            className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${showKartManager ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-500 hover:text-dark-300'}`}>
-            Карти
-          </button>
-        )}
         <span className="text-dark-600 text-[10px]">
           {pilotCount} пілотів · {data.karts.length} картів · {roundSessions.length}/{roundCount} гонок
         </span>

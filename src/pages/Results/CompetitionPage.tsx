@@ -173,7 +173,7 @@ export default function CompetitionPage() {
     <div className="space-y-4">
       {(competition.format === 'gonzales' || competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
         <TableLayoutBar pageId="competition" sections={[
-          ...PAGE_SECTIONS.competition,
+          ...PAGE_SECTIONS.competition.filter(s => s.id !== 'kartManager' || competition.format === 'gonzales'),
           ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
         ]} />
       )}
@@ -314,6 +314,7 @@ export default function CompetitionPage() {
 
 function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void }) {
   const { isOwner } = useAuth();
+  const { isSectionVisible } = useLayoutPrefs();
   const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -468,6 +469,9 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
             setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
           } catch {}
         }}
+        onPilotCount={onPilotCount}
+        onAutoGroups={onAutoGroups}
+        showKartManager={isSectionVisible('competition', 'kartManager')}
       />
     );
 
