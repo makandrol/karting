@@ -29,8 +29,8 @@ export const COMPETITION_CONFIGS: Record<CompetitionFormat, CompetitionConfig> =
     shortName: 'Гонз',
     maxPilots: 24,
     maxKarts: 12,
-    raceCount: 12, // 12 заїздів (по 1 на карт)
-    description: '12 картів, кожен пілот їде на кожному по 2 кола. Середній час найкращих кіл.',
+    raceCount: 24, // max(кількість пілотів, 12) раундів
+    description: 'Тайм-атака: 12 картів, кожен пілот їде на кожному по 2 кола. Середній час найкращих кіл.',
   },
   light_league: {
     format: 'light_league',
@@ -126,11 +126,20 @@ export interface PhaseConfig {
 
 export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
   gonzales: {
-    phases: Array.from({ length: 12 }, (_, i) => ({
-      id: `round_${i + 1}`,
-      label: `Раунд ${i + 1}`,
-      shortLabel: `Р${i + 1}`,
-    })),
+    phases: [
+      { id: 'qualifying_1', label: 'Кваліфікація 1', shortLabel: 'Кв1' },
+      { id: 'qualifying_2', label: 'Кваліфікація 2', shortLabel: 'Кв2' },
+      ...Array.from({ length: 24 }, (_, i) => ({
+        id: `round_${i + 1}_group_2`,
+        label: `Раунд ${i + 1} · Група 2`,
+        shortLabel: `Р${i + 1}-2`,
+      })),
+      ...Array.from({ length: 24 }, (_, i) => ({
+        id: `round_${i + 1}_group_1`,
+        label: `Раунд ${i + 1} · Група 1`,
+        shortLabel: `Р${i + 1}-1`,
+      })),
+    ],
   },
   light_league: {
     phases: [
@@ -180,13 +189,36 @@ export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
   marathon: { phases: [{ id: 'race', label: 'Гонка', shortLabel: 'Гонка' }] },
 };
 
-export function getPhasesForFormat(format: string, groupCount?: number | null): PhaseConfig[] {
+export function getPhasesForFormat(format: string, groupCount?: number | null, roundCount?: number | null): PhaseConfig[] {
   const config = PHASE_CONFIGS[format];
   if (!config) return [];
-  if (groupCount === undefined || groupCount === null) return config.phases;
+  if (groupCount === undefined || groupCount === null) {
+    if (format === 'gonzales') {
+      const rc = roundCount ?? 12;
+      return config.phases.filter(p => {
+        if (p.id.startsWith('qualifying_')) return true;
+        const rm = p.id.match(/^round_(\d+)/);
+        if (rm) return parseInt(rm[1]) <= rc;
+        return true;
+      });
+    }
+    return config.phases;
+  }
 
   return config.phases.filter(p => {
-    if (format !== 'sprint' && p.id.startsWith('qualifying_')) {
+    if (format === 'gonzales') {
+      if (p.id.startsWith('qualifying_')) {
+        const num = parseInt(p.id.split('_')[1]);
+        return num <= groupCount;
+      }
+      const rm = p.id.match(/^round_(\d+)/);
+      if (rm) {
+        const roundNum = parseInt(rm[1]);
+        const rc = roundCount ?? 12;
+        if (roundNum > rc) return false;
+      }
+    }
+    if (format !== 'sprint' && format !== 'gonzales' && p.id.startsWith('qualifying_')) {
       const num = parseInt(p.id.split('_')[1]);
       return num <= groupCount;
     }
@@ -282,4 +314,61 @@ export function splitIntoGroupsSprint(pilots: string[], maxGroups?: number): Lea
  */
 export function reverseStartOrder(pilots: string[]): string[] {
   return [...pilots].reverse();
+}
+
+// ============================================================
+// Гонзалес — ротація картів та пропуски
+// ============================================================
+
+export interface GonzalesKartSlot {
+  /** Позиція в ротаційному списку (1-based) */
+  position: number;
+  /** Номер карту (null = пропуск) */
+  kart: number | null;
+  /** Мітка: "Карт 7" або "Пропуск 1" */
+  label: string;
+}
+
+/**
+ * Будує ротаційний список для Гонзалеса.
+ * 12 картів + (pilotCount - 12) пропусків (якщо pilotCount > 12).
+ */
+export function buildGonzalesRotation(karts: number[], pilotCount: number): GonzalesKartSlot[] {
+  const slots: GonzalesKartSlot[] = [];
+  const totalSlots = Math.max(pilotCount, karts.length);
+  let skipNum = 0;
+  for (let i = 0; i < totalSlots; i++) {
+    if (i < karts.length) {
+      slots.push({ position: i + 1, kart: karts[i], label: `Карт ${karts[i]}` });
+    } else {
+      skipNum++;
+      slots.push({ position: i + 1, kart: null, label: `Пропуск ${skipNum}` });
+    }
+  }
+  return slots;
+}
+
+/**
+ * Визначає карт для пілота в конкретному раунді за ротаційним списком.
+ * startSlot — стартова позиція пілота (0-based index в ротаційному списку).
+ * round — номер раунду (0-based).
+ * Повертає slot (kart або null для пропуску).
+ */
+export function getGonzalesKartForRound(slots: GonzalesKartSlot[], startSlot: number, round: number): GonzalesKartSlot {
+  const idx = (startSlot + round) % slots.length;
+  return slots[idx];
+}
+
+/**
+ * Визначає кількість груп для Гонзалеса.
+ */
+export function getGonzalesGroupCount(pilotCount: number): number {
+  return pilotCount <= 13 ? 1 : 2;
+}
+
+/**
+ * Визначає кількість раундів для Гонзалеса.
+ */
+export function getGonzalesRoundCount(pilotCount: number): number {
+  return Math.max(pilotCount, 12);
 }

@@ -624,9 +624,19 @@ export const storage = {
   },
 
   autoLinkSessionToActiveCompetition(sessionId) {
-    const FORMAT_MAX_GROUPS = { gonzales: 1, light_league: 3, champions_league: 2, sprint: 3, marathon: 1 };
+    const FORMAT_MAX_GROUPS = { gonzales: 2, light_league: 3, champions_league: 2, sprint: 3, marathon: 1 };
+
+    const buildGonzalesPhases = (roundCount, groupCount) => {
+      const phases = ['qualifying_1', 'qualifying_2'];
+      for (let r = 1; r <= roundCount; r++) {
+        if (groupCount >= 2) phases.push(`round_${r}_group_2`);
+        phases.push(`round_${r}_group_1`);
+      }
+      return phases;
+    };
+
     const FULL_PHASES = {
-      gonzales: Array.from({ length: 12 }, (_, i) => `round_${i + 1}`),
+      gonzales: buildGonzalesPhases(24, 2),
       light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
       champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
       sprint: [
@@ -673,18 +683,30 @@ export const storage = {
       }
     }
 
-    const filterPhases = (phases, gc, format) => {
-      if (!gc) return phases;
+    const filterPhases = (phases, gc, format, results) => {
+      if (!gc && format !== 'gonzales') return phases;
+      const gonzalesRoundCount = results?.gonzalesRoundCount ?? 24;
       return phases.filter(p => {
-        if (format !== 'sprint' && p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
+        if (format === 'gonzales') {
+          if (p.startsWith('qualifying_')) {
+            if (!gc) return true;
+            return parseInt(p.split('_')[1]) <= gc;
+          }
+          const rm = p.match(/^round_(\d+)/);
+          if (rm) {
+            const roundNum = parseInt(rm[1]);
+            if (roundNum > gonzalesRoundCount) return false;
+          }
+        }
+        if (format !== 'sprint' && format !== 'gonzales' && p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= (gc || 99);
         const gm = p.match(/group_(\d+)/);
-        if (gm) return parseInt(gm[1]) <= gc;
+        if (gm) return parseInt(gm[1]) <= (gc || 99);
         return true;
       });
     };
 
     const allPhases = FULL_PHASES[liveComp.format] || [];
-    const phases = filterPhases(allPhases, groupCount, liveComp.format);
+    const phases = filterPhases(allPhases, groupCount, liveComp.format, results);
     const usedPhases = new Set(liveComp.sessions.map(s => s.phase));
 
     // All expected phases already filled — competition is effectively complete

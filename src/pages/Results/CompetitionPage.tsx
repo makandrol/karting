@@ -1,12 +1,13 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint } from '../../data/competitions';
+import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount } from '../../data/competitions';
 import { toSeconds, isValidSession, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 import LeagueResults from '../../components/Results/LeagueResults';
+import GonzalesResults from '../../components/Results/GonzalesResults';
 import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
 import { parseLapSec, getSprintPositionPoints } from '../../utils/scoring';
 import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
@@ -162,14 +163,15 @@ export default function CompetitionPage() {
   };
 
   const groupCount = competition.results?.groupCountOverride ?? null;
-  const effectivePhases = getPhasesForFormat(competition.format, groupCount);
+  const gonzalesRoundCount = competition.format === 'gonzales' ? (competition.results?.gonzalesRoundCount ?? null) : null;
+  const effectivePhases = getPhasesForFormat(competition.format, groupCount, gonzalesRoundCount);
   const totalPhases = effectivePhases.length;
   const linkedPhases = competition.sessions.filter(s => s.phase).length;
   const allPhasesLinked = totalPhases > 0 && linkedPhases >= totalPhases;
 
   return (
     <div className="space-y-4">
-      {(competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
+      {(competition.format === 'gonzales' || competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
         <TableLayoutBar pageId="competition" sections={[
           ...PAGE_SECTIONS.competition,
           ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
@@ -198,14 +200,14 @@ export default function CompetitionPage() {
                 ))}
               </select>
             </div>
-            {(competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
+            {(competition.format === 'gonzales' || competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
               <CompetitionParams
                 pilotCount={pilotCount}
                 pilotOverride={competition.results?.totalPilotsOverride ?? null}
                 pilotLocked={competition.results?.totalPilotsLocked ?? false}
                 groupOverride={competition.results?.groupCountOverride ?? null}
                 autoGroups={autoGroups}
-                maxGroups={competition.format === 'champions_league' ? 2 : 3}
+                maxGroups={competition.format === 'champions_league' ? 2 : competition.format === 'gonzales' ? 2 : 3}
                 canManage={canManage}
                 onSave={async (partial) => {
                   try {
@@ -385,7 +387,70 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   if (competition.sessions.length === 0) return <div className="card text-center py-12 text-dark-500">Немає прив'язаних заїздів</div>;
 
   if (competition.format === 'gonzales') {
-    return <GonzalesLiveTable competition={competition} sessionLaps={sessionLaps} />;
+    const isScrubbing = scrubTime !== null;
+
+    const gonzalesResultsEl = (
+      <GonzalesResults
+        key="leaguePoints"
+        competitionId={competition.id}
+        sessions={competition.sessions}
+        sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+        liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+        liveEnabled={!isScrubbing && liveEnabled}
+        onToggleLive={() => { if (isScrubbing) { setScrubTime(null); setLiveEnabled(true); } else setLiveEnabled(v => !v); }}
+        initialExcludedPilots={competition.results?.excludedPilots}
+        excludedLapKeys={competition.results?.excludedLaps}
+        gonzalesConfig={competition.results?.gonzalesConfig}
+        onSaveResults={async (partial) => {
+          try {
+            const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+            if (!res.ok) return;
+            const comp = await res.json();
+            const currentResults = comp.results || {};
+            await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+              body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+            });
+            setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+          } catch {}
+        }}
+      />
+    );
+
+    const liveSessionEl = (
+      <LiveSessionTable
+        key="liveSession"
+        competition={competition}
+        liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+        liveEntries={isScrubbing ? [] : liveEntries}
+        liveTeams={isScrubbing ? [] : liveTeams}
+        sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+        compSessions={compSessions}
+        isScrubbing={isScrubbing}
+      />
+    );
+
+    const sessionsEl = compSessions.length > 0 ? (
+      <div key="sessions" className="card p-0 overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-dark-800">
+          <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
+        </div>
+        <SessionsTable sessions={compSessions} />
+      </div>
+    ) : null;
+
+    const sectionMap: Record<string, React.ReactNode> = {
+      leaguePoints: gonzalesResultsEl,
+      liveSession: liveSessionEl,
+      sessions: sessionsEl,
+    };
+
+    return (
+      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled}>
+        {sectionMap}
+      </CompetitionLayoutWrapper>
+    );
   }
 
   if (competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') {
@@ -615,112 +680,6 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
             А
           </button>
         )}
-      </div>
-    </div>
-  );
-}
-
-function GonzalesLiveTable({ competition, sessionLaps }: { competition: Competition; sessionLaps: Map<string, SessionLap[]> }) {
-  const sessions = competition.sessions;
-  const kartNumbers: number[] = [];
-  for (const s of sessions) {
-    const laps = sessionLaps.get(s.sessionId) || [];
-    for (const l of laps) {
-      if (!kartNumbers.includes(l.kart)) kartNumbers.push(l.kart);
-    }
-  }
-  kartNumbers.sort((a, b) => a - b);
-
-  // For each round (session), get each pilot's best of 2 laps on their kart
-  // Build: pilot → kart → best lap time
-  const pilotKartBest = new Map<string, Map<number, number>>();
-
-  for (const s of sessions) {
-    const laps = sessionLaps.get(s.sessionId) || [];
-    // Group by pilot in this session
-    const pilotLaps = new Map<string, SessionLap[]>();
-    for (const l of laps) {
-      if (!pilotLaps.has(l.pilot)) pilotLaps.set(l.pilot, []);
-      pilotLaps.get(l.pilot)!.push(l);
-    }
-    for (const [pilot, pLaps] of pilotLaps) {
-      if (!pilotKartBest.has(pilot)) pilotKartBest.set(pilot, new Map());
-      const kartMap = pilotKartBest.get(pilot)!;
-      const kart = pLaps[0].kart;
-      let best = Infinity;
-      for (const l of pLaps) {
-        const sec = parseLapSec(l.lap_time);
-        if (sec !== null && sec >= 38 && sec < best) best = sec;
-      }
-      if (best < Infinity) {
-        const existing = kartMap.get(kart);
-        if (!existing || best < existing) kartMap.set(kart, best);
-      }
-    }
-  }
-
-  // Build rows
-  const rows: { pilot: string; kartTimes: (number | null)[]; average: number | null; completedKarts: number }[] = [];
-  for (const [pilot, kartMap] of pilotKartBest) {
-    const kartTimes = kartNumbers.map(k => kartMap.get(k) ?? null);
-    const validTimes = kartTimes.filter((t): t is number => t !== null);
-    const average = validTimes.length > 0 ? validTimes.reduce((a, b) => a + b, 0) / validTimes.length : null;
-    rows.push({ pilot, kartTimes, average, completedKarts: validTimes.length });
-  }
-
-  rows.sort((a, b) => {
-    if (a.average === null && b.average === null) return 0;
-    if (a.average === null) return 1;
-    if (b.average === null) return -1;
-    return a.average - b.average;
-  });
-
-  const overallBestPerKart = kartNumbers.map((_, ki) => {
-    let best = Infinity;
-    for (const r of rows) { const t = r.kartTimes[ki]; if (t !== null && t < best) best = t; }
-    return best < Infinity ? best : null;
-  });
-
-  if (rows.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
-
-  return (
-    <div className="card p-0 overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-dark-800">
-        <h3 className="text-white font-semibold text-sm">Гонзалес — Зведена таблиця</h3>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-[10px]">
-          <thead>
-            <tr className="table-header">
-              <th className="table-cell text-center w-6">#</th>
-              <th className="table-cell text-left min-w-[100px]">Пілот</th>
-              {kartNumbers.map(k => (
-                <th key={k} className="table-cell text-center min-w-[60px]">Карт {k}</th>
-              ))}
-              <th className="table-cell text-center min-w-[70px] font-bold">Середнє</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.pilot} className="table-row">
-                <td className="table-cell text-center font-mono text-white font-bold">{i + 1}</td>
-                <td className="table-cell text-left text-white">{r.pilot}</td>
-                {r.kartTimes.map((t, ki) => {
-                  if (t === null) return <td key={ki} className="table-cell text-center text-dark-700">—</td>;
-                  const isBestOnKart = overallBestPerKart[ki] !== null && Math.abs(t - overallBestPerKart[ki]!) < 0.002;
-                  return (
-                    <td key={ki} className={`table-cell text-center font-mono ${isBestOnKart ? 'text-purple-400 font-bold' : 'text-dark-300'}`}>
-                      {t.toFixed(3)}
-                    </td>
-                  );
-                })}
-                <td className={`table-cell text-center font-mono font-bold ${i === 0 && r.average !== null ? 'text-purple-400' : 'text-green-400'}`}>
-                  {r.average !== null ? r.average.toFixed(3) : '—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </div>
   );
@@ -1069,7 +1028,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   }, [competition.sessions, liveSessionId]);
 
   const isQualifying = currentPhase?.startsWith('qualifying') ?? false;
-  const isRace = (currentPhase?.startsWith('race_') || currentPhase?.startsWith('final_')) ?? false;
+  const isRace = (currentPhase?.startsWith('race_') || currentPhase?.startsWith('final_') || currentPhase?.startsWith('round_')) ?? false;
 
   const sessionEnded = useMemo(() => {
     if (!liveSessionId || isScrubbing) return false;
@@ -1139,6 +1098,9 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
 
   const { startPositions, totalPilots } = useMemo(() => {
     if (!isRace) return { startPositions: undefined, totalPilots: 0 };
+
+    // Gonzales rounds are time attacks — no start positions
+    if (currentPhase?.startsWith('round_')) return { startPositions: undefined, totalPilots: 0 };
 
     const raceMatch = currentPhase!.match(/^race_(\d+)_group_(\d+)$/);
     const finalMatch = !raceMatch ? currentPhase!.match(/^final_group_(\d+)$/) : null;
@@ -1370,7 +1332,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
         raceGroup={raceGroup}
         totalQualifiedPilots={totalPilots}
         hidePoints={isSprint}
-        defaultSortMode={isRace ? 'race' : 'qualifying'}
+        defaultSortMode={isRace && !currentPhase?.startsWith('round_') ? 'race' : 'qualifying'}
         showScrubber={false}
       />
     </div>

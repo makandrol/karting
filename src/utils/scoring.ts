@@ -620,3 +620,132 @@ export function rowsToStandings(rows: PilotRow[], excludedPilots: Set<string>, f
 
   return { updatedAt: Date.now(), pilots };
 }
+
+// ============================================================
+// Гонзалес — обчислення результатів
+// ============================================================
+
+export interface GonzalesKartResult {
+  kart: number;
+  bestTime: number | null;
+  bestTimeStr: string | null;
+}
+
+export interface GonzalesPilotRow {
+  pilot: string;
+  kartResults: GonzalesKartResult[];
+  averageTime: number | null;
+  completedKarts: number;
+  group: number;
+}
+
+export interface GonzalesStandingsData {
+  karts: number[];
+  rows: GonzalesPilotRow[];
+  overallBestPerKart: (number | null)[];
+}
+
+export interface ComputeGonzalesParams {
+  sessions: CompSession[];
+  sessionLaps: Map<string, SessionLap[]>;
+  excludedPilots: Set<string>;
+  /** Manually configured kart list (from competition results) */
+  kartList?: number[];
+  /** Kart replacements: original -> replacement mapping */
+  kartReplacements?: Record<number, number>;
+  /** Excluded karts that shouldn't count in average */
+  excludedKarts?: Set<number>;
+}
+
+export function computeGonzalesStandings(params: ComputeGonzalesParams): GonzalesStandingsData {
+  const { sessions, sessionLaps, excludedPilots, kartList, kartReplacements, excludedKarts } = params;
+
+  const kartSet = new Set<number>();
+  for (const s of sessions) {
+    if (!s.phase || s.phase.startsWith('qualifying')) continue;
+    const laps = sessionLaps.get(s.sessionId) || [];
+    for (const l of laps) kartSet.add(l.kart);
+  }
+  const autoKarts = [...kartSet].sort((a, b) => a - b);
+  const karts = kartList && kartList.length > 0 ? kartList : autoKarts;
+
+  const effectiveKart = (k: number): number => {
+    if (!kartReplacements) return k;
+    return kartReplacements[k] ?? k;
+  };
+
+  const pilotKartBest = new Map<string, Map<number, { time: number; timeStr: string }>>();
+
+  for (const s of sessions) {
+    if (!s.phase || s.phase.startsWith('qualifying')) continue;
+    const laps = sessionLaps.get(s.sessionId) || [];
+    for (const l of laps) {
+      if (excludedPilots.has(l.pilot)) continue;
+      const sec = parseLapSec(l.lap_time);
+      if (sec === null || sec < 38) continue;
+
+      const resolvedKart = effectiveKart(l.kart);
+      if (!karts.includes(resolvedKart)) continue;
+
+      if (!pilotKartBest.has(l.pilot)) pilotKartBest.set(l.pilot, new Map());
+      const kartMap = pilotKartBest.get(l.pilot)!;
+      const existing = kartMap.get(resolvedKart);
+      if (!existing || sec < existing.time) {
+        kartMap.set(resolvedKart, { time: sec, timeStr: l.lap_time! });
+      }
+    }
+  }
+
+  const excludedKartSet = excludedKarts ?? new Set<number>();
+
+  const rows: GonzalesPilotRow[] = [];
+  for (const [pilot, kartMap] of pilotKartBest) {
+    const kartResults: GonzalesKartResult[] = karts.map(k => {
+      const result = kartMap.get(k);
+      return { kart: k, bestTime: result?.time ?? null, bestTimeStr: result?.timeStr ?? null };
+    });
+    const validTimes = kartResults
+      .filter(r => r.bestTime !== null && !excludedKartSet.has(r.kart))
+      .map(r => r.bestTime!);
+    const average = validTimes.length > 0
+      ? validTimes.reduce((a, b) => a + b, 0) / validTimes.length
+      : null;
+    rows.push({ pilot, kartResults, averageTime: average, completedKarts: validTimes.length, group: 0 });
+  }
+
+  rows.sort((a, b) => {
+    if (a.averageTime === null && b.averageTime === null) return 0;
+    if (a.averageTime === null) return 1;
+    if (b.averageTime === null) return -1;
+    return a.averageTime - b.averageTime;
+  });
+
+  const overallBestPerKart = karts.map((k, ki) => {
+    let best = Infinity;
+    for (const r of rows) {
+      const t = r.kartResults[ki]?.bestTime;
+      if (t !== null && t !== undefined && t < best) best = t;
+    }
+    return best < Infinity ? best : null;
+  });
+
+  return { karts, rows, overallBestPerKart };
+}
+
+export interface GonzalesStandings {
+  updatedAt: number;
+  pilots: { pilot: string; averageTime: number | null; completedKarts: number; kartTimes: (number | null)[] }[];
+}
+
+export function gonzalesToStandings(data: GonzalesStandingsData, excludedPilots: Set<string>): GonzalesStandings {
+  const included = data.rows.filter(r => !excludedPilots.has(r.pilot));
+  return {
+    updatedAt: Date.now(),
+    pilots: included.map(r => ({
+      pilot: r.pilot,
+      averageTime: r.averageTime,
+      completedKarts: r.completedKarts,
+      kartTimes: r.kartResults.map(kr => kr.bestTime),
+    })),
+  };
+}
