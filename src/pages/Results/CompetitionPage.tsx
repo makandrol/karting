@@ -831,9 +831,12 @@ function saveWithExpiry(storage: Storage, key: string, value: any) {
   try { storage.setItem(key, JSON.stringify({ value, expiresAt: endOfDay.getTime() })); } catch {}
 }
 
-function CompetitionList({ competitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
+function CompetitionList({ competitions: initialCompetitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
   const { user } = useAuth();
   const storage = user ? localStorage : sessionStorage;
+  const [competitions, setCompetitions] = useState(initialCompetitions);
+
+  useEffect(() => { setCompetitions(initialCompetitions); }, [initialCompetitions]);
 
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => {
     if (initialFilter) return new Set([initialFilter]);
@@ -1066,7 +1069,7 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
       ) : (
         <div className="space-y-2">
           {filtered.map(c => (
-            <CompetitionListItem key={c.id} competition={c} type={c.format} />
+            <CompetitionListItem key={c.id} competition={c} type={c.format} onDelete={(id) => setCompetitions(prev => prev.filter(x => x.id !== id))} />
           ))}
         </div>
       )}
@@ -1461,7 +1464,9 @@ function getCompetitionDisplayName(c: Competition): string {
   return name;
 }
 
-function CompetitionListItem({ competition: c, type }: { competition: Competition; type: string }) {
+function CompetitionListItem({ competition: c, type, onDelete }: { competition: Competition; type: string; onDelete?: (id: string) => void }) {
+  const { isOwner } = useAuth();
+  const [confirming, setConfirming] = useState(false);
   let top3: { pilot: string; totalPoints: number }[] = [];
   try {
     const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
@@ -1470,6 +1475,20 @@ function CompetitionListItem({ competition: c, type }: { competition: Competitio
       top3 = pilots.slice(0, 3).map((p: any) => ({ pilot: p.pilot, totalPoints: p.totalPoints }));
     }
   } catch {}
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirming) { setConfirming(true); return; }
+    try {
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(c.id)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+      });
+      onDelete?.(c.id);
+    } catch {}
+    setConfirming(false);
+  };
 
   return (
     <Link to={`/results/${type}/${c.id}`}
@@ -1487,11 +1506,24 @@ function CompetitionListItem({ competition: c, type }: { competition: Competitio
             </div>
           )}
         </div>
-        <span className={`px-2 py-0.5 rounded text-[10px] font-medium shrink-0 ${
-          c.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
-        }`}>
-          {c.status === 'finished' ? 'Завершено' : 'Live'}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          {isOwner && (
+            <button
+              onClick={handleDelete}
+              onBlur={() => setConfirming(false)}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                confirming ? 'bg-red-600 text-white' : 'text-dark-600 hover:text-red-400'
+              }`}
+              title="Видалити змагання">
+              {confirming ? 'Точно?' : '✕'}
+            </button>
+          )}
+          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+            c.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
+          }`}>
+            {c.status === 'finished' ? 'Завершено' : 'Live'}
+          </span>
+        </div>
       </div>
     </Link>
   );

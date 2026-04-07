@@ -21,7 +21,6 @@ const AccessSettings = lazy(() => import('./pages/Auth/AccessSettings'));
 const DatabaseStats = lazy(() => import('./pages/Auth/DatabaseStats'));
 const Monitoring = lazy(() => import('./pages/Auth/Monitoring'));
 const CollectorLog = lazy(() => import('./pages/Auth/CollectorLog'));
-const CompetitionManager = lazy(() => import('./pages/Auth/CompetitionManager'));
 const ScoringSettings = lazy(() => import('./pages/Auth/ScoringSettings'));
 const Changelog = lazy(() => import('./pages/Changelog'));
 const SessionsList = lazy(() => import('./pages/Sessions/SessionsList'));
@@ -96,7 +95,6 @@ export default function App() {
                   <Route path="/admin/db" element={<DatabaseStats />} />
                   <Route path="/admin/monitoring" element={<Monitoring />} />
                   <Route path="/admin/collector-log" element={<CollectorLog />} />
-                  <Route path="/admin/competitions" element={<CompetitionManager />} />
                   <Route path="/admin/scoring" element={<ScoringSettings />} />
 
                   {/* Sessions */}

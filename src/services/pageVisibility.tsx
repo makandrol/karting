@@ -27,7 +27,6 @@ export const ALL_PAGES: PageConfig[] = [
   { id: 'admin-db', label: 'База даних', path: '/admin/db', group: 'admin', adminOnly: true },
   { id: 'admin-monitoring', label: 'Моніторинг', path: '/admin/monitoring', group: 'admin', adminOnly: true },
   { id: 'admin-collector-log', label: 'Лог колектора', path: '/admin/collector-log', group: 'admin', adminOnly: true },
-  { id: 'admin-competitions', label: 'Змагання', path: '/admin/competitions', group: 'admin', adminOnly: true },
   { id: 'admin-scoring', label: 'Бали', path: '/admin/scoring', group: 'admin', adminOnly: true },
 ];
 
