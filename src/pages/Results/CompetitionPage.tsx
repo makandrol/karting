@@ -498,7 +498,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     };
 
     return (
-      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled}>
+      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled} groupCount={groupCount}>
         {sectionMap}
       </CompetitionLayoutWrapper>
     );
@@ -575,7 +575,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     };
 
     return (
-      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled}>
+      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled} groupCount={groupCount}>
         {sectionMap}
       </CompetitionLayoutWrapper>
     );
@@ -639,13 +639,14 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   );
 }
 
-function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, children }: {
+function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, groupCount, children }: {
   sessionTimes: { sessionId: string; phase: string | null; startTime: number; endTime: number | null }[];
   competition: Competition;
   scrubTime: number | null;
   setScrubTime: (t: number | null) => void;
   allSessionsEnded: boolean;
   setLiveEnabled: (v: boolean | ((prev: boolean) => boolean)) => void;
+  groupCount?: number;
   children: Record<string, ReactNode>;
 }) {
   const { isSectionVisible, getPageLayout } = useLayoutPrefs();
