@@ -152,13 +152,12 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         .filter(s => s.end_time && isValidSession(s))
         .filter(s => s.id !== currentSessionId);
 
-      const before = allForDetection.filter(s => s.start_time < currentTime).sort((a, b) => b.start_time - a.start_time);
       const after = allForDetection.filter(s => s.start_time > currentTime).sort((a, b) => a.start_time - b.start_time);
 
-      const allToLink = [...before.reverse(), { id: currentSessionId, start_time: currentTime, end_time: null, merged_session_ids: undefined as string[] | undefined }, ...after];
+      const detectOrder = [{ id: currentSessionId, start_time: currentTime, end_time: null, merged_session_ids: undefined as string[] | undefined }, ...after];
 
       const sessionPilots = new Map<string, Set<string>>();
-      for (const s of allToLink) {
+      for (const s of detectOrder) {
         const sid = s.merged_session_ids?.[0] || s.id;
         try {
           const lapsRes = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`);
@@ -175,7 +174,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       let detectedGroups = 1;
       const cumulativePilots = new Set<string>();
       let qualiCount = 0;
-      for (const s of allToLink) {
+      for (const s of detectOrder) {
         const sid = s.merged_session_ids?.[0] || s.id;
         const pilots = sessionPilots.get(sid);
         if (!pilots || pilots.size === 0) continue;
