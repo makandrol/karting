@@ -148,8 +148,12 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         .filter(s => s.end_time && isValidSession(s))
         .filter(s => !s.competition_id && s.id !== currentSessionId);
 
-      const before = available.filter(s => s.start_time < currentTime).sort((a, b) => b.start_time - a.start_time);
-      const after = available.filter(s => s.start_time > currentTime).sort((a, b) => a.start_time - b.start_time);
+      const allForDetection = allSessions
+        .filter(s => s.end_time && isValidSession(s))
+        .filter(s => s.id !== currentSessionId);
+
+      const before = allForDetection.filter(s => s.start_time < currentTime).sort((a, b) => b.start_time - a.start_time);
+      const after = allForDetection.filter(s => s.start_time > currentTime).sort((a, b) => a.start_time - b.start_time);
 
       const allToLink = [...before.reverse(), { id: currentSessionId, start_time: currentTime, end_time: null, merged_session_ids: undefined as string[] | undefined }, ...after];
 
@@ -201,9 +205,13 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         results: { autoDetectedGroups: detectedGroups },
       });
 
+      const availableAfter = available
+        .filter(s => s.start_time > currentTime)
+        .sort((a, b) => a.start_time - b.start_time);
+
       const remainingPhases = phases.length - effectiveIdx - 1;
-      for (let i = 0; i < remainingPhases && i < after.length; i++) {
-        const session = after[i];
+      for (let i = 0; i < remainingPhases && i < availableAfter.length; i++) {
+        const session = availableAfter[i];
         const phaseId = phases[effectiveIdx + 1 + i]?.id;
         if (!phaseId) continue;
         const sid = session.merged_session_ids?.[0] || session.id;

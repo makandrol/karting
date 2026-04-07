@@ -689,6 +689,22 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
   const pilotsAuto = pilotOverride === null;
   const groupsAuto = groupOverride === null;
 
+  const [pilotDraft, setPilotDraft] = useState<string | null>(null);
+  const [groupDraft, setGroupDraft] = useState<string | null>(null);
+
+  const commitPilots = () => {
+    if (pilotDraft === null) return;
+    const v = parseInt(pilotDraft);
+    if (!isNaN(v) && v > 0) onSave({ totalPilotsOverride: v, totalPilotsLocked: true });
+    setPilotDraft(null);
+  };
+  const commitGroups = () => {
+    if (groupDraft === null) return;
+    const v = parseInt(groupDraft);
+    if (!isNaN(v) && v > 0 && v <= maxGroups) onSave({ groupCountOverride: v });
+    setGroupDraft(null);
+  };
+
   return (
     <div className="flex items-center gap-3 text-xs">
       {/* Pilots */}
@@ -696,10 +712,12 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
         <span title="Пілоти">👥</span>
         {canManage ? (
           <input type="text" inputMode="numeric"
-            value={effectivePilots}
-            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) onSave({ totalPilotsOverride: v, totalPilotsLocked: true }); }}
+            value={pilotDraft !== null ? pilotDraft : effectivePilots}
+            onChange={e => setPilotDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commitPilots(); }}
+            onBlur={commitPilots}
             disabled={pilotsAuto}
-            className={`w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
+            className={`w-8 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
         ) : (
           <span className="text-dark-300 font-mono">{effectivePilots || '—'}</span>
         )}
@@ -717,10 +735,12 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
         <span title="Групи">🔢</span>
         {canManage ? (
           <input type="text" inputMode="numeric"
-            value={effectiveGroups}
-            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0 && v <= maxGroups) onSave({ groupCountOverride: v }); }}
+            value={groupDraft !== null ? groupDraft : effectiveGroups}
+            onChange={e => setGroupDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commitGroups(); }}
+            onBlur={commitGroups}
             disabled={groupsAuto}
-            className={`w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${groupsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
+            className={`w-8 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${groupsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
         ) : (
           <span className="text-dark-300 font-mono">{effectiveGroups}</span>
         )}
