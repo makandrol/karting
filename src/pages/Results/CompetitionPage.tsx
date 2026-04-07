@@ -246,7 +246,7 @@ export default function CompetitionPage() {
                             const daySessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null }[] = await sessRes.json();
                             const linkedIds = new Set(reassigned.map(s => s.sessionId));
                             const available = daySessions
-                              .filter(s => s.end_time && isValidSession(s) && !s.competition_id && !linkedIds.has(s.id))
+                              .filter(s => s.end_time && isValidSession(s) && (!s.competition_id || s.competition_id === competition.id) && !linkedIds.has(s.id))
                               .filter(s => s.start_time > lastTs)
                               .sort((a, b) => a.start_time - b.start_time);
 

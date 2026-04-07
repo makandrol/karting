@@ -146,7 +146,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
 
       const available = allSessions
         .filter(s => s.end_time && isValidSession(s))
-        .filter(s => !s.competition_id && s.id !== currentSessionId);
+        .filter(s => (!s.competition_id || s.competition_id === compId) && s.id !== currentSessionId);
 
       const allForDetection = allSessions
         .filter(s => s.end_time && isValidSession(s))
