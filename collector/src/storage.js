@@ -735,7 +735,6 @@ export const storage = {
     if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint') return;
 
     const results = comp.results || {};
-    if (results.groupCountOverride) return;
 
     const entry = comp.sessions.find(s => s.sessionId === sessionId);
     if (!entry || !entry.phase?.startsWith('qualifying_')) return;
@@ -759,7 +758,10 @@ export const storage = {
 
     if (overlapRatio < 0.5) return;
 
-    const groupCount = Math.min(qualiSessions.length, { light_league: 3, champions_league: 2, sprint: 3 }[comp.format] || 3);
+    const maxGroups = { light_league: 3, champions_league: 2, sprint: 3 }[comp.format] || 3;
+    const groupCount = results.groupCountOverride
+      ? Math.min(results.groupCountOverride, maxGroups)
+      : Math.min(qualiSessions.length, maxGroups);
     console.log(`🔍 Session ${sessionId}: ${Math.round(overlapRatio * 100)}% overlap → detected ${groupCount} groups, reassigning phase`);
 
     const filterPhases = (phases, gc, fmt) => phases.filter(p => {

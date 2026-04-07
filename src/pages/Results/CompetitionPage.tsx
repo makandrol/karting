@@ -215,12 +215,34 @@ export default function CompetitionPage() {
                     if (!res.ok) return;
                     const comp = await res.json();
                     const currentResults = comp.results || {};
-                    await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                      body: JSON.stringify({ results: { ...currentResults, ...partial } }),
-                    });
-                    setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+                    const newResults = { ...currentResults, ...partial };
+
+                    const groupChanged = 'groupCountOverride' in partial;
+                    const pilotChanged = 'totalPilotsOverride' in partial || 'totalPilotsLocked' in partial;
+
+                    if (groupChanged || pilotChanged) {
+                      const newGroupCount = partial.groupCountOverride !== undefined ? partial.groupCountOverride : currentResults.groupCountOverride ?? null;
+                      const gonzRoundCount = competition.format === 'gonzales' ? (currentResults.gonzalesRoundCount ?? null) : null;
+                      const newPhases = getPhasesForFormat(competition.format, newGroupCount, gonzRoundCount);
+                      const currentSessions: { sessionId: string; phase: string | null }[] = comp.sessions || [];
+                      const reassigned = currentSessions.map((s: { sessionId: string; phase: string | null }, idx: number) => ({
+                        sessionId: s.sessionId,
+                        phase: idx < newPhases.length ? newPhases[idx].id : s.phase,
+                      }));
+                      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                        body: JSON.stringify({ results: newResults, sessions: reassigned }),
+                      });
+                      setCompetition(prev => prev ? { ...prev, results: newResults, sessions: reassigned } : prev);
+                    } else {
+                      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                        body: JSON.stringify({ results: newResults }),
+                      });
+                      setCompetition(prev => prev ? { ...prev, results: newResults } : prev);
+                    }
                   } catch {}
                 }}
               />
