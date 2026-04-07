@@ -200,13 +200,13 @@ sequenceDiagram
         LR-->>League: liveSessionId + livePositions + livePilots
     end
 
-    League->>Scoring: computeStandings(params)
+    League->>Scoring: computeStandings(params) or computeSprintStandings(params)
     Scoring->>Scoring: Build qualifying data (best times, speed points)
     Scoring->>Scoring: Split into groups (1-3)
     loop For each race
         Scoring->>Scoring: Compute start positions (reverse prev race/quali)
         Scoring->>Scoring: Compute finish positions (race mode + live positions)
-        Scoring->>Scoring: Calculate points (position + overtakes progressive)
+        Scoring->>Scoring: Calculate points (position + overtakes progressive for LL/CL, position only for Sprint)
     end
     Scoring-->>League: PilotRow[] with all computed data
 
@@ -225,11 +225,15 @@ Shared pure-function module extracted from LeagueResults for reuse across compon
 | Function | Purpose |
 |----------|---------|
 | `parseLapSec(lapTime)` | Parse lap time string to seconds |
-| `getOvertakeRate(position, format)` | Get overtake multiplier for a position |
-| `calcOvertakePoints(startPos, finishPos, format)` | Calculate progressive overtake points |
-| `getPositionPoints(position, totalPilots, scoring)` | Look up position points from scoring table |
-| `computeStandings(params)` | Main function: full scoring computation |
-| `rowsToStandings(rows, excludedPilots)` | Convert PilotRow[] to CompetitionStandings for storage |
+| `getOvertakeRate(scoring, group, pos, isCL)` | Get overtake multiplier for a position |
+| `calcOvertakePoints(scoring, group, startPos, finishPos, isCL)` | Calculate progressive overtake points |
+| `getPositionPoints(scoring, totalPilots, group, finishPos)` | Look up position points from scoring table |
+| `computeStandings(params)` | Main function: full LL/CL scoring computation |
+| `getSprintPositionPoints(finishPos)` | Sprint race position points (40/37/35/33/31... scale) |
+| `getSprintFinalPoints(finishPos, precedingPilots)` | Sprint final points (180, -3 per position across groups) |
+| `computeSprintStandings(params)` | Sprint scoring: 2 qualis + 2 races + final |
+| `sprintAwareSort(a, b, format?)` | Sort with Sprint-specific tiebreakers |
+| `rowsToStandings(rows, excludedPilots, format?)` | Convert PilotRow[] to CompetitionStandings for storage |
 
 ### Exported Types
 `SessionLap`, `CompSession`, `ScoringData`, `PilotQualiData`, `PilotRaceData`, `PilotRow`, `ManualEdits`, `StandingsPilot`, `CompetitionStandings`, `ComputeStandingsParams`
@@ -283,7 +287,7 @@ The timing system sometimes shows "Карт X" for initial laps. `mergePilotName
 - **Competition race**: computed from qualifying/previous race (via `fetchRaceStartPositions()`)
 - **Regular session (race mode)**: from first snapshot event
 - Start positions shown even before race starts (pre-filled from previous phase)
-- `extractCompetitionReplayProps(phase)` — shared function: extracts `raceGroup` and `isRace` from competition phase string (e.g., `race_1_group_2`). Used by SessionDetail, CompetitionPage, and Timing to determine if session is a competition race.
+- `extractCompetitionReplayProps(phase)` — shared function: extracts `raceGroup` and `isRace` from competition phase string (e.g., `race_1_group_2`, `final_group_1`). Used by SessionDetail, CompetitionPage, and Timing to determine if session is a competition race. Sprint finals (`final_group_N`) are treated as races.
 
 ### Live Competition Updates
 - `● LIVE` toggle button: pause/resume live polling
@@ -297,7 +301,11 @@ The timing system sometimes shows "Карт X" for initial laps. `mergePilotName
 - "Своє" (custom): draggable group pills, click to toggle groups/sub-columns
 - Custom column set persisted per user+competition in localStorage
 - Tap-to-select pilot rows (stays highlighted until tapped again)
-- Toolbar: "Сорт:" first row, "Вид:" second row
+- Toolbar: "Сорт:" first row (sort buttons), "Вид:" second row (view modes)
+- **Sort column highlighting**: active sort column gets `bg-primary-600/10` (all formats)
+- **Clickable column headers**: Час (asc), Позиція (desc), Сума (desc) — first click sets direction, subsequent toggles
+- Sprint sort buttons: Сума, Кв1, Г1, Кв2, Г2, Г2 сума, Фінал
+- LL/CL sort buttons: Сума, Квала, Г1 час, Г2 час (CL also Г3 час)
 
 ### View Preferences & Layout Prefs
 - `layoutPrefs.tsx` — page-level section visibility (Таймлайн, Заїзд, Результати, Список заїздів)

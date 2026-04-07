@@ -6,7 +6,7 @@ The collector is a Node.js HTTP server that polls the karting timing API, stores
 **Location**: `collector/` directory
 **Runtime**: Node.js 20, no framework (plain `http` module)
 **Database**: SQLite via `better-sqlite3` at `collector/data/karting.db`
-**Current version**: 0.3.3
+**Current version**: 0.3.7
 
 ## Files
 
@@ -154,11 +154,14 @@ In `poller.js`, when a new session starts:
 1. `storage.autoLinkSessionToActiveCompetition(sessionId)` — links to next phase
    - Respects `groupCountOverride` from competition results
    - Filters phases via format-specific phase list (skips group_3 if 2 groups)
+   - **All-phases-filled guard** (v0.3.7): if every expected phase already has a linked session, returns `null` immediately (prevents stale `live` competitions from grabbing unrelated sessions)
 2. After first lap: `storage.recheckSessionPhase(sessionId)` — detects group count
    - Compares new session pilots with all previous qualifying pilots
    - If ≥50% overlap → this is a race, not another qualifying
    - Sets `groupCountOverride` and reassigns phase accordingly
 3. On session end < 60s: `storage.autoUnlinkSession(sessionId)`
+
+**Sprint phase progression**: Full phases list includes `qualifying_N_group_X`, `race_N_group_X`, `final_group_X`. With `groupCountOverride`, phases are filtered to skip group_3 (or group_2/3) entries. Auto-linker advances through: q1 groups → r1 groups → q2 groups → r2 groups → final groups.
 
 ## Data Filtering (SQL level)
 `MIN_LAP_SEC = 38` applied to all statistical queries.

@@ -15,9 +15,25 @@
 
 A real-time karting timing dashboard for the "Жага Швидкості" karting track. Collects live timing data, stores it in SQLite, and provides a web interface for viewing sessions, replays, kart statistics, and managing competitions with live scoring.
 
-## Current State (v0.9.240)
+## Current State (v0.9.265)
 
-### Recent Changes (v0.9.239 → v0.9.240)
+### Recent Changes (v0.9.260 → v0.9.265)
+
+#### Sprint results table enhancements (v0.9.260–v0.9.265)
+- Column order in Sprint "Бали" sub-header: Швидк, Штрафи, Позиція, Сума
+- Cumulative sums: Race 2 shows sum of both races + speeds; Final shows total competition points
+- Sprint finals treated as races with start/finish positions + ▲/▼ arrows (in all three views: CompetitionPage live, SessionDetail, Timing)
+- "Г2 сума" sort button for cumulative points through Race 2
+- Active sort column highlighting (`bg-primary-600/10`) for ALL competition formats
+- Clickable column headers (Час/Позиція/Сума) for sorting — coexists with "Сорт:" buttons bar
+- Fixed `isSprint not defined` error in LiveSessionTable
+- Fixed "Rendered more hooks" error by moving sortColId useMemo before early returns
+
+#### Collector auto-link protection (v0.3.7)
+- Auto-linker now checks if all expected competition phases are filled before linking new sessions
+- Prevents stale `live` competitions from grabbing unrelated sessions with wrong phase names
+
+### Previous Changes (v0.9.240 → v0.9.259)
 
 #### Sprint competition format (v0.9.240)
 - Added full Sprint competition format: Квала 1 → Гонка 1 → Квала 2 → Гонка 2 → Фінал
@@ -262,5 +278,5 @@ A real-time karting timing dashboard for the "Жага Швидкості" karti
 - **Branches**: `main` (production), `dev` (development)
 - **Merge flow**: dev → main (no-ff merge) **ONLY when user explicitly asks**
 - **Versions**: Frontend `0.9.x` in package.json, Collector `0.3.x` in collector/package.json
-- **Current**: Frontend `0.9.238`, Collector `0.3.6`
+- **Current**: Frontend `0.9.265`, Collector `0.3.7`
 - **APP_VERSION**: auto-read from package.json (displayed in footer)
