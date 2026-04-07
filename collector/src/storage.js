@@ -657,7 +657,7 @@ export const storage = {
     let groupCount = results.groupCountOverride || results.autoDetectedGroups || null;
 
     // Auto-detect groups by pilot overlap if not manually set
-    if (!groupCount && (liveComp.format === 'light_league' || liveComp.format === 'champions_league' || liveComp.format === 'sprint')) {
+    if (!groupCount && (liveComp.format === 'light_league' || liveComp.format === 'champions_league' || liveComp.format === 'sprint' || liveComp.format === 'gonzales')) {
       const linkedSessions = liveComp.sessions.filter(s => s.phase?.startsWith('qualifying'));
       if (linkedSessions.length > 0) {
         const cumulativePilots = new Set();
@@ -665,19 +665,34 @@ export const storage = {
           const laps = stmts.getLaps.all(ls.sessionId);
           for (const l of laps) cumulativePilots.add(l.pilot);
         }
-        // Check if new session has significant overlap with existing pilots
         const newLaps = stmts.getLaps.all(sessionId);
         const newPilots = new Set(newLaps.map(l => l.pilot));
         if (newPilots.size > 0 && cumulativePilots.size > 0) {
-          let overlap = 0;
-          for (const p of newPilots) { if (cumulativePilots.has(p)) overlap++; }
-          const overlapRatio = overlap / newPilots.size;
-          if (overlapRatio >= 0.5) {
-            groupCount = linkedSessions.length;
-            const maxGroups = FORMAT_MAX_GROUPS[liveComp.format] || 3;
-            groupCount = Math.min(Math.max(groupCount, 1), maxGroups);
-            this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
-            console.log(`🔍 Detected ${groupCount} groups (${Math.round(overlapRatio * 100)}% overlap)`);
+          if (liveComp.format === 'gonzales') {
+            const isKartName = (name) => /^Карт\s+\d+$/i.test(name.trim());
+            const realNames = [...newPilots].filter(p => !isKartName(p)).length;
+            if (realNames / newPilots.size > 0.5) {
+              groupCount = linkedSessions.length + 1;
+              const maxGroups = FORMAT_MAX_GROUPS[liveComp.format] || 2;
+              groupCount = Math.min(groupCount, maxGroups);
+              this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
+              console.log(`🔍 Gonzales: detected qualifying (${realNames}/${newPilots.size} real names), groups=${groupCount}`);
+            } else {
+              groupCount = linkedSessions.length;
+              this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
+              console.log(`🔍 Gonzales: detected round (${realNames}/${newPilots.size} real names), groups=${groupCount}`);
+            }
+          } else {
+            let overlap = 0;
+            for (const p of newPilots) { if (cumulativePilots.has(p)) overlap++; }
+            const overlapRatio = overlap / newPilots.size;
+            if (overlapRatio >= 0.5) {
+              groupCount = linkedSessions.length;
+              const maxGroups = FORMAT_MAX_GROUPS[liveComp.format] || 3;
+              groupCount = Math.min(Math.max(groupCount, 1), maxGroups);
+              this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
+              console.log(`🔍 Detected ${groupCount} groups (${Math.round(overlapRatio * 100)}% overlap)`);
+            }
           }
         }
       }
@@ -732,7 +747,7 @@ export const storage = {
     const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
     const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
     if (!comp || comp.status !== 'live') return;
-    if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint') return;
+    if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint' && comp.format !== 'gonzales') return;
 
     const results = comp.results || {};
 
@@ -742,37 +757,61 @@ export const storage = {
     const qualiSessions = comp.sessions.filter(s => s.phase?.startsWith('qualifying_') && s.sessionId !== sessionId);
     if (qualiSessions.length === 0) return;
 
-    const cumulativePilots = new Set();
-    for (const qs of qualiSessions) {
-      const laps = stmts.getLaps.all(qs.sessionId);
-      for (const l of laps) cumulativePilots.add(l.pilot);
-    }
-
     const newLaps = stmts.getLaps.all(sessionId);
     const newPilots = new Set(newLaps.map(l => l.pilot));
-    if (newPilots.size < 3 || cumulativePilots.size === 0) return;
+    if (newPilots.size < 3) return;
 
-    let overlap = 0;
-    for (const p of newPilots) { if (cumulativePilots.has(p)) overlap++; }
-    const overlapRatio = overlap / newPilots.size;
+    if (comp.format === 'gonzales') {
+      const isKartName = (name) => /^Карт\s+\d+$/i.test(name.trim());
+      const realNames = [...newPilots].filter(p => !isKartName(p)).length;
+      if (realNames / newPilots.size > 0.5) return; // still a qualifying — keep as is
+      // Mostly kart names — this is actually a round, not a qualifying
+    } else {
+      const cumulativePilots = new Set();
+      for (const qs of qualiSessions) {
+        const laps = stmts.getLaps.all(qs.sessionId);
+        for (const l of laps) cumulativePilots.add(l.pilot);
+      }
+      if (cumulativePilots.size === 0) return;
 
-    if (overlapRatio < 0.5) return;
+      let overlap = 0;
+      for (const p of newPilots) { if (cumulativePilots.has(p)) overlap++; }
+      const overlapRatio = overlap / newPilots.size;
 
-    const maxGroups = { light_league: 3, champions_league: 2, sprint: 3 }[comp.format] || 3;
+      if (overlapRatio < 0.5) return;
+    }
+
+    const maxGroups = { light_league: 3, champions_league: 2, sprint: 3, gonzales: 2 }[comp.format] || 3;
     const manualOrAuto = results.groupCountOverride || results.autoDetectedGroups;
     const groupCount = manualOrAuto
       ? Math.min(manualOrAuto, maxGroups)
       : Math.min(qualiSessions.length, maxGroups);
-    console.log(`🔍 Session ${sessionId}: ${Math.round(overlapRatio * 100)}% overlap → detected ${groupCount} groups, reassigning phase`);
+    console.log(`🔍 Session ${sessionId}: recheck → detected ${groupCount} groups, reassigning phase`);
 
+    const gonzalesRoundCount = results?.gonzalesRoundCount ?? 24;
     const filterPhases = (phases, gc, fmt) => phases.filter(p => {
-      if (fmt !== 'sprint' && p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
+      if (fmt === 'gonzales') {
+        if (p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
+        const rm = p.match(/^round_(\d+)/);
+        if (rm && parseInt(rm[1]) > gonzalesRoundCount) return false;
+      }
+      if (fmt !== 'sprint' && fmt !== 'gonzales' && p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
       const gm = p.match(/group_(\d+)/);
       if (gm) return parseInt(gm[1]) <= gc;
       return true;
     });
 
+    const buildGonzalesPhases = (rc, gc) => {
+      const phases = ['qualifying_1', 'qualifying_2'];
+      for (let r = 1; r <= rc; r++) {
+        if (gc >= 2) phases.push(`round_${r}_group_2`);
+        phases.push(`round_${r}_group_1`);
+      }
+      return phases;
+    };
+
     const FULL_PHASES = {
+      gonzales: buildGonzalesPhases(gonzalesRoundCount, 2),
       light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
       champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
       sprint: [
