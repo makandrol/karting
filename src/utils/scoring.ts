@@ -670,6 +670,15 @@ export interface ComputeGonzalesParams {
 export function computeGonzalesStandings(params: ComputeGonzalesParams): GonzalesStandingsData {
   const { sessions, sessionLaps, excludedPilots, kartList, kartReplacements, excludedKarts, scoringLaps, pilotStartSlots } = params;
 
+  // 1. Extract real pilots from qualifying sessions
+  const qualifyingPilots = new Set<string>();
+  for (const s of sessions) {
+    if (!s.phase || !s.phase.startsWith('qualifying')) continue;
+    const laps = sessionLaps.get(s.sessionId) || [];
+    for (const l of laps) qualifyingPilots.add(l.pilot);
+  }
+
+  // 2. Collect karts from round sessions
   const kartSet = new Set<number>();
   for (const s of sessions) {
     if (!s.phase || s.phase.startsWith('qualifying')) continue;
@@ -686,17 +695,30 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
 
   const scoringLapSet = scoringLaps && scoringLaps.length > 0 ? new Set(scoringLaps) : null;
 
-  const pilotKartBest = new Map<string, Map<number, { time: number; timeStr: string }>>();
+  // 3. For each round session, compute best time per kart
+  // Round sessions have phases like round_X_group_Y — extract round number
+  const roundSessions = sessions
+    .filter(s => s.phase && !s.phase.startsWith('qualifying'))
+    .sort((a, b) => {
+      const ra = a.phase?.match(/round_(\d+)/);
+      const rb = b.phase?.match(/round_(\d+)/);
+      const na = ra ? parseInt(ra[1]) : 0;
+      const nb = rb ? parseInt(rb[1]) : 0;
+      if (na !== nb) return na - nb;
+      const ga = a.phase?.match(/group_(\d+)/);
+      const gb = b.phase?.match(/group_(\d+)/);
+      return (ga ? parseInt(ga[1]) : 0) - (gb ? parseInt(gb[1]) : 0);
+    });
 
-  for (const s of sessions) {
-    if (!s.phase || s.phase.startsWith('qualifying')) continue;
+  // roundKartBest: for each round session index -> kart -> best time
+  const roundKartBest: Map<number, { time: number; timeStr: string }>[] = [];
+  for (const s of roundSessions) {
     const laps = sessionLaps.get(s.sessionId) || [];
-
     const pilotLapCounts = new Map<string, number>();
-
+    const kartBest = new Map<number, { time: number; timeStr: string }>();
     const sortedLaps = [...laps].sort((a, b) => a.ts - b.ts);
+
     for (const l of sortedLaps) {
-      if (excludedPilots.has(l.pilot)) continue;
       const sec = parseLapSec(l.lap_time);
       if (sec === null || sec < 38) continue;
 
@@ -708,12 +730,66 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
       const resolvedKart = effectiveKart(l.kart);
       if (!karts.includes(resolvedKart)) continue;
 
-      if (!pilotKartBest.has(l.pilot)) pilotKartBest.set(l.pilot, new Map());
-      const kartMap = pilotKartBest.get(l.pilot)!;
-      const existing = kartMap.get(resolvedKart);
+      const existing = kartBest.get(resolvedKart);
       if (!existing || sec < existing.time) {
-        kartMap.set(resolvedKart, { time: sec, timeStr: l.lap_time! });
+        kartBest.set(resolvedKart, { time: sec, timeStr: l.lap_time! });
       }
+    }
+    roundKartBest.push(kartBest);
+  }
+
+  // 4. Build pilot → kart → best time mapping
+  const pilotKartBest = new Map<string, Map<number, { time: number; timeStr: string }>>();
+  const pilotCount = qualifyingPilots.size || (pilotStartSlots ? Object.keys(pilotStartSlots).length : 0);
+  const totalSlots = Math.max(pilotCount, karts.length);
+
+  const hasPilotSlots = pilotStartSlots && Object.keys(pilotStartSlots).length > 0;
+
+  if (hasPilotSlots && qualifyingPilots.size > 0) {
+    // Use rotation to assign kart times to real pilots
+    for (let ri = 0; ri < roundSessions.length; ri++) {
+      const kartBest = roundKartBest[ri];
+      for (const [pilot, startSlot] of Object.entries(pilotStartSlots!)) {
+        if (excludedPilots.has(pilot)) continue;
+        const slotIdx = (startSlot + ri) % totalSlots;
+        // Determine which kart is at this slot position
+        const kart = slotIdx < karts.length ? karts[slotIdx] : null;
+        if (kart === null) continue; // skip slot
+        const resolvedKart = effectiveKart(kart);
+        const result = kartBest.get(resolvedKart);
+        if (!result) continue;
+
+        if (!pilotKartBest.has(pilot)) pilotKartBest.set(pilot, new Map());
+        const kartMap = pilotKartBest.get(pilot)!;
+        const existing = kartMap.get(resolvedKart);
+        if (!existing || result.time < existing.time) {
+          kartMap.set(resolvedKart, result);
+        }
+      }
+    }
+  } else {
+    // Fallback: no rotation configured — use kart-based grouping
+    // Each round's kart result is separate; group by kart across all rounds
+    // Rows will be named by qualifying pilots if available, otherwise "Карт X"
+    for (let ri = 0; ri < roundSessions.length; ri++) {
+      const kartBest = roundKartBest[ri];
+      for (const [resolvedKart, result] of kartBest) {
+        const label = `Карт ${resolvedKart}`;
+        if (!pilotKartBest.has(label)) pilotKartBest.set(label, new Map());
+        const kartMap = pilotKartBest.get(label)!;
+        const existing = kartMap.get(resolvedKart);
+        if (!existing || result.time < existing.time) {
+          kartMap.set(resolvedKart, result);
+        }
+      }
+    }
+  }
+
+  // If we have qualifying pilots but no round data yet, add empty rows for them
+  for (const pilot of qualifyingPilots) {
+    if (excludedPilots.has(pilot)) continue;
+    if (!pilotKartBest.has(pilot)) {
+      pilotKartBest.set(pilot, new Map());
     }
   }
 
@@ -721,6 +797,7 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
 
   const rows: GonzalesPilotRow[] = [];
   for (const [pilot, kartMap] of pilotKartBest) {
+    if (excludedPilots.has(pilot)) continue;
     const kartResults: GonzalesKartResult[] = karts.map(k => {
       const result = kartMap.get(k);
       return { kart: k, bestTime: result?.time ?? null, bestTimeStr: result?.timeStr ?? null, place: null };

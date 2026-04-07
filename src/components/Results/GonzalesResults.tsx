@@ -135,7 +135,20 @@ export default function GonzalesResults({
     await onSaveResults({ gonzalesConfig: cfg });
   }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, scoringLaps, onSaveResults]);
 
-  const pilotCount = data.rows.length + excludedPilots.size;
+  // Derive pilot count from qualifying sessions
+  const qualifyingPilots = useMemo(() => {
+    const pilots = new Set<string>();
+    for (const s of sessions) {
+      if (!s.phase || !s.phase.startsWith('qualifying')) continue;
+      const laps = sessionLaps.get(s.sessionId) || [];
+      for (const l of laps) pilots.add(l.pilot);
+    }
+    return pilots;
+  }, [sessions, sessionLaps]);
+
+  const pilotCount = qualifyingPilots.size > 0
+    ? [...qualifyingPilots].filter(p => !excludedPilots.has(p)).length
+    : data.rows.length;
   const roundCount = Math.max(pilotCount, 12);
   const roundSessions = sessions.filter(s => s.phase && !s.phase.startsWith('qualifying'));
 
@@ -211,7 +224,7 @@ export default function GonzalesResults({
           </button>
         )}
         <span className="text-dark-600 text-[10px]">
-          {data.rows.length} пілотів · {data.karts.length} картів · {roundSessions.length}/{roundCount} раундів
+          {pilotCount} пілотів · {data.karts.length} картів · {roundSessions.length}/{roundCount} гонок
         </span>
       </div>
 
