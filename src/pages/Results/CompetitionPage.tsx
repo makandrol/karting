@@ -437,6 +437,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   if (loading) return <div className="card text-center py-6 text-dark-500">Завантаження даних...</div>;
   if (competition.sessions.length === 0) return <div className="card text-center py-12 text-dark-500">Немає прив'язаних заїздів</div>;
 
+  const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? 1;
+
   if (competition.format === 'gonzales') {
     const isScrubbing = scrubTime !== null;
 
