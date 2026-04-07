@@ -1104,6 +1104,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
 
   const isQualifying = currentPhase?.startsWith('qualifying') ?? false;
   const isRace = (currentPhase?.startsWith('race_') || currentPhase?.startsWith('final_') || currentPhase?.startsWith('round_')) ?? false;
+  const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? undefined;
 
   const sessionEnded = useMemo(() => {
     if (!liveSessionId || isScrubbing) return false;
