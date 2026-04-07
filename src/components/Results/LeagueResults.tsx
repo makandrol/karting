@@ -175,7 +175,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     } catch {}
   }, [competitionId, user]);
 
-  type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points` | `quali_${number}_time` | 'race_2_cumsum';
+  type SortKey = 'total' | 'quali_time' | `race_${number}_time` | `race_${number}_points` | `race_${number}_pos_pts` | `quali_${number}_time` | 'race_2_cumsum';
   const [sortKey, setSortKey] = useState<SortKey>(() => saved?.sortKey || 'total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => saved?.sortDir || 'desc');
   const toggleSort = (key: SortKey, fixedDir?: 'asc' | 'desc') => {
@@ -213,8 +213,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
         return (row.qualis?.[0]?.speedPoints ?? 0) + (row.races[0]?.totalRacePoints ?? 0)
              + (row.qualis?.[1]?.speedPoints ?? 0) + (row.races[1]?.totalRacePoints ?? 0);
       }
-      const m = sortKey.match(/^race_(\d+)_(time|points)$/);
-      if (m) { const ri = parseInt(m[1]) - 1; const race = row.races[ri]; return m[2] === 'time' ? (race?.bestTime ?? Infinity) : (race?.totalRacePoints ?? 0); }
+      const m = sortKey.match(/^race_(\d+)_(time|points|pos_pts)$/);
+      if (m) { const ri = parseInt(m[1]) - 1; const race = row.races[ri]; return m[2] === 'time' ? (race?.bestTime ?? Infinity) : m[2] === 'pos_pts' ? (race?.positionPoints ?? 0) : (race?.totalRacePoints ?? 0); }
       return 0;
     };
     included.sort((a, b) => {
@@ -376,12 +376,36 @@ export default function LeagueResults({ format, competitionId, sessions, session
     const qm = sortKey.match(/^quali_(\d+)_time$/);
     if (qm) return `q${qm[1]}_time`;
     if (sortKey === 'race_2_cumsum') return 'r2_sum';
-    const rm = sortKey.match(/^race_(\d+)_(time|points)$/);
-    if (rm) return `r${rm[1]}_${rm[2] === 'points' ? 'sum' : 'time'}`;
+    const rm = sortKey.match(/^race_(\d+)_(time|points|pos_pts)$/);
+    if (rm) return `r${rm[1]}_${rm[2] === 'points' ? 'sum' : rm[2] === 'pos_pts' ? 'pos_pts' : 'time'}`;
     return null;
   }, [sortKey]);
   const isSortCol = (colId: string) => colId === sortColId;
   const SORT_HL = 'bg-primary-600/10';
+
+  const colSortInfo = (colId: string): { key: SortKey; dir: 'asc' | 'desc' } | null => {
+    if (colId === '__total__') return { key: 'total', dir: 'desc' };
+    if (colId === 'q_time') return { key: 'quali_time', dir: 'asc' };
+    const qm = colId.match(/^q(\d+)_time$/);
+    if (qm) return { key: `quali_${qm[1]}_time` as SortKey, dir: 'asc' };
+    const rm = colId.match(/^r(\d+)_(.+)$/);
+    if (rm) {
+      const rn = rm[1], col = rm[2];
+      if (col === 'time') return { key: `race_${rn}_time` as SortKey, dir: 'asc' };
+      if (col === 'pos_pts') return { key: `race_${rn}_pos_pts` as SortKey, dir: 'desc' };
+      if (col === 'sum') {
+        if (isSprint && rn === '2') return { key: 'race_2_cumsum', dir: 'desc' };
+        if (isSprint && rn === '3') return { key: 'total', dir: 'desc' };
+        return { key: `race_${rn}_points` as SortKey, dir: 'desc' };
+      }
+    }
+    return null;
+  };
+  const handleColClick = (colId: string) => {
+    const info = colSortInfo(colId);
+    if (info) toggleSort(info.key, sortKey === info.key ? undefined : info.dir);
+  };
+  const sortableCursor = (colId: string) => colSortInfo(colId) ? ' cursor-pointer hover:text-white' : '';
 
   if (!scoring) return <div className="card text-center py-6 text-dark-500">Завантаження балів...</div>;
   if (sortedData.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
@@ -628,7 +652,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     <tr className="bg-dark-800/50">
                       <th rowSpan={3} className={`px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-[28px] bg-dark-900 ${STICKY_NUM} z-20`}>#</th>
                       <th rowSpan={3} className={`px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px] bg-dark-900 ${STICKY_PILOT} z-20`}>Пілот</th>
-                      <th rowSpan={3} className={`px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10 ${isSortCol('__total__') ? SORT_HL : ''}`}><span className={TH_R}>Сума</span></th>
+                      <th rowSpan={3} className={`px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10 ${isSortCol('__total__') ? SORT_HL : ''}${sortableCursor('__total__')}`} onClick={() => handleColClick('__total__')}><span className={TH_R}>Сума</span></th>
                       {visTop.map(gid => {
                         if (gid === 'quali') {
                           const cnt = QUALI_COLS.filter(c => cv(c)).length;
@@ -650,7 +674,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       {visTop.map(gid => {
                         if (gid === 'quali') return <Fragment key={gid}>
                           {cv('q_kart') && <th rowSpan={2} className={`${TH_V}${isSortCol('q_kart') ? ` ${SORT_HL}` : ''}`}><span className={TH_R}>Карт</span></th>}
-                          {cv('q_time') && <th rowSpan={2} className={`${TH_V}${isSortCol('q_time') ? ` ${SORT_HL}` : ''}`}><span className={TH_R}>Час</span></th>}
+                          {cv('q_time') && <th rowSpan={2} className={`${TH_V}${isSortCol('q_time') ? ` ${SORT_HL}` : ''}${sortableCursor('q_time')}`} onClick={() => handleColClick('q_time')}><span className={TH_R}>Час</span></th>}
                           {cv('q_speed') && <th rowSpan={2} className={`${TH_V}${isSortCol('q_speed') ? ` ${SORT_HL}` : ''}`}><span className={TH_R}>Швидк.</span></th>}
                         </Fragment>;
                         const isQualiGrp = gid.startsWith('quali') || gid.match(/^q\d+$/);
@@ -660,7 +684,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           return <Fragment key={gid}>
                             {g.allCols.filter(c => cv(c)).map(c => {
                               const label = c.endsWith('_kart') ? 'Карт' : c.endsWith('_time') ? 'Час' : 'Швидк.';
-                              return <th key={c} rowSpan={2} className={`${TH_V}${isSortCol(c) ? ` ${SORT_HL}` : ''}`}><span className={TH_R}>{label}</span></th>;
+                              return <th key={c} rowSpan={2} className={`${TH_V}${isSortCol(c) ? ` ${SORT_HL}` : ''}${sortableCursor(c)}`} onClick={() => handleColClick(c)}><span className={TH_R}>{label}</span></th>;
                             })}
                           </Fragment>;
                         }
@@ -696,7 +720,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         const visible = allSubCols.filter(sc => cv(raceColId(rn, sc.col)));
                         if (visible.length === 0) return null;
                         return <Fragment key={gid}>
-                          {visible.map(sc => <th key={sc.col} className={`${TH_V}${isSortCol(raceColId(rn, sc.col)) ? ` ${SORT_HL}` : ''}`}><span className={TH_R}>{sc.label}</span></th>)}
+                          {visible.map(sc => {
+                            const cid = raceColId(rn, sc.col);
+                            return <th key={sc.col} className={`${TH_V}${isSortCol(cid) ? ` ${SORT_HL}` : ''}${sortableCursor(cid)}`} onClick={() => handleColClick(cid)}><span className={TH_R}>{sc.label}</span></th>;
+                          })}
                         </Fragment>;
                       })}
                     </tr>
@@ -825,7 +852,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 <tr className="bg-dark-800/50">
                   <th rowSpan={3} className={`px-2 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-[28px] bg-dark-900 ${STICKY_NUM} z-20`}>#</th>
                   <th rowSpan={3} className={`px-2 py-1 text-left text-dark-300 font-semibold border-r border-dark-700 min-w-[100px] bg-dark-900 ${STICKY_PILOT} z-20`}>Пілот</th>
-                  <th rowSpan={3} className={`px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10 ${isSortCol('__total__') ? SORT_HL : ''}`}><span className={TH_R}>Сума</span></th>
+                  <th rowSpan={3} className={`px-1 py-1 text-center text-dark-300 font-semibold border-r border-dark-700 w-10 ${isSortCol('__total__') ? SORT_HL : ''}${sortableCursor('__total__')}`} onClick={() => handleColClick('__total__')}><span className={TH_R}>Сума</span></th>
                   {isSprint ? topOrder.map(gid => {
                     const isQualiGrp = gid.startsWith('quali') || gid.match(/^q\d+$/);
                     if (isQualiGrp) {
@@ -864,7 +891,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       return <Fragment key={gid}>
                         {g.allCols.filter(c => colVisible(c)).map(c => {
                           const label = c.endsWith('_kart') ? 'Карт' : c.endsWith('_time') ? 'Час' : 'Швидк.';
-                          return <th key={c} rowSpan={2} className={thClass(TH_V, c)}><span className={TH_R}>{label}</span></th>;
+                          return <th key={c} rowSpan={2} className={`${thClass(TH_V, c)}${sortableCursor(c)}`} onClick={() => handleColClick(c)}><span className={TH_R}>{label}</span></th>;
                         })}
                       </Fragment>;
                     }
@@ -885,7 +912,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   }) : (<>
                   {qualiVisible() && <>
                     {colVisible('q_kart') && <th rowSpan={2} className={thClass(TH_V, 'q_kart')}><span className={TH_R}>Карт</span></th>}
-                    {colVisible('q_time') && <th rowSpan={2} className={thClass(TH_V, 'q_time')}><span className={TH_R}>Час</span></th>}
+                    {colVisible('q_time') && <th rowSpan={2} className={`${thClass(TH_V, 'q_time')}${sortableCursor('q_time')}`} onClick={() => handleColClick('q_time')}><span className={TH_R}>Час</span></th>}
                     {colVisible('q_speed') && <th rowSpan={2} className={thClass(TH_V, 'q_speed')}><span className={TH_R}>Швидк.</span></th>}
                   </>}
                   {Array.from({ length: raceCount }, (_, i) => {
@@ -919,11 +946,11 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       {colVisible(raceColId(rn, 'start')) && <th className={thClass(TH_V, raceColId(rn, 'start'))}><span className={TH_R}>Старт</span></th>}
                       {colVisible(raceColId(rn, 'finish')) && <th className={thClass(TH_V, raceColId(rn, 'finish'))}><span className={TH_R}>Фініш</span></th>}
                       {colVisible(raceColId(rn, 'kart')) && <th className={thClass(TH_V, raceColId(rn, 'kart'))}><span className={TH_R}>Карт</span></th>}
-                      {colVisible(raceColId(rn, 'time')) && <th className={thClass(TH_V, raceColId(rn, 'time'))}><span className={TH_R}>Час</span></th>}
+                      {colVisible(raceColId(rn, 'time')) && <th className={`${thClass(TH_V, raceColId(rn, 'time'))}${sortableCursor(raceColId(rn, 'time'))}`} onClick={() => handleColClick(raceColId(rn, 'time'))}><span className={TH_R}>Час</span></th>}
                       {colVisible(raceColId(rn, 'speed')) && <th className={thClass(TH_V, raceColId(rn, 'speed'))}><span className={TH_R}>Швидк.</span></th>}
                       {colVisible(raceColId(rn, 'penalties')) && <th className={thClass(TH_V, raceColId(rn, 'penalties'))}><span className={TH_R}>Штрафи</span></th>}
-                      {colVisible(raceColId(rn, 'pos_pts')) && <th className={thClass(TH_V, raceColId(rn, 'pos_pts'))}><span className={TH_R}>Позиція</span></th>}
-                      {colVisible(raceColId(rn, 'sum')) && <th className={thClass(TH_V, raceColId(rn, 'sum'))}><span className={TH_R}>Сума</span></th>}
+                      {colVisible(raceColId(rn, 'pos_pts')) && <th className={`${thClass(TH_V, raceColId(rn, 'pos_pts'))}${sortableCursor(raceColId(rn, 'pos_pts'))}`} onClick={() => handleColClick(raceColId(rn, 'pos_pts'))}><span className={TH_R}>Позиція</span></th>}
+                      {colVisible(raceColId(rn, 'sum')) && <th className={`${thClass(TH_V, raceColId(rn, 'sum'))}${sortableCursor(raceColId(rn, 'sum'))}`} onClick={() => handleColClick(raceColId(rn, 'sum'))}><span className={TH_R}>Сума</span></th>}
                     </Fragment>;
                   }) : (<>
                   {Array.from({ length: raceCount }, (_, i) => {
@@ -935,12 +962,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         {colVisible(raceColId(rn, 'start')) && <th className={thClass(TH_V, raceColId(rn, 'start'))}><span className={TH_R}>Старт</span></th>}
                         {colVisible(raceColId(rn, 'finish')) && <th className={thClass(TH_V, raceColId(rn, 'finish'))}><span className={TH_R}>Фініш</span></th>}
                         {colVisible(raceColId(rn, 'kart')) && <th className={thClass(TH_V, raceColId(rn, 'kart'))}><span className={TH_R}>Карт</span></th>}
-                        {colVisible(raceColId(rn, 'time')) && <th className={thClass(TH_V, raceColId(rn, 'time'))}><span className={TH_R}>Час</span></th>}
+                        {colVisible(raceColId(rn, 'time')) && <th className={`${thClass(TH_V, raceColId(rn, 'time'))}${sortableCursor(raceColId(rn, 'time'))}`} onClick={() => handleColClick(raceColId(rn, 'time'))}><span className={TH_R}>Час</span></th>}
                         {colVisible(raceColId(rn, 'speed')) && <th className={thClass(TH_V, raceColId(rn, 'speed'))}><span className={TH_R}>Швидк.</span></th>}
-                        {colVisible(raceColId(rn, 'pos_pts')) && <th className={thClass(TH_V, raceColId(rn, 'pos_pts'))}><span className={TH_R}>Позиція</span></th>}
+                        {colVisible(raceColId(rn, 'pos_pts')) && <th className={`${thClass(TH_V, raceColId(rn, 'pos_pts'))}${sortableCursor(raceColId(rn, 'pos_pts'))}`} onClick={() => handleColClick(raceColId(rn, 'pos_pts'))}><span className={TH_R}>Позиція</span></th>}
                         {colVisible(raceColId(rn, 'overtake')) && <th className={thClass(TH_V, raceColId(rn, 'overtake'))}><span className={TH_R}>Обгони</span></th>}
                         {colVisible(raceColId(rn, 'penalties')) && <th className={thClass(TH_V, raceColId(rn, 'penalties'))}><span className={TH_R}>Штрафи</span></th>}
-                        {colVisible(raceColId(rn, 'sum')) && <th className={thClass(TH_V, raceColId(rn, 'sum'))}><span className={TH_R}>Сума</span></th>}
+                        {colVisible(raceColId(rn, 'sum')) && <th className={`${thClass(TH_V, raceColId(rn, 'sum'))}${sortableCursor(raceColId(rn, 'sum'))}`} onClick={() => handleColClick(raceColId(rn, 'sum'))}><span className={TH_R}>Сума</span></th>}
                       </Fragment>
                     );
                   })}
