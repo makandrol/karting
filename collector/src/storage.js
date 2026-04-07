@@ -685,7 +685,14 @@ export const storage = {
 
     const allPhases = FULL_PHASES[liveComp.format] || [];
     const phases = filterPhases(allPhases, groupCount, liveComp.format);
-    const usedPhases = liveComp.sessions.map(s => s.phase);
+    const usedPhases = new Set(liveComp.sessions.map(s => s.phase));
+
+    // All expected phases already filled — competition is effectively complete
+    if (phases.length > 0 && phases.every(p => usedPhases.has(p))) {
+      console.log(`⏭️ All ${phases.length} phases filled for ${liveComp.name}, skipping auto-link`);
+      return null;
+    }
+
     let lastUsedIdx = -1;
     for (const p of usedPhases) {
       const idx = phases.indexOf(p);
