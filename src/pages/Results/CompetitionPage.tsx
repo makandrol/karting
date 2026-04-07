@@ -162,7 +162,7 @@ export default function CompetitionPage() {
     } catch {}
   };
 
-  const groupCount = competition.results?.groupCountOverride ?? null;
+  const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? null;
   const gonzalesRoundCount = competition.format === 'gonzales' ? (competition.results?.gonzalesRoundCount ?? null) : null;
   const effectivePhases = getPhasesForFormat(competition.format, groupCount, gonzalesRoundCount);
   const totalPhases = effectivePhases.length;
@@ -221,7 +221,9 @@ export default function CompetitionPage() {
                     const pilotChanged = 'totalPilotsOverride' in partial || 'totalPilotsLocked' in partial;
 
                     if (groupChanged || pilotChanged) {
-                      const newGroupCount = partial.groupCountOverride !== undefined ? partial.groupCountOverride : currentResults.groupCountOverride ?? null;
+                      const newGroupCount = partial.groupCountOverride !== undefined
+                        ? (partial.groupCountOverride ?? currentResults.autoDetectedGroups ?? null)
+                        : (currentResults.groupCountOverride ?? currentResults.autoDetectedGroups ?? null);
                       const gonzRoundCount = competition.format === 'gonzales' ? (currentResults.gonzalesRoundCount ?? null) : null;
                       const newPhases = getPhasesForFormat(competition.format, newGroupCount, gonzRoundCount);
                       const currentSessions: { sessionId: string; phase: string | null }[] = comp.sessions || [];
@@ -1280,7 +1282,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
           });
 
         const n = sorted.length;
-        const maxGrps = competition.results?.groupCountOverride ?? (n <= 14 ? 1 : n <= 29 ? 2 : 3);
+        const maxGrps = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? (n <= 14 ? 1 : n <= 29 ? 2 : 3);
         const buckets: string[][] = Array.from({ length: maxGrps }, () => []);
         const baseSize = Math.floor(n / maxGrps);
         let rem = n % maxGrps;
@@ -1315,7 +1317,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
       return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
     }
 
-    const maxGroups = competition.results?.groupCountOverride ?? (qualifiedPilots.length <= 13 ? 1 : qualifiedPilots.length <= 26 ? 2 : 3);
+    const maxGroups = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? (qualifiedPilots.length <= 13 ? 1 : qualifiedPilots.length <= 26 ? 2 : 3);
 
     let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
     for (let r = 1; r < raceNum; r++) {

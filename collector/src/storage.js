@@ -654,7 +654,7 @@ export const storage = {
     if (!liveComp) return null;
 
     const results = liveComp.results || {};
-    let groupCount = results.groupCountOverride || null;
+    let groupCount = results.groupCountOverride || results.autoDetectedGroups || null;
 
     // Auto-detect groups by pilot overlap if not manually set
     if (!groupCount && (liveComp.format === 'light_league' || liveComp.format === 'champions_league' || liveComp.format === 'sprint')) {
@@ -676,7 +676,7 @@ export const storage = {
             groupCount = linkedSessions.length;
             const maxGroups = FORMAT_MAX_GROUPS[liveComp.format] || 3;
             groupCount = Math.min(Math.max(groupCount, 1), maxGroups);
-            this.updateCompetition(liveComp.id, { results: { ...results, groupCountOverride: groupCount } });
+            this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
             console.log(`🔍 Detected ${groupCount} groups (${Math.round(overlapRatio * 100)}% overlap)`);
           }
         }
@@ -759,8 +759,9 @@ export const storage = {
     if (overlapRatio < 0.5) return;
 
     const maxGroups = { light_league: 3, champions_league: 2, sprint: 3 }[comp.format] || 3;
-    const groupCount = results.groupCountOverride
-      ? Math.min(results.groupCountOverride, maxGroups)
+    const manualOrAuto = results.groupCountOverride || results.autoDetectedGroups;
+    const groupCount = manualOrAuto
+      ? Math.min(manualOrAuto, maxGroups)
       : Math.min(qualiSessions.length, maxGroups);
     console.log(`🔍 Session ${sessionId}: ${Math.round(overlapRatio * 100)}% overlap → detected ${groupCount} groups, reassigning phase`);
 
@@ -794,7 +795,7 @@ export const storage = {
 
     if (correctPhase && correctPhase !== entry.phase) {
       const newSessions = comp.sessions.map(s => s.sessionId === sessionId ? { ...s, phase: correctPhase } : s);
-      this.updateCompetition(comp.id, { sessions: newSessions, results: { ...results, groupCountOverride: groupCount } });
+      this.updateCompetition(comp.id, { sessions: newSessions, results: { ...results, autoDetectedGroups: groupCount } });
       console.log(`🔄 Reassigned ${sessionId}: ${entry.phase} → ${correctPhase}`);
     }
   },

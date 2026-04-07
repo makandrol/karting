@@ -120,7 +120,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       const compRes = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(selectedComp.id)}`);
       const comp = compRes.ok ? await compRes.json() : null;
       const results = comp ? (typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {})) : {};
-      const groupCount = results?.groupCountOverride ?? null;
+      const groupCount = results?.groupCountOverride ?? results?.autoDetectedGroups ?? null;
       const phases = getPhasesForFormat(selectedComp.format, groupCount);
       const phaseIdx = phases.findIndex(p => p.id === phaseId);
       if (phaseIdx >= 0) {
@@ -198,7 +198,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       const effectiveIdx = currentIdx >= 0 ? currentIdx : Math.min(currentPhaseIdx, phases.length - 1);
 
       await apiPatch(`/competitions/${encodeURIComponent(compId)}`, {
-        results: { groupCountOverride: detectedGroups },
+        results: { autoDetectedGroups: detectedGroups },
       });
 
       const remainingPhases = phases.length - effectiveIdx - 1;
@@ -245,7 +245,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       if (!compRes.ok) return;
       const comp: Competition = await compRes.json();
       const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
-      const groupCount = results?.groupCountOverride ?? null;
+      const groupCount = results?.groupCountOverride ?? results?.autoDetectedGroups ?? null;
 
       const sessionTs = sessionId.match(/session-(\d+)/);
       const currentTime = sessionTs ? parseInt(sessionTs[1]) : 0;
