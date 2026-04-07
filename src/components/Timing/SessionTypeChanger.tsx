@@ -157,6 +157,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       const detectOrder = [{ id: currentSessionId, start_time: currentTime, end_time: null, merged_session_ids: undefined as string[] | undefined }, ...after];
 
       const sessionPilots = new Map<string, Set<string>>();
+      const sessionLapCounts = new Map<string, Map<string, number>>();
       for (const s of detectOrder) {
         const sid = s.merged_session_ids?.[0] || s.id;
         try {
@@ -164,6 +165,9 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
           if (lapsRes.ok) {
             const laps: { pilot: string }[] = await lapsRes.json();
             sessionPilots.set(sid, new Set(laps.map(l => l.pilot)));
+            const counts = new Map<string, number>();
+            for (const l of laps) counts.set(l.pilot, (counts.get(l.pilot) || 0) + 1);
+            sessionLapCounts.set(sid, counts);
           }
         } catch {}
       }
@@ -188,7 +192,20 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
 
         if (format === 'gonzales') {
           const realNames = [...pilots].filter(p => !isKartName(p)).length;
-          if (realNames / pilots.size > 0.5) {
+          const isRealNames = realNames / pilots.size > 0.5;
+
+          const sessionInfo = detectOrder.find(ds => (ds.merged_session_ids?.[0] || ds.id) === sid);
+          const isFinished = sessionInfo?.end_time != null;
+          let isHighLapCount = false;
+          if (isFinished) {
+            const counts = sessionLapCounts.get(sid);
+            if (counts && counts.size > 0) {
+              const maxLaps = Math.max(...counts.values());
+              isHighLapCount = maxLaps >= 5;
+            }
+          }
+
+          if (isRealNames || isHighLapCount) {
             qualiCount++;
             for (const p of pilots) cumulativePilots.add(p);
           }

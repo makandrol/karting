@@ -671,16 +671,30 @@ export const storage = {
           if (liveComp.format === 'gonzales') {
             const isKartName = (name) => /^Карт\s+\d+$/i.test(name.trim());
             const realNames = [...newPilots].filter(p => !isKartName(p)).length;
-            if (realNames / newPilots.size > 0.5) {
+            const isRealNames = realNames / newPilots.size > 0.5;
+
+            let isHighLapCount = false;
+            const sessionRow = stmts.getSessionsByDate.all(new Date(parseInt(sessionId.replace('session-', ''))).toISOString().slice(0, 10))
+              .find(s => s.id === sessionId);
+            if (sessionRow?.end_time) {
+              const lapCounts = new Map();
+              for (const l of newLaps) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
+              if (lapCounts.size > 0) {
+                const maxLaps = Math.max(...lapCounts.values());
+                isHighLapCount = maxLaps >= 5;
+              }
+            }
+
+            if (isRealNames || isHighLapCount) {
               groupCount = linkedSessions.length + 1;
               const maxGroups = FORMAT_MAX_GROUPS[liveComp.format] || 2;
               groupCount = Math.min(groupCount, maxGroups);
               this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
-              console.log(`🔍 Gonzales: detected qualifying (${realNames}/${newPilots.size} real names), groups=${groupCount}`);
+              console.log(`🔍 Gonzales: detected qualifying (realNames=${realNames}/${newPilots.size}, highLaps=${isHighLapCount}), groups=${groupCount}`);
             } else {
               groupCount = linkedSessions.length;
               this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
-              console.log(`🔍 Gonzales: detected round (${realNames}/${newPilots.size} real names), groups=${groupCount}`);
+              console.log(`🔍 Gonzales: detected round (realNames=${realNames}/${newPilots.size}, highLaps=${isHighLapCount}), groups=${groupCount}`);
             }
           } else {
             let overlap = 0;
@@ -764,8 +778,21 @@ export const storage = {
     if (comp.format === 'gonzales') {
       const isKartName = (name) => /^Карт\s+\d+$/i.test(name.trim());
       const realNames = [...newPilots].filter(p => !isKartName(p)).length;
-      if (realNames / newPilots.size > 0.5) return; // still a qualifying — keep as is
-      // Mostly kart names — this is actually a round, not a qualifying
+      const isRealNames = realNames / newPilots.size > 0.5;
+
+      let isHighLapCount = false;
+      const sessionRow = stmts.getSessionsByDate.all(new Date(parseInt(sessionId.replace('session-', ''))).toISOString().slice(0, 10))
+        .find(s => s.id === sessionId);
+      if (sessionRow?.end_time) {
+        const lapCounts = new Map();
+        for (const l of newLaps) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
+        if (lapCounts.size > 0) {
+          const maxLaps = Math.max(...lapCounts.values());
+          isHighLapCount = maxLaps >= 5;
+        }
+      }
+
+      if (isRealNames || isHighLapCount) return; // still a qualifying — keep as is
     } else {
       const cumulativePilots = new Set();
       for (const qs of qualiSessions) {
