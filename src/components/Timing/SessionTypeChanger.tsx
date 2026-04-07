@@ -201,14 +201,6 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         results: { groupCountOverride: detectedGroups },
       });
 
-      for (let i = 0; i < effectiveIdx && i < before.length; i++) {
-        const session = before[before.length - 1 - i];
-        const phaseId = phases[effectiveIdx - 1 - i]?.id;
-        if (!phaseId) continue;
-        const sid = session.merged_session_ids?.[0] || session.id;
-        await apiPost(`/competitions/${encodeURIComponent(compId)}/link-session`, { sessionId: sid, phase: phaseId });
-      }
-
       const remainingPhases = phases.length - effectiveIdx - 1;
       for (let i = 0; i < remainingPhases && i < after.length; i++) {
         const session = after[i];

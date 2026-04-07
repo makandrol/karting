@@ -229,12 +229,39 @@ export default function CompetitionPage() {
                         sessionId: s.sessionId,
                         phase: idx < newPhases.length ? newPhases[idx].id : s.phase,
                       }));
+
+                      const filledCount = Math.min(reassigned.length, newPhases.length);
+                      if (filledCount < newPhases.length && reassigned.length > 0) {
+                        const lastTs = Math.max(...reassigned.map(s => {
+                          const m = s.sessionId.match(/session-(\d+)/);
+                          return m ? parseInt(m[1]) : 0;
+                        }));
+                        const dateObj = new Date(lastTs);
+                        const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                        try {
+                          const sessRes = await fetch(`${COLLECTOR_URL}/db/sessions?date=${dateStr}`);
+                          if (sessRes.ok) {
+                            const daySessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null }[] = await sessRes.json();
+                            const linkedIds = new Set(reassigned.map(s => s.sessionId));
+                            const available = daySessions
+                              .filter(s => s.end_time && isValidSession(s) && !s.competition_id && !linkedIds.has(s.id))
+                              .filter(s => s.start_time > lastTs)
+                              .sort((a, b) => a.start_time - b.start_time);
+
+                            for (let i = filledCount; i < newPhases.length && (i - filledCount) < available.length; i++) {
+                              reassigned.push({ sessionId: available[i - filledCount].id, phase: newPhases[i].id });
+                            }
+                          }
+                        } catch {}
+                      }
+
                       await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
                         body: JSON.stringify({ results: newResults, sessions: reassigned }),
                       });
                       setCompetition(prev => prev ? { ...prev, results: newResults, sessions: reassigned } : prev);
+                      if (reassigned.length > currentSessions.length) fetchCompSessions(reassigned);
                     } else {
                       await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
                         method: 'PATCH',
