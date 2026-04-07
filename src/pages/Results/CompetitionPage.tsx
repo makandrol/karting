@@ -162,7 +162,7 @@ export default function CompetitionPage() {
     } catch {}
   };
 
-  const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? null;
+  const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? autoGroups;
   const gonzalesRoundCount = competition.format === 'gonzales' ? (competition.results?.gonzalesRoundCount ?? null) : null;
   const effectivePhases = getPhasesForFormat(competition.format, groupCount, gonzalesRoundCount);
   const totalPhases = effectivePhases.length;
@@ -222,8 +222,8 @@ export default function CompetitionPage() {
 
                     if (groupChanged || pilotChanged) {
                       const newGroupCount = partial.groupCountOverride !== undefined
-                        ? (partial.groupCountOverride ?? currentResults.autoDetectedGroups ?? null)
-                        : (currentResults.groupCountOverride ?? currentResults.autoDetectedGroups ?? null);
+                        ? (partial.groupCountOverride ?? currentResults.autoDetectedGroups ?? autoGroups)
+                        : (currentResults.groupCountOverride ?? currentResults.autoDetectedGroups ?? autoGroups);
                       const gonzRoundCount = competition.format === 'gonzales' ? (currentResults.gonzalesRoundCount ?? null) : null;
                       const newPhases = getPhasesForFormat(competition.format, newGroupCount, gonzRoundCount);
                       const currentSessions: { sessionId: string; phase: string | null }[] = comp.sessions || [];
