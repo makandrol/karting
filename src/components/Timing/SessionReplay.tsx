@@ -95,6 +95,7 @@ interface SessionReplayProps {
   startPositions?: Map<string, number>;
   raceGroup?: number;
   totalQualifiedPilots?: number;
+  competitionFormat?: string;
   hidePoints?: boolean;
   defaultSortMode?: ReplaySortMode;
   sortMode?: ReplaySortMode;
@@ -110,7 +111,7 @@ interface SessionReplayProps {
   pilotSuffix?: Map<string, string>;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, hidePoints, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent, pilotSuffix }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, competitionFormat, hidePoints, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent, pilotSuffix }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(durationSec);
   const [speed, setSpeed] = useState(1);
@@ -616,6 +617,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       raceGroup={raceGroup}
       totalQualifiedPilots={totalQualifiedPilots}
       isCompetitionRace={raceGroup != null && raceGroup > 0}
+      competitionFormat={competitionFormat}
       hidePoints={hidePoints}
       pilotSuffix={pilotSuffix}
     />

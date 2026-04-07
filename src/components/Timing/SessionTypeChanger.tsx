@@ -174,9 +174,11 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       let detectedGroups = 1;
       const cumulativePilots = new Set<string>();
       let qualiCount = 0;
+      console.log(`[autoLink] detectOrder: ${detectOrder.length} sessions, format=${format}`);
       for (const s of detectOrder) {
         const sid = s.merged_session_ids?.[0] || s.id;
         const pilots = sessionPilots.get(sid);
+        console.log(`[autoLink] ${sid}: ${pilots?.size ?? 0} pilots, cumulative=${cumulativePilots.size}`);
         if (!pilots || pilots.size === 0) continue;
 
         if (cumulativePilots.size === 0) {
@@ -188,6 +190,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         let overlap = 0;
         for (const p of pilots) { if (cumulativePilots.has(p)) overlap++; }
         const overlapRatio = overlap / pilots.size;
+        console.log(`[autoLink] ${sid}: overlap=${overlap}/${pilots.size} = ${(overlapRatio*100).toFixed(0)}%, qualiCount=${qualiCount}`);
 
         if (overlapRatio >= 0.5) break;
 
@@ -195,7 +198,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         for (const p of pilots) cumulativePilots.add(p);
       }
       detectedGroups = Math.min(Math.max(qualiCount, 1), formatMaxGroups);
-
+      console.log(`[autoLink] detectedGroups=${detectedGroups}, qualiCount=${qualiCount}`);
       const phases = getPhasesForFormat(format, detectedGroups);
       const currentIdx = phases.findIndex(p => p.id === _phases[currentPhaseIdx]?.id);
       const effectiveIdx = currentIdx >= 0 ? currentIdx : Math.min(currentPhaseIdx, phases.length - 1);

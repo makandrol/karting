@@ -1436,6 +1436,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
         startPositions={startPositions}
         raceGroup={raceGroup}
         totalQualifiedPilots={totalPilots}
+        competitionFormat={competition.format}
         hidePoints={isSprint}
         defaultSortMode={isRace && !currentPhase?.startsWith('round_') ? 'race' : 'qualifying'}
         showScrubber={false}

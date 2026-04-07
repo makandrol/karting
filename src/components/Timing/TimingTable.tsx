@@ -37,6 +37,7 @@ export interface TimingTableProps {
   raceGroup?: number;
   totalQualifiedPilots?: number;
   isCompetitionRace?: boolean;
+  competitionFormat?: string;
   hidePoints?: boolean;
   /** Map pilot name -> display suffix, e.g. "Карт 22" -> "(Макаревич?)" */
   pilotSuffix?: Map<string, string>;
@@ -53,7 +54,7 @@ export default function TimingTable({
   entries, sortMode, onSortModeChange,
   columnFilter: controlledColumnFilter, onColumnFilterChange,
   startPositions, startGrid,
-  raceGroup, totalQualifiedPilots, isCompetitionRace, hidePoints, pilotSuffix,
+  raceGroup, totalQualifiedPilots, isCompetitionRace, competitionFormat, hidePoints, pilotSuffix,
 }: TimingTableProps) {
   const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>('all');
   const columnFilter = controlledColumnFilter ?? internalColumnFilter;
@@ -364,7 +365,8 @@ export default function TimingTable({
                     const finishPos = e.position;
                     const groupLabel = raceGroup === 1 ? 'I' : raceGroup === 2 ? 'II' : 'III';
                     const total = totalQualifiedPilots || 0;
-                    const cat = scoringData.positionPoints?.find((c: any) => total >= c.minPilots && total <= c.maxPilots);
+                    const table = (competitionFormat === 'champions_league' && scoringData.positionPoints_CL) ? scoringData.positionPoints_CL : scoringData.positionPoints;
+                    const cat = table?.find((c: any) => total >= c.minPilots && total <= c.maxPilots);
                     const posArr = cat?.groups?.[groupLabel];
                     const posPoints = posArr && finishPos >= 1 && finishPos <= posArr.length ? posArr[finishPos - 1] : 0;
                     let overtakePoints = 0;

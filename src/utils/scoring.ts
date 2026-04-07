@@ -17,6 +17,7 @@ export interface CompSession {
 
 export interface ScoringData {
   positionPoints: { label: string; minPilots: number; maxPilots: number; groups: Record<string, number[]> }[];
+  positionPoints_CL?: { label: string; minPilots: number; maxPilots: number; groups: Record<string, number[]> }[];
   overtakePoints: { groupI_LL: { startPosMin: number; startPosMax: number; perOvertake: number }[]; groupI_CL: { startPosMin: number; startPosMax: number; perOvertake: number }[]; groupII: number; groupIII: number };
   speedPoints: number[];
 }
@@ -62,8 +63,9 @@ export function calcOvertakePoints(scoring: ScoringData, group: number, startPos
   return Math.round(total * 10) / 10;
 }
 
-export function getPositionPoints(scoring: ScoringData, totalPilots: number, group: string, finishPos: number): number {
-  const cat = scoring.positionPoints.find(c => totalPilots >= c.minPilots && totalPilots <= c.maxPilots);
+export function getPositionPoints(scoring: ScoringData, totalPilots: number, group: string, finishPos: number, format?: string): number {
+  const table = (format === 'champions_league' && scoring.positionPoints_CL) ? scoring.positionPoints_CL : scoring.positionPoints;
+  const cat = table.find(c => totalPilots >= c.minPilots && totalPilots <= c.maxPilots);
   if (!cat) return 0;
   const pts = cat.groups[group];
   if (!pts || finishPos < 1 || finishPos > pts.length) return 0;
@@ -212,7 +214,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
 
         const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos, format === 'champions_league');
         const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
-        const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos);
+        const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos, format);
 
         rData.set(pilot, {
           kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
