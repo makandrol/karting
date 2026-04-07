@@ -629,6 +629,8 @@ export interface GonzalesKartResult {
   kart: number;
   bestTime: number | null;
   bestTimeStr: string | null;
+  /** Place among all pilots on this kart (1 = fastest) */
+  place: number | null;
 }
 
 export interface GonzalesPilotRow {
@@ -637,6 +639,8 @@ export interface GonzalesPilotRow {
   averageTime: number | null;
   completedKarts: number;
   group: number;
+  /** 0-based index in the rotation slot list where this pilot starts */
+  startSlot: number;
 }
 
 export interface GonzalesStandingsData {
@@ -655,10 +659,14 @@ export interface ComputeGonzalesParams {
   kartReplacements?: Record<number, number>;
   /** Excluded karts that shouldn't count in average */
   excludedKarts?: Set<number>;
+  /** Which lap numbers count for scoring (e.g. [2,3] = only laps 2 and 3). Empty/undefined = all laps */
+  scoringLaps?: number[];
+  /** Pilot starting slot assignments (pilot name -> 0-based slot index) */
+  pilotStartSlots?: Record<string, number>;
 }
 
 export function computeGonzalesStandings(params: ComputeGonzalesParams): GonzalesStandingsData {
-  const { sessions, sessionLaps, excludedPilots, kartList, kartReplacements, excludedKarts } = params;
+  const { sessions, sessionLaps, excludedPilots, kartList, kartReplacements, excludedKarts, scoringLaps, pilotStartSlots } = params;
 
   const kartSet = new Set<number>();
   for (const s of sessions) {
@@ -674,15 +682,26 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
     return kartReplacements[k] ?? k;
   };
 
+  const scoringLapSet = scoringLaps && scoringLaps.length > 0 ? new Set(scoringLaps) : null;
+
   const pilotKartBest = new Map<string, Map<number, { time: number; timeStr: string }>>();
 
   for (const s of sessions) {
     if (!s.phase || s.phase.startsWith('qualifying')) continue;
     const laps = sessionLaps.get(s.sessionId) || [];
-    for (const l of laps) {
+
+    const pilotLapCounts = new Map<string, number>();
+
+    const sortedLaps = [...laps].sort((a, b) => a.ts - b.ts);
+    for (const l of sortedLaps) {
       if (excludedPilots.has(l.pilot)) continue;
       const sec = parseLapSec(l.lap_time);
       if (sec === null || sec < 38) continue;
+
+      const count = (pilotLapCounts.get(l.pilot) ?? 0) + 1;
+      pilotLapCounts.set(l.pilot, count);
+
+      if (scoringLapSet && !scoringLapSet.has(count)) continue;
 
       const resolvedKart = effectiveKart(l.kart);
       if (!karts.includes(resolvedKart)) continue;
@@ -702,7 +721,7 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
   for (const [pilot, kartMap] of pilotKartBest) {
     const kartResults: GonzalesKartResult[] = karts.map(k => {
       const result = kartMap.get(k);
-      return { kart: k, bestTime: result?.time ?? null, bestTimeStr: result?.timeStr ?? null };
+      return { kart: k, bestTime: result?.time ?? null, bestTimeStr: result?.timeStr ?? null, place: null };
     });
     const validTimes = kartResults
       .filter(r => r.bestTime !== null && !excludedKartSet.has(r.kart))
@@ -710,7 +729,18 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
     const average = validTimes.length > 0
       ? validTimes.reduce((a, b) => a + b, 0) / validTimes.length
       : null;
-    rows.push({ pilot, kartResults, averageTime: average, completedKarts: validTimes.length, group: 0 });
+    const startSlot = pilotStartSlots?.[pilot] ?? -1;
+    rows.push({ pilot, kartResults, averageTime: average, completedKarts: validTimes.length, group: 0, startSlot });
+  }
+
+  // Compute per-kart rankings (place)
+  for (let ki = 0; ki < karts.length; ki++) {
+    const pilotsWithTime = rows
+      .filter(r => r.kartResults[ki].bestTime !== null)
+      .sort((a, b) => a.kartResults[ki].bestTime! - b.kartResults[ki].bestTime!);
+    pilotsWithTime.forEach((r, idx) => {
+      r.kartResults[ki].place = idx + 1;
+    });
   }
 
   rows.sort((a, b) => {

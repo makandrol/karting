@@ -38,6 +38,8 @@ export interface TimingTableProps {
   totalQualifiedPilots?: number;
   isCompetitionRace?: boolean;
   hidePoints?: boolean;
+  /** Map pilot name -> display suffix, e.g. "Карт 22" -> "(Макаревич?)" */
+  pilotSuffix?: Map<string, string>;
 }
 
 function arrowColor(diff: number): string {
@@ -51,7 +53,7 @@ export default function TimingTable({
   entries, sortMode, onSortModeChange,
   columnFilter: controlledColumnFilter, onColumnFilterChange,
   startPositions, startGrid,
-  raceGroup, totalQualifiedPilots, isCompetitionRace, hidePoints,
+  raceGroup, totalQualifiedPilots, isCompetitionRace, hidePoints, pilotSuffix,
 }: TimingTableProps) {
   const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>('all');
   const columnFilter = controlledColumnFilter ?? internalColumnFilter;
@@ -342,6 +344,9 @@ export default function TimingTable({
                       <Link to={`/pilots/${encodeURIComponent(e.pilot)}`} className={`${notStarted ? 'text-dark-500' : 'text-white hover:text-primary-400'} transition-colors`}>
                         {shortName(e.pilot)}
                       </Link>
+                      {pilotSuffix?.has(e.pilot) && (
+                        <span className="text-yellow-400/70 text-[10px] ml-1">{pilotSuffix.get(e.pilot)}</span>
+                      )}
                     </div>
                     <div className="mt-0.5 h-[2px] rounded-full overflow-hidden border border-dark-600/50">
                       <div

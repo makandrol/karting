@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { toSeconds, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import {
@@ -26,6 +26,7 @@ export interface GonzalesConfig {
   kartReplacements?: Record<number, number>;
   excludedKarts?: number[];
   pilotStartSlots?: Record<string, number>;
+  scoringLaps?: number[];
 }
 
 type SortKey = 'average' | 'name' | `kart_${number}`;
@@ -47,6 +48,7 @@ export default function GonzalesResults({
   const [kartReplacements, setKartReplacements] = useState<Record<number, number>>(gonzalesConfig?.kartReplacements || {});
   const [excludedKarts, setExcludedKarts] = useState<Set<number>>(new Set(gonzalesConfig?.excludedKarts || []));
   const [pilotStartSlots, setPilotStartSlots] = useState<Record<string, number>>(gonzalesConfig?.pilotStartSlots || {});
+  const [scoringLaps, setScoringLaps] = useState<number[]>(gonzalesConfig?.scoringLaps || [1, 2, 3, 4]);
 
   const excludedLapSet = useMemo(() => new Set(excludedLapKeys || []), [excludedLapKeys]);
   const effectiveLaps = useMemo(() => {
@@ -64,8 +66,10 @@ export default function GonzalesResults({
       kartList: kartList.length > 0 ? kartList : undefined,
       kartReplacements: Object.keys(kartReplacements).length > 0 ? kartReplacements : undefined,
       excludedKarts: excludedKarts.size > 0 ? excludedKarts : undefined,
+      scoringLaps: scoringLaps.length > 0 ? scoringLaps : undefined,
+      pilotStartSlots: Object.keys(pilotStartSlots).length > 0 ? pilotStartSlots : undefined,
     });
-  }, [sessions, effectiveLaps, excludedPilots, kartList, kartReplacements, excludedKarts]);
+  }, [sessions, effectiveLaps, excludedPilots, kartList, kartReplacements, excludedKarts, scoringLaps, pilotStartSlots]);
 
   const sortedRows = useMemo(() => {
     const rows = [...data.rows];
@@ -125,14 +129,41 @@ export default function GonzalesResults({
       kartReplacements,
       excludedKarts: [...excludedKarts],
       pilotStartSlots,
+      scoringLaps,
       ...partial,
     };
     await onSaveResults({ gonzalesConfig: cfg });
-  }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, onSaveResults]);
+  }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, scoringLaps, onSaveResults]);
 
   const pilotCount = data.rows.length + excludedPilots.size;
   const roundCount = Math.max(pilotCount, 12);
   const roundSessions = sessions.filter(s => s.phase && !s.phase.startsWith('qualifying'));
+
+  const effectiveKarts = kartList.length > 0 ? kartList : data.karts;
+  const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount), [effectiveKarts, pilotCount]);
+
+  const getStartKartIndex = useCallback((startSlot: number): number | null => {
+    if (startSlot < 0 || slots.length === 0) return null;
+    const slot = slots[startSlot];
+    if (slot && slot.kart !== null) {
+      return data.karts.indexOf(slot.kart);
+    }
+    // Skip — find the kart before the skip in the slot list
+    for (let i = startSlot - 1; i >= 0; i--) {
+      if (slots[i].kart !== null) return data.karts.indexOf(slots[i].kart!);
+    }
+    // Wrap around
+    for (let i = slots.length - 1; i > startSlot; i--) {
+      if (slots[i].kart !== null) return data.karts.indexOf(slots[i].kart!);
+    }
+    return null;
+  }, [slots, data.karts]);
+
+  const toggleScoringLap = (lap: number) => {
+    const next = scoringLaps.includes(lap) ? scoringLaps.filter(l => l !== lap) : [...scoringLaps, lap].sort((a, b) => a - b);
+    setScoringLaps(next);
+    saveGonzalesConfig({ scoringLaps: next });
+  };
 
   if (data.rows.length === 0 && sessions.length === 0) {
     return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
@@ -162,6 +193,17 @@ export default function GonzalesResults({
           className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${liveEnabled ? 'bg-green-600/20 text-green-400' : 'bg-dark-800 text-dark-500'}`}>
           ● LIVE
         </button>
+        <div className="flex items-center gap-1 px-2 py-0.5 rounded border border-dark-700 bg-dark-800/50">
+          <span className="text-dark-500 text-[10px] font-semibold uppercase">Залікові кола:</span>
+          {[1, 2, 3, 4].map(lap => (
+            <label key={lap} className="flex items-center gap-0.5 cursor-pointer">
+              <input type="checkbox" checked={scoringLaps.includes(lap)}
+                onChange={() => toggleScoringLap(lap)}
+                className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0 focus:ring-offset-0 cursor-pointer" />
+              <span className={`text-[10px] ${scoringLaps.includes(lap) ? 'text-primary-400' : 'text-dark-600'}`}>{lap}</span>
+            </label>
+          ))}
+        </div>
         {canManage && (
           <button onClick={() => setShowKartManager(v => !v)}
             className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${showKartManager ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-500 hover:text-dark-300'}`}>
@@ -196,28 +238,37 @@ export default function GonzalesResults({
           <table className="w-full text-[10px]">
             <thead>
               <tr className="table-header">
-                <th className="table-cell text-center w-6">#</th>
+                <th className="table-cell text-center w-6" rowSpan={2}>#</th>
                 <th className={`table-cell text-left min-w-[100px] cursor-pointer hover:text-white ${sortKey === 'name' ? SORT_HL : ''}`}
-                  onClick={() => handleSort('name')}>
+                  onClick={() => handleSort('name')} rowSpan={2}>
                   Пілот<SortArrow k="name" />
                 </th>
                 {data.karts.map(k => (
-                  <th key={k}
-                    className={`table-cell text-center min-w-[55px] cursor-pointer hover:text-white ${KART_COLOR} ${sortKey === `kart_${k}` ? SORT_HL : ''} ${excludedKarts.has(k) ? 'opacity-40' : ''}`}
+                  <th key={k} colSpan={2}
+                    className={`table-cell text-center cursor-pointer hover:text-white ${KART_COLOR} ${sortKey === `kart_${k}` ? SORT_HL : ''} ${excludedKarts.has(k) ? 'opacity-40' : ''}`}
                     onClick={() => handleSort(`kart_${k}`)}>
                     {k}<SortArrow k={`kart_${k}`} />
                   </th>
                 ))}
                 <th className={`table-cell text-center min-w-[65px] font-bold cursor-pointer hover:text-white ${sortKey === 'average' ? SORT_HL : ''}`}
-                  onClick={() => handleSort('average')}>
+                  onClick={() => handleSort('average')} rowSpan={2}>
                   Сер.<SortArrow k="average" />
                 </th>
-                {canManage && <th className="table-cell text-center w-6"></th>}
+                {canManage && <th className="table-cell text-center w-6" rowSpan={2}></th>}
+              </tr>
+              <tr className="table-header">
+                {data.karts.map(k => (
+                  <React.Fragment key={k}>
+                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal min-w-[48px] ${excludedKarts.has(k) ? 'opacity-40' : ''}`}>час</th>
+                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal w-[28px] ${excludedKarts.has(k) ? 'opacity-40' : ''}`}>м.</th>
+                  </React.Fragment>
+                ))}
               </tr>
             </thead>
             <tbody>
               {sortedRows.map((r, i) => {
                 const isSelected = selectedPilot === r.pilot;
+                const startKartIdx = getStartKartIndex(r.startSlot);
                 return (
                   <tr key={r.pilot}
                     onClick={() => setSelectedPilot(isSelected ? null : r.pilot)}
@@ -225,21 +276,31 @@ export default function GonzalesResults({
                     <td className="table-cell text-center font-mono text-white font-bold">{i + 1}</td>
                     <td className="table-cell text-left text-white whitespace-nowrap">{r.pilot}</td>
                     {r.kartResults.map((kr, ki) => {
+                      const isStartKart = startKartIdx === ki;
+                      const colHighlight = sortKey === `kart_${data.karts[ki]}` ? SORT_HL : '';
+                      const excluded = excludedKarts.has(data.karts[ki]) ? 'opacity-40' : '';
                       if (kr.bestTime === null) {
-                        return <td key={ki} className={`table-cell text-center text-dark-700 ${sortKey === `kart_${data.karts[ki]}` ? SORT_HL : ''} ${excludedKarts.has(data.karts[ki]) ? 'opacity-40' : ''}`}>—</td>;
+                        return (
+                          <React.Fragment key={ki}>
+                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded}`}>—</td>
+                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded} ${isStartKart ? 'bg-yellow-500/20' : ''}`}>—</td>
+                          </React.Fragment>
+                        );
                       }
                       const isBestOnKart = data.overallBestPerKart[ki] !== null && Math.abs(kr.bestTime - data.overallBestPerKart[ki]!) < 0.002;
                       const isBestOfPilot = r.kartResults.every(
                         other => other.bestTime === null || kr.bestTime! <= other.bestTime
                       );
+                      const timeColor = isBestOnKart ? 'text-purple-400 font-bold' : isBestOfPilot ? 'text-green-400' : 'text-dark-300';
                       return (
-                        <td key={ki} className={`table-cell text-center font-mono ${
-                          isBestOnKart ? 'text-purple-400 font-bold' :
-                          isBestOfPilot ? 'text-green-400' :
-                          'text-dark-300'
-                        } ${sortKey === `kart_${data.karts[ki]}` ? SORT_HL : ''} ${excludedKarts.has(data.karts[ki]) ? 'opacity-40' : ''}`}>
-                          {toSeconds(kr.bestTimeStr!)}
-                        </td>
+                        <React.Fragment key={ki}>
+                          <td className={`table-cell text-center font-mono ${timeColor} ${colHighlight} ${excluded}`}>
+                            {toSeconds(kr.bestTimeStr!)}
+                          </td>
+                          <td className={`table-cell text-center font-mono text-dark-500 ${colHighlight} ${excluded} ${isStartKart ? 'bg-yellow-500/20 text-yellow-300' : ''}`}>
+                            {kr.place ?? '—'}
+                          </td>
+                        </React.Fragment>
                       );
                     })}
                     <td className={`table-cell text-center font-mono font-bold ${

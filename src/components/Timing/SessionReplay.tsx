@@ -107,9 +107,10 @@ interface SessionReplayProps {
   showScrubber?: boolean;
   showTable?: boolean;
   renderContent?: (parts: { scrubber: React.ReactNode; table: React.ReactNode }) => React.ReactNode;
+  pilotSuffix?: Map<string, string>;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, hidePoints, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, hidePoints, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent, pilotSuffix }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(durationSec);
   const [speed, setSpeed] = useState(1);
@@ -616,6 +617,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       totalQualifiedPilots={totalQualifiedPilots}
       isCompetitionRace={raceGroup != null && raceGroup > 0}
       hidePoints={hidePoints}
+      pilotSuffix={pilotSuffix}
     />
   );
 

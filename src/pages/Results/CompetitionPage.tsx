@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount } from '../../data/competitions';
+import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
 import { toSeconds, isValidSession, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
@@ -1302,6 +1302,40 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
   }, [competition, effectiveLaps, currentPhase, excludedPilots, isCL]);
 
+  const gonzalesPilotSuffix = useMemo<Map<string, string>>(() => {
+    if (competition.format !== 'gonzales' || !currentPhase?.startsWith('round_')) return new Map();
+    const cfg = competition.results?.gonzalesConfig;
+    const pilotStartSlots: Record<string, number> = cfg?.pilotStartSlots || {};
+    const kartListCfg: number[] = cfg?.kartList || [];
+
+    const roundMatch = currentPhase.match(/^round_(\d+)/);
+    if (!roundMatch) return new Map();
+    const roundNum = parseInt(roundMatch[1]) - 1;
+
+    const allPilots = Object.keys(pilotStartSlots);
+    if (allPilots.length === 0 || kartListCfg.length === 0) return new Map();
+
+    const slots = buildGonzalesRotation(kartListCfg, allPilots.length);
+    const kartToPilot = new Map<number, string>();
+    for (const pilot of allPilots) {
+      const startSlot = pilotStartSlots[pilot];
+      if (startSlot == null || startSlot < 0) continue;
+      const slot = getGonzalesKartForRound(slots, startSlot, roundNum);
+      if (slot.kart !== null) kartToPilot.set(slot.kart, pilot);
+    }
+
+    const suffix = new Map<string, string>();
+    for (const entry of laps) {
+      if (entry.kart && kartToPilot.has(entry.kart)) {
+        const guessedPilot = kartToPilot.get(entry.kart)!;
+        if (entry.pilot !== guessedPilot) {
+          suffix.set(entry.pilot, `(${guessedPilot}?)`);
+        }
+      }
+    }
+    return suffix;
+  }, [competition, currentPhase, laps]);
+
   if (!liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded) {
     return (
       <div className="card p-0 overflow-hidden">
@@ -1334,6 +1368,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
         hidePoints={isSprint}
         defaultSortMode={isRace && !currentPhase?.startsWith('round_') ? 'race' : 'qualifying'}
         showScrubber={false}
+        pilotSuffix={gonzalesPilotSuffix.size > 0 ? gonzalesPilotSuffix : undefined}
       />
     </div>
   );
