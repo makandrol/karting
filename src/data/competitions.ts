@@ -131,13 +131,13 @@ export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
       { id: 'qualifying_2', label: 'Кваліфікація 2', shortLabel: 'Кв2' },
       ...Array.from({ length: 24 }, (_, i) => ({
         id: `round_${i + 1}_group_2`,
-        label: `Раунд ${i + 1} · Група 2`,
-        shortLabel: `Р${i + 1}-2`,
+        label: `round_${i + 1}_group_2`,
+        shortLabel: `round_${i + 1}_group_2`,
       })),
       ...Array.from({ length: 24 }, (_, i) => ({
         id: `round_${i + 1}_group_1`,
-        label: `Раунд ${i + 1} · Група 1`,
-        shortLabel: `Р${i + 1}-1`,
+        label: `round_${i + 1}_group_1`,
+        shortLabel: `round_${i + 1}_group_1`,
       })),
     ],
   },
@@ -192,20 +192,30 @@ export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
 export function getPhasesForFormat(format: string, groupCount?: number | null, roundCount?: number | null): PhaseConfig[] {
   const config = PHASE_CONFIGS[format];
   if (!config) return [];
+
+  const renumberGonzales = (phases: PhaseConfig[]): PhaseConfig[] => {
+    let raceNum = 1;
+    return phases.map(p => {
+      if (p.id.startsWith('qualifying_')) return p;
+      return { id: p.id, label: `Гонка ${raceNum}`, shortLabel: `Г${raceNum++}` };
+    });
+  };
+
   if (groupCount === undefined || groupCount === null) {
     if (format === 'gonzales') {
       const rc = roundCount ?? 12;
-      return config.phases.filter(p => {
+      const filtered = config.phases.filter(p => {
         if (p.id.startsWith('qualifying_')) return true;
         const rm = p.id.match(/^round_(\d+)/);
         if (rm) return parseInt(rm[1]) <= rc;
         return true;
       });
+      return renumberGonzales(filtered);
     }
     return config.phases;
   }
 
-  return config.phases.filter(p => {
+  const filtered = config.phases.filter(p => {
     if (format === 'gonzales') {
       if (p.id.startsWith('qualifying_')) {
         const num = parseInt(p.id.split('_')[1]);
@@ -226,16 +236,43 @@ export function getPhasesForFormat(format: string, groupCount?: number | null, r
     if (groupMatch) return parseInt(groupMatch[1]) <= groupCount;
     return true;
   });
+
+  if (format === 'gonzales') return renumberGonzales(filtered);
+  return filtered;
 }
 
-export function getPhaseLabel(format: string, phaseId: string): string {
+export function getPhaseLabel(format: string, phaseId: string, groupCount?: number): string {
+  if (format === 'gonzales' && phaseId.startsWith('round_')) {
+    const rm = phaseId.match(/^round_(\d+)_group_(\d+)$/);
+    if (rm) {
+      const round = parseInt(rm[1]);
+      const group = parseInt(rm[2]);
+      const gc = groupCount ?? 1;
+      const raceNum = gc >= 2
+        ? (round - 1) * 2 + (group === 2 ? 1 : 2)
+        : round;
+      return `Гонка ${raceNum}`;
+    }
+  }
   const config = PHASE_CONFIGS[format];
   if (!config) return phaseId;
   const phase = config.phases.find(p => p.id === phaseId);
   return phase?.label || phaseId;
 }
 
-export function getPhaseShortLabel(format: string, phaseId: string): string {
+export function getPhaseShortLabel(format: string, phaseId: string, groupCount?: number): string {
+  if (format === 'gonzales' && phaseId.startsWith('round_')) {
+    const rm = phaseId.match(/^round_(\d+)_group_(\d+)$/);
+    if (rm) {
+      const round = parseInt(rm[1]);
+      const group = parseInt(rm[2]);
+      const gc = groupCount ?? 1;
+      const raceNum = gc >= 2
+        ? (round - 1) * 2 + (group === 2 ? 1 : 2)
+        : round;
+      return `Г${raceNum}`;
+    }
+  }
   const config = PHASE_CONFIGS[format];
   if (!config) return phaseId;
   const phase = config.phases.find(p => p.id === phaseId);

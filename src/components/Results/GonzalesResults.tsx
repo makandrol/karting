@@ -48,7 +48,7 @@ export default function GonzalesResults({
   const [kartReplacements, setKartReplacements] = useState<Record<number, number>>(gonzalesConfig?.kartReplacements || {});
   const [excludedKarts, setExcludedKarts] = useState<Set<number>>(new Set(gonzalesConfig?.excludedKarts || []));
   const [pilotStartSlots, setPilotStartSlots] = useState<Record<string, number>>(gonzalesConfig?.pilotStartSlots || {});
-  const [scoringLaps, setScoringLaps] = useState<number[]>(gonzalesConfig?.scoringLaps || [1, 2, 3, 4]);
+  const [scoringLaps, setScoringLaps] = useState<number[]>(gonzalesConfig?.scoringLaps || [1, 2]);
 
   const excludedLapSet = useMemo(() => new Set(excludedLapKeys || []), [excludedLapKeys]);
   const effectiveLaps = useMemo(() => {
@@ -195,7 +195,7 @@ export default function GonzalesResults({
         </button>
         <div className="flex items-center gap-1 px-2 py-0.5 rounded border border-dark-700 bg-dark-800/50">
           <span className="text-dark-500 text-[10px] font-semibold uppercase">Залікові кола:</span>
-          {[1, 2, 3, 4].map(lap => (
+          {[1, 2, 3].map(lap => (
             <label key={lap} className="flex items-center gap-0.5 cursor-pointer">
               <input type="checkbox" checked={scoringLaps.includes(lap)}
                 onChange={() => toggleScoringLap(lap)}

@@ -587,7 +587,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     <div className="space-y-4">
       {competition.sessions.map(s => {
         const laps = sessionLaps.get(s.sessionId) || [];
-        const phaseLabel = s.phase ? getPhaseLabel(competition.format, s.phase) : 'Невизначений етап';
+        const phaseLabel = s.phase ? getPhaseLabel(competition.format, s.phase, groupCount) : 'Невизначений етап';
         const pilotBest = new Map<string, { pilot: string; kart: number; bestTime: number; bestTimeStr: string }>();
         for (const l of laps) {
           if (!l.lap_time) continue;
@@ -660,6 +660,7 @@ function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScr
         <CompetitionTimeline
           key="timeline"
           format={competition.format}
+          groupCount={groupCount}
           sessions={competition.sessions}
           sessionTimes={sessionTimes}
           currentTime={scrubTime}
@@ -1420,7 +1421,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     );
   }
 
-  const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase) : '';
+  const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase, groupCount) : '';
 
   return (
     <div>

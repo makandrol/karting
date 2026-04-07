@@ -16,6 +16,7 @@ interface SessionTime {
 
 interface CompetitionTimelineProps {
   format: string;
+  groupCount?: number;
   sessions: CompSession[];
   sessionTimes: SessionTime[];
   currentTime: number | null;
@@ -34,7 +35,7 @@ function fmtDuration(ms: number): string {
   return m > 0 ? `${m}хв ${s}с` : `${s}с`;
 }
 
-export default function CompetitionTimeline({ format, sessions, sessionTimes, currentTime, onTimeChange, isLive }: CompetitionTimelineProps) {
+export default function CompetitionTimeline({ format, groupCount, sessions, sessionTimes, currentTime, onTimeChange, isLive }: CompetitionTimelineProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const navigate = useNavigate();
@@ -104,7 +105,7 @@ export default function CompetitionTimeline({ format, sessions, sessionTimes, cu
     return sessionTimes.find(s => s.startTime <= currentTime && (s.endTime === null || s.endTime >= currentTime));
   }, [currentTime, sessionTimes]);
 
-  const activePhaseLabel = activeSession?.phase ? getPhaseLabel(format, activeSession.phase) : null;
+  const activePhaseLabel = activeSession?.phase ? getPhaseLabel(format, activeSession.phase, groupCount) : null;
 
   const scrubberPct = currentTime !== null ? toPct(currentTime) : (isLive ? 100 : null);
 
@@ -194,7 +195,7 @@ export default function CompetitionTimeline({ format, sessions, sessionTimes, cu
               >
                 {isSession && seg.phase && width > 3 && (
                   <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold text-green-200/70 pointer-events-none select-none overflow-hidden whitespace-nowrap">
-                    {getPhaseShortLabel(format, seg.phase)}
+                    {getPhaseShortLabel(format, seg.phase, groupCount)}
                   </span>
                 )}
               </div>
