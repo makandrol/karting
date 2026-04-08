@@ -245,8 +245,19 @@ export default function Onboard() {
         <button onClick={() => setLocked(l => !l)}
           className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 ${
             locked ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'
-          }`}>
-          {locked ? '🔒' : '🔓'}
+          }`}
+          title={locked ? 'Розблокувати обертання' : 'Заблокувати обертання'}>
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="8" y="11" width="8" height="7" rx="1" />
+            {locked
+              ? <path d="M10 11V8a2 2 0 1 1 4 0v3" />
+              : <path d="M14 11V8a2 2 0 0 0-4 0" />
+            }
+            <path d="M12 21a9 9 0 0 0 9-9h-2" />
+            <path d="M19 10l2 2 2-2" />
+            <path d="M12 3a9 9 0 0 0-9 9h2" />
+            <path d="M5 14l-2-2-2 2" />
+          </svg>
         </button>
 
         <div ref={selectorRef} className="relative">
