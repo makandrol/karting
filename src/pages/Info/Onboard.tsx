@@ -4,6 +4,10 @@ import { useTimingPoller } from '../../services/timingPoller';
 import { COLLECTOR_URL } from '../../services/config';
 import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
 import { COMPETITION_CONFIGS, getPhaseShortLabel } from '../../data/competitions';
+import {
+  type SessionLap, type CompSession, type ScoringData, type ManualEdits,
+  computeStandings, computeSprintStandings, sprintAwareSort,
+} from '../../utils/scoring';
 
 interface CompSessionInfo {
   competitionId: string | null;
@@ -11,33 +15,18 @@ interface CompSessionInfo {
   phase: string | null;
 }
 
-interface CompData {
-  sessions: { sessionId: string; phase: string }[];
-}
-
 type OnboardMode = 'quali' | 'race';
 
-function getRelatedPhases(phase: string): (p: string) => boolean {
-  if (phase.startsWith('qualifying')) return p => p.startsWith('qualifying');
-  const raceMatch = phase.match(/^(race_\d+)_/) || phase.match(/^(round_\d+)_/);
-  if (raceMatch) {
-    const prefix = raceMatch[1];
-    return p => p.startsWith(prefix + '_');
-  }
-  return p => p === phase;
-}
-
-function getSamePhaseType(phase: string): (p: string) => boolean {
-  if (phase.startsWith('qualifying')) return p => p.startsWith('qualifying');
-  if (phase.startsWith('race_')) {
-    const raceNum = phase.match(/^(race_\d+)/)?.[1];
-    return raceNum ? p => p.startsWith(raceNum + '_') : p => p === phase;
-  }
-  if (phase.startsWith('round_')) {
-    const roundNum = phase.match(/^(round_\d+)/)?.[1];
-    return roundNum ? p => p.startsWith(roundNum + '_') : p => p === phase;
-  }
-  return p => p === phase;
+interface FullCompData {
+  sessions: CompSession[];
+  sessionLaps: Map<string, SessionLap[]>;
+  scoring: ScoringData;
+  edits: ManualEdits;
+  excludedPilots: Set<string>;
+  maxGroups: number;
+  pilotsOverride: number | null;
+  pilotsLocked: boolean;
+  format: string;
 }
 
 export default function Onboard() {
@@ -53,9 +42,11 @@ export default function Onboard() {
   // ── View toggles ──
   const [showSectors, setShowSectors] = useState(true);
   const [modeOverride, setModeOverride] = useState<OnboardMode | null>(null);
-  const [showPosition, setShowPosition] = useState<boolean | null>(null); // null = auto (on for race, off for quali)
+  const [showPosition, setShowPosition] = useState<boolean | null>(null);
   const [showTimeGroup, setShowTimeGroup] = useState(false);
   const [showTimeGlobal, setShowTimeGlobal] = useState(false);
+  const [showPoints, setShowPoints] = useState(false);
+  const [showFinalPos, setShowFinalPos] = useState(false);
 
   const sessionId = (collectorStatus as any)?.sessionId || null;
 
@@ -108,11 +99,7 @@ export default function Onboard() {
 
   const [compInfo, setCompInfo] = useState<CompSessionInfo>({ competitionId: null, format: null, phase: null });
   const [raceNumber, setRaceNumber] = useState<number | null>(null);
-
-  // Rankings: group (current session) and global (all sessions of same phase type)
-  const [groupRanking, setGroupRanking] = useState<{ pilot: string; bestLap: number }[]>([]);
-  const [globalRanking, setGlobalRanking] = useState<{ pilot: string; bestLap: number }[]>([]);
-  const [qualiRanking, setQualiRanking] = useState<{ pilot: string; bestLap: number }[]>([]);
+  const [fullComp, setFullComp] = useState<FullCompData | null>(null);
 
   useEffect(() => {
     if (!sessionId) { setCompInfo({ competitionId: null, format: null, phase: null }); setRaceNumber(null); return; }
@@ -159,138 +146,190 @@ export default function Onboard() {
     return `Прокат${raceNumber != null ? ` ${raceNumber}` : ''}`;
   }, [sessionId, compInfo.format, compInfo.phase, raceNumber]);
 
-  // ── Build rankings ──
-
-  const buildRanking = useCallback((laps: { pilot: string; lap_time: string }[], liveEntries: typeof entries) => {
-    const pilotBests = new Map<string, number>();
-    for (const l of laps) {
-      if (!l.lap_time) continue;
-      const sec = parseTime(l.lap_time);
-      if (sec === null || sec < 38) continue;
-      const prev = pilotBests.get(l.pilot);
-      if (prev === undefined || sec < prev) pilotBests.set(l.pilot, sec);
-    }
-    for (const e of liveEntries) {
-      const sec = parseTime(e.bestLap);
-      if (sec === null || sec < 38) continue;
-      const prev = pilotBests.get(e.pilot);
-      if (prev === undefined || sec < prev) pilotBests.set(e.pilot, sec);
-    }
-    return [...pilotBests.entries()]
-      .map(([pilot, bestLap]) => ({ pilot, bestLap }))
-      .sort((a, b) => a.bestLap - b.bestLap);
-  }, []);
+  // ── Fetch full competition data for shared scoring ──
 
   useEffect(() => {
-    if (!compInfo.competitionId || !compInfo.phase) {
-      setGroupRanking([]);
-      setGlobalRanking([]);
-      setQualiRanking([]);
-      return;
-    }
+    if (!compInfo.competitionId || !compInfo.format) { setFullComp(null); return; }
     let active = true;
 
-    const fetchRankings = async () => {
+    const fetchFull = async () => {
       try {
-        const compRes = await fetch(`${COLLECTOR_URL}/competitions/${compInfo.competitionId}`);
-        const comp: CompData = await compRes.json();
-        const sessions = typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : comp.sessions;
+        const [compRes, scoringRes] = await Promise.all([
+          fetch(`${COLLECTOR_URL}/competitions/${compInfo.competitionId}`),
+          fetch(`${COLLECTOR_URL}/scoring`).then(r => r.ok ? r.json() : fetch('/data/scoring.json').then(r2 => r2.json())),
+        ]);
+        const comp = await compRes.json();
+        const sessions: CompSession[] = typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : (comp.sessions || []);
+        const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
 
-        // Group ranking: only sessions in the same group (same phase matcher)
-        const isRelated = getRelatedPhases(compInfo.phase!);
-        const groupSessionIds = sessions.filter((s: any) => isRelated(s.phase)).map((s: any) => s.sessionId);
-
-        const groupLaps: { pilot: string; lap_time: string }[] = [];
-        for (const sid of groupSessionIds) {
-          const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()).catch(() => []);
-          groupLaps.push(...laps);
+        const sessionLaps = new Map<string, SessionLap[]>();
+        for (const s of sessions) {
+          const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${s.sessionId}`).then(r => r.json()).catch(() => []);
+          sessionLaps.set(s.sessionId, laps);
         }
 
-        // Global ranking: all sessions of same phase type (e.g., all qualifying, or all race_1)
-        const isSameType = getSamePhaseType(compInfo.phase!);
-        const globalSessionIds = sessions.filter((s: any) => isSameType(s.phase)).map((s: any) => s.sessionId);
-
-        const globalLaps: { pilot: string; lap_time: string }[] = [];
-        for (const sid of globalSessionIds) {
-          if (groupSessionIds.includes(sid)) {
-            globalLaps.push(...groupLaps.filter(l => true));
-          } else {
-            const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()).catch(() => []);
-            globalLaps.push(...laps);
-          }
-        }
-
-        // Quali ranking (for position gain/loss in race mode): all qualifying sessions
-        let qualiLaps: { pilot: string; lap_time: string }[] = [];
-        if (!compInfo.phase!.startsWith('qualifying')) {
-          const qualiSessionIds = sessions.filter((s: any) => s.phase?.startsWith('qualifying')).map((s: any) => s.sessionId);
-          for (const sid of qualiSessionIds) {
-            const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()).catch(() => []);
-            qualiLaps.push(...laps);
-          }
+        const formatMaxGroups = compInfo.format === 'champions_league' ? 2 : 3;
+        const isSprint = compInfo.format === 'sprint';
+        const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
+        const qualiWithData = qualiSessions.filter(s => (sessionLaps.get(s.sessionId) || []).length > 0);
+        let autoGroups: number;
+        if (isSprint) {
+          const q1Groups = new Set(qualiWithData
+            .filter(s => s.phase?.startsWith('qualifying_1_group_'))
+            .map(s => s.phase?.match(/group_(\d+)/)?.[1])
+            .filter(Boolean));
+          autoGroups = Math.min(Math.max(q1Groups.size, 1), formatMaxGroups);
+        } else {
+          autoGroups = Math.min(Math.max(qualiWithData.length, 1), formatMaxGroups);
         }
 
         if (!active) return;
-
-        setGroupRanking(buildRanking(groupLaps, entries));
-        setGlobalRanking(buildRanking(globalLaps, entries));
-        if (qualiLaps.length > 0) {
-          setQualiRanking(buildRanking(qualiLaps, []));
-        } else {
-          setQualiRanking([]);
-        }
+        setFullComp({
+          sessions,
+          sessionLaps,
+          scoring: scoringRes,
+          edits: results.edits || {},
+          excludedPilots: new Set(results.excludedPilots || []),
+          maxGroups: results.groupCountOverride ?? results.autoDetectedGroups ?? autoGroups,
+          pilotsOverride: results.totalPilotsOverride ?? null,
+          pilotsLocked: results.totalPilotsLocked ?? false,
+          format: compInfo.format!,
+        });
       } catch {
-        if (active) { setGroupRanking([]); setGlobalRanking([]); setQualiRanking([]); }
+        if (active) setFullComp(null);
       }
     };
 
-    fetchRankings();
-    const timer = setInterval(fetchRankings, 5000);
+    fetchFull();
+    const timer = setInterval(fetchFull, 5000);
     return () => { active = false; clearInterval(timer); };
-  }, [compInfo.competitionId, compInfo.phase, entries, buildRanking]);
+  }, [compInfo.competitionId, compInfo.format]);
 
-  // For non-competition sessions: group ranking from live entries only
-  const liveGroupRanking = useMemo(() => {
-    const withBest = entries
-      .map(e => ({ pilot: e.pilot, best: parseTime(e.bestLap) }))
-      .filter(e => e.best !== null && e.best >= 38) as { pilot: string; best: number }[];
-    withBest.sort((a, b) => a.best - b.best);
-    return withBest;
-  }, [entries]);
+  // ── Compute standings using shared scoring functions ──
+
+  const livePositions = useMemo(() =>
+    entries.map(e => ({ pilot: e.pilot, position: e.position ?? 99 })),
+    [entries]
+  );
+
+  const standings = useMemo(() => {
+    if (!fullComp || !compInfo.phase) return null;
+    const computeFn = fullComp.format === 'sprint' ? computeSprintStandings : computeStandings;
+    const rows = computeFn({
+      format: fullComp.format,
+      sessions: fullComp.sessions,
+      sessionLaps: fullComp.sessionLaps,
+      scoring: fullComp.scoring,
+      edits: fullComp.edits,
+      excludedPilots: fullComp.excludedPilots,
+      maxGroups: fullComp.maxGroups,
+      pilotsOverride: fullComp.pilotsOverride,
+      pilotsLocked: fullComp.pilotsLocked,
+      liveSessionId: sessionId,
+      livePhase: compInfo.phase,
+      livePositions,
+    });
+    const included = rows.filter(r => !fullComp.excludedPilots.has(r.pilot));
+    included.sort((a, b) => sprintAwareSort(a, b, fullComp.format));
+    return { rows, sorted: included };
+  }, [fullComp, compInfo.phase, sessionId, livePositions]);
+
+  // Find which race index the current phase corresponds to
+  const currentRaceIndex = useMemo(() => {
+    if (!compInfo.phase) return -1;
+    if (compInfo.phase.startsWith('qualifying')) return -1;
+    const m = compInfo.phase.match(/^race_(\d+)_/) || compInfo.phase.match(/^final_/);
+    if (m) {
+      if (compInfo.phase.startsWith('final_')) return fullComp?.format === 'sprint' ? 2 : -1;
+      return parseInt(m[1]) - 1;
+    }
+    return -1;
+  }, [compInfo.phase, fullComp?.format]);
 
   // ── Computed displays ──
 
   const pilot = entry?.pilot ?? null;
 
+  const pilotRow = useMemo(() => {
+    if (!pilot || !standings) return null;
+    return standings.rows.find(r => r.pilot === pilot) ?? null;
+  }, [pilot, standings]);
+
+  // Position in current race (finishPos) + gain/loss vs startPos
   const positionData = useMemo(() => {
     if (!pilot) return null;
-    const ranking = compInfo.competitionId ? groupRanking : liveGroupRanking.map(r => ({ pilot: r.pilot, bestLap: r.best }));
-    const idx = ranking.findIndex(r => r.pilot === pilot);
-    const pos = idx >= 0 ? idx + 1 : null;
-    const total = ranking.length;
-
-    let startPos: number | null = null;
-    if (qualiRanking.length > 0) {
-      const qi = qualiRanking.findIndex(r => r.pilot === pilot);
-      if (qi >= 0) startPos = qi + 1;
+    if (pilotRow && currentRaceIndex >= 0) {
+      const race = pilotRow.races[currentRaceIndex];
+      if (race && race.finishPos > 0) {
+        const delta = race.startPos > 0 ? race.startPos - race.finishPos : null;
+        return { pos: race.finishPos, total: standings!.sorted.filter(r => r.races[currentRaceIndex]?.finishPos).length, delta };
+      }
     }
+    // Fallback: best lap ranking from live entries
+    const withBest = entries
+      .map(e => ({ pilot: e.pilot, best: parseTime(e.bestLap) }))
+      .filter(e => e.best !== null && e.best! >= 38) as { pilot: string; best: number }[];
+    withBest.sort((a, b) => a.best - b.best);
+    const idx = withBest.findIndex(e => e.pilot === pilot);
+    return { pos: idx >= 0 ? idx + 1 : null, total: withBest.length, delta: null };
+  }, [pilot, pilotRow, currentRaceIndex, standings, entries]);
 
-    const delta = (pos !== null && startPos !== null) ? startPos - pos : null;
-    return { pos, total, delta };
-  }, [pilot, compInfo.competitionId, groupRanking, liveGroupRanking, qualiRanking]);
-
+  // Time rank in group: best lap in current session among group pilots
   const timeGroupData = useMemo(() => {
     if (!pilot) return null;
-    const ranking = compInfo.competitionId ? groupRanking : liveGroupRanking.map(r => ({ pilot: r.pilot, bestLap: r.best }));
-    const idx = ranking.findIndex(r => r.pilot === pilot);
-    return { pos: idx >= 0 ? idx + 1 : null, total: ranking.length };
-  }, [pilot, compInfo.competitionId, groupRanking, liveGroupRanking]);
+    if (pilotRow && currentRaceIndex >= 0) {
+      const raceData = pilotRow.races[currentRaceIndex];
+      if (raceData && raceData.group > 0 && standings) {
+        const groupPilots = standings.sorted
+          .filter(r => r.races[currentRaceIndex]?.group === raceData.group && r.races[currentRaceIndex]?.bestTime && r.races[currentRaceIndex]!.bestTime < Infinity)
+          .sort((a, b) => a.races[currentRaceIndex]!.bestTime - b.races[currentRaceIndex]!.bestTime);
+        const idx = groupPilots.findIndex(r => r.pilot === pilot);
+        return { pos: idx >= 0 ? idx + 1 : null, total: groupPilots.length };
+      }
+    }
+    // Qualifying: rank among all qualifying pilots
+    if (pilotRow && compInfo.phase?.startsWith('qualifying') && standings) {
+      const withQuali = standings.sorted
+        .filter(r => r.quali && r.quali.bestTime < Infinity)
+        .sort((a, b) => a.quali!.bestTime - b.quali!.bestTime);
+      const idx = withQuali.findIndex(r => r.pilot === pilot);
+      return { pos: idx >= 0 ? idx + 1 : null, total: withQuali.length };
+    }
+    // Fallback
+    const withBest = entries
+      .map(e => ({ pilot: e.pilot, best: parseTime(e.bestLap) }))
+      .filter(e => e.best !== null && e.best! >= 38) as { pilot: string; best: number }[];
+    withBest.sort((a, b) => a.best - b.best);
+    const idx = withBest.findIndex(e => e.pilot === pilot);
+    return { pos: idx >= 0 ? idx + 1 : null, total: withBest.length };
+  }, [pilot, pilotRow, currentRaceIndex, standings, compInfo.phase, entries]);
 
+  // Time rank global: best lap across all sessions of same phase type
   const timeGlobalData = useMemo(() => {
-    if (!pilot || !compInfo.competitionId) return null;
-    const idx = globalRanking.findIndex(r => r.pilot === pilot);
-    return { pos: idx >= 0 ? idx + 1 : null, total: globalRanking.length };
-  }, [pilot, compInfo.competitionId, globalRanking]);
+    if (!pilot || !standings || currentRaceIndex < 0) return null;
+    const allWithTime = standings.sorted
+      .filter(r => r.races[currentRaceIndex]?.bestTime && r.races[currentRaceIndex]!.bestTime < Infinity)
+      .sort((a, b) => a.races[currentRaceIndex]!.bestTime - b.races[currentRaceIndex]!.bestTime);
+    const idx = allWithTime.findIndex(r => r.pilot === pilot);
+    return { pos: idx >= 0 ? idx + 1 : null, total: allWithTime.length };
+  }, [pilot, standings, currentRaceIndex]);
+
+  // Points for current race
+  const pointsData = useMemo(() => {
+    if (!pilotRow || currentRaceIndex < 0) return null;
+    const race = pilotRow.races[currentRaceIndex];
+    if (!race) return null;
+    const posOvertake = Math.round((race.positionPoints + race.overtakePoints) * 10) / 10;
+    return { total: race.totalRacePoints, posPoints: race.positionPoints, overtakePoints: race.overtakePoints, posOvertake };
+  }, [pilotRow, currentRaceIndex]);
+
+  // Final standing position + total points
+  const finalPosData = useMemo(() => {
+    if (!pilot || !standings) return null;
+    const idx = standings.sorted.findIndex(r => r.pilot === pilot);
+    if (idx < 0) return null;
+    return { pos: idx + 1, total: standings.sorted.length, totalPoints: standings.sorted[idx].totalPoints };
+  }, [pilot, standings]);
 
   // ── Color calculations ──
 
@@ -484,6 +523,22 @@ export default function Onboard() {
         )}
       </div>
 
+      {/* Points + final position — bottom center */}
+      {entry && (showPoints || showFinalPos) && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-4 z-10">
+          {showPoints && pointsData && pointsData.total > 0 && (
+            <span className="font-mono text-green-400/80" style={{ fontSize: 'clamp(0.8rem, 2vw, 1.1rem)' }}>
+              P = {pointsData.total} = {pointsData.posPoints} + {pointsData.overtakePoints}
+            </span>
+          )}
+          {showFinalPos && finalPosData && (
+            <span className="font-mono text-yellow-300/70" style={{ fontSize: 'clamp(0.8rem, 2vw, 1.1rem)' }}>
+              FinP = {finalPosData.totalPoints} = {finalPosData.pos}/{finalPosData.total}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* View toggle — bottom left */}
       <div ref={viewRef} className="absolute bottom-3 left-3 z-20">
         <button onClick={() => setViewOpen(v => !v)}
@@ -501,6 +556,8 @@ export default function Onboard() {
               <Pill label="Поз" active={effectiveShowPos} onClick={() => setShowPosition(v => v === null ? (effectiveMode !== 'race') : !v)} />
               <Pill label="Час" active={showTimeGroup} onClick={() => setShowTimeGroup(v => !v)} />
               <Pill label="Час гл" active={showTimeGlobal} onClick={() => setShowTimeGlobal(v => !v)} />
+              <Pill label="Бали" active={showPoints} onClick={() => setShowPoints(v => !v)} />
+              <Pill label="Рез" active={showFinalPos} onClick={() => setShowFinalPos(v => !v)} />
             </>
           )}
         </button>
