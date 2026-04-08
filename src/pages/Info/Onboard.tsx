@@ -40,20 +40,21 @@ export default function Onboard() {
 
   const kart = kartId ? parseInt(kartId, 10) : null;
   const entry = kart !== null ? entries.find(e => e.kart === kart) : null;
-  const allKarts = entries.map(e => e.kart).sort((a, b) => a - b);
+  const ALL_KARTS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,33,44,55,69,77,88];
+  const liveKarts = new Set(entries.map(e => e.kart));
 
   const goToKart = useCallback((k: number) => {
     navigate(`/onboard/${k}`, { replace: true });
     setSelectorOpen(false);
   }, [navigate]);
 
-  const kartIdx = kart !== null ? allKarts.indexOf(kart) : -1;
-  const prevKart = kartIdx > 0 ? allKarts[kartIdx - 1] : (allKarts.length > 0 ? allKarts[allKarts.length - 1] : null);
-  const nextKart = kartIdx >= 0 && kartIdx < allKarts.length - 1 ? allKarts[kartIdx + 1] : (allKarts.length > 0 ? allKarts[0] : null);
+  const kartIdx = kart !== null ? ALL_KARTS.indexOf(kart) : -1;
+  const prevKart = kartIdx > 0 ? ALL_KARTS[kartIdx - 1] : ALL_KARTS[ALL_KARTS.length - 1];
+  const nextKart = kartIdx < ALL_KARTS.length - 1 ? ALL_KARTS[kartIdx + 1] : ALL_KARTS[0];
 
   useEffect(() => {
-    if (!kartId && allKarts.length > 0) goToKart(allKarts[0]);
-  }, [kartId, allKarts.length > 0]);
+    if (!kartId) goToKart(ALL_KARTS[0]);
+  }, [kartId]);
 
   useEffect(() => {
     if (!locked) return;
@@ -299,12 +300,13 @@ export default function Onboard() {
           </button>
           {selectorOpen && (
             <div className="absolute top-full right-0 mt-1 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1 z-50 min-w-[140px] max-h-64 overflow-y-auto">
-              {allKarts.map(k => {
+              {ALL_KARTS.map(k => {
                 const en = entries.find(e => e.kart === k);
+                const live = liveKarts.has(k);
                 return (
                   <button key={k} onClick={() => goToKart(k)}
                     className={`block w-full text-left px-4 py-2 text-sm transition-colors ${
-                      k === kart ? 'text-primary-400 bg-primary-500/10' : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                      k === kart ? 'text-primary-400 bg-primary-500/10' : live ? 'text-dark-300 hover:text-white hover:bg-dark-800' : 'text-dark-600 hover:text-dark-400 hover:bg-dark-800'
                     }`}>
                     <span className="font-bold">{k}</span>
                     {en && <span className="text-dark-500 ml-2">{en.pilot}</span>}
