@@ -233,13 +233,6 @@ export default function Onboard() {
           </svg>
         </Link>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-400 animate-pulse' : 'bg-dark-600'}`} />
-          <span className={`text-xs ${isLive ? 'text-green-400' : 'text-dark-500'}`}>
-            {isLive ? 'LIVE' : 'OFFLINE'}
-          </span>
-        </div>
-
         <div className="flex-1" />
 
         <button onClick={() => setLocked(l => !l)}
@@ -315,7 +308,8 @@ export default function Onboard() {
           </div>
         ) : !entry ? (
           <div className="text-center">
-            <p className="text-dark-600 text-sm">Не на трасі</p>
+            <p className="text-dark-400 text-lg font-medium">Карт {kart ?? '—'}</p>
+            <p className="text-dark-600 text-sm mt-1">Не бере участі в цьому заїзді</p>
           </div>
         ) : (
           <div className="w-full h-full flex px-16">
