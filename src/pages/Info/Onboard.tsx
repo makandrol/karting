@@ -15,12 +15,27 @@ interface CompData {
   sessions: { sessionId: string; phase: string }[];
 }
 
+type OnboardMode = 'quali' | 'race';
+
 function getRelatedPhases(phase: string): (p: string) => boolean {
   if (phase.startsWith('qualifying')) return p => p.startsWith('qualifying');
-  const raceMatch = phase.match(/^(race_\d+)_/);
+  const raceMatch = phase.match(/^(race_\d+)_/) || phase.match(/^(round_\d+)_/);
   if (raceMatch) {
     const prefix = raceMatch[1];
     return p => p.startsWith(prefix + '_');
+  }
+  return p => p === phase;
+}
+
+function getSamePhaseType(phase: string): (p: string) => boolean {
+  if (phase.startsWith('qualifying')) return p => p.startsWith('qualifying');
+  if (phase.startsWith('race_')) {
+    const raceNum = phase.match(/^(race_\d+)/)?.[1];
+    return raceNum ? p => p.startsWith(raceNum + '_') : p => p === phase;
+  }
+  if (phase.startsWith('round_')) {
+    const roundNum = phase.match(/^(round_\d+)/)?.[1];
+    return roundNum ? p => p.startsWith(roundNum + '_') : p => p === phase;
   }
   return p => p === phase;
 }
@@ -33,8 +48,14 @@ export default function Onboard() {
   const [selectorOpen, setSelectorOpen] = useState(false);
   const selectorRef = useRef<HTMLDivElement>(null);
   const [viewOpen, setViewOpen] = useState(false);
-  const [showSectors, setShowSectors] = useState(true);
   const viewRef = useRef<HTMLDivElement>(null);
+
+  // ── View toggles ──
+  const [showSectors, setShowSectors] = useState(true);
+  const [modeOverride, setModeOverride] = useState<OnboardMode | null>(null);
+  const [showPosition, setShowPosition] = useState<boolean | null>(null); // null = auto (on for race, off for quali)
+  const [showTimeGroup, setShowTimeGroup] = useState(false);
+  const [showTimeGlobal, setShowTimeGlobal] = useState(false);
 
   const sessionId = (collectorStatus as any)?.sessionId || null;
 
@@ -83,13 +104,16 @@ export default function Onboard() {
     return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler); };
   }, [viewOpen]);
 
-  // ── Competition position tracking ──
+  // ── Competition data ──
 
   const [compInfo, setCompInfo] = useState<CompSessionInfo>({ competitionId: null, format: null, phase: null });
-  const [compRanking, setCompRanking] = useState<{ pilot: string; bestLap: number }[]>([]);
   const [raceNumber, setRaceNumber] = useState<number | null>(null);
 
-  // Fetch competition info + race number for current session
+  // Rankings: group (current session) and global (all sessions of same phase type)
+  const [groupRanking, setGroupRanking] = useState<{ pilot: string; bestLap: number }[]>([]);
+  const [globalRanking, setGlobalRanking] = useState<{ pilot: string; bestLap: number }[]>([]);
+  const [qualiRanking, setQualiRanking] = useState<{ pilot: string; bestLap: number }[]>([]);
+
   useEffect(() => {
     if (!sessionId) { setCompInfo({ competitionId: null, format: null, phase: null }); setRaceNumber(null); return; }
     fetch(`${COLLECTOR_URL}/db/session-competition?session=${sessionId}`)
@@ -109,6 +133,17 @@ export default function Onboard() {
     }
   }, [sessionId]);
 
+  // Auto-detect mode
+  const autoMode: OnboardMode = useMemo(() => {
+    if (!compInfo.phase) return 'quali';
+    if (compInfo.phase.startsWith('qualifying')) return 'quali';
+    if (compInfo.phase.startsWith('race_') || compInfo.phase.startsWith('round_') || compInfo.phase.startsWith('final_')) return 'race';
+    return 'quali';
+  }, [compInfo.phase]);
+
+  const effectiveMode = modeOverride ?? autoMode;
+  const effectiveShowPos = showPosition ?? (effectiveMode === 'race');
+
   const sessionLabel = useMemo(() => {
     if (!sessionId) return null;
     if (compInfo.format && compInfo.phase) {
@@ -124,110 +159,138 @@ export default function Onboard() {
     return `Прокат${raceNumber != null ? ` ${raceNumber}` : ''}`;
   }, [sessionId, compInfo.format, compInfo.phase, raceNumber]);
 
-  // Fetch laps from all related sessions + build ranking
+  // ── Build rankings ──
+
+  const buildRanking = useCallback((laps: { pilot: string; lap_time: string }[], liveEntries: typeof entries) => {
+    const pilotBests = new Map<string, number>();
+    for (const l of laps) {
+      if (!l.lap_time) continue;
+      const sec = parseTime(l.lap_time);
+      if (sec === null || sec < 38) continue;
+      const prev = pilotBests.get(l.pilot);
+      if (prev === undefined || sec < prev) pilotBests.set(l.pilot, sec);
+    }
+    for (const e of liveEntries) {
+      const sec = parseTime(e.bestLap);
+      if (sec === null || sec < 38) continue;
+      const prev = pilotBests.get(e.pilot);
+      if (prev === undefined || sec < prev) pilotBests.set(e.pilot, sec);
+    }
+    return [...pilotBests.entries()]
+      .map(([pilot, bestLap]) => ({ pilot, bestLap }))
+      .sort((a, b) => a.bestLap - b.bestLap);
+  }, []);
+
   useEffect(() => {
-    if (!compInfo.competitionId || !compInfo.phase) { setCompRanking([]); return; }
+    if (!compInfo.competitionId || !compInfo.phase) {
+      setGroupRanking([]);
+      setGlobalRanking([]);
+      setQualiRanking([]);
+      return;
+    }
     let active = true;
 
-    (async () => {
+    const fetchRankings = async () => {
       try {
         const compRes = await fetch(`${COLLECTOR_URL}/competitions/${compInfo.competitionId}`);
         const comp: CompData = await compRes.json();
         const sessions = typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : comp.sessions;
 
+        // Group ranking: only sessions in the same group (same phase matcher)
         const isRelated = getRelatedPhases(compInfo.phase!);
-        const relatedSessionIds = sessions
-          .filter((s: any) => isRelated(s.phase))
-          .map((s: any) => s.sessionId);
+        const groupSessionIds = sessions.filter((s: any) => isRelated(s.phase)).map((s: any) => s.sessionId);
 
-        const allLaps: { pilot: string; lap_time: string }[] = [];
-        for (const sid of relatedSessionIds) {
+        const groupLaps: { pilot: string; lap_time: string }[] = [];
+        for (const sid of groupSessionIds) {
           const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()).catch(() => []);
-          allLaps.push(...laps);
+          groupLaps.push(...laps);
         }
-        // Also include current live entries best laps
-        const pilotBests = new Map<string, number>();
-        for (const l of allLaps) {
-          if (!l.lap_time) continue;
-          const sec = parseTime(l.lap_time);
-          if (sec === null || sec < 38) continue;
-          const prev = pilotBests.get(l.pilot);
-          if (prev === undefined || sec < prev) pilotBests.set(l.pilot, sec);
+
+        // Global ranking: all sessions of same phase type (e.g., all qualifying, or all race_1)
+        const isSameType = getSamePhaseType(compInfo.phase!);
+        const globalSessionIds = sessions.filter((s: any) => isSameType(s.phase)).map((s: any) => s.sessionId);
+
+        const globalLaps: { pilot: string; lap_time: string }[] = [];
+        for (const sid of globalSessionIds) {
+          if (groupSessionIds.includes(sid)) {
+            globalLaps.push(...groupLaps.filter(l => true));
+          } else {
+            const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()).catch(() => []);
+            globalLaps.push(...laps);
+          }
         }
-        // Merge with live entries (current session, might not be in DB yet)
-        for (const e of entries) {
-          const sec = parseTime(e.bestLap);
-          if (sec === null || sec < 38) continue;
-          const prev = pilotBests.get(e.pilot);
-          if (prev === undefined || sec < prev) pilotBests.set(e.pilot, sec);
+
+        // Quali ranking (for position gain/loss in race mode): all qualifying sessions
+        let qualiLaps: { pilot: string; lap_time: string }[] = [];
+        if (!compInfo.phase!.startsWith('qualifying')) {
+          const qualiSessionIds = sessions.filter((s: any) => s.phase?.startsWith('qualifying')).map((s: any) => s.sessionId);
+          for (const sid of qualiSessionIds) {
+            const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()).catch(() => []);
+            qualiLaps.push(...laps);
+          }
         }
 
         if (!active) return;
-        const ranked = [...pilotBests.entries()]
-          .map(([pilot, bestLap]) => ({ pilot, bestLap }))
-          .sort((a, b) => a.bestLap - b.bestLap);
-        setCompRanking(ranked);
+
+        setGroupRanking(buildRanking(groupLaps, entries));
+        setGlobalRanking(buildRanking(globalLaps, entries));
+        if (qualiLaps.length > 0) {
+          setQualiRanking(buildRanking(qualiLaps, []));
+        } else {
+          setQualiRanking([]);
+        }
       } catch {
-        if (active) setCompRanking([]);
+        if (active) { setGroupRanking([]); setGlobalRanking([]); setQualiRanking([]); }
       }
-    })();
+    };
 
-    const timer = setInterval(() => {
-      // Re-fetch periodically
-      fetch(`${COLLECTOR_URL}/competitions/${compInfo.competitionId}`)
-        .then(r => r.json())
-        .then(async (comp: CompData) => {
-          const sessions = typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : comp.sessions;
-          const isRelated = getRelatedPhases(compInfo.phase!);
-          const relatedSessionIds = sessions.filter((s: any) => isRelated(s.phase)).map((s: any) => s.sessionId);
-
-          const allLaps: { pilot: string; lap_time: string }[] = [];
-          for (const sid of relatedSessionIds) {
-            const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()).catch(() => []);
-            allLaps.push(...laps);
-          }
-          const pilotBests = new Map<string, number>();
-          for (const l of allLaps) {
-            if (!l.lap_time) continue;
-            const sec = parseTime(l.lap_time);
-            if (sec === null || sec < 38) continue;
-            const prev = pilotBests.get(l.pilot);
-            if (prev === undefined || sec < prev) pilotBests.set(l.pilot, sec);
-          }
-          for (const e of entries) {
-            const sec = parseTime(e.bestLap);
-            if (sec === null || sec < 38) continue;
-            const prev = pilotBests.get(e.pilot);
-            if (prev === undefined || sec < prev) pilotBests.set(e.pilot, sec);
-          }
-          setCompRanking([...pilotBests.entries()].map(([pilot, bestLap]) => ({ pilot, bestLap })).sort((a, b) => a.bestLap - b.bestLap));
-        })
-        .catch(() => {});
-    }, 5000);
-
+    fetchRankings();
+    const timer = setInterval(fetchRankings, 5000);
     return () => { active = false; clearInterval(timer); };
-  }, [compInfo.competitionId, compInfo.phase, entries]);
+  }, [compInfo.competitionId, compInfo.phase, entries, buildRanking]);
 
-  // Compute position string for current pilot
-  const positionDisplay = useMemo(() => {
-    if (!entry) return null;
-    const pilot = entry.pilot;
-
-    if (compInfo.competitionId && compRanking.length > 0) {
-      const idx = compRanking.findIndex(r => r.pilot === pilot);
-      const pos = idx >= 0 ? idx + 1 : null;
-      const total = compRanking.length;
-      return pos ? `${pos}/${total}` : `—/${total}`;
-    }
-
-    // No competition — position in current session by best lap
+  // For non-competition sessions: group ranking from live entries only
+  const liveGroupRanking = useMemo(() => {
     const withBest = entries
       .map(e => ({ pilot: e.pilot, best: parseTime(e.bestLap) }))
       .filter(e => e.best !== null && e.best >= 38) as { pilot: string; best: number }[];
     withBest.sort((a, b) => a.best - b.best);
-    const idx = withBest.findIndex(e => e.pilot === pilot);
-    return idx >= 0 ? String(idx + 1) : '—';
-  }, [entry, entries, compInfo.competitionId, compRanking]);
+    return withBest;
+  }, [entries]);
+
+  // ── Computed displays ──
+
+  const pilot = entry?.pilot ?? null;
+
+  const positionData = useMemo(() => {
+    if (!pilot) return null;
+    const ranking = compInfo.competitionId ? groupRanking : liveGroupRanking.map(r => ({ pilot: r.pilot, bestLap: r.best }));
+    const idx = ranking.findIndex(r => r.pilot === pilot);
+    const pos = idx >= 0 ? idx + 1 : null;
+    const total = ranking.length;
+
+    let startPos: number | null = null;
+    if (qualiRanking.length > 0) {
+      const qi = qualiRanking.findIndex(r => r.pilot === pilot);
+      if (qi >= 0) startPos = qi + 1;
+    }
+
+    const delta = (pos !== null && startPos !== null) ? startPos - pos : null;
+    return { pos, total, delta };
+  }, [pilot, compInfo.competitionId, groupRanking, liveGroupRanking, qualiRanking]);
+
+  const timeGroupData = useMemo(() => {
+    if (!pilot) return null;
+    const ranking = compInfo.competitionId ? groupRanking : liveGroupRanking.map(r => ({ pilot: r.pilot, bestLap: r.best }));
+    const idx = ranking.findIndex(r => r.pilot === pilot);
+    return { pos: idx >= 0 ? idx + 1 : null, total: ranking.length };
+  }, [pilot, compInfo.competitionId, groupRanking, liveGroupRanking]);
+
+  const timeGlobalData = useMemo(() => {
+    if (!pilot || !compInfo.competitionId) return null;
+    const idx = globalRanking.findIndex(r => r.pilot === pilot);
+    return { pos: idx >= 0 ? idx + 1 : null, total: globalRanking.length };
+  }, [pilot, compInfo.competitionId, globalRanking]);
 
   // ── Color calculations ──
 
@@ -251,6 +314,16 @@ export default function Onboard() {
   const s2Color = entry ? getTimeColor(entry.s2, entry.bestS2, overallBestS2) : 'none';
 
   const isLive = mode === 'live' && entries.length > 0;
+
+  // ── View toggle pill helper ──
+  const Pill = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
+    <button onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${
+        active ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
+      }`}>
+      {label}
+    </button>
+  );
 
   return (
     <div className="fixed inset-0 bg-dark-950 flex flex-col z-50 select-none">
@@ -338,6 +411,43 @@ export default function Onboard() {
           </button>
         )}
 
+        {/* Lap number — top right */}
+        {entry && (
+          <div className="absolute top-3 right-14 text-dark-500 font-mono z-10"
+               style={{ fontSize: 'clamp(1rem, 3vw, 1.5rem)' }}>
+            L{entry.lapNumber}
+          </div>
+        )}
+
+        {/* Position + time displays — top center */}
+        {entry && (effectiveShowPos || showTimeGroup || showTimeGlobal) && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-4 z-10">
+            {effectiveShowPos && positionData?.pos != null && (
+              <div className="flex items-center gap-1">
+                <span className="font-mono font-bold text-white" style={{ fontSize: 'clamp(1.2rem, 4vw, 2rem)' }}>
+                  P{positionData.pos}
+                </span>
+                {positionData.delta != null && positionData.delta !== 0 && (
+                  <span className={`font-mono font-bold ${positionData.delta > 0 ? 'text-green-400' : 'text-red-400'}`}
+                    style={{ fontSize: 'clamp(0.8rem, 2.5vw, 1.2rem)' }}>
+                    {positionData.delta > 0 ? '▲' : '▼'}{Math.abs(positionData.delta)}
+                  </span>
+                )}
+              </div>
+            )}
+            {showTimeGroup && timeGroupData?.pos != null && (
+              <span className="font-mono text-dark-400" style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1.3rem)' }}>
+                T={timeGroupData.pos}/{timeGroupData.total}
+              </span>
+            )}
+            {showTimeGlobal && timeGlobalData?.pos != null && (
+              <span className="font-mono text-dark-500" style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1.3rem)' }}>
+                Tgl={timeGlobalData.pos}/{timeGlobalData.total}
+              </span>
+            )}
+          </div>
+        )}
+
         {!isLive ? (
           <div className="text-center">
             <p className="text-dark-500 text-sm">Очікування заїзду...</p>
@@ -348,21 +458,9 @@ export default function Onboard() {
             <p className="text-dark-600 text-sm mt-1">Не бере участі в цьому заїзді</p>
           </div>
         ) : (
-          <div className="w-full h-full flex px-16">
-            {/* Left: position + lap */}
-            <div className="flex flex-col justify-center items-start shrink-0 mr-6">
-              <div className="font-mono font-bold text-white leading-none"
-                   style={{ fontSize: 'clamp(2.5rem, 8vw, 5rem)' }}>
-                {positionDisplay}
-              </div>
-              <div className="text-dark-500 font-mono mt-1"
-                   style={{ fontSize: 'clamp(1rem, 3vw, 1.5rem)' }}>
-                L{entry.lapNumber}
-              </div>
-            </div>
-
+          <div className="w-full h-full flex items-center justify-center px-16">
             {/* Center: lap time + sectors */}
-            <div className="flex-1 flex flex-col justify-center items-center">
+            <div className="flex flex-col justify-center items-center">
               <div className={`font-mono font-bold leading-none mb-4 ${COLOR_CLASSES[lapColor]}`}
                    style={{ fontSize: 'clamp(4rem, 15vw, 10rem)' }}>
                 {entry.lastLap ? toSeconds(entry.lastLap) : '—'}
@@ -394,13 +492,16 @@ export default function Onboard() {
           }`}>
           <span>Вид:</span>
           {viewOpen && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowSectors(v => !v); }}
-              className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${
-                showSectors ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
-              }`}>
-              Сект.
-            </button>
+            <>
+              <button onClick={(e) => { e.stopPropagation(); setModeOverride(effectiveMode === 'quali' ? 'race' : 'quali'); }}
+                className="px-1.5 py-0.5 rounded text-[9px] bg-dark-700 text-dark-300 transition-colors">
+                {effectiveMode === 'quali' ? 'Квала' : 'Гонка'}
+              </button>
+              <Pill label="Сект." active={showSectors} onClick={() => setShowSectors(v => !v)} />
+              <Pill label="Поз" active={effectiveShowPos} onClick={() => setShowPosition(v => v === null ? (effectiveMode !== 'race') : !v)} />
+              <Pill label="Час" active={showTimeGroup} onClick={() => setShowTimeGroup(v => !v)} />
+              <Pill label="Час гл" active={showTimeGlobal} onClick={() => setShowTimeGlobal(v => !v)} />
+            </>
           )}
         </button>
       </div>
