@@ -16,6 +16,12 @@ interface ScoringData {
     maxPilots: number;
     groups: Record<string, number[]>;
   }[];
+  positionPoints_CL?: {
+    label: string;
+    minPilots: number;
+    maxPilots: number;
+    groups: Record<string, number[]>;
+  }[];
   overtakePoints: {
     groupI_LL: OvertakeRule[];
     groupI_CL: OvertakeRule[];
@@ -112,10 +118,10 @@ export default function ScoringSettings() {
             </div>
           </div>
 
-          {/* Position points */}
+          {/* Position points — LL */}
           <div className="card p-0 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-dark-800">
-              <h3 className="text-white font-semibold text-sm">Бали за фінальну позицію</h3>
+              <h3 className="text-white font-semibold text-sm">Бали за фінальну позицію — Лайт Ліга</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-[10px]">
@@ -123,7 +129,7 @@ export default function ScoringSettings() {
                   <tr className="bg-dark-800/50">
                     <th className="px-2 py-1.5 text-left text-dark-300">Категорія</th>
                     <th className="px-2 py-1.5 text-center text-dark-300">Група</th>
-                    {Array.from({ length: 13 }, (_, i) => (
+                    {Array.from({ length: 14 }, (_, i) => (
                       <th key={i} className="px-1.5 py-1.5 text-center text-dark-400">{i + 1}</th>
                     ))}
                   </tr>
@@ -138,7 +144,7 @@ export default function ScoringSettings() {
                           </td>
                         )}
                         <td className="px-2 py-1 text-center text-purple-400 font-medium border-r border-dark-700">{group}</td>
-                        {Array.from({ length: 13 }, (_, pi) => (
+                        {Array.from({ length: 14 }, (_, pi) => (
                           <td key={pi} className="px-1.5 py-1 text-center font-mono text-dark-300">
                             {points[pi] !== undefined ? points[pi] : ''}
                           </td>
@@ -150,6 +156,47 @@ export default function ScoringSettings() {
               </table>
             </div>
           </div>
+
+          {/* Position points — CL */}
+          {data.positionPoints_CL && data.positionPoints_CL.length > 0 && (
+            <div className="card p-0 overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-dark-800">
+                <h3 className="text-white font-semibold text-sm">Бали за фінальну позицію — Ліга Чемпіонів</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[10px]">
+                  <thead>
+                    <tr className="bg-dark-800/50">
+                      <th className="px-2 py-1.5 text-left text-dark-300">Категорія</th>
+                      <th className="px-2 py-1.5 text-center text-dark-300">Група</th>
+                      {Array.from({ length: 13 }, (_, i) => (
+                        <th key={i} className="px-1.5 py-1.5 text-center text-dark-400">{i + 1}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.positionPoints_CL.map((cat, ci) =>
+                      Object.entries(cat.groups).map(([group, points], gi) => (
+                        <tr key={`cl-${cat.label}-${group}`} className={`border-b border-dark-800/50 ${gi === 0 && ci > 0 ? 'border-t-2 border-t-dark-600' : ''}`}>
+                          {gi === 0 && (
+                            <td rowSpan={Object.keys(cat.groups).length} className="px-2 py-1 text-dark-300 border-r border-dark-700 whitespace-nowrap">
+                              {cat.label}
+                            </td>
+                          )}
+                          <td className="px-2 py-1 text-center text-purple-400 font-medium border-r border-dark-700">{group}</td>
+                          {Array.from({ length: 13 }, (_, pi) => (
+                            <td key={pi} className="px-1.5 py-1 text-center font-mono text-dark-300">
+                              {points[pi] !== undefined ? points[pi] : ''}
+                            </td>
+                          ))}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Overtake points */}
           <div className="card p-4 space-y-4">

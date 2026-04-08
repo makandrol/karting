@@ -64,7 +64,7 @@ export function parseSessionEvents(rawEvents: any[]): {
       if (positions.size > 0) snapshots.push({ ts: ev.ts, positions });
     }
 
-    if (ev.event_type === 'lap' || ev.event_type === 'update') {
+    if (ev.event_type === 'lap') {
       const pos = d.team?.position ?? d.position;
       if (d.pilot && pos) {
         const newPos = Number(pos);
@@ -95,6 +95,8 @@ interface SessionReplayProps {
   startPositions?: Map<string, number>;
   raceGroup?: number;
   totalQualifiedPilots?: number;
+  competitionFormat?: string;
+  hidePoints?: boolean;
   defaultSortMode?: ReplaySortMode;
   sortMode?: ReplaySortMode;
   onSortModeChange?: (mode: ReplaySortMode) => void;
@@ -106,9 +108,10 @@ interface SessionReplayProps {
   showScrubber?: boolean;
   showTable?: boolean;
   renderContent?: (parts: { scrubber: React.ReactNode; table: React.ReactNode }) => React.ReactNode;
+  pilotSuffix?: Map<string, string>;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, competitionFormat, hidePoints, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent, pilotSuffix }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(durationSec);
   const [speed, setSpeed] = useState(1);
@@ -614,6 +617,9 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       raceGroup={raceGroup}
       totalQualifiedPilots={totalQualifiedPilots}
       isCompetitionRace={raceGroup != null && raceGroup > 0}
+      competitionFormat={competitionFormat}
+      hidePoints={hidePoints}
+      pilotSuffix={pilotSuffix}
     />
   );
 

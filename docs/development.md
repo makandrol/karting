@@ -58,8 +58,8 @@
 - `SessionsTable` — used everywhere for session lists
 - `DateNavigator` — single-select (Sessions) or multi-select (Karts, KartDetail)
 - `SessionReplay` — used on Timing (live), SessionDetail (replay), and CompetitionPage (live, `showScrubber=false`)
-- `TimingTable` — standalone timing table used inside SessionReplay. Column visibility (Все/Осн/Своє), sort modes, Start+arrows columns
-- `LapsByPilots` — used on Timing (isLive) and SessionDetail (with highlight)
+- `TimingTable` — standalone timing table used inside SessionReplay. Column visibility (Все/Осн/Своє), sort modes, Start+arrows columns, precise GAP, race/qualifying column orders
+- `LapsByPilots` — used on Timing (isLive) and SessionDetail (with highlight, position arrows for races)
 - `SessionTypeChanger` — used on Timing and SessionDetail
 - `TrackMap` with `static` prop for replay, without for live animation
 - `mergePilotNames()` applied per-session to avoid cross-session name leaks
@@ -114,7 +114,7 @@
 16. **Group count**: `results.groupCountOverride` — auto-detected from qualifying session count by pilot overlap
 17. **Phase filtering**: `getPhasesForFormat(format, groupCount)` filters phases by group count
 18. **EditableCell**: defined OUTSIDE parent component to prevent remount on re-render (critical!)
-19. **No new hooks in LeagueResults**: adding hooks causes "more hooks than previous render" error during HMR. Use `Promise.resolve().then()` for deferred state updates to parent instead of `useEffect`.
+19. **No new hooks in LeagueResults**: adding hooks causes "more hooks than previous render" error during HMR. Use `Promise.resolve().then()` for deferred state updates to parent instead of `useEffect`. ALL useMemo/useCallback/useState hooks MUST be placed BEFORE any early returns (e.g. `if (!scoring) return ...`).
 20. **Track sync**: Track changes from timing page sync to collector via `POST /track`, updates all future sessions
 21. **Competition track**: Track changes on competition page update all linked sessions via `POST /competitions/:id/update-track`
 22. **Tab preference**: Competition page saves tab preference (live/final) to localStorage (auth users) or sessionStorage (anon)
@@ -133,9 +133,29 @@
 35. **Kart color**: Use `KART_COLOR` constant from `utils/timing.ts` for all kart number displays. Never hardcode kart color in individual components.
 36. **Track selector**: All pages (competition, timing, session detail) use the same bordered frame style with flag icon + dropdown/number.
 37. **LapsByPilots pilot names**: Use `compactName()` (max 10 chars, surname >7 → truncate, ≤7 → with initial). NOT `shortName()`.
-38. **TimingTable columns**: `TB` is theoretical best (bestS1+bestS2), `Loss` is best lap minus TB. `Gap` is race-mode only (diff in best lap to pilot ahead). `MAIN_RACE_VISIBLE` excludes Start/arrows but includes Gap.
+38. **TimingTable columns**: `TB` is theoretical best (bestS1+bestS2), `Loss` is best lap minus TB. `Gap` is race-mode only (precise time distance via cumulative lap times). `MAIN_RACE_VISIBLE` excludes Start/arrows but includes Gap.
 39. **Localhost auth**: `auth.tsx` uses `localhostLoggedOut` state flag — `IS_LOCALHOST` auto-owner respects logout. `loginWithGoogle` resets the flag.
 40. **AccessSettings drag-reorder**: Uses `wasDragged` ref to prevent click from firing after drag. Always add `onDragEnd` to reset drag state.
+41. **Race sort priority**: In `getEntriesAtTime()`, race mode sorts by: lapNumber → snapshotPositions (ground truth) → pilotLastPos → progress → startPositions. Snapshot positions MUST have higher priority than progress-based sorting.
+42. **GAP calculation**: Uses `pilotCumLapMs` (cumulative lap time sums from raw data) for finish-line gap — NOT `pilotTimelines` (which depend on poll timestamps). S1 gap uses real S1 event timestamps. Format: `+X.XX` (hundredths, `Math.abs`, always `+`).
+43. **isCompetitionRace**: Use shared `extractCompetitionReplayProps(phase)` from `utils/session.ts` to determine if session is a competition race. Pass `isCompetitionRace` prop to TimingTable to control Квала/Гонка toggle visibility.
+44. **LapsByPilots position arrows**: For competition races, show ▲/▼ position change arrows next to each lap time. Uses `startPositions` for first lap comparison. Only show when `startPositions` prop is provided.
+45. **LapsByPilots default view**: Default view mode is "Осн" (not "Все").
+46. **LapsByPilots sort toggle**: "Сорт: Час/Поз" only visible for race sessions with `startPositions`. Toolbar order: Вид first, Сорт second.
+47. **Race column order**: TimingTable uses `RACE_ORDER` (Δ, P, Pilot, L, GAP, Kart, ...) in race mode, `DEFAULT_ORDER` in qualifying. Custom view ("Своє") inherits mode-specific order as default.
+48. **Pencil rename button**: Uses `onPointerDown` + `setTimeout(…, 10)` with IIFE closure to survive React re-renders from `currentEntries` updates. Do NOT use `onClick` — it gets lost during re-renders.
+49. **Session detail track change**: Uses `POST /db/update-sessions-track` with `sessionIds` array (includes merged session IDs). Admin-only endpoint.
+50. **TimingEntry.gap**: Optional `gap?: string | null` field on `TimingEntry` interface. Computed in `getEntriesAtTime()`, consumed by `TimingTable` for GAP column display.
+51. **Sprint scoring module**: `computeSprintStandings()` in `scoring.ts` handles Sprint format. `getSprintPositionPoints()` (40/37/35/33...) for races 1-2, `getSprintFinalPoints()` (180, -3 per pos) for finals. No overtake points. Speed points: 1pt per group per race for fastest.
+52. **Sprint group splitting**: `splitIntoGroupsSprint()` (snake/round-robin) for races 1-2. Finals use sequential tiered split (best→Pro, middle→Gold, rest→Light) — inline logic in `computeSprintStandings`.
+53. **Sprint results table has two rendering paths**: First table (compact) uses generic `cellForCol` + `RACE_COLS_H`. Second table (expanded) uses explicit `cv()`/`colVisible()` checks. When modifying Sprint columns, BOTH paths must be updated (column order, data cells, headers, sum logic).
+54. **Sprint column order**: "Бали" sub-header for Sprint: Швидк, Штрафи, Позиція, Сума. LL/CL: Позиція, Обгони, Штрафи, Сума. Changed in: `RACE_COLS_H`, `RACE_COLS`, `SUB_GROUPS`, `PRESET_COLS`, `ptsCols`, `allSubCols`, `th` headers, `td` cells.
+55. **Sprint cumulative sums**: Race 2 "Сума" = cumulative (q1_speed + r1_total + q2_speed + r2_total). Final "Сума" = `row.totalPoints`. Implemented in both cellForCol and explicit cv() paths.
+56. **Sprint final start positions**: Computed in two places: `CompetitionPage.tsx` (LiveSessionTable useMemo) and `utils/timing.ts` (fetchRaceStartPositions). Both compute cumulative points from all previous phases, sort, and do tiered sequential split. Phase detection: `final_group_N`.
+57. **Sprint phase naming**: `qualifying_N_group_X`, `race_N_group_X`, `final_group_X`. Race indices: `races[0]`=Race 1, `races[1]`=Race 2, `races[2]`=Final. Qualis: `qualis[0]`=Quali 1, `qualis[1]`=Quali 2.
+58. **Sort column highlighting**: `sortColId` useMemo + `isSortCol()` + `SORT_HL` class. Works for ALL formats. Must be defined BEFORE early returns in LeagueResults.
+59. **Clickable column headers**: `colSortInfo()`, `handleColClick()`, `sortableCursor()`. Sprint "Сума" for Race 2 → `race_2_cumsum`, for Final → `total`. Both clickable headers and "Сорт:" buttons bar coexist.
+60. **Auto-link protection**: Collector `autoLinkSessionToActiveCompetition()` checks if all expected phases are filled before linking. Even with `live` status, completed competitions won't grab new sessions.
 
 ## File Structure
 ```
@@ -149,7 +169,7 @@ karting/
 │   │   ├── detector.js      # Competition auto-detection
 │   │   └── schedule.js      # Weekly competition schedule
 │   ├── data/                # SQLite DB (not in git)
-│   └── package.json         # v0.3.6
+│   └── package.json         # v0.3.7
 ├── src/
 │   ├── components/
 │   │   ├── Layout/          # Header (fixed dropdowns, UserDropdown), Footer, Layout
@@ -190,7 +210,7 @@ karting/
 ├── public/data/
 │   └── scoring.json         # Scoring rules (editable via /admin/scoring)
 ├── docs/                    # This documentation
-├── package.json             # v0.9.222
+├── package.json             # v0.9.265
 ├── vite.config.ts
 ├── tailwind.config.js       # hoverOnlyWhenSupported: true
 ├── tsconfig.json            # resolveJsonModule enabled

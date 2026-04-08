@@ -308,6 +308,12 @@ Collector сервер отримує дані напряму з JSON API тай
 |-------|------|------|
 | POST | `/db/rename-pilot` | Перейменувати: `{ sessionId, oldName, newName }` |
 
+### Сесії
+
+| Метод | Шлях | Опис |
+|-------|------|------|
+| POST | `/db/update-sessions-track` | Змінити трек для кількох сесій: `{ sessionIds: string[], trackId: number }` |
+
 ---
 
 ## Важливі деталі

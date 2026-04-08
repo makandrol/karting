@@ -1,14 +1,15 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
-import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups } from '../../data/competitions';
+import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
 import { toSeconds, isValidSession, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 import LeagueResults from '../../components/Results/LeagueResults';
+import GonzalesResults from '../../components/Results/GonzalesResults';
 import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
-import { parseLapSec } from '../../utils/scoring';
+import { parseLapSec, getSprintPositionPoints } from '../../utils/scoring';
 import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import SessionReplay, { parseSessionEvents } from '../../components/Timing/SessionReplay';
@@ -161,17 +162,18 @@ export default function CompetitionPage() {
     } catch {}
   };
 
-  const groupCount = competition.results?.groupCountOverride ?? null;
-  const effectivePhases = getPhasesForFormat(competition.format, groupCount);
+  const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? autoGroups;
+  const gonzalesRoundCount = competition.format === 'gonzales' ? (competition.results?.gonzalesRoundCount ?? null) : null;
+  const effectivePhases = getPhasesForFormat(competition.format, groupCount, gonzalesRoundCount);
   const totalPhases = effectivePhases.length;
   const linkedPhases = competition.sessions.filter(s => s.phase).length;
   const allPhasesLinked = totalPhases > 0 && linkedPhases >= totalPhases;
 
   return (
     <div className="space-y-4">
-      {(competition.format === 'light_league' || competition.format === 'champions_league') && (
+      {(competition.format === 'gonzales' || competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
         <TableLayoutBar pageId="competition" sections={[
-          ...PAGE_SECTIONS.competition,
+          ...PAGE_SECTIONS.competition.filter(s => s.id !== 'kartManager' || competition.format === 'gonzales'),
           ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
         ]} />
       )}
@@ -198,14 +200,14 @@ export default function CompetitionPage() {
                 ))}
               </select>
             </div>
-            {(competition.format === 'light_league' || competition.format === 'champions_league') && (
+            {(competition.format === 'gonzales' || competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
               <CompetitionParams
                 pilotCount={pilotCount}
                 pilotOverride={competition.results?.totalPilotsOverride ?? null}
                 pilotLocked={competition.results?.totalPilotsLocked ?? false}
                 groupOverride={competition.results?.groupCountOverride ?? null}
                 autoGroups={autoGroups}
-                maxGroups={competition.format === 'champions_league' ? 2 : 3}
+                maxGroups={competition.format === 'champions_league' ? 2 : competition.format === 'gonzales' ? 2 : 3}
                 canManage={canManage}
                 onSave={async (partial) => {
                   try {
@@ -213,12 +215,63 @@ export default function CompetitionPage() {
                     if (!res.ok) return;
                     const comp = await res.json();
                     const currentResults = comp.results || {};
-                    await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                      body: JSON.stringify({ results: { ...currentResults, ...partial } }),
-                    });
-                    setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+                    const newResults = { ...currentResults, ...partial };
+
+                    const groupChanged = 'groupCountOverride' in partial;
+                    const pilotChanged = 'totalPilotsOverride' in partial || 'totalPilotsLocked' in partial;
+
+                    if (groupChanged || pilotChanged) {
+                      const newGroupCount = partial.groupCountOverride !== undefined
+                        ? (partial.groupCountOverride ?? currentResults.autoDetectedGroups ?? autoGroups)
+                        : (currentResults.groupCountOverride ?? currentResults.autoDetectedGroups ?? autoGroups);
+                      const gonzRoundCount = competition.format === 'gonzales' ? (currentResults.gonzalesRoundCount ?? null) : null;
+                      const newPhases = getPhasesForFormat(competition.format, newGroupCount, gonzRoundCount);
+                      const currentSessions: { sessionId: string; phase: string | null }[] = comp.sessions || [];
+                      const reassigned = currentSessions.map((s: { sessionId: string; phase: string | null }, idx: number) => ({
+                        sessionId: s.sessionId,
+                        phase: idx < newPhases.length ? newPhases[idx].id : s.phase,
+                      }));
+
+                      const filledCount = Math.min(reassigned.length, newPhases.length);
+                      if (filledCount < newPhases.length && reassigned.length > 0) {
+                        const lastTs = Math.max(...reassigned.map(s => {
+                          const m = s.sessionId.match(/session-(\d+)/);
+                          return m ? parseInt(m[1]) : 0;
+                        }));
+                        const dateObj = new Date(lastTs);
+                        const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                        try {
+                          const sessRes = await fetch(`${COLLECTOR_URL}/db/sessions?date=${dateStr}`);
+                          if (sessRes.ok) {
+                            const daySessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null }[] = await sessRes.json();
+                            const linkedIds = new Set(reassigned.map(s => s.sessionId));
+                            const available = daySessions
+                              .filter(s => s.end_time && isValidSession(s) && (!s.competition_id || s.competition_id === competition.id) && !linkedIds.has(s.id))
+                              .filter(s => s.start_time > lastTs)
+                              .sort((a, b) => a.start_time - b.start_time);
+
+                            for (let i = filledCount; i < newPhases.length && (i - filledCount) < available.length; i++) {
+                              reassigned.push({ sessionId: available[i - filledCount].id, phase: newPhases[i].id });
+                            }
+                          }
+                        } catch {}
+                      }
+
+                      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                        body: JSON.stringify({ results: newResults, sessions: reassigned }),
+                      });
+                      setCompetition(prev => prev ? { ...prev, results: newResults, sessions: reassigned } : prev);
+                      if (reassigned.length > currentSessions.length) fetchCompSessions(reassigned);
+                    } else {
+                      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                        body: JSON.stringify({ results: newResults }),
+                      });
+                      setCompetition(prev => prev ? { ...prev, results: newResults } : prev);
+                    }
                   } catch {}
                 }}
               />
@@ -261,6 +314,7 @@ export default function CompetitionPage() {
 
 function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void }) {
   const { isOwner } = useAuth();
+  const { isSectionVisible } = useLayoutPrefs();
   const [competition, setCompetition] = useState(initialCompetition);
   const [sessionLaps, setSessionLaps] = useState<Map<string, SessionLap[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -384,11 +438,79 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   if (loading) return <div className="card text-center py-6 text-dark-500">Завантаження даних...</div>;
   if (competition.sessions.length === 0) return <div className="card text-center py-12 text-dark-500">Немає прив'язаних заїздів</div>;
 
+  const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? 1;
+
   if (competition.format === 'gonzales') {
-    return <GonzalesLiveTable competition={competition} sessionLaps={sessionLaps} />;
+    const isScrubbing = scrubTime !== null;
+
+    const gonzalesResultsEl = (
+      <GonzalesResults
+        key="leaguePoints"
+        competitionId={competition.id}
+        sessions={competition.sessions}
+        sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+        liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+        liveEnabled={!isScrubbing && liveEnabled}
+        onToggleLive={() => { if (isScrubbing) { setScrubTime(null); setLiveEnabled(true); } else setLiveEnabled(v => !v); }}
+        initialExcludedPilots={competition.results?.excludedPilots}
+        excludedLapKeys={competition.results?.excludedLaps}
+        gonzalesConfig={competition.results?.gonzalesConfig}
+        onSaveResults={async (partial) => {
+          try {
+            const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+            if (!res.ok) return;
+            const comp = await res.json();
+            const currentResults = comp.results || {};
+            await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+              body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+            });
+            setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+          } catch {}
+        }}
+        onPilotCount={onPilotCount}
+        onAutoGroups={onAutoGroups}
+        showKartManager={isSectionVisible('competition', 'kartManager')}
+      />
+    );
+
+    const liveSessionEl = (
+      <LiveSessionTable
+        key="liveSession"
+        competition={competition}
+        liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
+        liveEntries={isScrubbing ? [] : liveEntries}
+        liveTeams={isScrubbing ? [] : liveTeams}
+        sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
+        compSessions={compSessions}
+        isScrubbing={isScrubbing}
+      />
+    );
+
+    const sessionsEl = compSessions.length > 0 ? (
+      <div key="sessions" className="card p-0 overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-dark-800">
+          <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
+        </div>
+        <SessionsTable sessions={compSessions} />
+      </div>
+    ) : null;
+
+    const sectionMap: Record<string, React.ReactNode> = {
+      leaguePoints: gonzalesResultsEl,
+      liveSession: liveSessionEl,
+      sessions: sessionsEl,
+    };
+
+    return (
+      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled} groupCount={groupCount}>
+        {sectionMap}
+      </CompetitionLayoutWrapper>
+    );
   }
 
-  if (competition.format === 'light_league' || competition.format === 'champions_league') {
+  if (competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') {
     const isScrubbing = scrubTime !== null;
 
     const leagueResultsEl = (
@@ -459,7 +581,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     };
 
     return (
-      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled}>
+      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled} groupCount={groupCount}>
         {sectionMap}
       </CompetitionLayoutWrapper>
     );
@@ -471,7 +593,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     <div className="space-y-4">
       {competition.sessions.map(s => {
         const laps = sessionLaps.get(s.sessionId) || [];
-        const phaseLabel = s.phase ? getPhaseLabel(competition.format, s.phase) : 'Невизначений етап';
+        const phaseLabel = s.phase ? getPhaseLabel(competition.format, s.phase, groupCount) : 'Невизначений етап';
         const pilotBest = new Map<string, { pilot: string; kart: number; bestTime: number; bestTimeStr: string }>();
         for (const l of laps) {
           if (!l.lap_time) continue;
@@ -523,13 +645,14 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   );
 }
 
-function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, children }: {
+function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, groupCount, children }: {
   sessionTimes: { sessionId: string; phase: string | null; startTime: number; endTime: number | null }[];
   competition: Competition;
   scrubTime: number | null;
   setScrubTime: (t: number | null) => void;
   allSessionsEnded: boolean;
   setLiveEnabled: (v: boolean | ((prev: boolean) => boolean)) => void;
+  groupCount?: number;
   children: Record<string, ReactNode>;
 }) {
   const { isSectionVisible, getPageLayout } = useLayoutPrefs();
@@ -544,6 +667,7 @@ function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScr
         <CompetitionTimeline
           key="timeline"
           format={competition.format}
+          groupCount={groupCount}
           sessions={competition.sessions}
           sessionTimes={sessionTimes}
           currentTime={scrubTime}
@@ -573,6 +697,22 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
   const pilotsAuto = pilotOverride === null;
   const groupsAuto = groupOverride === null;
 
+  const [pilotDraft, setPilotDraft] = useState<string | null>(null);
+  const [groupDraft, setGroupDraft] = useState<string | null>(null);
+
+  const commitPilots = () => {
+    if (pilotDraft === null) return;
+    const v = parseInt(pilotDraft);
+    if (!isNaN(v) && v > 0) onSave({ totalPilotsOverride: v, totalPilotsLocked: true });
+    setPilotDraft(null);
+  };
+  const commitGroups = () => {
+    if (groupDraft === null) return;
+    const v = parseInt(groupDraft);
+    if (!isNaN(v) && v > 0 && v <= maxGroups) onSave({ groupCountOverride: v });
+    setGroupDraft(null);
+  };
+
   return (
     <div className="flex items-center gap-3 text-xs">
       {/* Pilots */}
@@ -580,10 +720,12 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
         <span title="Пілоти">👥</span>
         {canManage ? (
           <input type="text" inputMode="numeric"
-            value={effectivePilots}
-            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) onSave({ totalPilotsOverride: v, totalPilotsLocked: true }); }}
+            value={pilotDraft !== null ? pilotDraft : effectivePilots}
+            onChange={e => setPilotDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commitPilots(); }}
+            onBlur={commitPilots}
             disabled={pilotsAuto}
-            className={`w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
+            className={`w-8 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
         ) : (
           <span className="text-dark-300 font-mono">{effectivePilots || '—'}</span>
         )}
@@ -601,10 +743,12 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
         <span title="Групи">🔢</span>
         {canManage ? (
           <input type="text" inputMode="numeric"
-            value={effectiveGroups}
-            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0 && v <= maxGroups) onSave({ groupCountOverride: v }); }}
+            value={groupDraft !== null ? groupDraft : effectiveGroups}
+            onChange={e => setGroupDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commitGroups(); }}
+            onBlur={commitGroups}
             disabled={groupsAuto}
-            className={`w-6 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${groupsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
+            className={`w-8 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${groupsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
         ) : (
           <span className="text-dark-300 font-mono">{effectiveGroups}</span>
         )}
@@ -615,112 +759,6 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
             А
           </button>
         )}
-      </div>
-    </div>
-  );
-}
-
-function GonzalesLiveTable({ competition, sessionLaps }: { competition: Competition; sessionLaps: Map<string, SessionLap[]> }) {
-  const sessions = competition.sessions;
-  const kartNumbers: number[] = [];
-  for (const s of sessions) {
-    const laps = sessionLaps.get(s.sessionId) || [];
-    for (const l of laps) {
-      if (!kartNumbers.includes(l.kart)) kartNumbers.push(l.kart);
-    }
-  }
-  kartNumbers.sort((a, b) => a - b);
-
-  // For each round (session), get each pilot's best of 2 laps on their kart
-  // Build: pilot → kart → best lap time
-  const pilotKartBest = new Map<string, Map<number, number>>();
-
-  for (const s of sessions) {
-    const laps = sessionLaps.get(s.sessionId) || [];
-    // Group by pilot in this session
-    const pilotLaps = new Map<string, SessionLap[]>();
-    for (const l of laps) {
-      if (!pilotLaps.has(l.pilot)) pilotLaps.set(l.pilot, []);
-      pilotLaps.get(l.pilot)!.push(l);
-    }
-    for (const [pilot, pLaps] of pilotLaps) {
-      if (!pilotKartBest.has(pilot)) pilotKartBest.set(pilot, new Map());
-      const kartMap = pilotKartBest.get(pilot)!;
-      const kart = pLaps[0].kart;
-      let best = Infinity;
-      for (const l of pLaps) {
-        const sec = parseLapSec(l.lap_time);
-        if (sec !== null && sec >= 38 && sec < best) best = sec;
-      }
-      if (best < Infinity) {
-        const existing = kartMap.get(kart);
-        if (!existing || best < existing) kartMap.set(kart, best);
-      }
-    }
-  }
-
-  // Build rows
-  const rows: { pilot: string; kartTimes: (number | null)[]; average: number | null; completedKarts: number }[] = [];
-  for (const [pilot, kartMap] of pilotKartBest) {
-    const kartTimes = kartNumbers.map(k => kartMap.get(k) ?? null);
-    const validTimes = kartTimes.filter((t): t is number => t !== null);
-    const average = validTimes.length > 0 ? validTimes.reduce((a, b) => a + b, 0) / validTimes.length : null;
-    rows.push({ pilot, kartTimes, average, completedKarts: validTimes.length });
-  }
-
-  rows.sort((a, b) => {
-    if (a.average === null && b.average === null) return 0;
-    if (a.average === null) return 1;
-    if (b.average === null) return -1;
-    return a.average - b.average;
-  });
-
-  const overallBestPerKart = kartNumbers.map((_, ki) => {
-    let best = Infinity;
-    for (const r of rows) { const t = r.kartTimes[ki]; if (t !== null && t < best) best = t; }
-    return best < Infinity ? best : null;
-  });
-
-  if (rows.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
-
-  return (
-    <div className="card p-0 overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-dark-800">
-        <h3 className="text-white font-semibold text-sm">Гонзалес — Зведена таблиця</h3>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-[10px]">
-          <thead>
-            <tr className="table-header">
-              <th className="table-cell text-center w-6">#</th>
-              <th className="table-cell text-left min-w-[100px]">Пілот</th>
-              {kartNumbers.map(k => (
-                <th key={k} className="table-cell text-center min-w-[60px]">Карт {k}</th>
-              ))}
-              <th className="table-cell text-center min-w-[70px] font-bold">Середнє</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.pilot} className="table-row">
-                <td className="table-cell text-center font-mono text-white font-bold">{i + 1}</td>
-                <td className="table-cell text-left text-white">{r.pilot}</td>
-                {r.kartTimes.map((t, ki) => {
-                  if (t === null) return <td key={ki} className="table-cell text-center text-dark-700">—</td>;
-                  const isBestOnKart = overallBestPerKart[ki] !== null && Math.abs(t - overallBestPerKart[ki]!) < 0.002;
-                  return (
-                    <td key={ki} className={`table-cell text-center font-mono ${isBestOnKart ? 'text-purple-400 font-bold' : 'text-dark-300'}`}>
-                      {t.toFixed(3)}
-                    </td>
-                  );
-                })}
-                <td className={`table-cell text-center font-mono font-bold ${i === 0 && r.average !== null ? 'text-purple-400' : 'text-green-400'}`}>
-                  {r.average !== null ? r.average.toFixed(3) : '—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </div>
   );
@@ -801,9 +839,12 @@ function saveWithExpiry(storage: Storage, key: string, value: any) {
   try { storage.setItem(key, JSON.stringify({ value, expiresAt: endOfDay.getTime() })); } catch {}
 }
 
-function CompetitionList({ competitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
+function CompetitionList({ competitions: initialCompetitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
   const { user } = useAuth();
   const storage = user ? localStorage : sessionStorage;
+  const [competitions, setCompetitions] = useState(initialCompetitions);
+
+  useEffect(() => { setCompetitions(initialCompetitions); }, [initialCompetitions]);
 
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => {
     if (initialFilter) return new Set([initialFilter]);
@@ -1036,7 +1077,7 @@ function CompetitionList({ competitions, initialFilter }: { competitions: Compet
       ) : (
         <div className="space-y-2">
           {filtered.map(c => (
-            <CompetitionListItem key={c.id} competition={c} type={c.format} />
+            <CompetitionListItem key={c.id} competition={c} type={c.format} onDelete={(id) => setCompetitions(prev => prev.filter(x => x.id !== id))} />
           ))}
         </div>
       )}
@@ -1053,6 +1094,15 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   compSessions: SessionTableRow[];
   isScrubbing: boolean;
 }) {
+  const excludedLapSet = useMemo(() => new Set(competition.results?.excludedLaps || []), [competition.results?.excludedLaps]);
+  const effectiveLaps = useMemo(() => {
+    if (excludedLapSet.size === 0) return sessionLaps;
+    const filtered = new Map<string, SessionLap[]>();
+    for (const [sid, laps] of sessionLaps) {
+      filtered.set(sid, laps.filter(l => !excludedLapSet.has(`${sid}|${l.pilot}|${l.ts}`)));
+    }
+    return filtered;
+  }, [sessionLaps, excludedLapSet]);
   const currentPhase = useMemo(() => {
     if (!liveSessionId) return null;
     const s = competition.sessions.find(cs => cs.sessionId === liveSessionId);
@@ -1060,7 +1110,8 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   }, [competition.sessions, liveSessionId]);
 
   const isQualifying = currentPhase?.startsWith('qualifying') ?? false;
-  const isRace = currentPhase?.startsWith('race_') ?? false;
+  const isRace = (currentPhase?.startsWith('race_') || currentPhase?.startsWith('final_') || currentPhase?.startsWith('round_')) ?? false;
+  const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? undefined;
 
   const sessionEnded = useMemo(() => {
     if (!liveSessionId || isScrubbing) return false;
@@ -1068,7 +1119,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     return cs ? cs.end_time !== null && cs.end_time !== undefined : false;
   }, [liveSessionId, compSessions, isScrubbing]);
 
-  const laps = liveSessionId ? (sessionLaps.get(liveSessionId) || []) : [];
+  const laps = liveSessionId ? (effectiveLaps.get(liveSessionId) || []) : [];
   const hasData = laps.length > 0 || liveEntries.length > 0;
 
   const [events, setEvents] = useState<any[]>([]);
@@ -1125,19 +1176,27 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   const { raceGroup, isRace: isRacePhase } = useMemo(() => extractCompetitionReplayProps(currentPhase), [currentPhase]);
 
   const isCL = competition.format === 'champions_league';
+  const isSprint = competition.format === 'sprint';
   const excludedPilots = new Set<string>(competition.results?.excludedPilots || []);
 
   const { startPositions, totalPilots } = useMemo(() => {
     if (!isRace) return { startPositions: undefined, totalPilots: 0 };
 
-    const raceMatch = currentPhase!.match(/^race_(\d+)_group_(\d+)$/);
-    const raceNum = raceMatch ? parseInt(raceMatch[1]) : 1;
-    const groupNum = raceMatch ? parseInt(raceMatch[2]) : 1;
+    // Gonzales rounds are time attacks — no start positions
+    if (currentPhase?.startsWith('round_')) return { startPositions: undefined, totalPilots: 0 };
 
-    const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith('qualifying'));
+    const raceMatch = currentPhase!.match(/^race_(\d+)_group_(\d+)$/);
+    const finalMatch = !raceMatch ? currentPhase!.match(/^final_group_(\d+)$/) : null;
+    const raceNum = raceMatch ? parseInt(raceMatch[1]) : (finalMatch ? 3 : 1);
+    const groupNum = raceMatch ? parseInt(raceMatch[2]) : (finalMatch ? parseInt(finalMatch[1]) : 1);
+
+    const isSprint = competition.format === 'sprint';
+
+    const qualiPhasePrefix = isSprint ? `qualifying_${raceNum}_` : 'qualifying';
+    const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith(qualiPhasePrefix));
     const qualiData = new Map<string, { bestTime: number; pilot: string }>();
     for (const qs of qualiSessions) {
-      for (const l of (sessionLaps.get(qs.sessionId) || [])) {
+      for (const l of (effectiveLaps.get(qs.sessionId) || [])) {
         const sec = parseLapSec(l.lap_time);
         if (sec === null || sec < 38) continue;
         const ex = qualiData.get(l.pilot);
@@ -1149,14 +1208,155 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
       .sort((a, b) => a[1].bestTime - b[1].bestTime);
     const maxQualified = isCL ? 24 : 36;
     const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
-    const maxGroups = competition.results?.groupCountOverride ?? (qualifiedPilots.length <= 13 ? 1 : qualifiedPilots.length <= 26 ? 2 : 3);
+
+    if (isSprint) {
+      if (finalMatch) {
+        const qualiSessions1 = competition.sessions.filter(s => s.phase?.startsWith('qualifying_1_'));
+        const qualiSessions2 = competition.sessions.filter(s => s.phase?.startsWith('qualifying_2_'));
+        const raceSessions1 = competition.sessions.filter(s => s.phase?.startsWith('race_1_'));
+        const raceSessions2 = competition.sessions.filter(s => s.phase?.startsWith('race_2_'));
+
+        const bestTimeMap = (sessions: typeof qualiSessions1) => {
+          const map = new Map<string, number>();
+          for (const qs of sessions) {
+            for (const l of (effectiveLaps.get(qs.sessionId) || [])) {
+              const sec = parseLapSec(l.lap_time);
+              if (sec === null || sec < 38) continue;
+              const ex = map.get(l.pilot);
+              if (!ex || sec < ex) map.set(l.pilot, sec);
+            }
+          }
+          return map;
+        };
+
+        const q1Times = bestTimeMap(qualiSessions1);
+        const q2Times = bestTimeMap(qualiSessions2);
+        const allPilots = new Set([...q1Times.keys(), ...q2Times.keys()]);
+
+        const raceFinishOrder = (sessions: typeof raceSessions1) => {
+          const byGroup = new Map<number, { pilot: string; lapCount: number; lastPos: number; lastTs: number; bestTime: number }[]>();
+          for (const rs of sessions) {
+            const gMatch = rs.phase?.match(/group_(\d+)/);
+            const gNum = gMatch ? parseInt(gMatch[1]) : 0;
+            for (const l of (effectiveLaps.get(rs.sessionId) || [])) {
+              if (excludedPilots.has(l.pilot)) continue;
+              const sec = parseLapSec(l.lap_time);
+              if (sec === null || sec < 38) continue;
+              let arr = byGroup.get(gNum);
+              if (!arr) { arr = []; byGroup.set(gNum, arr); }
+              const ex = arr.find(p => p.pilot === l.pilot);
+              if (!ex) {
+                arr.push({ pilot: l.pilot, lapCount: 1, lastPos: l.position ?? 99, lastTs: l.ts, bestTime: sec });
+              } else {
+                ex.lapCount++;
+                if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPos = l.position ?? 99; }
+                if (sec < ex.bestTime) ex.bestTime = sec;
+              }
+            }
+          }
+          const finishMap = new Map<string, { finishPos: number; group: number; bestTime: number }>();
+          for (const [group, pilots] of byGroup) {
+            pilots.sort((a, b) => {
+              if (a.lapCount !== b.lapCount) return b.lapCount - a.lapCount;
+              if (a.lastPos !== b.lastPos) return a.lastPos - b.lastPos;
+              return a.lastTs - b.lastTs;
+            });
+            pilots.forEach((p, i) => finishMap.set(p.pilot, { finishPos: i + 1, group, bestTime: p.bestTime }));
+          }
+          return finishMap;
+        };
+
+        const r1Finish = raceFinishOrder(raceSessions1);
+        const r2Finish = raceFinishOrder(raceSessions2);
+
+        const speedPerGroup = (finishData: Map<string, { finishPos: number; group: number; bestTime: number }>) => {
+          const groups = new Map<number, { pilot: string; time: number }[]>();
+          for (const [pilot, d] of finishData) {
+            let arr = groups.get(d.group);
+            if (!arr) { arr = []; groups.set(d.group, arr); }
+            arr.push({ pilot, time: d.bestTime });
+          }
+          const speedMap = new Map<string, number>();
+          for (const [, pilots] of groups) {
+            pilots.sort((a, b) => a.time - b.time);
+            if (pilots.length > 0) speedMap.set(pilots[0].pilot, 1);
+          }
+          return speedMap;
+        };
+
+        const r1Speed = speedPerGroup(r1Finish);
+        const r2Speed = speedPerGroup(r2Finish);
+
+        const q1Sorted = [...q1Times.entries()].filter(([p]) => !excludedPilots.has(p)).sort((a, b) => a[1] - b[1]);
+        const q1Fastest = q1Sorted.length > 0 ? q1Sorted[0][0] : null;
+        const q2Sorted = [...q2Times.entries()].filter(([p]) => !excludedPilots.has(p)).sort((a, b) => a[1] - b[1]);
+        const q2Fastest = q2Sorted.length > 0 ? q2Sorted[0][0] : null;
+
+        const pointsMap = new Map<string, number>();
+        for (const pilot of allPilots) {
+          if (excludedPilots.has(pilot)) continue;
+          let pts = 0;
+          if (pilot === q1Fastest) pts += 1;
+          if (pilot === q2Fastest) pts += 1;
+          const r1 = r1Finish.get(pilot);
+          if (r1) pts += getSprintPositionPoints(r1.finishPos) + (r1Speed.get(pilot) || 0);
+          const r2 = r2Finish.get(pilot);
+          if (r2) pts += getSprintPositionPoints(r2.finishPos) + (r2Speed.get(pilot) || 0);
+          pointsMap.set(pilot, pts);
+        }
+
+        const sorted = [...pointsMap.entries()]
+          .sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1];
+            const q1a = q1Times.get(a[0]) ?? Infinity;
+            const q1b = q1Times.get(b[0]) ?? Infinity;
+            return q1a - q1b;
+          });
+
+        const n = sorted.length;
+        const maxGrps = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? (n <= 14 ? 1 : n <= 29 ? 2 : 3);
+        const buckets: string[][] = Array.from({ length: maxGrps }, () => []);
+        const baseSize = Math.floor(n / maxGrps);
+        let rem = n % maxGrps;
+        let bIdx = 0;
+        for (let g = 0; g < maxGrps; g++) {
+          const size = baseSize + (rem > 0 ? 1 : 0);
+          if (rem > 0) rem--;
+          buckets[g] = sorted.slice(bIdx, bIdx + size).map(([p]) => p);
+          bIdx += size;
+        }
+
+        const sp = new Map<string, number>();
+        if (groupNum <= buckets.length) {
+          buckets[groupNum - 1].forEach((p, pi) => { sp.set(p, pi + 1); });
+        }
+
+        const totalPilotsOverride = competition.results?.totalPilotsOverride ?? null;
+        const pilotsLocked = competition.results?.totalPilotsLocked ?? false;
+        const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : n;
+        return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
+      }
+
+      const groups = splitIntoGroupsSprint(qualifiedPilots);
+      const sp = new Map<string, number>();
+      if (groupNum <= groups.length) {
+        const g = groups[groupNum - 1];
+        g.pilots.forEach((p, pi) => { sp.set(p, pi + 1); });
+      }
+      const totalPilotsOverride = competition.results?.totalPilotsOverride ?? null;
+      const pilotsLocked = competition.results?.totalPilotsLocked ?? false;
+      const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
+      return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
+    }
+
+    const maxGroups = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? (qualifiedPilots.length <= 13 ? 1 : qualifiedPilots.length <= 26 ? 2 : 3);
 
     let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
     for (let r = 1; r < raceNum; r++) {
       const rSessions = competition.sessions.filter(s => s.phase?.startsWith(`race_${r}_`));
       const raceTimes: { pilot: string; time: number }[] = [];
       for (const rs of rSessions) {
-        for (const l of (sessionLaps.get(rs.sessionId) || [])) {
+        for (const l of (effectiveLaps.get(rs.sessionId) || [])) {
           const sec = parseLapSec(l.lap_time);
           if (sec === null || sec < 38) continue;
           const ex = raceTimes.find(rt => rt.pilot === l.pilot);
@@ -1183,7 +1383,41 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
 
     return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
-  }, [competition, sessionLaps, currentPhase, excludedPilots, isCL]);
+  }, [competition, effectiveLaps, currentPhase, excludedPilots, isCL]);
+
+  const gonzalesPilotSuffix = useMemo<Map<string, string>>(() => {
+    if (competition.format !== 'gonzales' || !currentPhase?.startsWith('round_')) return new Map();
+    const cfg = competition.results?.gonzalesConfig;
+    const pilotStartSlots: Record<string, number> = cfg?.pilotStartSlots || {};
+    const kartListCfg: number[] = cfg?.kartList || [];
+
+    const roundMatch = currentPhase.match(/^round_(\d+)/);
+    if (!roundMatch) return new Map();
+    const roundNum = parseInt(roundMatch[1]) - 1;
+
+    const allPilots = Object.keys(pilotStartSlots);
+    if (allPilots.length === 0 || kartListCfg.length === 0) return new Map();
+
+    const slots = buildGonzalesRotation(kartListCfg, allPilots.length);
+    const kartToPilot = new Map<number, string>();
+    for (const pilot of allPilots) {
+      const startSlot = pilotStartSlots[pilot];
+      if (startSlot == null || startSlot < 0) continue;
+      const slot = getGonzalesKartForRound(slots, startSlot, roundNum);
+      if (slot.kart !== null) kartToPilot.set(slot.kart, pilot);
+    }
+
+    const suffix = new Map<string, string>();
+    for (const entry of laps) {
+      if (entry.kart && kartToPilot.has(entry.kart)) {
+        const guessedPilot = kartToPilot.get(entry.kart)!;
+        if (entry.pilot !== guessedPilot) {
+          suffix.set(entry.pilot, `(${guessedPilot}?)`);
+        }
+      }
+    }
+    return suffix;
+  }, [competition, currentPhase, laps]);
 
   if (!liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded) {
     return (
@@ -1195,7 +1429,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     );
   }
 
-  const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase) : '';
+  const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase, groupCount) : '';
 
   return (
     <div>
@@ -1214,8 +1448,11 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
         startPositions={startPositions}
         raceGroup={raceGroup}
         totalQualifiedPilots={totalPilots}
-        defaultSortMode={isRace ? 'race' : 'qualifying'}
+        competitionFormat={competition.format}
+        hidePoints={isSprint}
+        defaultSortMode={isRace && !currentPhase?.startsWith('round_') ? 'race' : 'qualifying'}
         showScrubber={false}
+        pilotSuffix={gonzalesPilotSuffix.size > 0 ? gonzalesPilotSuffix : undefined}
       />
     </div>
   );
@@ -1236,7 +1473,9 @@ function getCompetitionDisplayName(c: Competition): string {
   return name;
 }
 
-function CompetitionListItem({ competition: c, type }: { competition: Competition; type: string }) {
+function CompetitionListItem({ competition: c, type, onDelete }: { competition: Competition; type: string; onDelete?: (id: string) => void }) {
+  const { isOwner } = useAuth();
+  const [confirming, setConfirming] = useState(false);
   let top3: { pilot: string; totalPoints: number }[] = [];
   try {
     const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
@@ -1245,6 +1484,20 @@ function CompetitionListItem({ competition: c, type }: { competition: Competitio
       top3 = pilots.slice(0, 3).map((p: any) => ({ pilot: p.pilot, totalPoints: p.totalPoints }));
     }
   } catch {}
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirming) { setConfirming(true); return; }
+    try {
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(c.id)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+      });
+      onDelete?.(c.id);
+    } catch {}
+    setConfirming(false);
+  };
 
   return (
     <Link to={`/results/${type}/${c.id}`}
@@ -1262,11 +1515,24 @@ function CompetitionListItem({ competition: c, type }: { competition: Competitio
             </div>
           )}
         </div>
-        <span className={`px-2 py-0.5 rounded text-[10px] font-medium shrink-0 ${
-          c.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
-        }`}>
-          {c.status === 'finished' ? 'Завершено' : 'Live'}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          {isOwner && (
+            <button
+              onClick={handleDelete}
+              onBlur={() => setConfirming(false)}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                confirming ? 'bg-red-600 text-white' : 'text-dark-600 hover:text-red-400'
+              }`}
+              title="Видалити змагання">
+              {confirming ? 'Точно?' : '✕'}
+            </button>
+          )}
+          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+            c.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
+          }`}>
+            {c.status === 'finished' ? 'Завершено' : 'Live'}
+          </span>
+        </div>
       </div>
     </Link>
   );

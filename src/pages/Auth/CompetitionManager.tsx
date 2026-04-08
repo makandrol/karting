@@ -67,7 +67,13 @@ export default function CompetitionManager() {
   const fetchAll = useCallback(async () => {
     try {
       const res = await fetch(`${COLLECTOR_URL}/competitions`);
-      if (res.ok) setCompetitions(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setCompetitions(data.map((c: any) => ({
+          ...c,
+          sessions: (c.sessions || []).map((s: any) => typeof s === 'string' ? s : s.sessionId),
+        })));
+      }
     } catch { setError('Collector недоступний'); }
     setLoading(false);
   }, []);

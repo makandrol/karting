@@ -139,11 +139,17 @@ sequenceDiagram
 
 ### TimingTable Component
 Standalone reusable timing table with full column management:
-- Квала/Гонка sort mode toggle
+- Квала/Гонка sort mode toggle (hidden when not a competition race via `isCompetitionRace` prop)
 - Вид: (Все/Осн/Своє) column visibility bar with draggable pills
 - Separate "Осн" presets per mode: `MAIN_QUAL_VISIBLE` (with Start/arrows), `MAIN_RACE_VISIBLE` (with Gap, without Start/arrows)
+- Separate column order per mode: `DEFAULT_ORDER` (qualifying), `RACE_ORDER` (race: Δ, P, Pilot, L, GAP, Kart, ...)
+- "Своє" custom view inherits the mode-specific order as default
 - Start column + SVG Bezier curved arrows (race mode only, toggleable as group)
-- `Gap` column — diff in best lap to pilot ahead (race mode only, in `RACE_ONLY_COLS`)
+- `Gap` column — precise time distance to pilot ahead (race mode only, in `RACE_ONLY_COLS`):
+  - Same lap: cumulative lap time difference
+  - Different laps: `+NL`
+  - Mid-lap: S1 timestamp gap
+  - Format: `+X.XX` (hundredths)
 - `TB` (theoretical best = bestS1+bestS2) and `Loss` (best lap minus TB) as separate columns
 - `Δ` column for position change
 - Pilot progress bar with bordered outline
@@ -156,10 +162,23 @@ Standalone reusable timing table with full column management:
 **Qualifying** (default): sorted by best lap time
 **Race**: sorted by:
 1. Lap count (desc)
-2. Track progress (desc, if diff > 0.01)
-3. Last recorded position from timing
-4. Snapshot/event position (from position timeline)
+2. Snapshot positions — ground truth from timing system (lower = ahead)
+3. Last recorded position from completed lap
+4. Track progress (desc, if diff > 0.01)
 5. Start positions (fallback)
+
+### GAP Calculation (Race Mode)
+
+GAP shows the precise time distance between consecutive pilots:
+- **Different laps**: `+NL` (e.g., `+2L`)
+- **Same lap, both passed S1**: gap computed from S1 event timestamps (`pilotS1Events`)
+- **Same lap, finish line**: gap = cumulative lap time difference (`sum(lapTimes_B) - sum(lapTimes_A)`)
+  - Uses cumulative lap time sums, NOT poll timestamps — gives precise relative gap independent of polling frequency
+- **No data**: `null` (displays as "—")
+- Format: `+X.XX` (hundredths, always positive with `+` prefix, uses `Math.abs`)
+- Computed in `getEntriesAtTime()` after sorting, stored in `TimingEntry.gap` field
+- `pilotTimelines` (reconstructed from `firstTs - firstLapSec * 1000`) used for replay animation and S1 gap reference points
+- `pilotCumLapMs` (cumulative lap time sums from raw lap data) used for finish-line gap — avoids poll timestamp artifacts
 
 ## Competition Scoring Flow
 
@@ -181,13 +200,13 @@ sequenceDiagram
         LR-->>League: liveSessionId + livePositions + livePilots
     end
 
-    League->>Scoring: computeStandings(params)
+    League->>Scoring: computeStandings(params) or computeSprintStandings(params)
     Scoring->>Scoring: Build qualifying data (best times, speed points)
     Scoring->>Scoring: Split into groups (1-3)
     loop For each race
         Scoring->>Scoring: Compute start positions (reverse prev race/quali)
         Scoring->>Scoring: Compute finish positions (race mode + live positions)
-        Scoring->>Scoring: Calculate points (position + overtakes progressive)
+        Scoring->>Scoring: Calculate points (position + overtakes progressive for LL/CL, position only for Sprint)
     end
     Scoring-->>League: PilotRow[] with all computed data
 
@@ -206,11 +225,15 @@ Shared pure-function module extracted from LeagueResults for reuse across compon
 | Function | Purpose |
 |----------|---------|
 | `parseLapSec(lapTime)` | Parse lap time string to seconds |
-| `getOvertakeRate(position, format)` | Get overtake multiplier for a position |
-| `calcOvertakePoints(startPos, finishPos, format)` | Calculate progressive overtake points |
-| `getPositionPoints(position, totalPilots, scoring)` | Look up position points from scoring table |
-| `computeStandings(params)` | Main function: full scoring computation |
-| `rowsToStandings(rows, excludedPilots)` | Convert PilotRow[] to CompetitionStandings for storage |
+| `getOvertakeRate(scoring, group, pos, isCL)` | Get overtake multiplier for a position |
+| `calcOvertakePoints(scoring, group, startPos, finishPos, isCL)` | Calculate progressive overtake points |
+| `getPositionPoints(scoring, totalPilots, group, finishPos)` | Look up position points from scoring table |
+| `computeStandings(params)` | Main function: full LL/CL scoring computation |
+| `getSprintPositionPoints(finishPos)` | Sprint race position points (40/37/35/33/31... scale) |
+| `getSprintFinalPoints(finishPos, precedingPilots)` | Sprint final points (180, -3 per position across groups) |
+| `computeSprintStandings(params)` | Sprint scoring: 2 qualis + 2 races + final |
+| `sprintAwareSort(a, b, format?)` | Sort with Sprint-specific tiebreakers |
+| `rowsToStandings(rows, excludedPilots, format?)` | Convert PilotRow[] to CompetitionStandings for storage |
 
 ### Exported Types
 `SessionLap`, `CompSession`, `ScoringData`, `PilotQualiData`, `PilotRaceData`, `PilotRow`, `ManualEdits`, `StandingsPilot`, `CompetitionStandings`, `ComputeStandingsParams`
@@ -264,6 +287,7 @@ The timing system sometimes shows "Карт X" for initial laps. `mergePilotName
 - **Competition race**: computed from qualifying/previous race (via `fetchRaceStartPositions()`)
 - **Regular session (race mode)**: from first snapshot event
 - Start positions shown even before race starts (pre-filled from previous phase)
+- `extractCompetitionReplayProps(phase)` — shared function: extracts `raceGroup` and `isRace` from competition phase string (e.g., `race_1_group_2`, `final_group_1`). Used by SessionDetail, CompetitionPage, and Timing to determine if session is a competition race. Sprint finals (`final_group_N`) are treated as races.
 
 ### Live Competition Updates
 - `● LIVE` toggle button: pause/resume live polling
@@ -277,7 +301,11 @@ The timing system sometimes shows "Карт X" for initial laps. `mergePilotName
 - "Своє" (custom): draggable group pills, click to toggle groups/sub-columns
 - Custom column set persisted per user+competition in localStorage
 - Tap-to-select pilot rows (stays highlighted until tapped again)
-- Toolbar: "Сорт:" first row, "Вид:" second row
+- Toolbar: "Сорт:" first row (sort buttons), "Вид:" second row (view modes)
+- **Sort column highlighting**: active sort column gets `bg-primary-600/10` (all formats)
+- **Clickable column headers**: Час (asc), Позиція (desc), Сума (desc) — first click sets direction, subsequent toggles
+- Sprint sort buttons: Сума, Кв1, Г1, Кв2, Г2, Г2 сума, Фінал
+- LL/CL sort buttons: Сума, Квала, Г1 час, Г2 час (CL also Г3 час)
 
 ### View Preferences & Layout Prefs
 - `layoutPrefs.tsx` — page-level section visibility (Таймлайн, Заїзд, Результати, Список заїздів)

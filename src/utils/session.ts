@@ -44,6 +44,6 @@ export function extractCompetitionReplayProps(competitionPhase: string | null | 
   const raceGroup = competitionPhase?.match(/group_(\d+)/)?.[1]
     ? parseInt(competitionPhase!.match(/group_(\d+)/)![1])
     : undefined;
-  const isRace = competitionPhase?.startsWith('race_') ?? false;
+  const isRace = (competitionPhase?.startsWith('race_') || competitionPhase?.startsWith('final_')) ?? false;
   return { raceGroup, isRace };
 }

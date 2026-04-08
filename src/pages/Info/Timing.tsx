@@ -50,7 +50,7 @@ export default function Timing() {
 
   // Compute start positions from competition data (qualifying / previous race)
   useEffect(() => {
-    if (!liveSessionComp.competitionId || !liveSessionComp.phase?.startsWith('race_') || !liveSessionComp.format) {
+    if (!liveSessionComp.competitionId || !(liveSessionComp.phase?.startsWith('race_') || liveSessionComp.phase?.startsWith('final_')) || !liveSessionComp.format) {
       setStartPositions(new Map()); setTotalQualifiedPilots(0); return;
     }
     fetchRaceStartPositions(COLLECTOR_URL, liveSessionComp.competitionId, liveSessionComp.phase, liveSessionComp.format)
@@ -257,6 +257,7 @@ export default function Timing() {
               startPositions={startPositions}
               raceGroup={liveRaceGroup}
               totalQualifiedPilots={totalQualifiedPilots || undefined}
+              hidePoints={liveSessionComp.format === 'sprint'}
               defaultSortMode={liveIsRace ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
               onEntriesUpdate={setTrackEntries}
               renderScrubber={(scrubber) => (

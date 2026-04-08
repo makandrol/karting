@@ -120,7 +120,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       const compRes = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(selectedComp.id)}`);
       const comp = compRes.ok ? await compRes.json() : null;
       const results = comp ? (typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {})) : {};
-      const groupCount = results?.groupCountOverride ?? null;
+      const groupCount = results?.groupCountOverride ?? results?.autoDetectedGroups ?? null;
       const phases = getPhasesForFormat(selectedComp.format, groupCount);
       const phaseIdx = phases.findIndex(p => p.id === phaseId);
       if (phaseIdx >= 0) {
@@ -146,32 +146,40 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
 
       const available = allSessions
         .filter(s => s.end_time && isValidSession(s))
-        .filter(s => !s.competition_id && s.id !== currentSessionId);
+        .filter(s => (!s.competition_id || s.competition_id === compId) && s.id !== currentSessionId);
 
-      const before = available.filter(s => s.start_time < currentTime).sort((a, b) => b.start_time - a.start_time);
-      const after = available.filter(s => s.start_time > currentTime).sort((a, b) => a.start_time - b.start_time);
+      const allForDetection = allSessions
+        .filter(s => s.end_time && isValidSession(s))
+        .filter(s => s.id !== currentSessionId);
 
-      const allToLink = [...before.reverse(), { id: currentSessionId, start_time: currentTime, end_time: null, merged_session_ids: undefined as string[] | undefined }, ...after];
+      const after = allForDetection.filter(s => s.start_time > currentTime).sort((a, b) => a.start_time - b.start_time);
+
+      const detectOrder = [{ id: currentSessionId, start_time: currentTime, end_time: null, merged_session_ids: undefined as string[] | undefined }, ...after];
 
       const sessionPilots = new Map<string, Set<string>>();
-      for (const s of allToLink) {
+      const sessionLapCounts = new Map<string, Map<string, number>>();
+      for (const s of detectOrder) {
         const sid = s.merged_session_ids?.[0] || s.id;
         try {
           const lapsRes = await fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`);
           if (lapsRes.ok) {
             const laps: { pilot: string }[] = await lapsRes.json();
             sessionPilots.set(sid, new Set(laps.map(l => l.pilot)));
+            const counts = new Map<string, number>();
+            for (const l of laps) counts.set(l.pilot, (counts.get(l.pilot) || 0) + 1);
+            sessionLapCounts.set(sid, counts);
           }
         } catch {}
       }
 
       const format = selectedFormat || selectedComp?.format || '';
-      const formatMaxGroups = format === 'champions_league' ? 2 : 3;
+      const formatMaxGroups = format === 'champions_league' ? 2 : format === 'gonzales' ? 2 : 3;
+      const isKartName = (name: string) => /^Карт\s+\d+$/i.test(name.trim());
 
       let detectedGroups = 1;
       const cumulativePilots = new Set<string>();
       let qualiCount = 0;
-      for (const s of allToLink) {
+      for (const s of detectOrder) {
         const sid = s.merged_session_ids?.[0] || s.id;
         const pilots = sessionPilots.get(sid);
         if (!pilots || pilots.size === 0) continue;
@@ -180,6 +188,28 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
           qualiCount = 1;
           for (const p of pilots) cumulativePilots.add(p);
           continue;
+        }
+
+        if (format === 'gonzales') {
+          const realNames = [...pilots].filter(p => !isKartName(p)).length;
+          const isRealNames = realNames / pilots.size > 0.5;
+
+          const sessionInfo = detectOrder.find(ds => (ds.merged_session_ids?.[0] || ds.id) === sid);
+          const isFinished = sessionInfo?.end_time != null;
+          let isHighLapCount = false;
+          if (isFinished) {
+            const counts = sessionLapCounts.get(sid);
+            if (counts && counts.size > 0) {
+              const maxLaps = Math.max(...counts.values());
+              isHighLapCount = maxLaps >= 5;
+            }
+          }
+
+          if (isRealNames || isHighLapCount) {
+            qualiCount++;
+            for (const p of pilots) cumulativePilots.add(p);
+          }
+          break;
         }
 
         let overlap = 0;
@@ -192,26 +222,21 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         for (const p of pilots) cumulativePilots.add(p);
       }
       detectedGroups = Math.min(Math.max(qualiCount, 1), formatMaxGroups);
-
       const phases = getPhasesForFormat(format, detectedGroups);
       const currentIdx = phases.findIndex(p => p.id === _phases[currentPhaseIdx]?.id);
       const effectiveIdx = currentIdx >= 0 ? currentIdx : Math.min(currentPhaseIdx, phases.length - 1);
 
       await apiPatch(`/competitions/${encodeURIComponent(compId)}`, {
-        results: { groupCountOverride: detectedGroups },
+        results: { autoDetectedGroups: detectedGroups },
       });
 
-      for (let i = 0; i < effectiveIdx && i < before.length; i++) {
-        const session = before[before.length - 1 - i];
-        const phaseId = phases[effectiveIdx - 1 - i]?.id;
-        if (!phaseId) continue;
-        const sid = session.merged_session_ids?.[0] || session.id;
-        await apiPost(`/competitions/${encodeURIComponent(compId)}/link-session`, { sessionId: sid, phase: phaseId });
-      }
+      const availableAfter = available
+        .filter(s => s.start_time > currentTime)
+        .sort((a, b) => a.start_time - b.start_time);
 
       const remainingPhases = phases.length - effectiveIdx - 1;
-      for (let i = 0; i < remainingPhases && i < after.length; i++) {
-        const session = after[i];
+      for (let i = 0; i < remainingPhases && i < availableAfter.length; i++) {
+        const session = availableAfter[i];
         const phaseId = phases[effectiveIdx + 1 + i]?.id;
         if (!phaseId) continue;
         const sid = session.merged_session_ids?.[0] || session.id;
@@ -253,7 +278,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       if (!compRes.ok) return;
       const comp: Competition = await compRes.json();
       const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
-      const groupCount = results?.groupCountOverride ?? null;
+      const groupCount = results?.groupCountOverride ?? results?.autoDetectedGroups ?? null;
 
       const sessionTs = sessionId.match(/session-(\d+)/);
       const currentTime = sessionTs ? parseInt(sessionTs[1]) : 0;
@@ -409,7 +434,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         {step === 'format' && (
           <>
             <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Тип заїзду</div>
-            {Object.values(COMPETITION_CONFIGS).filter(c => c.format !== 'sprint' && c.format !== 'marathon').map(config => (
+            {Object.values(COMPETITION_CONFIGS).filter(c => c.format !== 'marathon').map(config => (
               <button key={config.format} onClick={() => handleFormatSelect(config.format)}
                 className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
                 {config.name}

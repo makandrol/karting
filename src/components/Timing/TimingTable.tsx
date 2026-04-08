@@ -37,6 +37,10 @@ export interface TimingTableProps {
   raceGroup?: number;
   totalQualifiedPilots?: number;
   isCompetitionRace?: boolean;
+  competitionFormat?: string;
+  hidePoints?: boolean;
+  /** Map pilot name -> display suffix, e.g. "Карт 22" -> "(Макаревич?)" */
+  pilotSuffix?: Map<string, string>;
 }
 
 function arrowColor(diff: number): string {
@@ -50,7 +54,7 @@ export default function TimingTable({
   entries, sortMode, onSortModeChange,
   columnFilter: controlledColumnFilter, onColumnFilterChange,
   startPositions, startGrid,
-  raceGroup, totalQualifiedPilots, isCompetitionRace,
+  raceGroup, totalQualifiedPilots, isCompetitionRace, competitionFormat, hidePoints, pilotSuffix,
 }: TimingTableProps) {
   const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>('all');
   const columnFilter = controlledColumnFilter ?? internalColumnFilter;
@@ -282,7 +286,7 @@ export default function TimingTable({
               <th className="table-cell text-center w-6">#</th>
               {visibleColList.map(col => {
                 if (col === 'change' && sortMode !== 'race') return null;
-                if (col === 'points' && !(sortMode === 'race' && raceGroup)) return null;
+                if (col === 'points' && (hidePoints || !(sortMode === 'race' && raceGroup))) return null;
                 if (col === 'arrows') return <th key={col} className="table-cell" style={{ width: arrowW }} />;
                 const align = col === 'pilot' || col === 'start' ? 'text-left' : 'text-center';
                 const extra = (col === 'change' || col === 'points') ? ' text-dark-500' : '';
@@ -341,6 +345,9 @@ export default function TimingTable({
                       <Link to={`/pilots/${encodeURIComponent(e.pilot)}`} className={`${notStarted ? 'text-dark-500' : 'text-white hover:text-primary-400'} transition-colors`}>
                         {shortName(e.pilot)}
                       </Link>
+                      {pilotSuffix?.has(e.pilot) && (
+                        <span className="text-yellow-400/70 text-[10px] ml-1">{pilotSuffix.get(e.pilot)}</span>
+                      )}
                     </div>
                     <div className="mt-0.5 h-[2px] rounded-full overflow-hidden border border-dark-600/50">
                       <div
@@ -350,7 +357,7 @@ export default function TimingTable({
                     </div>
                   </td>
                 ),
-                points: (sortMode === 'race' && raceGroup && scoringData) ? (
+                points: (sortMode === 'race' && raceGroup && scoringData && !hidePoints) ? (
                   <td key="points" className="table-cell text-center font-mono text-[10px] text-green-400/70">{(() => {
                     if (notStarted) return '';
                     const st = e.currentLapSec;
@@ -358,7 +365,8 @@ export default function TimingTable({
                     const finishPos = e.position;
                     const groupLabel = raceGroup === 1 ? 'I' : raceGroup === 2 ? 'II' : 'III';
                     const total = totalQualifiedPilots || 0;
-                    const cat = scoringData.positionPoints?.find((c: any) => total >= c.minPilots && total <= c.maxPilots);
+                    const table = (competitionFormat === 'champions_league' && scoringData.positionPoints_CL) ? scoringData.positionPoints_CL : scoringData.positionPoints;
+                    const cat = table?.find((c: any) => total >= c.minPilots && total <= c.maxPilots);
                     const posArr = cat?.groups?.[groupLabel];
                     const posPoints = posArr && finishPos >= 1 && finishPos <= posArr.length ? posArr[finishPos - 1] : 0;
                     let overtakePoints = 0;
