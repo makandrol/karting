@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTimingPoller } from '../../services/timingPoller';
 import { COLLECTOR_URL } from '../../services/config';
 import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES } from '../../utils/timing';
+import { COMPETITION_CONFIGS, getPhaseShortLabel } from '../../data/competitions';
 
 interface CompSessionInfo {
   competitionId: string | null;
@@ -85,15 +86,42 @@ export default function Onboard() {
 
   const [compInfo, setCompInfo] = useState<CompSessionInfo>({ competitionId: null, format: null, phase: null });
   const [compRanking, setCompRanking] = useState<{ pilot: string; bestLap: number }[]>([]);
+  const [raceNumber, setRaceNumber] = useState<number | null>(null);
 
-  // Fetch competition info for current session
+  // Fetch competition info + race number for current session
   useEffect(() => {
-    if (!sessionId) { setCompInfo({ competitionId: null, format: null, phase: null }); return; }
+    if (!sessionId) { setCompInfo({ competitionId: null, format: null, phase: null }); setRaceNumber(null); return; }
     fetch(`${COLLECTOR_URL}/db/session-competition?session=${sessionId}`)
       .then(r => r.json())
       .then(d => setCompInfo({ competitionId: d.competitionId || null, format: d.format || null, phase: d.phase || null }))
       .catch(() => setCompInfo({ competitionId: null, format: null, phase: null }));
+    const ts = parseInt(sessionId.replace('session-', ''));
+    if (!isNaN(ts)) {
+      const date = new Date(ts).toISOString().slice(0, 10);
+      fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`)
+        .then(r => r.json())
+        .then((sessions: any[]) => {
+          const s = sessions.find((s: any) => s.id === sessionId || s.merged_session_ids?.includes(sessionId));
+          setRaceNumber(s?.race_number ?? null);
+        })
+        .catch(() => setRaceNumber(null));
+    }
   }, [sessionId]);
+
+  const sessionLabel = useMemo(() => {
+    if (!sessionId) return null;
+    if (compInfo.format && compInfo.phase) {
+      const cfg = COMPETITION_CONFIGS[compInfo.format as keyof typeof COMPETITION_CONFIGS];
+      const shortName = cfg?.shortName || compInfo.format;
+      const phaseLabel = getPhaseShortLabel(compInfo.format, compInfo.phase);
+      return `${shortName} · ${phaseLabel}`;
+    }
+    if (compInfo.format) {
+      const cfg = COMPETITION_CONFIGS[compInfo.format as keyof typeof COMPETITION_CONFIGS];
+      return cfg?.shortName || compInfo.format;
+    }
+    return `Прокат${raceNumber != null ? ` ${raceNumber}` : ''}`;
+  }, [sessionId, compInfo.format, compInfo.phase, raceNumber]);
 
   // Fetch laps from all related sessions + build ranking
   useEffect(() => {
@@ -232,6 +260,12 @@ export default function Onboard() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
+
+        {sessionLabel && (
+          <span className={`text-xs font-medium shrink-0 ${compInfo.competitionId ? 'text-purple-400' : 'text-dark-500'}`}>
+            {sessionLabel}
+          </span>
+        )}
 
         <div className="flex-1" />
 
