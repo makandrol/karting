@@ -31,6 +31,9 @@ export default function Onboard() {
   const [locked, setLocked] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const selectorRef = useRef<HTMLDivElement>(null);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [showSectors, setShowSectors] = useState(true);
+  const viewRef = useRef<HTMLDivElement>(null);
 
   const sessionId = (collectorStatus as any)?.sessionId || null;
 
@@ -67,6 +70,16 @@ export default function Onboard() {
     document.addEventListener('touchstart', handler);
     return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler); };
   }, [selectorOpen]);
+
+  useEffect(() => {
+    if (!viewOpen) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (viewRef.current && !viewRef.current.contains(e.target as Node)) setViewOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler); };
+  }, [viewOpen]);
 
   // ── Competition position tracking ──
 
@@ -248,6 +261,24 @@ export default function Onboard() {
 
         <div className="flex-1" />
 
+        <div ref={viewRef} className="relative shrink-0">
+          <button onClick={() => setViewOpen(v => !v)}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-medium transition-colors ${
+              viewOpen ? 'border-primary-500 text-primary-400' : 'border-dark-700 text-dark-500 hover:text-dark-300'
+            }`}>
+            <span>Вид:</span>
+            {viewOpen && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowSectors(v => !v); }}
+                className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${
+                  showSectors ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
+                }`}>
+                Сект.
+              </button>
+            )}
+          </button>
+        </div>
+
         <button onClick={() => setLocked(l => !l)}
           className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 ${
             locked ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'
@@ -312,6 +343,7 @@ export default function Onboard() {
                 {entry.lastLap ? toSeconds(entry.lastLap) : '—'}
               </div>
 
+              {showSectors && (
               <div className="flex items-center justify-center gap-8">
                 <div className={`font-mono font-bold ${COLOR_CLASSES[s1Color]}`}
                      style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
@@ -323,6 +355,7 @@ export default function Onboard() {
                   {entry.s2 && (parseTime(entry.s2) ?? 0) >= 10 ? toSeconds(entry.s2) : '—'}
                 </div>
               </div>
+              )}
             </div>
           </div>
         )}

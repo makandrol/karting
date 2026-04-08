@@ -66,6 +66,10 @@ export default function App() {
           <ErrorBoundary>
             <Suspense fallback={<PageLoader />}>
               <Routes>
+                {/* Onboard — fullscreen, no header/footer */}
+                <Route path="/onboard" element={<PageGuard><Onboard /></PageGuard>} />
+                <Route path="/onboard/:kartId" element={<PageGuard><Onboard /></PageGuard>} />
+
                 <Route element={<Layout />}>
                   <Route path="/" element={<Timing />} />
                   <Route path="/home" element={<PageGuard><HomePage /></PageGuard>} />
@@ -80,8 +84,6 @@ export default function App() {
                   {/* Info / Analytics */}
                   <Route path="/info" element={<Navigate to="/info/timing" replace />} />
                   <Route path="/info/timing" element={<Timing />} />
-                  <Route path="/onboard" element={<PageGuard><Onboard /></PageGuard>} />
-                  <Route path="/onboard/:kartId" element={<PageGuard><Onboard /></PageGuard>} />
                   <Route path="/info/tracks" element={<PageGuard><Tracks /></PageGuard>} />
                   <Route path="/info/karts" element={<PageGuard><Karts /></PageGuard>} />
                   <Route path="/info/karts/:kartId" element={<PageGuard><KartDetail /></PageGuard>} />
