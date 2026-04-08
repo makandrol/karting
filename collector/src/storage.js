@@ -636,7 +636,7 @@ export const storage = {
     };
 
     const FULL_PHASES = {
-      gonzales: buildGonzalesPhases(24, 2),
+      gonzales: null,
       light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
       champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
       sprint: [
@@ -654,6 +654,11 @@ export const storage = {
     if (!liveComp) return null;
 
     const results = liveComp.results || {};
+
+    if (liveComp.format === 'gonzales') {
+      const rc = results.gonzalesRoundCount ?? 12;
+      FULL_PHASES.gonzales = buildGonzalesPhases(rc, 2);
+    }
     let groupCount = results.groupCountOverride || results.autoDetectedGroups || null;
 
     // Auto-detect groups by pilot overlap if not manually set
@@ -714,7 +719,7 @@ export const storage = {
 
     const filterPhases = (phases, gc, format, results) => {
       if (!gc && format !== 'gonzales') return phases;
-      const gonzalesRoundCount = results?.gonzalesRoundCount ?? 24;
+      const gonzalesRoundCount = results?.gonzalesRoundCount ?? 12;
       return phases.filter(p => {
         if (format === 'gonzales') {
           if (p.startsWith('qualifying_')) {
@@ -815,7 +820,7 @@ export const storage = {
       : Math.min(qualiSessions.length, maxGroups);
     console.log(`🔍 Session ${sessionId}: recheck → detected ${groupCount} groups, reassigning phase`);
 
-    const gonzalesRoundCount = results?.gonzalesRoundCount ?? 24;
+    const gonzalesRoundCount = results?.gonzalesRoundCount ?? 12;
     const filterPhases = (phases, gc, fmt) => phases.filter(p => {
       if (fmt === 'gonzales') {
         if (p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;

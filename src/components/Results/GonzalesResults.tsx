@@ -159,6 +159,10 @@ export default function GonzalesResults({
     if (pilotCount > 0) onPilotCount?.(pilotCount);
   }, [pilotCount, onPilotCount]);
 
+  useEffect(() => {
+    if (roundCount > 0) onSaveResults({ gonzalesRoundCount: roundCount });
+  }, [roundCount]);
+
   const autoGroupCount = useMemo(() => {
     const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
     return Math.max(qualiSessions.length, 1);
