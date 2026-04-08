@@ -47,6 +47,7 @@ export default function Onboard() {
   const [showTimeGlobal, setShowTimeGlobal] = useState(false);
   const [showPoints, setShowPoints] = useState(false);
   const [showFinalPos, setShowFinalPos] = useState(false);
+  const [showGap, setShowGap] = useState(false);
 
   const sessionId = (collectorStatus as any)?.sessionId || null;
 
@@ -323,12 +324,35 @@ export default function Onboard() {
     return { total: race.totalRacePoints, posPoints: race.positionPoints, overtakePoints: race.overtakePoints, posOvertake };
   }, [pilotRow, currentRaceIndex]);
 
-  // Final standing position + total points
-  const finalPosData = useMemo(() => {
+  // Gap to pilot ahead/behind (by best lap in current session)
+  const gapData = useMemo(() => {
+    if (!pilot || !entry) return null;
+    const myBest = parseTime(entry.bestLap);
+    if (myBest === null || myBest < 38) return null;
+
+    const withBest = entries
+      .map(e => ({ pilot: e.pilot, best: parseTime(e.bestLap) }))
+      .filter(e => e.best !== null && e.best! >= 38) as { pilot: string; best: number }[];
+    withBest.sort((a, b) => a.best - b.best);
+    const myIdx = withBest.findIndex(e => e.pilot === pilot);
+    if (myIdx < 0) return null;
+
+    const ahead = myIdx > 0 ? Math.round((myBest - withBest[myIdx - 1].best) * 1000) / 1000 : null;
+    const behind = myIdx < withBest.length - 1 ? Math.round((myBest - withBest[myIdx + 1].best) * 1000) / 1000 : null;
+    return { ahead, behind };
+  }, [pilot, entry, entries]);
+
+  // Mini-leaderboard for "Рез": pilot above, current, pilot below — with point diffs
+  const leaderboardData = useMemo(() => {
     if (!pilot || !standings) return null;
-    const idx = standings.sorted.findIndex(r => r.pilot === pilot);
+    const sorted = standings.sorted;
+    const idx = sorted.findIndex(r => r.pilot === pilot);
     if (idx < 0) return null;
-    return { pos: idx + 1, total: standings.sorted.length, totalPoints: standings.sorted[idx].totalPoints };
+
+    const myPts = sorted[idx].totalPoints;
+    const prev = idx > 0 ? { pilot: sorted[idx - 1].pilot, pts: sorted[idx - 1].totalPoints, diff: Math.round((sorted[idx - 1].totalPoints - myPts) * 10) / 10 } : null;
+    const next = idx < sorted.length - 1 ? { pilot: sorted[idx + 1].pilot, pts: sorted[idx + 1].totalPoints, diff: Math.round((sorted[idx + 1].totalPoints - myPts) * 10) / 10 } : null;
+    return { pos: idx + 1, total: sorted.length, myPts, prev, next };
   }, [pilot, standings]);
 
   // ── Color calculations ──
@@ -458,11 +482,16 @@ export default function Onboard() {
           </div>
         )}
 
-        {/* Position + time displays — top center */}
-        {entry && (effectiveShowPos || showTimeGroup || showTimeGlobal) && (
+        {/* Position + time + gap displays — top center */}
+        {entry && (effectiveShowPos || showTimeGroup || showTimeGlobal || showGap) && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-4 z-10">
             {effectiveShowPos && positionData?.pos != null && (
               <div className="flex items-center gap-1">
+                {showGap && gapData?.ahead != null && (
+                  <span className="font-mono text-green-400/70 mr-1" style={{ fontSize: 'clamp(0.7rem, 2vw, 1rem)' }}>
+                    +{gapData.ahead.toFixed(2)}
+                  </span>
+                )}
                 <span className="font-mono font-bold text-white" style={{ fontSize: 'clamp(1.2rem, 4vw, 2rem)' }}>
                   P{positionData.pos}
                 </span>
@@ -470,6 +499,25 @@ export default function Onboard() {
                   <span className={`font-mono font-bold ${positionData.delta > 0 ? 'text-green-400' : 'text-red-400'}`}
                     style={{ fontSize: 'clamp(0.8rem, 2.5vw, 1.2rem)' }}>
                     {positionData.delta > 0 ? '▲' : '▼'}{Math.abs(positionData.delta)}
+                  </span>
+                )}
+                {showGap && gapData?.behind != null && (
+                  <span className="font-mono text-red-400/70 ml-1" style={{ fontSize: 'clamp(0.7rem, 2vw, 1rem)' }}>
+                    {gapData.behind.toFixed(2)}
+                  </span>
+                )}
+              </div>
+            )}
+            {!effectiveShowPos && showGap && gapData && (
+              <div className="flex items-center gap-2">
+                {gapData.ahead != null && (
+                  <span className="font-mono text-green-400/70" style={{ fontSize: 'clamp(0.7rem, 2vw, 1rem)' }}>
+                    +{gapData.ahead.toFixed(2)}
+                  </span>
+                )}
+                {gapData.behind != null && (
+                  <span className="font-mono text-red-400/70" style={{ fontSize: 'clamp(0.7rem, 2vw, 1rem)' }}>
+                    {gapData.behind.toFixed(2)}
                   </span>
                 )}
               </div>
@@ -523,24 +571,41 @@ export default function Onboard() {
         )}
       </div>
 
-      {/* Points + final position — bottom center */}
-      {entry && (showPoints || showFinalPos) && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-4 z-10">
-          {showPoints && pointsData && pointsData.total > 0 && (
-            <span className="font-mono text-green-400/80" style={{ fontSize: 'clamp(0.8rem, 2vw, 1.1rem)' }}>
-              P = {pointsData.total} = {pointsData.posPoints} + {pointsData.overtakePoints}
-            </span>
+      {/* Рез — mini-leaderboard, bottom left */}
+      {entry && showFinalPos && leaderboardData && (
+        <div className="absolute bottom-3 left-3 z-10 font-mono text-[11px] leading-snug bg-dark-900/80 border border-dark-700 rounded-lg px-2 py-1.5">
+          {leaderboardData.prev && (
+            <div className="text-dark-500">
+              {leaderboardData.pos - 1}. {leaderboardData.prev.pilot}{' '}
+              <span className="text-dark-400">{leaderboardData.prev.pts}</span>{' '}
+              <span className="text-green-400/70">+{leaderboardData.prev.diff}</span>
+            </div>
           )}
-          {showFinalPos && finalPosData && (
-            <span className="font-mono text-yellow-300/70" style={{ fontSize: 'clamp(0.8rem, 2vw, 1.1rem)' }}>
-              FinP = {finalPosData.totalPoints} = {finalPosData.pos}/{finalPosData.total}
-            </span>
+          <div className="text-white font-bold">
+            {leaderboardData.pos}. {pilot}{' '}
+            <span className="text-green-400">{leaderboardData.myPts}</span>
+          </div>
+          {leaderboardData.next && (
+            <div className="text-dark-500">
+              {leaderboardData.pos + 1}. {leaderboardData.next.pilot}{' '}
+              <span className="text-dark-400">{leaderboardData.next.pts}</span>{' '}
+              <span className="text-red-400/70">{leaderboardData.next.diff}</span>
+            </div>
           )}
         </div>
       )}
 
-      {/* View toggle — bottom left */}
-      <div ref={viewRef} className="absolute bottom-3 left-3 z-20">
+      {/* Бали — bottom center */}
+      {entry && showPoints && pointsData && pointsData.total > 0 && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
+          <span className="font-mono text-green-400/80" style={{ fontSize: 'clamp(0.8rem, 2vw, 1.1rem)' }}>
+            P = {pointsData.total} = {pointsData.posPoints} + {pointsData.overtakePoints}
+          </span>
+        </div>
+      )}
+
+      {/* View toggle — bottom right */}
+      <div ref={viewRef} className="absolute bottom-3 right-3 z-20">
         <button onClick={() => setViewOpen(v => !v)}
           className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-medium transition-colors ${
             viewOpen ? 'border-primary-500 text-primary-400' : 'border-dark-700 bg-dark-900/80 text-dark-500 hover:text-dark-300'
@@ -554,6 +619,7 @@ export default function Onboard() {
               </button>
               <Pill label="Сект." active={showSectors} onClick={() => setShowSectors(v => !v)} />
               <Pill label="Поз" active={effectiveShowPos} onClick={() => setShowPosition(v => v === null ? (effectiveMode !== 'race') : !v)} />
+              <Pill label="Gap" active={showGap} onClick={() => setShowGap(v => !v)} />
               <Pill label="Час" active={showTimeGroup} onClick={() => setShowTimeGroup(v => !v)} />
               <Pill label="Час гл" active={showTimeGlobal} onClick={() => setShowTimeGlobal(v => !v)} />
               <Pill label="Бали" active={showPoints} onClick={() => setShowPoints(v => !v)} />
