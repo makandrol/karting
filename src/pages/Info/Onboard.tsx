@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTimingPoller } from '../../services/timingPoller';
 import { COLLECTOR_URL } from '../../services/config';
@@ -8,6 +8,14 @@ import {
   type SessionLap, type CompSession, type ScoringData, type ManualEdits,
   computeStandings, computeSprintStandings, sprintAwareSort,
 } from '../../utils/scoring';
+import type { TimingEntry } from '../../types';
+
+export interface OnboardProps {
+  replayEntries?: TimingEntry[];
+  replaySessionId?: string;
+  scrubberSlot?: ReactNode;
+  onClose?: () => void;
+}
 
 interface CompSessionInfo {
   competitionId: string | null;
@@ -29,15 +37,23 @@ interface FullCompData {
   format: string;
 }
 
-export default function Onboard() {
+export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, onClose }: OnboardProps = {}) {
+  const isReplay = replayEntries != null;
+
   const { kartId } = useParams<{ kartId: string }>();
   const navigate = useNavigate();
-  const { entries, mode, collectorStatus } = useTimingPoller({ interval: 1000 });
+  const poller = useTimingPoller({ interval: isReplay ? 999999 : 1000 });
   const [locked, setLocked] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const selectorRef = useRef<HTMLDivElement>(null);
   const [viewOpen, setViewOpen] = useState(false);
   const viewRef = useRef<HTMLDivElement>(null);
+
+  // In replay mode, kart is managed via internal state; in live mode, via URL params
+  const [replayKart, setReplayKart] = useState<number | null>(null);
+
+  const entries = isReplay ? replayEntries : poller.entries;
+  const sessionId = isReplay ? (replaySessionId || null) : ((poller.collectorStatus as any)?.sessionId || null);
 
   // ── View toggles ──
   const [showSectors, setShowSectors] = useState(true);
@@ -49,25 +65,31 @@ export default function Onboard() {
   const [showFinalPos, setShowFinalPos] = useState(false);
   const [showGap, setShowGap] = useState(false);
 
-  const sessionId = (collectorStatus as any)?.sessionId || null;
-
-  const kart = kartId ? parseInt(kartId, 10) : null;
+  const kart = isReplay ? replayKart : (kartId ? parseInt(kartId, 10) : null);
   const entry = kart !== null ? entries.find(e => e.kart === kart) : null;
   const ALL_KARTS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,33,44,55,69,77,88];
   const liveKarts = new Set(entries.map(e => e.kart));
 
   const goToKart = useCallback((k: number) => {
-    navigate(`/onboard/${k}`, { replace: true });
+    if (isReplay) {
+      setReplayKart(k);
+    } else {
+      navigate(`/onboard/${k}`, { replace: true });
+    }
     setSelectorOpen(false);
-  }, [navigate]);
+  }, [isReplay, navigate]);
 
   const kartIdx = kart !== null ? ALL_KARTS.indexOf(kart) : -1;
   const prevKart = kartIdx > 0 ? ALL_KARTS[kartIdx - 1] : ALL_KARTS[ALL_KARTS.length - 1];
   const nextKart = kartIdx < ALL_KARTS.length - 1 ? ALL_KARTS[kartIdx + 1] : ALL_KARTS[0];
 
   useEffect(() => {
-    if (!kartId) goToKart(ALL_KARTS[0]);
-  }, [kartId]);
+    if (isReplay) {
+      if (replayKart === null && entries.length > 0) setReplayKart(entries[0].kart);
+    } else {
+      if (!kartId) goToKart(ALL_KARTS[0]);
+    }
+  }, [kartId, isReplay, entries.length]);
 
   useEffect(() => {
     if (!locked) return;
@@ -202,9 +224,12 @@ export default function Onboard() {
     };
 
     fetchFull();
-    const timer = setInterval(fetchFull, 5000);
-    return () => { active = false; clearInterval(timer); };
-  }, [compInfo.competitionId, compInfo.format]);
+    if (!isReplay) {
+      const timer = setInterval(fetchFull, 5000);
+      return () => { active = false; clearInterval(timer); };
+    }
+    return () => { active = false; };
+  }, [compInfo.competitionId, compInfo.format, isReplay]);
 
   // ── Compute standings using shared scoring functions ──
 
@@ -376,7 +401,7 @@ export default function Onboard() {
   const s1Color = entry ? getTimeColor(entry.s1, entry.bestS1, overallBestS1) : 'none';
   const s2Color = entry ? getTimeColor(entry.s2, entry.bestS2, overallBestS2) : 'none';
 
-  const isLive = mode === 'live' && entries.length > 0;
+  const isLive = isReplay ? entries.length > 0 : (poller.mode === 'live' && entries.length > 0);
 
   // ── View toggle pill helper ──
   const Pill = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
@@ -392,11 +417,19 @@ export default function Onboard() {
     <div className="fixed inset-0 bg-dark-950 flex flex-col z-50 select-none">
       {/* Top bar */}
       <div className="flex items-center px-3 py-2 bg-dark-900/90 border-b border-dark-800 shrink-0 gap-2">
-        <Link to="/" className="text-dark-400 hover:text-white px-1.5 py-1 rounded-lg hover:bg-dark-800 transition-colors shrink-0">
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </Link>
+        {onClose ? (
+          <button onClick={onClose} className="text-dark-400 hover:text-white px-1.5 py-1 rounded-lg hover:bg-dark-800 transition-colors shrink-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        ) : (
+          <Link to="/" className="text-dark-400 hover:text-white px-1.5 py-1 rounded-lg hover:bg-dark-800 transition-colors shrink-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </Link>
+        )}
 
         {sessionLabel && (
           <span className={`text-xs font-medium shrink-0 ${compInfo.competitionId ? 'text-purple-400' : 'text-dark-500'}`}>
@@ -453,6 +486,13 @@ export default function Onboard() {
           )}
         </div>
       </div>
+
+      {/* Scrubber slot (replay mode) */}
+      {scrubberSlot && (
+        <div className="shrink-0">
+          {scrubberSlot}
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 flex items-center justify-center relative overflow-hidden">
