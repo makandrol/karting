@@ -221,13 +221,19 @@ export default function GonzalesResults({
 
   const SORT_HL = 'bg-primary-600/10';
 
-  /** 0→green, 0.5→yellow, 1.0→red, >2.0→deep red. Returns inline style color. */
+  /** 0→green, 0.5→red (steps 0.05), 0.5→1.0 red→bright red, >1.0 bright red */
   const diffColor = (diff: number): string => {
     if (diff <= 0.0005) return 'rgb(74,222,128)'; // green-400
-    if (diff >= 2.0) return 'rgb(185,28,28)'; // red-700
-    if (diff >= 1.0) return 'rgb(248,113,113)'; // red-400
-    // 0→green, 1→red  (10 steps of 0.1)
-    const t = Math.min(diff, 1.0);
+    if (diff >= 1.0) return 'rgb(220,38,38)'; // red-600 (bright)
+    if (diff >= 0.5) {
+      const t = (diff - 0.5) / 0.5; // 0→1
+      const r = Math.round(248 + (220 - 248) * t);
+      const g = Math.round(113 + (38 - 113) * t);
+      const b = Math.round(113 + (38 - 113) * t);
+      return `rgb(${r},${g},${b})`;
+    }
+    // 0→0.5: green→red
+    const t = diff / 0.5;
     const r = Math.round(74 + (248 - 74) * t);
     const g = Math.round(222 + (113 - 222) * t);
     const b = Math.round(128 + (113 - 128) * t);
@@ -243,6 +249,15 @@ export default function GonzalesResults({
     }
     return best < Infinity ? best : null;
   }), [data]);
+
+  /** Best average for P1-diff on average column */
+  const bestAverage = useMemo(() => {
+    let best = Infinity;
+    for (const r of data.rows) {
+      if (r.averageTime !== null && r.averageTime < best) best = r.averageTime;
+    }
+    return best < Infinity ? best : null;
+  }, [data]);
 
   const sectorStyle = (val: number, best: number | null, worst: number | null): React.CSSProperties | undefined => {
     if (best === null) return undefined;
@@ -374,6 +389,14 @@ export default function GonzalesResults({
                       r.averageTime !== null ? 'text-white' : 'text-dark-700'
                     } ${sortKey === 'average' ? SORT_HL : ''}`}>
                       {r.averageTime !== null ? r.averageTime.toFixed(2) : '—'}
+                      {showP1Diff && r.averageTime !== null && bestAverage !== null && (() => {
+                        const d = r.averageTime! - bestAverage;
+                        return (
+                          <div className="text-[9px] font-normal" style={{ color: diffColor(d) }}>
+                            p1 {d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}
+                          </div>
+                        );
+                      })()}
                     </td>
                     {r.kartResults.map((kr, ki) => {
                       const isStartKart = startKartIdx === ki;
@@ -437,7 +460,7 @@ export default function GonzalesResults({
                               <span className="text-dark-500">{kr.bestTime.toFixed(2)}</span>
                             )}
                             {lapsToShow.map(({ lap, isBest }, li) => (
-                              <div key={li} className={!isBest ? 'text-[8px] mt-0.5' : ''}>
+                              <div key={li}>
                                 <span className={isBest ? 'text-green-400' : 'text-yellow-400'}>
                                   {lap.time.toFixed(2)}
                                 </span>
@@ -445,18 +468,18 @@ export default function GonzalesResults({
                               </div>
                             ))}
                             {showTB && kr.theoreticalBest !== null && (
-                              <div className="mt-0.5">
-                                <span className="text-purple-400 text-[8px]">{kr.theoreticalBest.toFixed(2)}</span>
+                              <div>
+                                <span className="text-purple-400">{kr.theoreticalBest.toFixed(2)}</span>
                               </div>
                             )}
                             {showTBDiff && tbDiffVal !== null && (
-                              <div className="text-[8px] mt-0.5" style={{ color: diffColor(tbDiffVal) }}>
-                                -{tbDiffVal.toFixed(2)}
+                              <div className="text-[9px]" style={{ color: diffColor(tbDiffVal) }}>
+                                tb -{tbDiffVal.toFixed(2)}
                               </div>
                             )}
                             {showP1Diff && p1Diff !== null && (
-                              <div className="text-[8px] mt-0.5" style={{ color: diffColor(p1Diff) }}>
-                                {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}
+                              <div className="text-[9px]" style={{ color: diffColor(p1Diff) }}>
+                                p1 {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}
                               </div>
                             )}
                           </td>
