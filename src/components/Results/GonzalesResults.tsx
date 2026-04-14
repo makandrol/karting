@@ -438,11 +438,24 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   // Auto-assign unassigned pilots to empty slots on first render
   useEffect(() => {
-    if (unassignedPilots.length === 0 || slots.length === 0) return;
-    const takenSlots = new Set(Object.values(pilotStartSlots));
-    const next = { ...pilotStartSlots };
-    let changed = false;
-    for (const pilot of unassignedPilots) {
+    if (slots.length === 0) return;
+
+    // Clean up stale assignments (indices beyond current slot count)
+    const cleaned = { ...pilotStartSlots };
+    let didClean = false;
+    for (const [pilot, idx] of Object.entries(cleaned)) {
+      if (idx >= slots.length || !allPilots.includes(pilot)) {
+        delete cleaned[pilot];
+        didClean = true;
+      }
+    }
+
+    if (unassignedPilots.length === 0 && !didClean) return;
+
+    const takenSlots = new Set(Object.values(cleaned));
+    const next = { ...cleaned };
+    let changed = didClean;
+    for (const pilot of allPilots.filter(p => !(p in next))) {
       for (let i = 0; i < slots.length; i++) {
         if (!takenSlots.has(i)) {
           next[pilot] = i;
