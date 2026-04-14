@@ -305,17 +305,6 @@ export default function GonzalesResults({
       {/* Results table */}
       <div className="card p-0 overflow-hidden relative">
         <div className="flex items-center gap-2 flex-wrap px-3 py-1.5 border-b border-dark-800">
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded border border-dark-700 bg-dark-800/50">
-            <span className="text-dark-500 text-[10px] font-semibold uppercase">Залікові кола:</span>
-            {[1, 2, 3].map(lap => (
-              <label key={lap} className="flex items-center gap-0.5 cursor-pointer">
-                <input type="checkbox" checked={scoringLaps.includes(lap)}
-                  onChange={() => toggleScoringLap(lap)}
-                  className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0 focus:ring-offset-0 cursor-pointer" />
-                <span className={`text-[10px] ${scoringLaps.includes(lap) ? 'text-primary-400' : 'text-dark-600'}`}>{lap}</span>
-              </label>
-            ))}
-          </div>
           <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
             <span className="text-dark-500 text-[9px]">Вид:</span>
             {(() => {
@@ -343,6 +332,17 @@ export default function GonzalesResults({
                 </span>
               );
             })()}
+          </div>
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded border border-dark-700 bg-dark-800/50">
+            <span className="text-dark-500 text-[10px] font-semibold uppercase">Залікові кола:</span>
+            {[1, 2, 3].map(lap => (
+              <label key={lap} className="flex items-center gap-0.5 cursor-pointer">
+                <input type="checkbox" checked={scoringLaps.includes(lap)}
+                  onChange={() => toggleScoringLap(lap)}
+                  className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0 focus:ring-offset-0 cursor-pointer" />
+                <span className={`text-[10px] ${scoringLaps.includes(lap) ? 'text-primary-400' : 'text-dark-600'}`}>{lap}</span>
+              </label>
+            ))}
           </div>
         </div>
         <div className="overflow-x-auto">
