@@ -368,18 +368,44 @@ export interface GonzalesKartSlot {
 
 /**
  * Будує ротаційний список для Гонзалеса.
- * 12 картів + (pilotCount - 12) пропусків (якщо pilotCount > 12).
+ * Карти + пропуски (якщо pilotCount > karts.length), рівномірно розподілені.
+ * Якщо передано slotOrder — використовує його як є.
  */
-export function buildGonzalesRotation(karts: number[], pilotCount: number): GonzalesKartSlot[] {
+export function buildGonzalesRotation(
+  karts: number[], pilotCount: number, slotOrder?: (number | null)[]
+): GonzalesKartSlot[] {
+  if (slotOrder && slotOrder.length > 0) {
+    let skipNum = 0;
+    return slotOrder.map((k, i) => {
+      if (k !== null) {
+        return { position: i + 1, kart: k, label: `Карт ${k}` };
+      }
+      skipNum++;
+      return { position: i + 1, kart: null, label: `Пропуск ${skipNum}` };
+    });
+  }
+
+  const skipCount = Math.max(0, pilotCount - karts.length);
+  if (skipCount === 0) {
+    return karts.map((k, i) => ({ position: i + 1, kart: k, label: `Карт ${k}` }));
+  }
+
+  const totalSlots = karts.length + skipCount;
   const slots: GonzalesKartSlot[] = [];
-  const totalSlots = Math.max(pilotCount, karts.length);
+  const skipPositions = new Set<number>();
+  for (let i = 0; i < skipCount; i++) {
+    skipPositions.add(Math.round((i + 1) * totalSlots / (skipCount + 1)) - 1);
+  }
+
+  let kartIdx = 0;
   let skipNum = 0;
   for (let i = 0; i < totalSlots; i++) {
-    if (i < karts.length) {
-      slots.push({ position: i + 1, kart: karts[i], label: `Карт ${karts[i]}` });
-    } else {
+    if (skipPositions.has(i)) {
       skipNum++;
       slots.push({ position: i + 1, kart: null, label: `Пропуск ${skipNum}` });
+    } else {
+      slots.push({ position: i + 1, kart: karts[kartIdx], label: `Карт ${karts[kartIdx]}` });
+      kartIdx++;
     }
   }
   return slots;

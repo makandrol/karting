@@ -6,7 +6,7 @@ import {
   parseLapSec, type SessionLap, type CompSession,
   type GonzalesPilotRow, type GonzalesStandingsData,
 } from '../../utils/scoring';
-import { buildGonzalesRotation, getGonzalesKartForRound, type GonzalesKartSlot } from '../../data/competitions';
+import { buildGonzalesRotation } from '../../data/competitions';
 
 interface Props {
   competitionId: string;
@@ -30,6 +30,7 @@ export interface GonzalesConfig {
   excludedKarts?: number[];
   pilotStartSlots?: Record<string, number>;
   scoringLaps?: number[];
+  slotOrder?: (number | null)[];
 }
 
 type SortKey = 'average' | 'name' | `kart_${number}`;
@@ -52,6 +53,7 @@ export default function GonzalesResults({
   const [excludedKarts, setExcludedKarts] = useState<Set<number>>(new Set(gonzalesConfig?.excludedKarts || []));
   const [pilotStartSlots, setPilotStartSlots] = useState<Record<string, number>>(gonzalesConfig?.pilotStartSlots || {});
   const [scoringLaps, setScoringLaps] = useState<number[]>(gonzalesConfig?.scoringLaps || [1, 2]);
+  const [slotOrder, setSlotOrder] = useState<(number | null)[] | undefined>(gonzalesConfig?.slotOrder);
 
   const excludedLapSet = useMemo(() => new Set(excludedLapKeys || []), [excludedLapKeys]);
   const effectiveLaps = useMemo(() => {
@@ -71,8 +73,9 @@ export default function GonzalesResults({
       excludedKarts: excludedKarts.size > 0 ? excludedKarts : undefined,
       scoringLaps: scoringLaps.length > 0 ? scoringLaps : undefined,
       pilotStartSlots: Object.keys(pilotStartSlots).length > 0 ? pilotStartSlots : undefined,
+      slotOrder,
     });
-  }, [sessions, effectiveLaps, excludedPilots, kartList, kartReplacements, excludedKarts, scoringLaps, pilotStartSlots]);
+  }, [sessions, effectiveLaps, excludedPilots, kartList, kartReplacements, excludedKarts, scoringLaps, pilotStartSlots, slotOrder]);
 
   const sortedRows = useMemo(() => {
     const rows = [...data.rows];
@@ -133,10 +136,11 @@ export default function GonzalesResults({
       excludedKarts: [...excludedKarts],
       pilotStartSlots,
       scoringLaps,
+      slotOrder,
       ...partial,
     };
     await onSaveResults({ gonzalesConfig: cfg });
-  }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, scoringLaps, onSaveResults]);
+  }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, scoringLaps, slotOrder, onSaveResults]);
 
   // Derive pilot count from qualifying sessions
   const qualifyingPilots = useMemo(() => {
@@ -173,7 +177,7 @@ export default function GonzalesResults({
   }, [autoGroupCount, onAutoGroups]);
 
   const effectiveKarts = kartList.length > 0 ? kartList : data.karts;
-  const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount), [effectiveKarts, pilotCount]);
+  const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount, slotOrder), [effectiveKarts, pilotCount, slotOrder]);
 
   const getStartKartIndex = useCallback((startSlot: number): number | null => {
     if (startSlot < 0 || slots.length === 0) return null;
@@ -242,8 +246,8 @@ export default function GonzalesResults({
 
       {/* Kart Manager */}
       {showKartManager && canManage && (
-        <KartManager
-          karts={data.karts}
+        <PilotKartAssignment
+          autoKarts={data.karts}
           kartList={kartList}
           setKartList={(kl) => { setKartList(kl); saveGonzalesConfig({ kartList: kl }); }}
           kartReplacements={kartReplacements}
@@ -251,9 +255,12 @@ export default function GonzalesResults({
           excludedKarts={excludedKarts}
           setExcludedKarts={(ek) => { setExcludedKarts(ek); saveGonzalesConfig({ excludedKarts: [...ek] as any }); }}
           pilotCount={pilotCount}
-          pilots={data.rows.map(r => r.pilot)}
+          allPilots={[...qualifyingPilots].filter(p => !excludedPilots.has(p))}
           pilotStartSlots={pilotStartSlots}
           setPilotStartSlots={(ps) => { setPilotStartSlots(ps); saveGonzalesConfig({ pilotStartSlots: ps }); }}
+          slotOrder={slotOrder}
+          setSlotOrder={(so) => { setSlotOrder(so); saveGonzalesConfig({ slotOrder: so }); }}
+          onExcludePilot={toggleExcludePilot}
         />
       )}
 
@@ -367,12 +374,13 @@ export default function GonzalesResults({
 }
 
 // ============================================================
-// Kart Manager sub-component
+// Pilot-Kart Assignment sub-component
 // ============================================================
 
-function KartManager({ karts, kartList, setKartList, kartReplacements, setKartReplacements,
-  excludedKarts, setExcludedKarts, pilotCount, pilots, pilotStartSlots, setPilotStartSlots }: {
-  karts: number[];
+function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacements, setKartReplacements,
+  excludedKarts, setExcludedKarts, pilotCount, allPilots, pilotStartSlots, setPilotStartSlots,
+  slotOrder, setSlotOrder, onExcludePilot }: {
+  autoKarts: number[];
   kartList: number[];
   setKartList: (kl: number[]) => void;
   kartReplacements: Record<number, number>;
@@ -380,28 +388,64 @@ function KartManager({ karts, kartList, setKartList, kartReplacements, setKartRe
   excludedKarts: Set<number>;
   setExcludedKarts: (ek: Set<number>) => void;
   pilotCount: number;
-  pilots: string[];
+  allPilots: string[];
   pilotStartSlots: Record<string, number>;
   setPilotStartSlots: (ps: Record<string, number>) => void;
+  slotOrder: (number | null)[] | undefined;
+  setSlotOrder: (so: (number | null)[] | undefined) => void;
+  onExcludePilot: (pilot: string) => void;
 }) {
   const [newKart, setNewKart] = useState('');
   const [replFrom, setReplFrom] = useState('');
   const [replTo, setReplTo] = useState('');
+  const [dragSlotIdx, setDragSlotIdx] = useState<number | null>(null);
+  const [dragPilot, setDragPilot] = useState<string | null>(null);
 
-  const effectiveKarts = kartList.length > 0 ? kartList : karts;
-  const slots = buildGonzalesRotation(effectiveKarts, pilotCount);
+  const effectiveKarts = kartList.length > 0 ? kartList : autoKarts;
+  const slots = buildGonzalesRotation(effectiveKarts, pilotCount, slotOrder);
+
+  const slotToPilot = useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const [pilot, idx] of Object.entries(pilotStartSlots)) {
+      if (allPilots.includes(pilot)) map[idx] = pilot;
+    }
+    return map;
+  }, [pilotStartSlots, allPilots]);
+
+  const assignedPilots = new Set(Object.values(slotToPilot));
+  const unassignedPilots = allPilots.filter(p => !assignedPilots.has(p));
+
+  const currentSlotOrder = (): (number | null)[] => slots.map(s => s.kart);
 
   const addKart = () => {
     const k = parseInt(newKart);
     if (isNaN(k) || k <= 0) return;
-    const next = [...(kartList.length > 0 ? kartList : karts), k].sort((a, b) => a - b);
-    setKartList([...new Set(next)]);
+    const base = kartList.length > 0 ? kartList : autoKarts;
+    const next = [...new Set([...base, k])].sort((a, b) => a - b);
+    setKartList(next);
+    setSlotOrder(undefined);
     setNewKart('');
   };
 
   const removeKart = (k: number) => {
-    const base = kartList.length > 0 ? kartList : karts;
-    setKartList(base.filter(x => x !== k));
+    const base = kartList.length > 0 ? kartList : autoKarts;
+    const next = base.filter(x => x !== k);
+    setKartList(next);
+    const so = currentSlotOrder().filter(v => v !== k);
+    setSlotOrder(so.length > 0 ? so : undefined);
+    const updatedSlots: Record<string, number> = {};
+    for (const [pilot, idx] of Object.entries(pilotStartSlots)) {
+      if (slots[idx]?.kart === k) continue;
+      const newIdx = so.indexOf(slots[idx]?.kart ?? null);
+      if (newIdx >= 0) updatedSlots[pilot] = newIdx;
+    }
+    setPilotStartSlots(updatedSlots);
+  };
+
+  const toggleExcludeKart = (k: number) => {
+    const next = new Set(excludedKarts);
+    next.has(k) ? next.delete(k) : next.add(k);
+    setExcludedKarts(next);
   };
 
   const addReplacement = () => {
@@ -419,136 +463,212 @@ function KartManager({ karts, kartList, setKartList, kartReplacements, setKartRe
     setKartReplacements(next);
   };
 
-  const toggleExcludeKart = (k: number) => {
-    const next = new Set(excludedKarts);
-    next.has(k) ? next.delete(k) : next.add(k);
-    setExcludedKarts(next);
+  const swapSlots = (fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx) return;
+    const order = currentSlotOrder();
+    [order[fromIdx], order[toIdx]] = [order[toIdx], order[fromIdx]];
+    setSlotOrder(order);
+    const updatedSlots: Record<string, number> = {};
+    for (const [pilot, idx] of Object.entries(pilotStartSlots)) {
+      if (idx === fromIdx) updatedSlots[pilot] = toIdx;
+      else if (idx === toIdx) updatedSlots[pilot] = fromIdx;
+      else updatedSlots[pilot] = idx;
+    }
+    setPilotStartSlots(updatedSlots);
   };
 
-  const [dragPilot, setDragPilot] = useState<string | null>(null);
+  const assignPilotToSlot = (pilot: string, slotIdx: number) => {
+    const next = { ...pilotStartSlots };
+    const existingPilot = slotToPilot[slotIdx];
+    if (existingPilot && existingPilot !== pilot) {
+      const oldIdx = pilotStartSlots[pilot];
+      if (oldIdx !== undefined) {
+        next[existingPilot] = oldIdx;
+      } else {
+        delete next[existingPilot];
+      }
+    }
+    next[pilot] = slotIdx;
+    setPilotStartSlots(next);
+  };
+
+  const unassignPilot = (pilot: string) => {
+    const next = { ...pilotStartSlots };
+    delete next[pilot];
+    setPilotStartSlots(next);
+  };
 
   return (
     <div className="card p-3 space-y-3 text-xs">
-      <h4 className="text-white font-semibold text-sm">Управління картами</h4>
+      <h4 className="text-white font-semibold text-sm">Привʼязка пілотів до картів</h4>
 
-      {/* Kart list */}
-      <div>
-        <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">Карти ({effectiveKarts.length})</div>
-        <div className="flex flex-wrap gap-1 mb-1.5">
-          {effectiveKarts.map(k => (
-            <div key={k} className={`flex items-center gap-1 px-2 py-0.5 rounded ${excludedKarts.has(k) ? 'bg-dark-900 opacity-50' : 'bg-dark-800'}`}>
-              <span className={KART_COLOR}>{k}</span>
-              <button onClick={() => toggleExcludeKart(k)}
-                className={`text-[9px] ${excludedKarts.has(k) ? 'text-green-400' : 'text-dark-600 hover:text-red-400'}`}
-                title={excludedKarts.has(k) ? 'Включити в середнє' : 'Виключити з середнього'}>
-                {excludedKarts.has(k) ? '↩' : '✕'}
-              </button>
-              <button onClick={() => removeKart(k)} className="text-[9px] text-dark-700 hover:text-red-400" title="Видалити">×</button>
-            </div>
-          ))}
-        </div>
+      {/* Replacements (compact) */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-dark-500 text-[10px] font-semibold uppercase">Заміни:</span>
+        {Object.entries(kartReplacements).map(([from, to]) => (
+          <div key={from} className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-dark-800">
+            <span className={KART_COLOR}>{from}</span>
+            <span className="text-dark-600">→</span>
+            <span className={KART_COLOR}>{to}</span>
+            <button onClick={() => removeReplacement(parseInt(from))} className="text-[9px] text-dark-600 hover:text-red-400">✕</button>
+          </div>
+        ))}
         <div className="flex items-center gap-1">
-          <input type="number" value={newKart} onChange={e => setNewKart(e.target.value)}
-            placeholder="Номер карту"
-            className="w-20 bg-dark-800 rounded px-2 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500" />
-          <button onClick={addKart} className="px-2 py-0.5 rounded bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 transition-colors">+</button>
+          <input type="number" value={replFrom} onChange={e => setReplFrom(e.target.value)}
+            placeholder="Зл."
+            className="w-12 bg-dark-800 rounded px-1.5 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-[10px]" />
+          <span className="text-dark-600">→</span>
+          <input type="number" value={replTo} onChange={e => setReplTo(e.target.value)}
+            placeholder="Зам."
+            className="w-12 bg-dark-800 rounded px-1.5 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-[10px]" />
+          <button onClick={addReplacement} className="px-1.5 py-0.5 rounded bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 transition-colors text-[10px]">+</button>
         </div>
       </div>
 
-      {/* Replacements */}
+      {/* Two-column assignment table */}
       <div>
-        <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">Заміни картів</div>
-        {Object.entries(kartReplacements).length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-1.5">
-            {Object.entries(kartReplacements).map(([from, to]) => (
-              <div key={from} className="flex items-center gap-1 px-2 py-0.5 rounded bg-dark-800">
-                <span className={KART_COLOR}>{from}</span>
-                <span className="text-dark-600">→</span>
-                <span className={KART_COLOR}>{to}</span>
-                <button onClick={() => removeReplacement(parseInt(from))} className="text-[9px] text-dark-600 hover:text-red-400">✕</button>
+        <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">
+          {slots.length} позицій: {effectiveKarts.length} картів + {Math.max(0, pilotCount - effectiveKarts.length)} пропусків
+        </div>
+        <div className="grid grid-cols-[1fr_1fr] gap-0 border border-dark-700 rounded overflow-hidden">
+          {/* Header */}
+          <div className="bg-dark-800/80 px-2 py-1 text-dark-500 text-[10px] font-semibold uppercase border-b border-r border-dark-700">
+            Позиція / Карт
+          </div>
+          <div className="bg-dark-800/80 px-2 py-1 text-dark-500 text-[10px] font-semibold uppercase border-b border-dark-700">
+            Пілот
+          </div>
+
+          {/* Slot rows */}
+          {slots.map((slot, si) => {
+            const pilot = slotToPilot[si];
+            const isSkip = slot.kart === null;
+            const replacement = slot.kart !== null ? kartReplacements[slot.kart] : undefined;
+            const isExcluded = slot.kart !== null && excludedKarts.has(slot.kart);
+            return (
+              <React.Fragment key={si}>
+                {/* Left: slot */}
+                <div
+                  className={`flex items-center gap-1.5 px-2 py-1 border-b border-r border-dark-700 cursor-grab select-none ${
+                    isSkip ? 'bg-dark-900/50' : isExcluded ? 'bg-dark-900/50 opacity-60' : 'bg-dark-850'
+                  } ${dragSlotIdx !== null && dragSlotIdx !== si ? 'hover:bg-dark-700/50' : ''}`}
+                  draggable
+                  onDragStart={(e) => {
+                    if (dragPilot) return;
+                    setDragSlotIdx(si);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragEnd={() => setDragSlotIdx(null)}
+                  onDragOver={(e) => {
+                    if (dragSlotIdx !== null) e.preventDefault();
+                  }}
+                  onDrop={() => {
+                    if (dragSlotIdx !== null) swapSlots(dragSlotIdx, si);
+                  }}
+                >
+                  <span className="text-dark-600 text-[10px] w-4 text-right">{si + 1}.</span>
+                  {isSkip ? (
+                    <span className="text-dark-600 italic">{slot.label}</span>
+                  ) : (
+                    <>
+                      <span className={`${KART_COLOR} font-medium`}>{slot.kart}</span>
+                      {replacement && (
+                        <span className="text-dark-600 text-[9px]">→ <span className={KART_COLOR}>{replacement}</span></span>
+                      )}
+                      <div className="ml-auto flex items-center gap-0.5">
+                        <button onClick={() => toggleExcludeKart(slot.kart!)}
+                          className={`text-[9px] ${isExcluded ? 'text-green-400' : 'text-dark-700 hover:text-yellow-400'}`}
+                          title={isExcluded ? 'Включити в середнє' : 'Виключити з середнього'}>
+                          {isExcluded ? '↩' : '⊘'}
+                        </button>
+                        <button onClick={() => removeKart(slot.kart!)}
+                          className="text-[9px] text-dark-700 hover:text-red-400" title="Видалити карт">×</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Right: pilot */}
+                <div
+                  className={`flex items-center gap-1 px-2 py-1 border-b border-dark-700 ${
+                    isSkip ? 'bg-dark-900/50' : 'bg-dark-850'
+                  } ${!pilot && dragPilot ? 'hover:bg-primary-600/10' : ''}`}
+                  onDragOver={(e) => {
+                    if (dragPilot) e.preventDefault();
+                  }}
+                  onDrop={() => {
+                    if (dragPilot) {
+                      assignPilotToSlot(dragPilot, si);
+                      setDragPilot(null);
+                    }
+                  }}
+                >
+                  {pilot ? (
+                    <>
+                      <span
+                        className="text-white cursor-grab flex-1"
+                        draggable
+                        onDragStart={(e) => {
+                          e.stopPropagation();
+                          setDragPilot(pilot);
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragEnd={() => setDragPilot(null)}
+                      >
+                        {pilot}
+                      </span>
+                      <button onClick={() => unassignPilot(pilot)}
+                        className="text-[9px] text-dark-600 hover:text-yellow-400" title="Відʼєднати">⇥</button>
+                      <button onClick={() => onExcludePilot(pilot)}
+                        className="text-[9px] text-dark-600 hover:text-red-400" title="Виключити пілота">✕</button>
+                    </>
+                  ) : (
+                    <span className="text-dark-700 text-[10px]">—</span>
+                  )}
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+
+        {/* Add kart */}
+        <div className="flex items-center gap-1 mt-1.5">
+          <input type="number" value={newKart} onChange={e => setNewKart(e.target.value)}
+            placeholder="Номер карту"
+            onKeyDown={e => { if (e.key === 'Enter') addKart(); }}
+            className="w-20 bg-dark-800 rounded px-2 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-[10px]" />
+          <button onClick={addKart}
+            className="px-2 py-0.5 rounded bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 transition-colors text-[10px]">
+            + карт
+          </button>
+        </div>
+      </div>
+
+      {/* Unassigned pilots */}
+      {unassignedPilots.length > 0 && (
+        <div>
+          <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">
+            Непривʼязані пілоти ({unassignedPilots.length})
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {unassignedPilots.map(pilot => (
+              <div key={pilot}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-dark-800 cursor-grab"
+                draggable
+                onDragStart={(e) => {
+                  setDragPilot(pilot);
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragEnd={() => setDragPilot(null)}
+              >
+                <span className="text-white text-[10px]">{pilot}</span>
+                <button onClick={() => onExcludePilot(pilot)}
+                  className="text-[9px] text-dark-600 hover:text-red-400" title="Виключити">✕</button>
               </div>
             ))}
           </div>
-        )}
-        <div className="flex items-center gap-1">
-          <input type="number" value={replFrom} onChange={e => setReplFrom(e.target.value)}
-            placeholder="Зламаний"
-            className="w-16 bg-dark-800 rounded px-2 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500" />
-          <span className="text-dark-600">→</span>
-          <input type="number" value={replTo} onChange={e => setReplTo(e.target.value)}
-            placeholder="Заміна"
-            className="w-16 bg-dark-800 rounded px-2 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500" />
-          <button onClick={addReplacement} className="px-2 py-0.5 rounded bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 transition-colors">+</button>
         </div>
-      </div>
-
-      {/* Rotation / Starting slots */}
-      <div>
-        <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">
-          Ротаційний список ({slots.length} позицій: {effectiveKarts.length} картів + {Math.max(0, pilotCount - effectiveKarts.length)} пропусків)
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[10px]">
-            <thead>
-              <tr className="table-header">
-                <th className="table-cell text-left min-w-[100px]">Пілот</th>
-                <th className="table-cell text-center w-10">Поз.</th>
-                {slots.map(s => (
-                  <th key={s.position} className={`table-cell text-center min-w-[40px] ${s.kart === null ? 'text-dark-600' : KART_COLOR}`}>
-                    {s.kart !== null ? s.kart : `П${s.position - effectiveKarts.length}`}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {pilots.map(pilot => {
-                const startSlot = pilotStartSlots[pilot] ?? -1;
-                return (
-                  <tr key={pilot} className="table-row"
-                    draggable
-                    onDragStart={() => setDragPilot(pilot)}
-                    onDragEnd={() => setDragPilot(null)}>
-                    <td className="table-cell text-left text-white whitespace-nowrap cursor-grab">{pilot}</td>
-                    <td className="table-cell text-center">
-                      <input type="number" min={1} max={slots.length}
-                        value={startSlot >= 0 ? startSlot + 1 : ''}
-                        onChange={e => {
-                          const v = parseInt(e.target.value);
-                          if (!isNaN(v) && v >= 1 && v <= slots.length) {
-                            const next = { ...pilotStartSlots, [pilot]: v - 1 };
-                            setPilotStartSlots(next);
-                          }
-                        }}
-                        className="w-8 bg-dark-800 rounded px-1 py-0 text-center text-dark-300 outline-none border border-dark-700 focus:border-primary-500" />
-                    </td>
-                    {slots.map((s, si) => {
-                      const isAssigned = startSlot === si;
-                      const roundIdx = startSlot >= 0
-                        ? slots.map((_, ri) => getGonzalesKartForRound(slots, startSlot, ri))
-                        : [];
-                      const kartForThisRound = startSlot >= 0 ? getGonzalesKartForRound(slots, startSlot, si) : null;
-                      const isSkip = kartForThisRound?.kart === null;
-                      return (
-                        <td key={si}
-                          className={`table-cell text-center ${isAssigned ? 'bg-primary-600/20 text-primary-400 font-bold' : isSkip ? 'text-dark-700' : 'text-dark-500'}`}
-                          onDragOver={e => e.preventDefault()}
-                          onDrop={() => {
-                            if (dragPilot) {
-                              const next = { ...pilotStartSlots, [dragPilot]: si };
-                              setPilotStartSlots(next);
-                            }
-                          }}>
-                          {isAssigned ? '●' : ''}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

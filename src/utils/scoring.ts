@@ -1,4 +1,4 @@
-import { splitIntoGroups, splitIntoGroupsSprint } from '../data/competitions';
+import { splitIntoGroups, splitIntoGroupsSprint, buildGonzalesRotation } from '../data/competitions';
 
 export interface SessionLap {
   pilot: string;
@@ -665,10 +665,12 @@ export interface ComputeGonzalesParams {
   scoringLaps?: number[];
   /** Pilot starting slot assignments (pilot name -> 0-based slot index) */
   pilotStartSlots?: Record<string, number>;
+  /** Explicit slot ordering (kart number or null for skip) */
+  slotOrder?: (number | null)[];
 }
 
 export function computeGonzalesStandings(params: ComputeGonzalesParams): GonzalesStandingsData {
-  const { sessions, sessionLaps, excludedPilots, kartList, kartReplacements, excludedKarts, scoringLaps, pilotStartSlots } = params;
+  const { sessions, sessionLaps, excludedPilots, kartList, kartReplacements, excludedKarts, scoringLaps, pilotStartSlots, slotOrder } = params;
 
   // 1. Extract real pilots from qualifying sessions
   const qualifyingPilots = new Set<string>();
@@ -741,21 +743,20 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
   // 4. Build pilot → kart → best time mapping
   const pilotKartBest = new Map<string, Map<number, { time: number; timeStr: string }>>();
   const pilotCount = qualifyingPilots.size || (pilotStartSlots ? Object.keys(pilotStartSlots).length : 0);
-  const totalSlots = Math.max(pilotCount, karts.length);
+  const rotationSlots = buildGonzalesRotation(karts, pilotCount, slotOrder);
+  const totalSlots = rotationSlots.length;
 
   const hasPilotSlots = pilotStartSlots && Object.keys(pilotStartSlots).length > 0;
 
   if (hasPilotSlots && qualifyingPilots.size > 0) {
-    // Use rotation to assign kart times to real pilots
     for (let ri = 0; ri < roundSessions.length; ri++) {
       const kartBest = roundKartBest[ri];
       for (const [pilot, startSlot] of Object.entries(pilotStartSlots!)) {
         if (excludedPilots.has(pilot)) continue;
         const slotIdx = (startSlot + ri) % totalSlots;
-        // Determine which kart is at this slot position
-        const kart = slotIdx < karts.length ? karts[slotIdx] : null;
-        if (kart === null) continue; // skip slot
-        const resolvedKart = effectiveKart(kart);
+        const slot = rotationSlots[slotIdx];
+        if (!slot || slot.kart === null) continue;
+        const resolvedKart = effectiveKart(slot.kart);
         const result = kartBest.get(resolvedKart);
         if (!result) continue;
 
