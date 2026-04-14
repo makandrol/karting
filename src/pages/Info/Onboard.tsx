@@ -37,6 +37,15 @@ interface FullCompData {
   format: string;
 }
 
+const Pill = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
+  <button onClick={(e) => { e.stopPropagation(); onClick(); }}
+    className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${
+      active ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
+    }`}>
+    {label}
+  </button>
+);
+
 export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, onClose }: OnboardProps = {}) {
   const isReplay = replayEntries != null;
 
@@ -403,16 +412,6 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
 
   const isLive = isReplay ? entries.length > 0 : (poller.mode === 'live' && entries.length > 0);
 
-  // ── View toggle pill helper ──
-  const Pill = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
-    <button onClick={(e) => { e.stopPropagation(); onClick(); }}
-      className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${
-        active ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
-      }`}>
-      {label}
-    </button>
-  );
-
   return (
     <div className="fixed inset-0 bg-dark-950 flex flex-col z-50 select-none">
       {/* Top bar */}
@@ -646,14 +645,13 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
 
       {/* View toggle — bottom right */}
       <div ref={viewRef} className="absolute bottom-3 right-3 z-20">
-        <button onClick={() => setViewOpen(v => !v)}
-          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-medium transition-colors ${
+        <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-medium transition-colors ${
             viewOpen ? 'border-primary-500 text-primary-400' : 'border-dark-700 bg-dark-900/80 text-dark-500 hover:text-dark-300'
           }`}>
-          <span>Вид:</span>
+          <span className="cursor-pointer" onClick={() => setViewOpen(v => !v)}>Вид:</span>
           {viewOpen && (
             <>
-              <button onClick={(e) => { e.stopPropagation(); setModeOverride(effectiveMode === 'quali' ? 'race' : 'quali'); }}
+              <button onClick={() => setModeOverride(effectiveMode === 'quali' ? 'race' : 'quali')}
                 className="px-1.5 py-0.5 rounded text-[9px] bg-dark-700 text-dark-300 transition-colors">
                 {effectiveMode === 'quali' ? 'Квала' : 'Гонка'}
               </button>
@@ -666,7 +664,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
               <Pill label="Рез" active={showFinalPos} onClick={() => setShowFinalPos(v => !v)} />
             </>
           )}
-        </button>
+        </div>
       </div>
     </div>
   );

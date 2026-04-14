@@ -1,5 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
@@ -422,16 +423,6 @@ export default function SessionDetail() {
                         if (!s.visible || !sectionMap[s.id]) return null;
                         return <div key={s.id}>{sectionMap[s.id]}</div>;
                       })}
-                      {onboardOpen && (
-                        <Suspense fallback={null}>
-                          <Onboard
-                            replayEntries={trackEntries}
-                            replaySessionId={sessionId!}
-                            scrubberSlot={scrubber}
-                            onClose={() => setOnboardOpen(false)}
-                          />
-                        </Suspense>
-                      )}
                     </>
                   );
                 }}
@@ -447,6 +438,17 @@ export default function SessionDetail() {
               startPositions={isRace ? startPositions : undefined} />
           )}
         </>
+      )}
+
+      {onboardOpen && createPortal(
+        <Suspense fallback={null}>
+          <Onboard
+            replayEntries={trackEntries}
+            replaySessionId={sessionId!}
+            onClose={() => setOnboardOpen(false)}
+          />
+        </Suspense>,
+        document.body
       )}
     </div>
   );
