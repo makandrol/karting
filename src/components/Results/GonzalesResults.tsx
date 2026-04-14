@@ -370,7 +370,7 @@ export default function GonzalesResults({
               <tr className="table-header">
                 {data.karts.map((k, ki) => (
                   <React.Fragment key={k}>
-                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal min-w-[48px] ${excludedKarts.has(k) ? 'opacity-40' : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}>час</th>
+                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal min-w-[60px] ${excludedKarts.has(k) ? 'opacity-40' : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}>час</th>
                     <th className={`table-cell text-center text-[8px] text-dark-600 font-normal w-[28px] ${excludedKarts.has(k) ? 'opacity-40' : ''}`}>м.</th>
                   </React.Fragment>
                 ))}
