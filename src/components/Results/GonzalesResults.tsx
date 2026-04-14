@@ -590,9 +590,9 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                 <div className="flex items-center gap-1 px-1 py-1 border-r border-dark-700">
                   <div className="flex flex-col shrink-0">
                     <button onClick={() => !isFirst && swapSlots(si, si - 1)} disabled={isFirst}
-                      className={`w-5 h-5 flex items-center justify-center text-xs ${isFirst ? 'text-dark-800' : 'text-dark-500 hover:text-white active:bg-dark-700 rounded'}`}>▲</button>
+                      className={`text-sm leading-none px-0.5 ${isFirst ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▲</button>
                     <button onClick={() => !isLast && swapSlots(si, si + 1)} disabled={isLast}
-                      className={`w-5 h-5 flex items-center justify-center text-xs ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white active:bg-dark-700 rounded'}`}>▼</button>
+                      className={`text-sm leading-none px-0.5 ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▼</button>
                   </div>
                   {isSkip ? (
                     <span className="text-white font-medium text-xs">{slot.label}</span>
@@ -627,9 +627,9 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                     <>
                       <div className="flex flex-col shrink-0">
                         <button onClick={() => !isFirst && swapPilotRows(si, si - 1)} disabled={isFirst}
-                          className={`w-5 h-5 flex items-center justify-center text-xs ${isFirst ? 'text-dark-800' : 'text-dark-500 hover:text-white active:bg-dark-700 rounded'}`}>▲</button>
+                          className={`text-sm leading-none px-0.5 ${isFirst ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▲</button>
                         <button onClick={() => !isLast && swapPilotRows(si, si + 1)} disabled={isLast}
-                          className={`w-5 h-5 flex items-center justify-center text-xs ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white active:bg-dark-700 rounded'}`}>▼</button>
+                          className={`text-sm leading-none px-0.5 ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▼</button>
                       </div>
                       <span className="text-white cursor-grab flex-1 text-xs truncate"
                         draggable
