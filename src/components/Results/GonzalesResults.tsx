@@ -519,35 +519,50 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
     setKartReplacements(next);
   };
 
-  const swapSlots = (fromIdx: number, toIdx: number) => {
+  const moveSlot = (fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx) return;
     const order = currentSlotOrder();
-    [order[fromIdx], order[toIdx]] = [order[toIdx], order[fromIdx]];
+    const [item] = order.splice(fromIdx, 1);
+    order.splice(toIdx, 0, item);
     setSlotOrder(order);
   };
 
-  const swapPilotRows = (fromIdx: number, toIdx: number) => {
+  const movePilot = (fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx) return;
-    const pilotA = slotToPilot[fromIdx];
-    const pilotB = slotToPilot[toIdx];
-    const next = { ...pilotStartSlots };
-    if (pilotA) next[pilotA] = toIdx;
-    if (pilotB) next[pilotB] = fromIdx;
+    // Collect pilots sorted by slot index
+    const ordered = allPilots
+      .filter(p => p in pilotStartSlots)
+      .sort((a, b) => pilotStartSlots[a] - pilotStartSlots[b]);
+    // Find pilot at fromIdx row position
+    const pilotAtFrom = ordered.find(p => pilotStartSlots[p] === fromIdx);
+    if (!pilotAtFrom) return;
+    // Remove and reinsert
+    const filtered = ordered.filter(p => p !== pilotAtFrom);
+    const insertAt = filtered.findIndex(p => pilotStartSlots[p] >= toIdx);
+    if (insertAt === -1) filtered.push(pilotAtFrom);
+    else filtered.splice(toIdx > fromIdx ? insertAt : insertAt, 0, pilotAtFrom);
+    // Reassign sequential indices
+    const next: Record<string, number> = {};
+    filtered.forEach((p, i) => { next[p] = i; });
+    // Keep unassigned pilots
+    for (const p of allPilots) {
+      if (!(p in next)) {
+        for (let i = 0; i < slots.length; i++) {
+          if (!Object.values(next).includes(i)) { next[p] = i; break; }
+        }
+      }
+    }
     setPilotStartSlots(next);
   };
 
   const assignPilotToSlot = (pilot: string, slotIdx: number) => {
-    const next = { ...pilotStartSlots };
-    const existingPilot = slotToPilot[slotIdx];
-    if (existingPilot && existingPilot !== pilot) {
-      const oldIdx = pilotStartSlots[pilot];
-      if (oldIdx !== undefined) {
-        next[existingPilot] = oldIdx;
-      } else {
-        delete next[existingPilot];
-      }
-    }
-    next[pilot] = slotIdx;
+    // Insert pilot at slotIdx, shift others
+    const ordered = allPilots
+      .filter(p => p in pilotStartSlots && p !== pilot)
+      .sort((a, b) => pilotStartSlots[a] - pilotStartSlots[b]);
+    ordered.splice(slotIdx, 0, pilot);
+    const next: Record<string, number> = {};
+    ordered.forEach((p, i) => { next[p] = i; });
     setPilotStartSlots(next);
   };
 
@@ -593,12 +608,12 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                   onDragStart={(e) => { if (dragPilot) return; setDragSlotIdx(si); e.dataTransfer.effectAllowed = 'move'; }}
                   onDragEnd={() => setDragSlotIdx(null)}
                   onDragOver={(e) => { if (dragSlotIdx !== null) e.preventDefault(); }}
-                  onDrop={() => { if (dragSlotIdx !== null) { swapSlots(dragSlotIdx, si); setDragSlotIdx(null); } }}
+                  onDrop={() => { if (dragSlotIdx !== null) { moveSlot(dragSlotIdx, si); setDragSlotIdx(null); } }}
                 >
                   <div className="flex flex-col shrink-0">
-                    <button onClick={() => !isFirst && swapSlots(si, si - 1)} disabled={isFirst}
+                    <button onClick={() => !isFirst && moveSlot(si, si - 1)} disabled={isFirst}
                       className={`text-sm leading-none px-0.5 ${isFirst ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▲</button>
-                    <button onClick={() => !isLast && swapSlots(si, si + 1)} disabled={isLast}
+                    <button onClick={() => !isLast && moveSlot(si, si + 1)} disabled={isLast}
                       className={`text-sm leading-none px-0.5 ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▼</button>
                   </div>
                   {isSkip ? (
@@ -633,9 +648,9 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                   {pilot ? (
                     <>
                       <div className="flex flex-col shrink-0">
-                        <button onClick={() => !isFirst && swapPilotRows(si, si - 1)} disabled={isFirst}
+                        <button onClick={() => !isFirst && movePilot(si, si - 1)} disabled={isFirst}
                           className={`text-sm leading-none px-0.5 ${isFirst ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▲</button>
-                        <button onClick={() => !isLast && swapPilotRows(si, si + 1)} disabled={isLast}
+                        <button onClick={() => !isLast && movePilot(si, si + 1)} disabled={isLast}
                           className={`text-sm leading-none px-0.5 ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▼</button>
                       </div>
                       <span className="text-white cursor-grab flex-1 text-xs truncate"
