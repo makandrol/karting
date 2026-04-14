@@ -519,7 +519,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   return (
     <div className="card p-3 space-y-3 text-xs">
-      <h4 className="text-white font-semibold text-sm">Привʼязка пілотів до картів</h4>
+      <h4 className="text-white font-semibold text-sm">Привʼязка пілотів до початкового карту</h4>
 
       {/* Two-column assignment table */}
       <div>
@@ -554,12 +554,11 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                   onDragOver={(e) => { if (dragSlotIdx !== null) e.preventDefault(); }}
                   onDrop={() => { if (dragSlotIdx !== null) swapSlots(dragSlotIdx, si); }}
                 >
-                  <span className="text-dark-600 text-[10px] w-4 text-right shrink-0">{si + 1}.</span>
                   {isSkip ? (
                     <span className="text-dark-600 italic text-[11px]">{slot.label}</span>
                   ) : (
-                    <span className={`${KART_COLOR} font-bold text-sm`}>
-                      {slot.kart}{replacement ? <span className="text-dark-500 font-normal text-[9px] ml-0.5">→{replacement}</span> : null}
+                    <span className={`${KART_COLOR} font-bold text-[11px]`}>
+                      Карт {slot.kart}{replacement ? <span className="text-dark-500 font-normal text-[9px] ml-0.5">→{replacement}</span> : null}
                     </span>
                   )}
                 </div>
