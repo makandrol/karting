@@ -402,7 +402,28 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const [dragPilot, setDragPilot] = useState<string | null>(null);
 
   const effectiveKarts = kartList.length > 0 ? kartList : autoKarts;
-  const slots = buildGonzalesRotation(effectiveKarts, pilotCount, slotOrder);
+
+  // Derive effective slotOrder: trim excess skips or add missing ones to match pilotCount
+  const effectiveSlotOrder = useMemo((): (number | null)[] | undefined => {
+    if (!slotOrder || slotOrder.length === 0) return undefined;
+    const neededSkips = Math.max(0, pilotCount - effectiveKarts.length);
+    const currentSkips = slotOrder.filter(v => v === null).length;
+    if (currentSkips === neededSkips) return slotOrder;
+
+    const result = [...slotOrder];
+    if (currentSkips > neededSkips) {
+      let toRemove = currentSkips - neededSkips;
+      for (let i = result.length - 1; i >= 0 && toRemove > 0; i--) {
+        if (result[i] === null) { result.splice(i, 1); toRemove--; }
+      }
+    } else {
+      const toAdd = neededSkips - currentSkips;
+      for (let i = 0; i < toAdd; i++) result.push(null);
+    }
+    return result;
+  }, [slotOrder, pilotCount, effectiveKarts.length]);
+
+  const slots = buildGonzalesRotation(effectiveKarts, pilotCount, effectiveSlotOrder);
 
   const slotToPilot = useMemo(() => {
     const map: Record<number, string> = {};
@@ -434,41 +455,15 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
     if (changed) setPilotStartSlots(next);
   }, [allPilots.join(','), slots.length]);
 
-  // Trim slotOrder when pilotCount decreases (remove excess skips)
-  const prevPilotCountRef = useRef(pilotCount);
+  // Persist trimmed slotOrder back when it differs from stored
   useEffect(() => {
-    if (pilotCount >= prevPilotCountRef.current) {
-      prevPilotCountRef.current = pilotCount;
-      return;
-    }
-    prevPilotCountRef.current = pilotCount;
-
-    if (!slotOrder || slotOrder.length === 0) return;
-    const neededSkips = Math.max(0, pilotCount - effectiveKarts.length);
-    const currentSkips = slotOrder.filter(v => v === null).length;
-    if (currentSkips <= neededSkips) return;
-
-    let toRemove = currentSkips - neededSkips;
-    const trimmed = [...slotOrder];
-    for (let i = trimmed.length - 1; i >= 0 && toRemove > 0; i--) {
-      if (trimmed[i] === null) {
-        trimmed.splice(i, 1);
-        toRemove--;
-      }
-    }
-    setSlotOrder(trimmed.length > 0 ? trimmed : undefined);
-
-    // Remap pilotStartSlots to new indices
-    const oldSlots = slotOrder;
-    const remapped: Record<string, number> = {};
-    for (const [pilot, oldIdx] of Object.entries(pilotStartSlots)) {
-      if (!allPilots.includes(pilot)) continue;
-      const kartAtOld = oldSlots[oldIdx] ?? null;
-      const newIdx = trimmed.indexOf(kartAtOld);
-      if (newIdx >= 0) remapped[pilot] = newIdx;
-    }
-    setPilotStartSlots(remapped);
-  }, [pilotCount]);
+    if (effectiveSlotOrder === slotOrder) return;
+    if (!effectiveSlotOrder && !slotOrder) return;
+    if (effectiveSlotOrder && slotOrder &&
+      effectiveSlotOrder.length === slotOrder.length &&
+      effectiveSlotOrder.every((v, i) => v === slotOrder[i])) return;
+    setSlotOrder(effectiveSlotOrder);
+  }, [effectiveSlotOrder]);
 
   const currentSlotOrder = (): (number | null)[] => slots.map(s => s.kart);
 
