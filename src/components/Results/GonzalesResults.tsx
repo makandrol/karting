@@ -220,8 +220,8 @@ export default function GonzalesResults({
   };
 
   const SORT_HL = 'bg-primary-600/10';
-  const STICKY_NUM = 'sticky left-0 z-10 bg-inherit';
-  const STICKY_PILOT = 'sticky left-[24px] z-10 bg-inherit after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]';
+  const STICKY_NUM = 'sticky left-0 z-10';
+  const STICKY_PILOT = 'sticky left-[24px] z-10 after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]';
 
   /** 0→green, 0.5→red (steps 0.05), 0.5→1.0 red→bright red, >1.0 bright red */
   const diffColor = (diff: number): string => {
@@ -349,8 +349,8 @@ export default function GonzalesResults({
           <table className="w-full text-[10px]">
             <thead>
               <tr className="table-header">
-                <th className={`table-cell text-center w-6 ${STICKY_NUM}`} rowSpan={2}>#</th>
-                <th className={`table-cell text-left min-w-[100px] cursor-pointer hover:text-white ${STICKY_PILOT} ${sortKey === 'name' ? SORT_HL : ''}`}
+                <th className={`table-cell text-center w-6 bg-[#1a1d23] ${STICKY_NUM}`} rowSpan={2}>#</th>
+                <th className={`table-cell text-left min-w-[100px] cursor-pointer hover:text-white bg-[#1a1d23] ${STICKY_PILOT} ${sortKey === 'name' ? SORT_HL : ''}`}
                   onClick={() => handleSort('name')} rowSpan={2}>
                   Пілот<SortArrow k="name" />
                 </th>
@@ -380,12 +380,13 @@ export default function GonzalesResults({
               {sortedRows.map((r, i) => {
                 const isSelected = selectedPilot === r.pilot;
                 const { kartIdx: startKartIdx, fromSkip: isSkipStart } = getStartKartInfo(r.startSlot);
+                const stickyBg = isSelected ? 'bg-[#2a2f3a]' : 'bg-dark-900';
                 return (
                   <tr key={r.pilot}
                     onClick={() => setSelectedPilot(isSelected ? null : r.pilot)}
                     className={`table-row cursor-pointer ${isSelected ? 'bg-primary-600/10' : ''} active:bg-dark-700/30`}>
-                    <td className={`table-cell text-center font-mono text-white font-bold ${STICKY_NUM}`}>{i + 1}</td>
-                    <td className={`table-cell text-left text-white whitespace-nowrap ${STICKY_PILOT}`}>{r.pilot}</td>
+                    <td className={`table-cell text-center font-mono text-white font-bold ${stickyBg} ${STICKY_NUM}`}>{i + 1}</td>
+                    <td className={`table-cell text-left text-white whitespace-nowrap ${stickyBg} ${STICKY_PILOT}`}>{r.pilot}</td>
                     <td className={`table-cell text-center font-mono font-bold ${
                       r.averageTime !== null ? 'text-white' : 'text-dark-700'
                     } ${sortKey === 'average' ? SORT_HL : ''}`}>
