@@ -390,23 +390,25 @@ export function buildGonzalesRotation(
     return karts.map((k, i) => ({ position: i + 1, kart: k, label: `Карт ${k}` }));
   }
 
-  const totalSlots = karts.length + skipCount;
-  const slots: GonzalesKartSlot[] = [];
-  const skipPositions = new Set<number>();
+  // Split karts into skipCount groups, larger groups first
+  // e.g. 12 karts, 5 skips → groups [3,3,2,2,2] → skip after 3,6,8,10,12
+  const baseSize = Math.floor(karts.length / skipCount);
+  const largerGroups = karts.length % skipCount;
+  const groups: number[] = [];
   for (let i = 0; i < skipCount; i++) {
-    skipPositions.add(Math.round((i + 1) * totalSlots / (skipCount + 1)) - 1);
+    groups.push(i < largerGroups ? baseSize + 1 : baseSize);
   }
 
+  const slots: GonzalesKartSlot[] = [];
   let kartIdx = 0;
   let skipNum = 0;
-  for (let i = 0; i < totalSlots; i++) {
-    if (skipPositions.has(i)) {
-      skipNum++;
-      slots.push({ position: i + 1, kart: null, label: `Пропуск ${skipNum}` });
-    } else {
-      slots.push({ position: i + 1, kart: karts[kartIdx], label: `Карт ${karts[kartIdx]}` });
+  for (let g = 0; g < groups.length; g++) {
+    for (let j = 0; j < groups[g]; j++) {
+      slots.push({ position: slots.length + 1, kart: karts[kartIdx], label: `Карт ${karts[kartIdx]}` });
       kartIdx++;
     }
+    skipNum++;
+    slots.push({ position: slots.length + 1, kart: null, label: `Пропуск ${skipNum}` });
   }
   return slots;
 }
