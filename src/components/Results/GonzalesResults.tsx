@@ -518,13 +518,6 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
     const order = currentSlotOrder();
     [order[fromIdx], order[toIdx]] = [order[toIdx], order[fromIdx]];
     setSlotOrder(order);
-    const updatedSlots: Record<string, number> = {};
-    for (const [pilot, idx] of Object.entries(pilotStartSlots)) {
-      if (idx === fromIdx) updatedSlots[pilot] = toIdx;
-      else if (idx === toIdx) updatedSlots[pilot] = fromIdx;
-      else updatedSlots[pilot] = idx;
-    }
-    setPilotStartSlots(updatedSlots);
   };
 
   const swapPilotRows = (fromIdx: number, toIdx: number) => {
