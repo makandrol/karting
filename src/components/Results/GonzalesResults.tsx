@@ -458,11 +458,11 @@ export default function GonzalesResults({
                         if (!showSectors) return null;
                         if (lap.s1 === null && lap.s2 === null) return null;
                         return (
-                          <div className="text-[7px] leading-tight font-normal">
+                          <div className="text-[8px] leading-tight font-normal">
                             <span style={lap.s1 !== null ? sectorStyle(lap.s1, kartBestS1[ki], kartWorstS1[ki]) : undefined} className={lap.s1 === null ? 'text-dark-600' : 'text-dark-500'}>
                               {lap.s1 !== null ? lap.s1.toFixed(2) : '—'}
                             </span>
-                            <span className="text-dark-700"> / </span>
+                            <span className="text-dark-700"> </span>
                             <span style={lap.s2 !== null ? sectorStyle(lap.s2, kartBestS2[ki], kartWorstS2[ki]) : undefined} className={lap.s2 === null ? 'text-dark-600' : 'text-dark-500'}>
                               {lap.s2 !== null ? lap.s2.toFixed(2) : '—'}
                             </span>
