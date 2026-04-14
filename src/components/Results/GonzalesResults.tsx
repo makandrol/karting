@@ -345,33 +345,33 @@ export default function GonzalesResults({
             ))}
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[80vh]">
           <table className="w-full text-[10px]">
-            <thead>
+            <thead className="sticky top-0 z-20">
               <tr className="table-header">
                 <th className={`table-cell text-center w-6 bg-[#1a1d23] ${STICKY_NUM}`} rowSpan={2}>#</th>
                 <th className={`table-cell text-left min-w-[100px] cursor-pointer hover:text-white bg-[#1a1d23] ${STICKY_PILOT} ${sortKey === 'name' ? SORT_HL : ''}`}
                   onClick={() => handleSort('name')} rowSpan={2}>
                   Пілот<SortArrow k="name" />
                 </th>
-                <th className={`table-cell text-center min-w-[65px] font-bold cursor-pointer hover:text-white ${sortKey === 'average' ? SORT_HL : ''}`}
+                <th className={`table-cell text-center min-w-[65px] font-bold cursor-pointer hover:text-white bg-[#1a1d23] ${sortKey === 'average' ? SORT_HL : ''}`}
                   onClick={() => handleSort('average')} rowSpan={2}>
                   Сер.<SortArrow k="average" />
                 </th>
                 {data.karts.map((k, ki) => (
                   <th key={k} colSpan={2}
-                    className={`table-cell text-center cursor-pointer hover:text-white ${KART_COLOR} ${sortKey === `kart_${k}` ? SORT_HL : ''} ${excludedKarts.has(k) ? 'opacity-40' : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}
+                    className={`table-cell text-center cursor-pointer hover:text-white bg-[#1a1d23] ${KART_COLOR} ${sortKey === `kart_${k}` ? SORT_HL : ''} ${excludedKarts.has(k) ? 'opacity-40' : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}
                     onClick={() => handleSort(`kart_${k}`)}>
                     {k}<SortArrow k={`kart_${k}`} />
                   </th>
                 ))}
-                {canManage && <th className="table-cell text-center w-6" rowSpan={2}></th>}
+                {canManage && <th className="table-cell text-center w-6 bg-[#1a1d23]" rowSpan={2}></th>}
               </tr>
               <tr className="table-header">
                 {data.karts.map((k, ki) => (
                   <React.Fragment key={k}>
-                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal min-w-[60px] ${excludedKarts.has(k) ? 'opacity-40' : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}>час</th>
-                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal w-[28px] ${excludedKarts.has(k) ? 'opacity-40' : ''}`}>м.</th>
+                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal min-w-[60px] bg-[#1a1d23] ${excludedKarts.has(k) ? 'opacity-40' : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}>час</th>
+                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal w-[28px] bg-[#1a1d23] ${excludedKarts.has(k) ? 'opacity-40' : ''}`}>м.</th>
                   </React.Fragment>
                 ))}
               </tr>
