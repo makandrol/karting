@@ -725,18 +725,16 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   const movePilot = (fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx) return;
-    // Collect pilots sorted by slot index
     const ordered = allPilots
       .filter(p => p in pilotStartSlots)
       .sort((a, b) => pilotStartSlots[a] - pilotStartSlots[b]);
-    // Find pilot at fromIdx row position
     const pilotAtFrom = ordered.find(p => pilotStartSlots[p] === fromIdx);
     if (!pilotAtFrom) return;
-    // Remove and reinsert
     const filtered = ordered.filter(p => p !== pilotAtFrom);
     const insertAt = filtered.findIndex(p => pilotStartSlots[p] >= toIdx);
     if (insertAt === -1) filtered.push(pilotAtFrom);
-    else filtered.splice(toIdx > fromIdx ? insertAt : insertAt, 0, pilotAtFrom);
+    else if (toIdx > fromIdx) filtered.splice(insertAt + 1, 0, pilotAtFrom);
+    else filtered.splice(insertAt, 0, pilotAtFrom);
     // Reassign sequential indices
     const next: Record<string, number> = {};
     filtered.forEach((p, i) => { next[p] = i; });
