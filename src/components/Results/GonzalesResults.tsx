@@ -223,19 +223,19 @@ export default function GonzalesResults({
   const STICKY_NUM = 'sticky left-0 z-10';
   const STICKY_PILOT = 'sticky left-[24px] z-10 after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:shadow-[2px_0_4px_rgba(0,0,0,0.3)]';
 
-  /** 0→green, 0.5→red (steps 0.05), 0.5→1.0 red→bright red, >1.0 bright red */
+  /** 0→green, 0.25→red, 0.25→0.5 bright red, >0.5 max red */
   const diffColor = (diff: number): string => {
     if (diff <= 0.0005) return 'rgb(74,222,128)'; // green-400
-    if (diff >= 1.0) return 'rgb(220,38,38)'; // red-600 (bright)
-    if (diff >= 0.5) {
-      const t = (diff - 0.5) / 0.5; // 0→1
+    if (diff >= 0.5) return 'rgb(220,38,38)'; // red-600
+    if (diff >= 0.25) {
+      const t = (diff - 0.25) / 0.25;
       const r = Math.round(248 + (220 - 248) * t);
       const g = Math.round(113 + (38 - 113) * t);
       const b = Math.round(113 + (38 - 113) * t);
       return `rgb(${r},${g},${b})`;
     }
-    // 0→0.5: green→red
-    const t = diff / 0.5;
+    // 0→0.25: green→red
+    const t = diff / 0.25;
     const r = Math.round(74 + (248 - 74) * t);
     const g = Math.round(222 + (113 - 222) * t);
     const b = Math.round(128 + (113 - 128) * t);
