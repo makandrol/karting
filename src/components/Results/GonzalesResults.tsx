@@ -434,6 +434,42 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
     if (changed) setPilotStartSlots(next);
   }, [allPilots.join(','), slots.length]);
 
+  // Trim slotOrder when pilotCount decreases (remove excess skips)
+  const prevPilotCountRef = useRef(pilotCount);
+  useEffect(() => {
+    if (pilotCount >= prevPilotCountRef.current) {
+      prevPilotCountRef.current = pilotCount;
+      return;
+    }
+    prevPilotCountRef.current = pilotCount;
+
+    if (!slotOrder || slotOrder.length === 0) return;
+    const neededSkips = Math.max(0, pilotCount - effectiveKarts.length);
+    const currentSkips = slotOrder.filter(v => v === null).length;
+    if (currentSkips <= neededSkips) return;
+
+    let toRemove = currentSkips - neededSkips;
+    const trimmed = [...slotOrder];
+    for (let i = trimmed.length - 1; i >= 0 && toRemove > 0; i--) {
+      if (trimmed[i] === null) {
+        trimmed.splice(i, 1);
+        toRemove--;
+      }
+    }
+    setSlotOrder(trimmed.length > 0 ? trimmed : undefined);
+
+    // Remap pilotStartSlots to new indices
+    const oldSlots = slotOrder;
+    const remapped: Record<string, number> = {};
+    for (const [pilot, oldIdx] of Object.entries(pilotStartSlots)) {
+      if (!allPilots.includes(pilot)) continue;
+      const kartAtOld = oldSlots[oldIdx] ?? null;
+      const newIdx = trimmed.indexOf(kartAtOld);
+      if (newIdx >= 0) remapped[pilot] = newIdx;
+    }
+    setPilotStartSlots(remapped);
+  }, [pilotCount]);
+
   const currentSlotOrder = (): (number | null)[] => slots.map(s => s.kart);
 
   const addKart = () => {
@@ -526,9 +562,9 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
         <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">
           {slots.length} позицій: {effectiveKarts.length} картів + {Math.max(0, pilotCount - effectiveKarts.length)} пропусків
         </div>
-        <div className="max-w-sm border border-dark-700 rounded overflow-hidden">
+        <div className="max-w-md border border-dark-700 rounded overflow-hidden">
           {/* Header */}
-          <div className="grid grid-cols-[80px_1fr] bg-dark-800/80 border-b border-dark-700">
+          <div className="grid grid-cols-[110px_1fr] bg-dark-800/80 border-b border-dark-700">
             <div className="px-2 py-1 text-dark-500 text-[10px] font-semibold uppercase border-r border-dark-700">Карт</div>
             <div className="px-2 py-1 text-dark-500 text-[10px] font-semibold uppercase">Пілот</div>
           </div>
@@ -540,7 +576,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
             const replacement = slot.kart !== null ? kartReplacements[slot.kart] : undefined;
             const isExcluded = slot.kart !== null && excludedKarts.has(slot.kart);
             return (
-              <div key={si} className={`grid grid-cols-[80px_1fr] border-b border-dark-700 last:border-b-0 ${
+              <div key={si} className={`grid grid-cols-[110px_1fr] border-b border-dark-700 last:border-b-0 ${
                 isSkip ? 'bg-dark-900/50' : isExcluded ? 'bg-dark-900/50 opacity-60' : ''
               }`}>
                 {/* Left: slot */}
