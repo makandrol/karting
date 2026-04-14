@@ -221,19 +221,50 @@ export default function CompetitionPage() {
                     const pilotChanged = 'totalPilotsOverride' in partial || 'totalPilotsLocked' in partial;
 
                     if (groupChanged || pilotChanged) {
-                      const newGroupCount = partial.groupCountOverride !== undefined
-                        ? (partial.groupCountOverride ?? currentResults.autoDetectedGroups ?? autoGroups)
-                        : (currentResults.groupCountOverride ?? currentResults.autoDetectedGroups ?? autoGroups);
-                      const gonzRoundCount = competition.format === 'gonzales' ? (currentResults.gonzalesRoundCount ?? null) : null;
-                      const newPhases = getPhasesForFormat(competition.format, newGroupCount, gonzRoundCount);
-                      const currentSessions: { sessionId: string; phase: string | null }[] = comp.sessions || [];
-                      const reassigned = currentSessions.map((s: { sessionId: string; phase: string | null }, idx: number) => ({
-                        sessionId: s.sessionId,
-                        phase: idx < newPhases.length ? newPhases[idx].id : s.phase,
-                      }));
+                      const isGonzales = competition.format === 'gonzales';
 
-                      const filledCount = Math.min(reassigned.length, newPhases.length);
-                      if (filledCount < newPhases.length && reassigned.length > 0) {
+                      // When pilot count changes for Gonzales, derive groupCount and roundCount
+                      if (pilotChanged && isGonzales) {
+                        const newPilots = newResults.totalPilotsLocked && newResults.totalPilotsOverride != null
+                          ? newResults.totalPilotsOverride
+                          : pilotCount;
+                        if (newPilots > 0) {
+                          newResults.groupCountOverride = getGonzalesGroupCount(newPilots);
+                          newResults.gonzalesRoundCount = getGonzalesRoundCount(newPilots);
+                        }
+                      }
+
+                      const newGroupCount = newResults.groupCountOverride
+                        ?? newResults.autoDetectedGroups ?? autoGroups;
+                      const gonzRoundCount = isGonzales ? (newResults.gonzalesRoundCount ?? null) : null;
+                      const newPhases = getPhasesForFormat(competition.format, newGroupCount, gonzRoundCount);
+
+                      const currentSessions: { sessionId: string; phase: string | null }[] = comp.sessions || [];
+
+                      // Split current sessions into qualifying and non-qualifying
+                      const qualiSessions = currentSessions.filter(s => s.phase?.startsWith('qualifying'));
+                      const nonQualiSessions = currentSessions.filter(s => !s.phase?.startsWith('qualifying'));
+
+                      const qualiPhases = newPhases.filter(p => p.id.startsWith('qualifying'));
+                      const roundPhases = newPhases.filter(p => !p.id.startsWith('qualifying'));
+
+                      // Keep qualifying sessions matched by phase, up to the new qualifying count
+                      const reassigned: { sessionId: string; phase: string | null }[] = [];
+                      for (const qp of qualiPhases) {
+                        const existing = qualiSessions.find(s => s.phase === qp.id);
+                        if (existing) {
+                          reassigned.push({ sessionId: existing.sessionId, phase: qp.id });
+                        }
+                      }
+
+                      // Assign non-qualifying sessions to round phases sequentially
+                      for (let i = 0; i < roundPhases.length && i < nonQualiSessions.length; i++) {
+                        reassigned.push({ sessionId: nonQualiSessions[i].sessionId, phase: roundPhases[i].id });
+                      }
+
+                      // If we need more sessions, try to find available ones from the same day
+                      const filledRounds = Math.min(roundPhases.length, nonQualiSessions.length);
+                      if (filledRounds < roundPhases.length && reassigned.length > 0) {
                         const lastTs = Math.max(...reassigned.map(s => {
                           const m = s.sessionId.match(/session-(\d+)/);
                           return m ? parseInt(m[1]) : 0;
@@ -250,8 +281,8 @@ export default function CompetitionPage() {
                               .filter(s => s.start_time > lastTs)
                               .sort((a, b) => a.start_time - b.start_time);
 
-                            for (let i = filledCount; i < newPhases.length && (i - filledCount) < available.length; i++) {
-                              reassigned.push({ sessionId: available[i - filledCount].id, phase: newPhases[i].id });
+                            for (let i = filledRounds; i < roundPhases.length && (i - filledRounds) < available.length; i++) {
+                              reassigned.push({ sessionId: available[i - filledRounds].id, phase: roundPhases[i].id });
                             }
                           }
                         } catch {}
