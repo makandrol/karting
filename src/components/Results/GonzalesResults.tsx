@@ -218,42 +218,10 @@ export default function GonzalesResults({
     <div className="space-y-2">
       {/* Toolbar */}
       <div className="flex items-center gap-2 flex-wrap px-1">
-        <div className="flex items-center gap-1">
-          <span className="text-dark-500 text-[10px] font-semibold uppercase">Сорт:</span>
-          {(['average', 'name'] as SortKey[]).map(k => (
-            <button key={k} onClick={() => handleSort(k)}
-              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${sortKey === k ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-500 hover:text-dark-300'}`}>
-              {k === 'average' ? 'Середнє' : 'Імʼя'}
-            </button>
-          ))}
-        </div>
         <button onClick={onToggleLive}
           className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${liveEnabled ? 'bg-green-600/20 text-green-400' : 'bg-dark-800 text-dark-500'}`}>
           ● LIVE
         </button>
-        <div className="flex items-center gap-1 px-2 py-0.5 rounded border border-dark-700 bg-dark-800/50">
-          <span className="text-dark-500 text-[10px] font-semibold uppercase">Залікові кола:</span>
-          {[1, 2, 3].map(lap => (
-            <label key={lap} className="flex items-center gap-0.5 cursor-pointer">
-              <input type="checkbox" checked={scoringLaps.includes(lap)}
-                onChange={() => toggleScoringLap(lap)}
-                className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0 focus:ring-offset-0 cursor-pointer" />
-              <span className={`text-[10px] ${scoringLaps.includes(lap) ? 'text-primary-400' : 'text-dark-600'}`}>{lap}</span>
-            </label>
-          ))}
-        </div>
-        <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
-          <span className="text-dark-500 text-[9px]">Вид:</span>
-          <span className="flex rounded overflow-hidden">
-            <button onClick={() => setViewMode('all')}
-              className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${viewMode === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
-              Все</button>
-            <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-            <button onClick={() => setViewMode('tb')}
-              className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${viewMode === 'tb' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
-              ТБ</button>
-          </span>
-        </div>
         <span className="text-dark-600 text-[10px]">
           {pilotCount} пілотів · {data.karts.length} картів · {roundSessions.length}/{roundCount} гонок
         </span>
@@ -282,6 +250,31 @@ export default function GonzalesResults({
 
       {/* Results table */}
       <div className="card p-0 overflow-hidden relative">
+        <div className="flex items-center gap-2 flex-wrap px-3 py-1.5 border-b border-dark-800">
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded border border-dark-700 bg-dark-800/50">
+            <span className="text-dark-500 text-[10px] font-semibold uppercase">Залікові кола:</span>
+            {[1, 2, 3].map(lap => (
+              <label key={lap} className="flex items-center gap-0.5 cursor-pointer">
+                <input type="checkbox" checked={scoringLaps.includes(lap)}
+                  onChange={() => toggleScoringLap(lap)}
+                  className="w-3 h-3 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-0 focus:ring-offset-0 cursor-pointer" />
+                <span className={`text-[10px] ${scoringLaps.includes(lap) ? 'text-primary-400' : 'text-dark-600'}`}>{lap}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
+            <span className="text-dark-500 text-[9px]">Вид:</span>
+            <span className="flex rounded overflow-hidden">
+              <button onClick={() => setViewMode('all')}
+                className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${viewMode === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+                Все</button>
+              <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+              <button onClick={() => setViewMode('tb')}
+                className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${viewMode === 'tb' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+                ТБ</button>
+            </span>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[10px]">
             <thead>
