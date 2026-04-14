@@ -436,21 +436,55 @@ export const storage = {
     return buildKartStats(rows);
   },
 
-  /** Отримати події */
+  /** Отримати події (враховує merged sessions) */
   getEvents(sessionId, since = 0) {
     if (sessionId) {
-      return stmts.getEvents.all(sessionId, since).map(r => ({
-        ...r, data: r.data ? JSON.parse(r.data) : null
-      }));
+      const direct = stmts.getEvents.all(sessionId, since);
+      if (direct.length > 0) {
+        return direct.map(r => ({ ...r, data: r.data ? JSON.parse(r.data) : null }));
+      }
+      const ids = this._getMergedIds(sessionId);
+      if (ids) {
+        const allEvents = [];
+        for (const subId of ids) {
+          allEvents.push(...stmts.getEvents.all(subId, since));
+        }
+        allEvents.sort((a, b) => a.ts - b.ts);
+        return allEvents.map(r => ({ ...r, data: r.data ? JSON.parse(r.data) : null }));
+      }
+      return [];
     }
     return stmts.getAllEvents.all(since).map(r => ({
       ...r, data: r.data ? JSON.parse(r.data) : null
     }));
   },
 
-  /** Отримати кола за сесію */
+  /** Отримати кола за сесію (враховує merged sessions) */
   getLaps(sessionId) {
-    return stmts.getLaps.all(sessionId);
+    const direct = stmts.getLaps.all(sessionId);
+    if (direct.length > 0) return direct;
+
+    const ids = this._getMergedIds(sessionId);
+    if (!ids) return direct;
+
+    const allLaps = [];
+    for (const subId of ids) {
+      allLaps.push(...stmts.getLaps.all(subId));
+    }
+    allLaps.sort((a, b) => a.ts - b.ts);
+    return allLaps;
+  },
+
+  /** Знайти merged_session_ids для батьківської сесії */
+  _getMergedIds(sessionId) {
+    const m = sessionId.match(/^session-(\d+)$/);
+    if (!m) return null;
+    const d = new Date(parseInt(m[1]));
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const daySessions = stmts.getSessionsByDate.all(date);
+    const merged = mergeSessions(daySessions);
+    const parent = merged.find(s => s.merged_session_ids?.includes(sessionId));
+    return parent?.merged_session_ids ?? null;
   },
 
   getLapsByKart(kartNumber, fromDate, toDate) {
