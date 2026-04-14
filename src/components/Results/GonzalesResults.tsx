@@ -652,7 +652,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
         {/* Add kart */}
         <div className="flex items-center gap-1.5 mt-2">
           <input type="number" value={newKart} onChange={e => setNewKart(e.target.value)}
-            placeholder="Номер карту"
+            placeholder="Карт №"
             onKeyDown={e => { if (e.key === 'Enter') addKart(); }}
             className="w-36 bg-dark-800 rounded px-2 py-1 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-xs" />
           <button onClick={addKart}
@@ -687,7 +687,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
       {/* Replacements */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-dark-500 text-[10px] font-semibold uppercase">Заміни:</span>
+        <span className="text-dark-500 text-[10px] font-semibold uppercase">Заміни картів:</span>
         {Object.entries(kartReplacements).map(([from, to]) => (
           <div key={from} className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-dark-800">
             <span className={KART_COLOR}>{from}</span>
@@ -698,11 +698,11 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
         ))}
         <div className="flex items-center gap-1">
           <input type="number" value={replFrom} onChange={e => setReplFrom(e.target.value)}
-            placeholder="Зл."
+            placeholder="Було"
             className="w-12 bg-dark-800 rounded px-1.5 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-[10px]" />
           <span className="text-dark-600">→</span>
           <input type="number" value={replTo} onChange={e => setReplTo(e.target.value)}
-            placeholder="Зам."
+            placeholder="Стало"
             className="w-12 bg-dark-800 rounded px-1.5 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-[10px]" />
           <button onClick={addReplacement} className="px-1.5 py-0.5 rounded bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 transition-colors text-[10px]">+</button>
         </div>
