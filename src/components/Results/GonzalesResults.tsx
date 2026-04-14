@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { toSeconds, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
+import { useLayoutPrefs } from '../../services/layoutPrefs';
+import { COLLECTOR_URL } from '../../services/config';
 import {
   computeGonzalesStandings, gonzalesToStandings,
   parseLapSec, type SessionLap, type CompSession,
@@ -22,7 +23,6 @@ interface Props {
   gonzalesConfig?: GonzalesConfig;
   onPilotCount?: (n: number) => void;
   onAutoGroups?: (n: number) => void;
-  kartManagerPortal?: HTMLElement | null;
 }
 
 export interface GonzalesConfig {
@@ -39,9 +39,10 @@ type SortKey = 'average' | 'name' | `kart_${number}`;
 export default function GonzalesResults({
   competitionId, sessions, sessionLaps, liveSessionId, liveEnabled,
   onToggleLive, initialExcludedPilots, excludedLapKeys, onSaveResults, gonzalesConfig,
-  onPilotCount, onAutoGroups, kartManagerPortal,
+  onPilotCount, onAutoGroups,
 }: Props) {
   const { hasPermission, isOwner } = useAuth();
+  const { isSectionVisible } = useLayoutPrefs();
   const canManage = hasPermission('manage_results');
 
   const [excludedPilots, setExcludedPilots] = useState<Set<string>>(() => new Set(initialExcludedPilots || []));
@@ -228,8 +229,8 @@ export default function GonzalesResults({
         </span>
       </div>
 
-      {/* Kart Manager — portaled to separate section */}
-      {kartManagerPortal && canManage && createPortal(
+      {/* Kart Manager — controlled by its own layout section visibility */}
+      {isSectionVisible('competition', 'kartManager') && canManage && (
         <PilotKartAssignment
           autoKarts={data.karts}
           kartList={kartList}
@@ -246,8 +247,7 @@ export default function GonzalesResults({
           slotOrder={slotOrder}
           setSlotOrder={(so) => { setSlotOrder(so); saveGonzalesConfig({ slotOrder: so }); }}
           onExcludePilot={toggleExcludePilot}
-        />,
-        kartManagerPortal,
+        />
       )}
 
       {/* Results table */}
@@ -387,6 +387,52 @@ export default function GonzalesResults({
             </span>
           ))}
         </div>
+      )}
+
+      {/* Edit Log — controlled by its own layout section visibility */}
+      {isOwner && isSectionVisible('competition', 'editLog') && (
+        <GonzalesEditLog competitionId={competitionId} />
+      )}
+    </div>
+  );
+}
+
+function GonzalesEditLog({ competitionId }: { competitionId: string }) {
+  const [log, setLog] = useState<{ pilot: string; action: string; detail: string; user: string; ts: number }[]>([]);
+
+  useEffect(() => {
+    fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competitionId)}`)
+      .then(r => r.json())
+      .then(c => {
+        const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
+        setLog((results.editLog || []).slice().reverse());
+      })
+      .catch(() => {});
+  }, [competitionId]);
+
+  return (
+    <div className="card p-0 overflow-hidden max-h-60 overflow-y-auto">
+      {log.length === 0 ? (
+        <div className="px-4 py-3 text-dark-600 text-[10px]">Немає записів</div>
+      ) : (
+        <table className="text-[10px]" style={{ tableLayout: 'auto', width: 'auto' }}>
+          <thead><tr className="bg-dark-800/50 sticky top-0">
+            <th className="px-2 py-1 text-left text-dark-400">Час</th>
+            <th className="px-2 py-1 text-left text-dark-400">Користувач</th>
+            <th className="px-2 py-1 text-left text-dark-400">Пілот</th>
+            <th className="px-2 py-1 text-left text-dark-400">Дія</th>
+          </tr></thead>
+          <tbody>
+            {log.map((entry, i) => (
+              <tr key={i} className="border-b border-dark-800/50">
+                <td className="px-2 py-1 text-dark-500 whitespace-nowrap">{new Date(entry.ts).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+                <td className="px-2 py-1 text-dark-400">{entry.user.split('@')[0]}</td>
+                <td className="px-2 py-1 text-white">{entry.pilot}</td>
+                <td className="px-2 py-1 text-dark-300">{entry.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );

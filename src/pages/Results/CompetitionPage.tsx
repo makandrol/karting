@@ -355,7 +355,6 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const [liveTeams, setLiveTeams] = useState<any[]>([]);
   const [liveEnabled, setLiveEnabled] = useState(true);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
-  const [kartManagerTarget, setKartManagerTarget] = useState<HTMLDivElement | null>(null);
 
   const sessionTimes = useMemo(() => {
     return compSessions
@@ -501,11 +500,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         }}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
-        kartManagerPortal={kartManagerTarget}
       />
     );
-
-    const kartManagerEl = <div key="kartManager" ref={setKartManagerTarget} />;
 
     const liveSessionEl = (
       <LiveSessionTable
@@ -533,7 +529,6 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       leaguePoints: gonzalesResultsEl,
       liveSession: liveSessionEl,
       sessions: sessionsEl,
-      kartManager: kartManagerEl,
     };
 
     return (
