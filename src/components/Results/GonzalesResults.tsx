@@ -327,8 +327,8 @@ export default function GonzalesResults({
                   {pill('Worse', showWorse, () => setShowWorse(v => !v))}
                   {pill('TB', showTB, () => setShowTB(v => !v))}
                   {pill('S1-S2', showSectors, () => setShowSectors(v => !v))}
-                  {pill('TB-diff', showTBDiff, () => setShowTBDiff(v => !v))}
-                  {pill('P1-diff', showP1Diff, () => setShowP1Diff(v => !v))}
+                  {pill('TB_diff', showTBDiff, () => setShowTBDiff(v => !v))}
+                  {pill('P1_diff', showP1Diff, () => setShowP1Diff(v => !v))}
                 </span>
               );
             })()}
@@ -394,8 +394,8 @@ export default function GonzalesResults({
                       {showP1Diff && r.averageTime !== null && bestAverage !== null && (() => {
                         const d = r.averageTime! - bestAverage;
                         return (
-                          <div className="text-[9px] font-normal" style={{ color: diffColor(d) }}>
-                            p1 {d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}
+                          <div className="text-[9px] font-normal leading-tight" style={{ color: diffColor(d) }}>
+                            P1_diff={d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}
                           </div>
                         );
                       })()}
@@ -462,7 +462,7 @@ export default function GonzalesResults({
                               <span className="text-dark-500">{kr.bestTime.toFixed(2)}</span>
                             )}
                             {lapsToShow.map(({ lap, isBest }, li) => (
-                              <div key={li}>
+                              <div key={li} className="leading-tight">
                                 <span className={isBest ? 'text-green-400' : 'text-yellow-400'}>
                                   {lap.time.toFixed(2)}
                                 </span>
@@ -470,18 +470,18 @@ export default function GonzalesResults({
                               </div>
                             ))}
                             {showTB && kr.theoreticalBest !== null && (
-                              <div>
+                              <div className="leading-tight">
                                 <span className="text-purple-400">{kr.theoreticalBest.toFixed(2)}</span>
                               </div>
                             )}
                             {showTBDiff && tbDiffVal !== null && (
-                              <div className="text-[9px]" style={{ color: diffColor(tbDiffVal) }}>
-                                tb -{tbDiffVal.toFixed(2)}
+                              <div className="text-[9px] leading-tight" style={{ color: diffColor(tbDiffVal) }}>
+                                TB_diff=-{tbDiffVal.toFixed(2)}
                               </div>
                             )}
                             {showP1Diff && p1Diff !== null && (
-                              <div className="text-[9px]" style={{ color: diffColor(p1Diff) }}>
-                                p1 {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}
+                              <div className="text-[9px] leading-tight" style={{ color: diffColor(p1Diff) }}>
+                                P1_diff={p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}
                               </div>
                             )}
                           </td>
