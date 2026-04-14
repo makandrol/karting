@@ -439,10 +439,6 @@ export const storage = {
   /** Отримати події (враховує merged sessions) */
   getEvents(sessionId, since = 0) {
     if (sessionId) {
-      const direct = stmts.getEvents.all(sessionId, since);
-      if (direct.length > 0) {
-        return direct.map(r => ({ ...r, data: r.data ? JSON.parse(r.data) : null }));
-      }
       const ids = this._getMergedIds(sessionId);
       if (ids) {
         const allEvents = [];
@@ -452,7 +448,9 @@ export const storage = {
         allEvents.sort((a, b) => a.ts - b.ts);
         return allEvents.map(r => ({ ...r, data: r.data ? JSON.parse(r.data) : null }));
       }
-      return [];
+      return stmts.getEvents.all(sessionId, since).map(r => ({
+        ...r, data: r.data ? JSON.parse(r.data) : null
+      }));
     }
     return stmts.getAllEvents.all(since).map(r => ({
       ...r, data: r.data ? JSON.parse(r.data) : null
@@ -461,11 +459,8 @@ export const storage = {
 
   /** Отримати кола за сесію (враховує merged sessions) */
   getLaps(sessionId) {
-    const direct = stmts.getLaps.all(sessionId);
-    if (direct.length > 0) return direct;
-
     const ids = this._getMergedIds(sessionId);
-    if (!ids) return direct;
+    if (!ids) return stmts.getLaps.all(sessionId);
 
     const allLaps = [];
     for (const subId of ids) {
@@ -475,16 +470,33 @@ export const storage = {
     return allLaps;
   },
 
-  /** Знайти merged_session_ids для батьківської сесії */
+  /** Знайти merged_session_ids для батьківської сесії (лёгкий SQL-запит) */
   _getMergedIds(sessionId) {
-    const m = sessionId.match(/^session-(\d+)$/);
-    if (!m) return null;
-    const d = new Date(parseInt(m[1]));
-    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const daySessions = stmts.getSessionsByDate.all(date);
-    const merged = mergeSessions(daySessions);
-    const parent = merged.find(s => s.merged_session_ids?.includes(sessionId));
-    return parent?.merged_session_ids ?? null;
+    const row = db.prepare('SELECT start_time, end_time, race_number, date FROM sessions WHERE id = ?').get(sessionId);
+    if (!row || row.race_number === null) return null;
+
+    const siblings = db.prepare(
+      `SELECT id FROM sessions WHERE date = ? AND race_number = ? AND id != ? ORDER BY start_time`
+    ).all(row.date, row.race_number, sessionId);
+
+    if (siblings.length === 0) return null;
+
+    const ids = [sessionId];
+    const start = row.start_time;
+    const end = row.end_time || row.start_time;
+
+    for (const s of siblings) {
+      const sRow = db.prepare('SELECT start_time, end_time FROM sessions WHERE id = ?').get(s.id);
+      if (!sRow) continue;
+      const sEnd = sRow.end_time || sRow.start_time;
+      const gap = Math.min(
+        Math.abs(sRow.start_time - end),
+        Math.abs(start - sEnd)
+      );
+      if (gap < MERGE_GAP_MS) ids.push(s.id);
+    }
+
+    return ids.length > 1 ? ids : null;
   },
 
   getLapsByKart(kartNumber, fromDate, toDate) {
