@@ -587,7 +587,15 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                 isSkip ? 'bg-dark-900/30' : isExcluded ? 'bg-dark-900/50 opacity-60' : ''
               }`}>
                 {/* Left: slot + kart actions */}
-                <div className="flex items-center gap-1 px-1 py-1 border-r border-dark-700">
+                <div className={`flex items-center gap-1 px-1 py-1 border-r border-dark-700 cursor-grab select-none ${
+                  dragSlotIdx !== null && dragSlotIdx !== si ? 'hover:bg-dark-700/50' : ''
+                }`}
+                  draggable
+                  onDragStart={(e) => { if (dragPilot) return; setDragSlotIdx(si); e.dataTransfer.effectAllowed = 'move'; }}
+                  onDragEnd={() => setDragSlotIdx(null)}
+                  onDragOver={(e) => { if (dragSlotIdx !== null) e.preventDefault(); }}
+                  onDrop={() => { if (dragSlotIdx !== null) { swapSlots(dragSlotIdx, si); setDragSlotIdx(null); } }}
+                >
                   <div className="flex flex-col shrink-0">
                     <button onClick={() => !isFirst && swapSlots(si, si - 1)} disabled={isFirst}
                       className={`text-sm leading-none px-0.5 ${isFirst ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▲</button>
