@@ -336,8 +336,8 @@ export default function GonzalesResults({
                     Все</button>
                   {pill('Best', showBest, () => setShowBest(v => !v))}
                   {pill('Worse', showWorse, () => setShowWorse(v => !v))}
-                  {pill('S1-S2', showSectors, () => setShowSectors(v => !v))}
                   {pill('TB', showTB, () => setShowTB(v => !v))}
+                  {pill('S1-S2', showSectors, () => setShowSectors(v => !v))}
                   {pill('TB-diff', showTBDiff, () => setShowTBDiff(v => !v))}
                   {pill('P1-diff', showP1Diff, () => setShowP1Diff(v => !v))}
                 </span>
