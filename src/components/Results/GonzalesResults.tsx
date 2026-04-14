@@ -415,6 +415,25 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const assignedPilots = new Set(Object.values(slotToPilot));
   const unassignedPilots = allPilots.filter(p => !assignedPilots.has(p));
 
+  // Auto-assign unassigned pilots to empty slots on first render
+  useEffect(() => {
+    if (unassignedPilots.length === 0 || slots.length === 0) return;
+    const takenSlots = new Set(Object.values(pilotStartSlots));
+    const next = { ...pilotStartSlots };
+    let changed = false;
+    for (const pilot of unassignedPilots) {
+      for (let i = 0; i < slots.length; i++) {
+        if (!takenSlots.has(i)) {
+          next[pilot] = i;
+          takenSlots.add(i);
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (changed) setPilotStartSlots(next);
+  }, [allPilots.join(','), slots.length]);
+
   const currentSlotOrder = (): (number | null)[] => slots.map(s => s.kart);
 
   const addKart = () => {
@@ -502,7 +521,126 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
     <div className="card p-3 space-y-3 text-xs">
       <h4 className="text-white font-semibold text-sm">Привʼязка пілотів до картів</h4>
 
-      {/* Replacements (compact) */}
+      {/* Two-column assignment table */}
+      <div>
+        <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">
+          {slots.length} позицій: {effectiveKarts.length} картів + {Math.max(0, pilotCount - effectiveKarts.length)} пропусків
+        </div>
+        <div className="max-w-sm border border-dark-700 rounded overflow-hidden">
+          {/* Header */}
+          <div className="grid grid-cols-[80px_1fr] bg-dark-800/80 border-b border-dark-700">
+            <div className="px-2 py-1 text-dark-500 text-[10px] font-semibold uppercase border-r border-dark-700">Карт</div>
+            <div className="px-2 py-1 text-dark-500 text-[10px] font-semibold uppercase">Пілот</div>
+          </div>
+
+          {/* Slot rows */}
+          {slots.map((slot, si) => {
+            const pilot = slotToPilot[si];
+            const isSkip = slot.kart === null;
+            const replacement = slot.kart !== null ? kartReplacements[slot.kart] : undefined;
+            const isExcluded = slot.kart !== null && excludedKarts.has(slot.kart);
+            return (
+              <div key={si} className={`grid grid-cols-[80px_1fr] border-b border-dark-700 last:border-b-0 ${
+                isSkip ? 'bg-dark-900/50' : isExcluded ? 'bg-dark-900/50 opacity-60' : ''
+              }`}>
+                {/* Left: slot */}
+                <div
+                  className={`flex items-center gap-1 px-2 py-1.5 border-r border-dark-700 cursor-grab select-none ${
+                    dragSlotIdx !== null && dragSlotIdx !== si ? 'hover:bg-dark-700/50' : ''
+                  }`}
+                  draggable
+                  onDragStart={(e) => { if (dragPilot) return; setDragSlotIdx(si); e.dataTransfer.effectAllowed = 'move'; }}
+                  onDragEnd={() => setDragSlotIdx(null)}
+                  onDragOver={(e) => { if (dragSlotIdx !== null) e.preventDefault(); }}
+                  onDrop={() => { if (dragSlotIdx !== null) swapSlots(dragSlotIdx, si); }}
+                >
+                  <span className="text-dark-600 text-[10px] w-4 text-right shrink-0">{si + 1}.</span>
+                  {isSkip ? (
+                    <span className="text-dark-600 italic text-[11px]">{slot.label}</span>
+                  ) : (
+                    <span className={`${KART_COLOR} font-bold text-sm`}>
+                      {slot.kart}{replacement ? <span className="text-dark-500 font-normal text-[9px] ml-0.5">→{replacement}</span> : null}
+                    </span>
+                  )}
+                </div>
+
+                {/* Right: pilot + actions */}
+                <div
+                  className={`flex items-center gap-1 px-2 py-1.5 ${!pilot && dragPilot ? 'hover:bg-primary-600/10' : ''}`}
+                  onDragOver={(e) => { if (dragPilot) e.preventDefault(); }}
+                  onDrop={() => { if (dragPilot) { assignPilotToSlot(dragPilot, si); setDragPilot(null); } }}
+                >
+                  {pilot ? (
+                    <>
+                      <span className="text-white cursor-grab flex-1 text-[11px]"
+                        draggable
+                        onDragStart={(e) => { e.stopPropagation(); setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
+                        onDragEnd={() => setDragPilot(null)}
+                      >{pilot}</span>
+                      <button onClick={() => onExcludePilot(pilot)}
+                        className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-red-600/20 text-red-400 hover:bg-red-600/40 text-sm font-bold"
+                        title="Виключити пілота">✕</button>
+                    </>
+                  ) : (
+                    <span className="text-dark-700 text-[10px]">—</span>
+                  )}
+                  {!isSkip && slot.kart !== null && (
+                    <div className="flex items-center gap-0.5 ml-auto shrink-0">
+                      <button onClick={() => toggleExcludeKart(slot.kart!)}
+                        className={`w-6 h-6 flex items-center justify-center rounded text-sm font-bold ${
+                          isExcluded ? 'bg-green-600/20 text-green-400 hover:bg-green-600/40' : 'bg-yellow-600/15 text-yellow-500/60 hover:bg-yellow-600/30 hover:text-yellow-400'
+                        }`}
+                        title={isExcluded ? 'Включити в середнє' : 'Виключити з середнього'}>
+                        {isExcluded ? '↩' : '⊘'}
+                      </button>
+                      <button onClick={() => removeKart(slot.kart!)}
+                        className="w-6 h-6 flex items-center justify-center rounded bg-red-600/15 text-red-400/60 hover:bg-red-600/30 hover:text-red-400 text-sm font-bold"
+                        title="Видалити карт">×</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Add kart */}
+        <div className="flex items-center gap-1.5 mt-2">
+          <input type="number" value={newKart} onChange={e => setNewKart(e.target.value)}
+            placeholder="Номер карту"
+            onKeyDown={e => { if (e.key === 'Enter') addKart(); }}
+            className="w-36 bg-dark-800 rounded px-2 py-1 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-xs" />
+          <button onClick={addKart}
+            className="px-3 py-1 rounded bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 transition-colors text-xs">
+            + карт
+          </button>
+        </div>
+      </div>
+
+      {/* Unassigned pilots */}
+      {unassignedPilots.length > 0 && (
+        <div>
+          <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">
+            Непривʼязані пілоти ({unassignedPilots.length})
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {unassignedPilots.map(pilot => (
+              <div key={pilot}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-dark-800 cursor-grab"
+                draggable
+                onDragStart={(e) => { setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
+                onDragEnd={() => setDragPilot(null)}
+              >
+                <span className="text-white text-[10px]">{pilot}</span>
+                <button onClick={() => onExcludePilot(pilot)}
+                  className="text-[9px] text-dark-600 hover:text-red-400" title="Виключити">✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Replacements */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-dark-500 text-[10px] font-semibold uppercase">Заміни:</span>
         {Object.entries(kartReplacements).map(([from, to]) => (
@@ -524,151 +662,6 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
           <button onClick={addReplacement} className="px-1.5 py-0.5 rounded bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 transition-colors text-[10px]">+</button>
         </div>
       </div>
-
-      {/* Two-column assignment table */}
-      <div>
-        <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">
-          {slots.length} позицій: {effectiveKarts.length} картів + {Math.max(0, pilotCount - effectiveKarts.length)} пропусків
-        </div>
-        <div className="grid grid-cols-[1fr_1fr] gap-0 border border-dark-700 rounded overflow-hidden">
-          {/* Header */}
-          <div className="bg-dark-800/80 px-2 py-1 text-dark-500 text-[10px] font-semibold uppercase border-b border-r border-dark-700">
-            Позиція / Карт
-          </div>
-          <div className="bg-dark-800/80 px-2 py-1 text-dark-500 text-[10px] font-semibold uppercase border-b border-dark-700">
-            Пілот
-          </div>
-
-          {/* Slot rows */}
-          {slots.map((slot, si) => {
-            const pilot = slotToPilot[si];
-            const isSkip = slot.kart === null;
-            const replacement = slot.kart !== null ? kartReplacements[slot.kart] : undefined;
-            const isExcluded = slot.kart !== null && excludedKarts.has(slot.kart);
-            return (
-              <React.Fragment key={si}>
-                {/* Left: slot */}
-                <div
-                  className={`flex items-center gap-1.5 px-2 py-1 border-b border-r border-dark-700 cursor-grab select-none ${
-                    isSkip ? 'bg-dark-900/50' : isExcluded ? 'bg-dark-900/50 opacity-60' : 'bg-dark-850'
-                  } ${dragSlotIdx !== null && dragSlotIdx !== si ? 'hover:bg-dark-700/50' : ''}`}
-                  draggable
-                  onDragStart={(e) => {
-                    if (dragPilot) return;
-                    setDragSlotIdx(si);
-                    e.dataTransfer.effectAllowed = 'move';
-                  }}
-                  onDragEnd={() => setDragSlotIdx(null)}
-                  onDragOver={(e) => {
-                    if (dragSlotIdx !== null) e.preventDefault();
-                  }}
-                  onDrop={() => {
-                    if (dragSlotIdx !== null) swapSlots(dragSlotIdx, si);
-                  }}
-                >
-                  <span className="text-dark-600 text-[10px] w-4 text-right">{si + 1}.</span>
-                  {isSkip ? (
-                    <span className="text-dark-600 italic">{slot.label}</span>
-                  ) : (
-                    <>
-                      <span className={`${KART_COLOR} font-medium`}>{slot.kart}</span>
-                      {replacement && (
-                        <span className="text-dark-600 text-[9px]">→ <span className={KART_COLOR}>{replacement}</span></span>
-                      )}
-                      <div className="ml-auto flex items-center gap-0.5">
-                        <button onClick={() => toggleExcludeKart(slot.kart!)}
-                          className={`text-[9px] ${isExcluded ? 'text-green-400' : 'text-dark-700 hover:text-yellow-400'}`}
-                          title={isExcluded ? 'Включити в середнє' : 'Виключити з середнього'}>
-                          {isExcluded ? '↩' : '⊘'}
-                        </button>
-                        <button onClick={() => removeKart(slot.kart!)}
-                          className="text-[9px] text-dark-700 hover:text-red-400" title="Видалити карт">×</button>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Right: pilot */}
-                <div
-                  className={`flex items-center gap-1 px-2 py-1 border-b border-dark-700 ${
-                    isSkip ? 'bg-dark-900/50' : 'bg-dark-850'
-                  } ${!pilot && dragPilot ? 'hover:bg-primary-600/10' : ''}`}
-                  onDragOver={(e) => {
-                    if (dragPilot) e.preventDefault();
-                  }}
-                  onDrop={() => {
-                    if (dragPilot) {
-                      assignPilotToSlot(dragPilot, si);
-                      setDragPilot(null);
-                    }
-                  }}
-                >
-                  {pilot ? (
-                    <>
-                      <span
-                        className="text-white cursor-grab flex-1"
-                        draggable
-                        onDragStart={(e) => {
-                          e.stopPropagation();
-                          setDragPilot(pilot);
-                          e.dataTransfer.effectAllowed = 'move';
-                        }}
-                        onDragEnd={() => setDragPilot(null)}
-                      >
-                        {pilot}
-                      </span>
-                      <button onClick={() => unassignPilot(pilot)}
-                        className="text-[9px] text-dark-600 hover:text-yellow-400" title="Відʼєднати">⇥</button>
-                      <button onClick={() => onExcludePilot(pilot)}
-                        className="text-[9px] text-dark-600 hover:text-red-400" title="Виключити пілота">✕</button>
-                    </>
-                  ) : (
-                    <span className="text-dark-700 text-[10px]">—</span>
-                  )}
-                </div>
-              </React.Fragment>
-            );
-          })}
-        </div>
-
-        {/* Add kart */}
-        <div className="flex items-center gap-1 mt-1.5">
-          <input type="number" value={newKart} onChange={e => setNewKart(e.target.value)}
-            placeholder="Номер карту"
-            onKeyDown={e => { if (e.key === 'Enter') addKart(); }}
-            className="w-20 bg-dark-800 rounded px-2 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-[10px]" />
-          <button onClick={addKart}
-            className="px-2 py-0.5 rounded bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 transition-colors text-[10px]">
-            + карт
-          </button>
-        </div>
-      </div>
-
-      {/* Unassigned pilots */}
-      {unassignedPilots.length > 0 && (
-        <div>
-          <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">
-            Непривʼязані пілоти ({unassignedPilots.length})
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {unassignedPilots.map(pilot => (
-              <div key={pilot}
-                className="flex items-center gap-1 px-2 py-0.5 rounded bg-dark-800 cursor-grab"
-                draggable
-                onDragStart={(e) => {
-                  setDragPilot(pilot);
-                  e.dataTransfer.effectAllowed = 'move';
-                }}
-                onDragEnd={() => setDragPilot(null)}
-              >
-                <span className="text-white text-[10px]">{pilot}</span>
-                <button onClick={() => onExcludePilot(pilot)}
-                  className="text-[9px] text-dark-600 hover:text-red-400" title="Виключити">✕</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
