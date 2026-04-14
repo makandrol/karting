@@ -532,6 +532,16 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
     setPilotStartSlots(updatedSlots);
   };
 
+  const swapPilotRows = (fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx) return;
+    const pilotA = slotToPilot[fromIdx];
+    const pilotB = slotToPilot[toIdx];
+    const next = { ...pilotStartSlots };
+    if (pilotA) next[pilotA] = toIdx;
+    if (pilotB) next[pilotB] = fromIdx;
+    setPilotStartSlots(next);
+  };
+
   const assignPilotToSlot = (pilot: string, slotIdx: number) => {
     const next = { ...pilotStartSlots };
     const existingPilot = slotToPilot[slotIdx];
@@ -562,9 +572,9 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
         <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">
           {slots.length} позицій: {effectiveKarts.length} картів + {Math.max(0, pilotCount - effectiveKarts.length)} пропусків
         </div>
-        <div className="max-w-md border border-dark-700 rounded overflow-hidden">
+        <div style={{ width: 448 }} className="border border-dark-700 rounded overflow-hidden">
           {/* Header */}
-          <div className="grid grid-cols-[1fr_140px] bg-dark-800/80 border-b border-dark-700">
+          <div className="grid grid-cols-[200px_248px] bg-dark-800/80 border-b border-dark-700">
             <div className="px-2 py-1 text-dark-500 text-[10px] font-semibold uppercase border-r border-dark-700">Карт</div>
             <div className="px-2 py-1 text-dark-500 text-[10px] font-semibold uppercase">Пілот</div>
           </div>
@@ -575,23 +585,22 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
             const isSkip = slot.kart === null;
             const replacement = slot.kart !== null ? kartReplacements[slot.kart] : undefined;
             const isExcluded = slot.kart !== null && excludedKarts.has(slot.kart);
+            const isFirst = si === 0;
+            const isLast = si === slots.length - 1;
             return (
-              <div key={si} className={`grid grid-cols-[1fr_140px] border-b border-dark-700 last:border-b-0 ${
-                isSkip ? 'bg-dark-900/50' : isExcluded ? 'bg-dark-900/50 opacity-60' : ''
+              <div key={si} className={`grid grid-cols-[200px_248px] border-b border-dark-700 last:border-b-0 ${
+                isSkip ? 'bg-dark-900/30' : isExcluded ? 'bg-dark-900/50 opacity-60' : ''
               }`}>
                 {/* Left: slot + kart actions */}
-                <div
-                  className={`flex items-center gap-1.5 px-2 py-1.5 border-r border-dark-700 cursor-grab select-none ${
-                    dragSlotIdx !== null && dragSlotIdx !== si ? 'hover:bg-dark-700/50' : ''
-                  }`}
-                  draggable
-                  onDragStart={(e) => { if (dragPilot) return; setDragSlotIdx(si); e.dataTransfer.effectAllowed = 'move'; }}
-                  onDragEnd={() => setDragSlotIdx(null)}
-                  onDragOver={(e) => { if (dragSlotIdx !== null) e.preventDefault(); }}
-                  onDrop={() => { if (dragSlotIdx !== null) swapSlots(dragSlotIdx, si); }}
-                >
+                <div className="flex items-center gap-1 px-1 py-1 border-r border-dark-700">
+                  <div className="flex flex-col shrink-0">
+                    <button onClick={() => !isFirst && swapSlots(si, si - 1)} disabled={isFirst}
+                      className={`text-[9px] leading-none px-0.5 ${isFirst ? 'text-dark-800' : 'text-dark-500 hover:text-white'}`}>▲</button>
+                    <button onClick={() => !isLast && swapSlots(si, si + 1)} disabled={isLast}
+                      className={`text-[9px] leading-none px-0.5 ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white'}`}>▼</button>
+                  </div>
                   {isSkip ? (
-                    <span className="text-dark-600 italic text-xs">{slot.label}</span>
+                    <span className="text-white font-medium text-xs">{slot.label}</span>
                   ) : (
                     <>
                       <span className={`${KART_COLOR} font-bold text-xs`}>
@@ -615,12 +624,18 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
                 {/* Right: pilot */}
                 <div
-                  className={`flex items-center gap-1 px-2 py-1.5 ${!pilot && dragPilot ? 'hover:bg-primary-600/10' : ''}`}
+                  className={`flex items-center gap-1 px-1 py-1 ${!pilot && dragPilot ? 'hover:bg-primary-600/10' : ''}`}
                   onDragOver={(e) => { if (dragPilot) e.preventDefault(); }}
                   onDrop={() => { if (dragPilot) { assignPilotToSlot(dragPilot, si); setDragPilot(null); } }}
                 >
                   {pilot ? (
                     <>
+                      <div className="flex flex-col shrink-0">
+                        <button onClick={() => !isFirst && swapPilotRows(si, si - 1)} disabled={isFirst}
+                          className={`text-[9px] leading-none px-0.5 ${isFirst ? 'text-dark-800' : 'text-dark-500 hover:text-white'}`}>▲</button>
+                        <button onClick={() => !isLast && swapPilotRows(si, si + 1)} disabled={isLast}
+                          className={`text-[9px] leading-none px-0.5 ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white'}`}>▼</button>
+                      </div>
                       <span className="text-white cursor-grab flex-1 text-xs truncate"
                         draggable
                         onDragStart={(e) => { e.stopPropagation(); setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
