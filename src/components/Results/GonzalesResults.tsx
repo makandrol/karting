@@ -405,22 +405,17 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   const effectiveKarts = kartList.length > 0 ? kartList : autoKarts;
 
-  // Derive effective slotOrder: trim excess skips or add missing ones to match pilotCount
+  // Derive effective slotOrder: only trim excess skips (don't auto-add removed ones)
   const effectiveSlotOrder = useMemo((): (number | null)[] | undefined => {
     if (!slotOrder || slotOrder.length === 0) return undefined;
     const neededSkips = Math.max(0, pilotCount - effectiveKarts.length);
     const currentSkips = slotOrder.filter(v => v === null).length;
-    if (currentSkips === neededSkips) return slotOrder;
+    if (currentSkips <= neededSkips) return slotOrder;
 
+    let toRemove = currentSkips - neededSkips;
     const result = [...slotOrder];
-    if (currentSkips > neededSkips) {
-      let toRemove = currentSkips - neededSkips;
-      for (let i = result.length - 1; i >= 0 && toRemove > 0; i--) {
-        if (result[i] === null) { result.splice(i, 1); toRemove--; }
-      }
-    } else {
-      const toAdd = neededSkips - currentSkips;
-      for (let i = 0; i < toAdd; i++) result.push(null);
+    for (let i = result.length - 1; i >= 0 && toRemove > 0; i--) {
+      if (result[i] === null) { result.splice(i, 1); toRemove--; }
     }
     return result;
   }, [slotOrder, pilotCount, effectiveKarts.length]);
@@ -502,6 +497,13 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
     const next = new Set(excludedKarts);
     next.has(k) ? next.delete(k) : next.add(k);
     setExcludedKarts(next);
+  };
+
+  const removeSkip = (slotIdx: number) => {
+    const order = currentSlotOrder();
+    if (order[slotIdx] !== null) return;
+    order.splice(slotIdx, 1);
+    setSlotOrder(order.length > 0 ? order : undefined);
   };
 
   const addReplacement = () => {
@@ -617,7 +619,12 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                       className={`text-sm leading-none px-0.5 ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▼</button>
                   </div>
                   {isSkip ? (
-                    <span className="text-white font-medium text-xs">{slot.label}</span>
+                    <>
+                      <span className="text-white font-medium text-xs">{slot.label}</span>
+                      <button onClick={() => removeSkip(si)}
+                        className="ml-auto w-6 h-6 flex items-center justify-center rounded bg-red-600/15 text-red-400/60 hover:bg-red-600/30 hover:text-red-400 text-sm font-bold shrink-0"
+                        title="Видалити пропуск">×</button>
+                    </>
                   ) : (
                     <>
                       <span className={`${KART_COLOR} font-bold text-xs`}>
