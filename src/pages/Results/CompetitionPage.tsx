@@ -488,16 +488,14 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         gonzalesConfig={competition.results?.gonzalesConfig}
         onSaveResults={async (partial) => {
           try {
-            const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-            if (!res.ok) return;
-            const comp = await res.json();
-            const currentResults = comp.results || {};
+            const currentResults = competition.results || {};
+            const merged = { ...currentResults, ...partial };
             await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-              body: JSON.stringify({ results: { ...currentResults, ...partial } }),
+              body: JSON.stringify({ results: merged }),
             });
-            setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
+            setCompetition(prev => prev ? { ...prev, results: merged } : prev);
           } catch {}
         }}
         onPilotCount={onPilotCount}

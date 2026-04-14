@@ -438,58 +438,67 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const assignedPilots = new Set(Object.values(slotToPilot));
   const unassignedPilots = allPilots.filter(p => !assignedPilots.has(p));
 
-  // Clean up and shift pilots when slots shrink (e.g. skip removed)
+  // Shift pilots when slots change (e.g. skip removed)
   useEffect(() => {
     if (slots.length === 0) return;
 
-    // Build list of removed slot indices
-    const removedIndices = new Set<number>();
-    for (const [pilot, idx] of Object.entries(pilotStartSlots)) {
-      if (idx >= slots.length || !allPilots.includes(pilot)) {
-        removedIndices.add(idx);
-      }
-    }
-
-    if (removedIndices.size === 0 && unassignedPilots.length === 0) return;
-
-    // Collect pilots sorted by their current slot index
-    const entries = Object.entries(pilotStartSlots)
-      .filter(([p]) => allPilots.includes(p))
-      .sort((a, b) => a[1] - b[1]);
-
-    // Rebuild assignments: keep order, shift down to fill gaps
-    const next: Record<string, number> = {};
-    const takenSlots = new Set<number>();
-    for (const [pilot, idx] of entries) {
-      if (idx < slots.length && !takenSlots.has(idx)) {
-        next[pilot] = idx;
-        takenSlots.add(idx);
-      } else {
-        // Find next free slot starting from 0
-        for (let i = 0; i < slots.length; i++) {
-          if (!takenSlots.has(i)) {
-            next[pilot] = i;
-            takenSlots.add(i);
-            break;
-          }
+    // Compute mapping: for each old slotOrder index, where did it end up in effectiveSlotOrder?
+    const oldOrder = slotOrder || [];
+    const newOrder = effectiveSlotOrder || [];
+    const indexMap = new Map<number, number>();
+    if (oldOrder.length > 0 && newOrder.length > 0 && oldOrder.length !== newOrder.length) {
+      for (let oi = 0, ni = 0; oi < oldOrder.length && ni < newOrder.length; oi++) {
+        if (oldOrder[oi] === newOrder[ni]) {
+          indexMap.set(oi, ni);
+          ni++;
         }
       }
     }
 
-    // Assign any remaining unassigned pilots
-    for (const pilot of allPilots) {
-      if (pilot in next) continue;
+    const next: Record<string, number> = {};
+    const takenSlots = new Set<number>();
+    let changed = false;
+
+    // First pass: remap existing pilots
+    const validEntries = Object.entries(pilotStartSlots)
+      .filter(([p]) => allPilots.includes(p))
+      .sort((a, b) => a[1] - b[1]);
+
+    for (const [pilot, oldIdx] of validEntries) {
+      let newIdx = oldIdx;
+      if (indexMap.size > 0 && indexMap.has(oldIdx)) {
+        newIdx = indexMap.get(oldIdx)!;
+      } else if (oldIdx >= slots.length) {
+        // Slot was removed — find closest free slot from the end
+        newIdx = -1;
+      }
+      if (newIdx >= 0 && newIdx < slots.length && !takenSlots.has(newIdx)) {
+        next[pilot] = newIdx;
+        takenSlots.add(newIdx);
+        if (newIdx !== oldIdx) changed = true;
+      } else {
+        changed = true;
+      }
+    }
+
+    // Second pass: assign displaced + unassigned pilots to remaining free slots
+    const needSlot = allPilots.filter(p => !(p in next));
+    for (const pilot of needSlot) {
       for (let i = 0; i < slots.length; i++) {
         if (!takenSlots.has(i)) {
           next[pilot] = i;
           takenSlots.add(i);
+          changed = true;
           break;
         }
       }
     }
 
-    const changed = Object.keys(next).length !== Object.keys(pilotStartSlots).length ||
-      Object.entries(next).some(([p, i]) => pilotStartSlots[p] !== i);
+    // Check for removed pilots
+    for (const p of Object.keys(pilotStartSlots)) {
+      if (!allPilots.includes(p)) changed = true;
+    }
+
     if (changed) setPilotStartSlots(next);
   }, [allPilots.join(','), slots.length]);
 
