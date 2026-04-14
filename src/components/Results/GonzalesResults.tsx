@@ -50,6 +50,8 @@ export default function GonzalesResults({
   const [sortKey, setSortKey] = useState<SortKey>('average');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [viewMode, setViewMode] = useState<'all' | 'tb'>('all');
+  const [timeMode, setTimeMode] = useState<'best' | 'full'>('best');
+  const [showSectors, setShowSectors] = useState(false);
 
   const [kartList, setKartList] = useState<number[]>(gonzalesConfig?.kartList || []);
   const [kartReplacements, setKartReplacements] = useState<Record<number, number>>(gonzalesConfig?.kartReplacements || {});
@@ -276,6 +278,22 @@ export default function GonzalesResults({
                 ТБ</button>
             </span>
           </div>
+          <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
+            <span className="text-dark-500 text-[9px]">Час:</span>
+            <span className="flex rounded overflow-hidden">
+              <button onClick={() => setTimeMode('best')}
+                className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${timeMode === 'best' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+                Best</button>
+              <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+              <button onClick={() => setTimeMode('full')}
+                className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${timeMode === 'full' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+                Full</button>
+            </span>
+          </div>
+          <button onClick={() => setShowSectors(v => !v)}
+            className={`px-2 py-0.5 rounded text-[9px] font-medium border transition-colors ${showSectors ? 'border-primary-500/40 bg-primary-600/20 text-primary-400' : 'border-dark-700 bg-dark-800 text-dark-600'}`}>
+            Сектори
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[10px]">
@@ -290,9 +308,9 @@ export default function GonzalesResults({
                   onClick={() => handleSort('average')} rowSpan={2}>
                   Сер.<SortArrow k="average" />
                 </th>
-                {data.karts.map(k => (
+                {data.karts.map((k, ki) => (
                   <th key={k} colSpan={2}
-                    className={`table-cell text-center cursor-pointer hover:text-white ${KART_COLOR} ${sortKey === `kart_${k}` ? SORT_HL : ''} ${excludedKarts.has(k) ? 'opacity-40' : ''}`}
+                    className={`table-cell text-center cursor-pointer hover:text-white ${KART_COLOR} ${sortKey === `kart_${k}` ? SORT_HL : ''} ${excludedKarts.has(k) ? 'opacity-40' : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}
                     onClick={() => handleSort(`kart_${k}`)}>
                     {k}<SortArrow k={`kart_${k}`} />
                   </th>
@@ -300,9 +318,9 @@ export default function GonzalesResults({
                 {canManage && <th className="table-cell text-center w-6" rowSpan={2}></th>}
               </tr>
               <tr className="table-header">
-                {data.karts.map(k => (
+                {data.karts.map((k, ki) => (
                   <React.Fragment key={k}>
-                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal min-w-[48px] ${excludedKarts.has(k) ? 'opacity-40' : ''}`}>час</th>
+                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal min-w-[48px] ${excludedKarts.has(k) ? 'opacity-40' : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}>час</th>
                     <th className={`table-cell text-center text-[8px] text-dark-600 font-normal w-[28px] ${excludedKarts.has(k) ? 'opacity-40' : ''}`}>м.</th>
                   </React.Fragment>
                 ))}
@@ -319,7 +337,7 @@ export default function GonzalesResults({
                     <td className="table-cell text-center font-mono text-white font-bold">{i + 1}</td>
                     <td className="table-cell text-left text-white whitespace-nowrap">{r.pilot}</td>
                     <td className={`table-cell text-center font-mono font-bold ${
-                      i === 0 && r.averageTime !== null ? 'text-purple-400' : r.averageTime !== null ? 'text-green-400' : 'text-dark-700'
+                      r.averageTime !== null ? 'text-white' : 'text-dark-700'
                     } ${sortKey === 'average' ? SORT_HL : ''}`}>
                       {r.averageTime !== null ? r.averageTime.toFixed(3) : '—'}
                     </td>
@@ -329,27 +347,74 @@ export default function GonzalesResults({
                       const startPlaceBorder = isStartKart && isSkipStart ? 'ring-1 ring-inset ring-yellow-500/60' : '';
                       const colHighlight = sortKey === `kart_${data.karts[ki]}` ? SORT_HL : '';
                       const excluded = excludedKarts.has(data.karts[ki]) ? 'opacity-40' : '';
+                      const kartBorder = ki > 0 ? 'border-l-2 border-dark-600' : '';
                       if (kr.bestTime === null) {
                         return (
                           <React.Fragment key={ki}>
-                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded} ${startTimeBorder}`}>—</td>
+                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded} ${startTimeBorder} ${kartBorder}`}>—</td>
                             <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded} ${startPlaceBorder}`}>—</td>
                           </React.Fragment>
                         );
                       }
-                      const isBestOnKart = data.overallBestPerKart[ki] !== null && Math.abs(kr.bestTime - data.overallBestPerKart[ki]!) < 0.002;
-                      const isBestOfPilot = r.kartResults.every(
-                        other => other.bestTime === null || kr.bestTime! <= other.bestTime
-                      );
-                      const timeColor = isBestOnKart ? 'text-purple-400 font-bold' : isBestOfPilot ? 'text-green-400' : 'text-dark-300';
+
+                      const renderLapCell = (lap: { time: number; timeStr: string; s1: number | null; s2: number | null }, isSecondary: boolean) => {
+                        const tbDiff = viewMode === 'tb' && kr.theoreticalBest !== null
+                          ? lap.time - kr.theoreticalBest : null;
+                        return (
+                          <div className={isSecondary ? 'text-[8px] text-dark-500 mt-0.5' : ''}>
+                            <div>{toSeconds(lap.timeStr)}</div>
+                            {viewMode === 'tb' && kr.theoreticalBest !== null && (
+                              <div className="text-[8px] leading-tight">
+                                <span className="text-cyan-400">{kr.theoreticalBest.toFixed(3)}</span>
+                                {tbDiff !== null && (
+                                  <span className={`ml-0.5 ${tbDiff > 0.0005 ? 'text-red-400' : 'text-dark-500'}`}>
+                                    -{tbDiff.toFixed(3)}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {showSectors && (lap.s1 !== null || lap.s2 !== null) && (
+                              <div className="text-[7px] leading-tight text-dark-600 font-normal">
+                                {lap.s1 !== null ? lap.s1.toFixed(3) : '—'} / {lap.s2 !== null ? lap.s2.toFixed(3) : '—'}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      };
+
                       return (
                         <React.Fragment key={ki}>
-                          <td className={`table-cell text-center font-mono ${timeColor} ${colHighlight} ${excluded} ${startTimeBorder}`}>
-                            <div>{toSeconds(kr.bestTimeStr!)}</div>
-                            {viewMode === 'tb' && kr.theoreticalBest !== null && (
-                              <div className="text-[8px] leading-tight text-dark-500">
-                                <span className="text-cyan-400">{kr.theoreticalBest.toFixed(3)}</span>
-                                {kr.bestTime !== null && <span className="text-yellow-500/80 ml-0.5">+{(kr.bestTime - kr.theoreticalBest).toFixed(3)}</span>}
+                          <td className={`table-cell text-center font-mono text-dark-300 ${colHighlight} ${excluded} ${startTimeBorder} ${kartBorder}`}>
+                            {timeMode === 'best' ? (
+                              <>
+                                <div>{toSeconds(kr.bestTimeStr!)}</div>
+                                {viewMode === 'tb' && kr.theoreticalBest !== null && (() => {
+                                  const diff = kr.bestTime! - kr.theoreticalBest!;
+                                  return (
+                                    <div className="text-[8px] leading-tight">
+                                      <span className="text-cyan-400">{kr.theoreticalBest!.toFixed(3)}</span>
+                                      <span className={`ml-0.5 ${diff > 0.0005 ? 'text-red-400' : 'text-dark-500'}`}>
+                                        -{diff.toFixed(3)}
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
+                                {showSectors && (() => {
+                                  const bestLap = kr.allLaps[0];
+                                  if (!bestLap || (bestLap.s1 === null && bestLap.s2 === null)) return null;
+                                  return (
+                                    <div className="text-[7px] leading-tight text-dark-600">
+                                      {bestLap.s1 !== null ? bestLap.s1.toFixed(3) : '—'} / {bestLap.s2 !== null ? bestLap.s2.toFixed(3) : '—'}
+                                    </div>
+                                  );
+                                })()}
+                              </>
+                            ) : (
+                              <div className="space-y-0.5">
+                                {kr.allLaps.map((lap, li) => (
+                                  <React.Fragment key={li}>{renderLapCell(lap, li > 0)}</React.Fragment>
+                                ))}
+                                {kr.allLaps.length === 0 && <div>{toSeconds(kr.bestTimeStr!)}</div>}
                               </div>
                             )}
                           </td>

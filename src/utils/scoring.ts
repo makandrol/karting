@@ -635,6 +635,12 @@ export interface GonzalesKartResult {
   place: number | null;
   /** Theoretical best = best S1 + best S2 across scoring laps */
   theoreticalBest: number | null;
+  /** All scoring laps for this pilot-kart, sorted best first */
+  allLaps: { time: number; timeStr: string; s1: number | null; s2: number | null }[];
+  /** Best S1 across all scoring laps */
+  bestS1: number | null;
+  /** Best S2 across all scoring laps */
+  bestS2: number | null;
 }
 
 export interface GonzalesPilotRow {
@@ -714,12 +720,12 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
       return (ga ? parseInt(ga[1]) : 0) - (gb ? parseInt(gb[1]) : 0);
     });
 
-  // roundKartBest: for each round session index -> kart -> best time + sectors
-  const roundKartBest: Map<number, { time: number; timeStr: string; bestS1: number | null; bestS2: number | null }>[] = [];
+  // roundKartBest: for each round session index -> kart -> best time + sectors + all laps
+  const roundKartBest: Map<number, { time: number; timeStr: string; bestS1: number | null; bestS2: number | null; laps: { time: number; timeStr: string; s1: number | null; s2: number | null }[] }>[] = [];
   for (const s of roundSessions) {
     const laps = sessionLaps.get(s.sessionId) || [];
     const pilotLapCounts = new Map<string, number>();
-    const kartBest = new Map<number, { time: number; timeStr: string; bestS1: number | null; bestS2: number | null }>();
+    const kartBest = new Map<number, { time: number; timeStr: string; bestS1: number | null; bestS2: number | null; laps: { time: number; timeStr: string; s1: number | null; s2: number | null }[] }>();
     const sortedLaps = [...laps].sort((a, b) => a.ts - b.ts);
 
     for (const l of sortedLaps) {
@@ -736,11 +742,13 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
 
       const s1 = parseLapSec(l.s1);
       const s2 = parseLapSec(l.s2);
+      const lapEntry = { time: sec, timeStr: l.lap_time!, s1, s2 };
 
       const existing = kartBest.get(resolvedKart);
       if (!existing) {
-        kartBest.set(resolvedKart, { time: sec, timeStr: l.lap_time!, bestS1: s1, bestS2: s2 });
+        kartBest.set(resolvedKart, { time: sec, timeStr: l.lap_time!, bestS1: s1, bestS2: s2, laps: [lapEntry] });
       } else {
+        existing.laps.push(lapEntry);
         if (sec < existing.time) { existing.time = sec; existing.timeStr = l.lap_time!; }
         if (s1 !== null && (existing.bestS1 === null || s1 < existing.bestS1)) existing.bestS1 = s1;
         if (s2 !== null && (existing.bestS2 === null || s2 < existing.bestS2)) existing.bestS2 = s2;
@@ -750,7 +758,7 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
   }
 
   // 4. Build pilot → kart → best time mapping (with sectors for TB)
-  const pilotKartBest = new Map<string, Map<number, { time: number; timeStr: string; bestS1: number | null; bestS2: number | null }>>();
+  const pilotKartBest = new Map<string, Map<number, { time: number; timeStr: string; bestS1: number | null; bestS2: number | null; laps: { time: number; timeStr: string; s1: number | null; s2: number | null }[] }>>();
   const pilotCount = qualifyingPilots.size || (pilotStartSlots ? Object.keys(pilotStartSlots).length : 0);
   const rotationSlots = buildGonzalesRotation(karts, pilotCount, slotOrder);
   const totalSlots = rotationSlots.length;
@@ -773,8 +781,9 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
         const kartMap = pilotKartBest.get(pilot)!;
         const existing = kartMap.get(resolvedKart);
         if (!existing) {
-          kartMap.set(resolvedKart, { ...result });
+          kartMap.set(resolvedKart, { ...result, laps: [...result.laps] });
         } else {
+          existing.laps.push(...result.laps);
           if (result.time < existing.time) { existing.time = result.time; existing.timeStr = result.timeStr; }
           if (result.bestS1 !== null && (existing.bestS1 === null || result.bestS1 < existing.bestS1)) existing.bestS1 = result.bestS1;
           if (result.bestS2 !== null && (existing.bestS2 === null || result.bestS2 < existing.bestS2)) existing.bestS2 = result.bestS2;
@@ -790,8 +799,9 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
         const kartMap = pilotKartBest.get(label)!;
         const existing = kartMap.get(resolvedKart);
         if (!existing) {
-          kartMap.set(resolvedKart, { ...result });
+          kartMap.set(resolvedKart, { ...result, laps: [...result.laps] });
         } else {
+          existing.laps.push(...result.laps);
           if (result.time < existing.time) { existing.time = result.time; existing.timeStr = result.timeStr; }
           if (result.bestS1 !== null && (existing.bestS1 === null || result.bestS1 < existing.bestS1)) existing.bestS1 = result.bestS1;
           if (result.bestS2 !== null && (existing.bestS2 === null || result.bestS2 < existing.bestS2)) existing.bestS2 = result.bestS2;
@@ -817,7 +827,11 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
       const result = kartMap.get(k);
       const tb = (result?.bestS1 !== null && result?.bestS2 !== null && result?.bestS1 !== undefined && result?.bestS2 !== undefined)
         ? result.bestS1 + result.bestS2 : null;
-      return { kart: k, bestTime: result?.time ?? null, bestTimeStr: result?.timeStr ?? null, place: null, theoreticalBest: tb };
+      const allLaps = result?.laps?.slice().sort((a, b) => a.time - b.time) ?? [];
+      return {
+        kart: k, bestTime: result?.time ?? null, bestTimeStr: result?.timeStr ?? null, place: null, theoreticalBest: tb,
+        allLaps, bestS1: result?.bestS1 ?? null, bestS2: result?.bestS2 ?? null,
+      };
     });
     const validTimes = kartResults
       .filter(r => r.bestTime !== null && !excludedKartSet.has(r.kart))
