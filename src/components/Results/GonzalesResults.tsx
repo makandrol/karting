@@ -256,6 +256,7 @@ export default function GonzalesResults({
           setExcludedKarts={(ek) => { setExcludedKarts(ek); saveGonzalesConfig({ excludedKarts: [...ek] as any }); }}
           pilotCount={pilotCount}
           allPilots={[...qualifyingPilots].filter(p => !excludedPilots.has(p))}
+          excludedPilots={excludedPilots}
           pilotStartSlots={pilotStartSlots}
           setPilotStartSlots={(ps) => { setPilotStartSlots(ps); saveGonzalesConfig({ pilotStartSlots: ps }); }}
           slotOrder={slotOrder}
@@ -378,7 +379,7 @@ export default function GonzalesResults({
 // ============================================================
 
 function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacements, setKartReplacements,
-  excludedKarts, setExcludedKarts, pilotCount, allPilots, pilotStartSlots, setPilotStartSlots,
+  excludedKarts, setExcludedKarts, pilotCount, allPilots, excludedPilots, pilotStartSlots, setPilotStartSlots,
   slotOrder, setSlotOrder, onExcludePilot }: {
   autoKarts: number[];
   kartList: number[];
@@ -389,6 +390,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   setExcludedKarts: (ek: Set<number>) => void;
   pilotCount: number;
   allPilots: string[];
+  excludedPilots: Set<string>;
   pilotStartSlots: Record<string, number>;
   setPilotStartSlots: (ps: Record<string, number>) => void;
   slotOrder: (number | null)[] | undefined;
@@ -436,35 +438,58 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const assignedPilots = new Set(Object.values(slotToPilot));
   const unassignedPilots = allPilots.filter(p => !assignedPilots.has(p));
 
-  // Auto-assign unassigned pilots to empty slots on first render
+  // Clean up and shift pilots when slots shrink (e.g. skip removed)
   useEffect(() => {
     if (slots.length === 0) return;
 
-    // Clean up stale assignments (indices beyond current slot count)
-    const cleaned = { ...pilotStartSlots };
-    let didClean = false;
-    for (const [pilot, idx] of Object.entries(cleaned)) {
+    // Build list of removed slot indices
+    const removedIndices = new Set<number>();
+    for (const [pilot, idx] of Object.entries(pilotStartSlots)) {
       if (idx >= slots.length || !allPilots.includes(pilot)) {
-        delete cleaned[pilot];
-        didClean = true;
+        removedIndices.add(idx);
       }
     }
 
-    if (unassignedPilots.length === 0 && !didClean) return;
+    if (removedIndices.size === 0 && unassignedPilots.length === 0) return;
 
-    const takenSlots = new Set(Object.values(cleaned));
-    const next = { ...cleaned };
-    let changed = didClean;
-    for (const pilot of allPilots.filter(p => !(p in next))) {
+    // Collect pilots sorted by their current slot index
+    const entries = Object.entries(pilotStartSlots)
+      .filter(([p]) => allPilots.includes(p))
+      .sort((a, b) => a[1] - b[1]);
+
+    // Rebuild assignments: keep order, shift down to fill gaps
+    const next: Record<string, number> = {};
+    const takenSlots = new Set<number>();
+    for (const [pilot, idx] of entries) {
+      if (idx < slots.length && !takenSlots.has(idx)) {
+        next[pilot] = idx;
+        takenSlots.add(idx);
+      } else {
+        // Find next free slot starting from 0
+        for (let i = 0; i < slots.length; i++) {
+          if (!takenSlots.has(i)) {
+            next[pilot] = i;
+            takenSlots.add(i);
+            break;
+          }
+        }
+      }
+    }
+
+    // Assign any remaining unassigned pilots
+    for (const pilot of allPilots) {
+      if (pilot in next) continue;
       for (let i = 0; i < slots.length; i++) {
         if (!takenSlots.has(i)) {
           next[pilot] = i;
           takenSlots.add(i);
-          changed = true;
           break;
         }
       }
     }
+
+    const changed = Object.keys(next).length !== Object.keys(pilotStartSlots).length ||
+      Object.entries(next).some(([p, i]) => pilotStartSlots[p] !== i);
     if (changed) setPilotStartSlots(next);
   }, [allPilots.join(','), slots.length]);
 
@@ -693,6 +718,24 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                 <span className="text-white text-[10px]">{pilot}</span>
                 <button onClick={() => onExcludePilot(pilot)}
                   className="text-[9px] text-dark-600 hover:text-red-400" title="Виключити">✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Excluded pilots */}
+      {excludedPilots.size > 0 && (
+        <div>
+          <div className="text-dark-500 text-[10px] font-semibold uppercase mb-1">
+            Виключені пілоти ({excludedPilots.size})
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {[...excludedPilots].map(pilot => (
+              <div key={pilot} className="flex items-center gap-1 px-2 py-0.5 rounded bg-dark-800">
+                <span className="text-dark-500 text-[10px]">{pilot}</span>
+                <button onClick={() => onExcludePilot(pilot)}
+                  className="text-[10px] text-green-500 hover:text-green-400 font-bold" title="Повернути">↩</button>
               </div>
             ))}
           </div>
