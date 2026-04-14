@@ -174,8 +174,8 @@ export default function CompetitionPage() {
       {(competition.format === 'gonzales' || competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
         <TableLayoutBar pageId="competition" sections={[
           ...PAGE_SECTIONS.competition.filter(s => s.id !== 'kartManager' || competition.format === 'gonzales'),
-          ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
-        ]} />
+          { id: 'editLog', label: 'Журнал змін' },
+        ]} disabledSections={isOwner ? undefined : new Set(['kartManager', 'editLog'])} />
       )}
       <div className="flex items-center justify-between">
         <div>

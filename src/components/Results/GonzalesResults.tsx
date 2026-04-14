@@ -4,7 +4,7 @@ import { useAuth } from '../../services/auth';
 import {
   computeGonzalesStandings, gonzalesToStandings,
   parseLapSec, type SessionLap, type CompSession,
-  type GonzalesPilotRow, type GonzalesStandingsData,
+  type GonzalesPilotRow, type GonzalesStandingsData, type GonzalesKartResult,
 } from '../../utils/scoring';
 import { buildGonzalesRotation } from '../../data/competitions';
 
@@ -47,6 +47,7 @@ export default function GonzalesResults({
   const [selectedPilot, setSelectedPilot] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('average');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [viewMode, setViewMode] = useState<'all' | 'tb'>('all');
 
   const [kartList, setKartList] = useState<number[]>(gonzalesConfig?.kartList || []);
   const [kartReplacements, setKartReplacements] = useState<Record<number, number>>(gonzalesConfig?.kartReplacements || {});
@@ -153,9 +154,11 @@ export default function GonzalesResults({
     return pilots;
   }, [sessions, sessionLaps]);
 
-  const pilotCount = qualifyingPilots.size > 0
-    ? [...qualifyingPilots].filter(p => !excludedPilots.has(p)).length
-    : data.rows.length;
+  const activePilots = useMemo(() => {
+    return [...qualifyingPilots].filter(p => !excludedPilots.has(p));
+  }, [qualifyingPilots, excludedPilots]);
+
+  const pilotCount = activePilots.length > 0 ? activePilots.length : data.rows.length;
   const roundCount = Math.max(pilotCount, 12);
   const roundSessions = sessions.filter(s => s.phase && !s.phase.startsWith('qualifying'));
 
@@ -179,19 +182,19 @@ export default function GonzalesResults({
   const effectiveKarts = kartList.length > 0 ? kartList : data.karts;
   const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount, slotOrder), [effectiveKarts, pilotCount, slotOrder]);
 
-  const getStartKartIndex = useCallback((startSlot: number): number | null => {
-    if (startSlot < 0 || slots.length === 0) return null;
+  const getStartKartInfo = useCallback((startSlot: number): { kartIdx: number | null; fromSkip: boolean } => {
+    if (startSlot < 0 || slots.length === 0) return { kartIdx: null, fromSkip: false };
     const slot = slots[startSlot];
     if (slot && slot.kart !== null) {
-      return data.karts.indexOf(slot.kart);
+      return { kartIdx: data.karts.indexOf(slot.kart), fromSkip: false };
     }
     for (let i = Math.min(startSlot - 1, slots.length - 1); i >= 0; i--) {
-      if (slots[i]?.kart !== null) return data.karts.indexOf(slots[i].kart!);
+      if (slots[i]?.kart !== null) return { kartIdx: data.karts.indexOf(slots[i].kart!), fromSkip: true };
     }
     for (let i = slots.length - 1; i > startSlot; i--) {
-      if (slots[i]?.kart !== null) return data.karts.indexOf(slots[i].kart!);
+      if (slots[i]?.kart !== null) return { kartIdx: data.karts.indexOf(slots[i].kart!), fromSkip: true };
     }
-    return null;
+    return { kartIdx: null, fromSkip: true };
   }, [slots, data.karts]);
 
   const toggleScoringLap = (lap: number) => {
@@ -239,6 +242,18 @@ export default function GonzalesResults({
             </label>
           ))}
         </div>
+        <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
+          <span className="text-dark-500 text-[9px]">Вид:</span>
+          <span className="flex rounded overflow-hidden">
+            <button onClick={() => setViewMode('all')}
+              className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${viewMode === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+              Все</button>
+            <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
+            <button onClick={() => setViewMode('tb')}
+              className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${viewMode === 'tb' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+              ТБ</button>
+          </span>
+        </div>
         <span className="text-dark-600 text-[10px]">
           {pilotCount} пілотів · {data.karts.length} картів · {roundSessions.length}/{roundCount} гонок
         </span>
@@ -255,7 +270,7 @@ export default function GonzalesResults({
           excludedKarts={excludedKarts}
           setExcludedKarts={(ek) => { setExcludedKarts(ek); saveGonzalesConfig({ excludedKarts: [...ek] as any }); }}
           pilotCount={pilotCount}
-          allPilots={[...qualifyingPilots].filter(p => !excludedPilots.has(p))}
+          allPilots={activePilots}
           excludedPilots={excludedPilots}
           pilotStartSlots={pilotStartSlots}
           setPilotStartSlots={(ps) => { setPilotStartSlots(ps); saveGonzalesConfig({ pilotStartSlots: ps }); }}
@@ -266,7 +281,7 @@ export default function GonzalesResults({
       )}
 
       {/* Results table */}
-      <div className="card p-0 overflow-hidden">
+      <div className="card p-0 overflow-hidden relative">
         <div className="overflow-x-auto">
           <table className="w-full text-[10px]">
             <thead>
@@ -276,6 +291,10 @@ export default function GonzalesResults({
                   onClick={() => handleSort('name')} rowSpan={2}>
                   Пілот<SortArrow k="name" />
                 </th>
+                <th className={`table-cell text-center min-w-[65px] font-bold cursor-pointer hover:text-white ${sortKey === 'average' ? SORT_HL : ''}`}
+                  onClick={() => handleSort('average')} rowSpan={2}>
+                  Сер.<SortArrow k="average" />
+                </th>
                 {data.karts.map(k => (
                   <th key={k} colSpan={2}
                     className={`table-cell text-center cursor-pointer hover:text-white ${KART_COLOR} ${sortKey === `kart_${k}` ? SORT_HL : ''} ${excludedKarts.has(k) ? 'opacity-40' : ''}`}
@@ -283,10 +302,6 @@ export default function GonzalesResults({
                     {k}<SortArrow k={`kart_${k}`} />
                   </th>
                 ))}
-                <th className={`table-cell text-center min-w-[65px] font-bold cursor-pointer hover:text-white ${sortKey === 'average' ? SORT_HL : ''}`}
-                  onClick={() => handleSort('average')} rowSpan={2}>
-                  Сер.<SortArrow k="average" />
-                </th>
                 {canManage && <th className="table-cell text-center w-6" rowSpan={2}></th>}
               </tr>
               <tr className="table-header">
@@ -301,22 +316,29 @@ export default function GonzalesResults({
             <tbody>
               {sortedRows.map((r, i) => {
                 const isSelected = selectedPilot === r.pilot;
-                const startKartIdx = getStartKartIndex(r.startSlot);
+                const { kartIdx: startKartIdx, fromSkip: isSkipStart } = getStartKartInfo(r.startSlot);
                 return (
                   <tr key={r.pilot}
                     onClick={() => setSelectedPilot(isSelected ? null : r.pilot)}
                     className={`table-row cursor-pointer ${isSelected ? 'bg-primary-600/10' : ''} active:bg-dark-700/30`}>
                     <td className="table-cell text-center font-mono text-white font-bold">{i + 1}</td>
                     <td className="table-cell text-left text-white whitespace-nowrap">{r.pilot}</td>
+                    <td className={`table-cell text-center font-mono font-bold ${
+                      i === 0 && r.averageTime !== null ? 'text-purple-400' : r.averageTime !== null ? 'text-green-400' : 'text-dark-700'
+                    } ${sortKey === 'average' ? SORT_HL : ''}`}>
+                      {r.averageTime !== null ? r.averageTime.toFixed(3) : '—'}
+                    </td>
                     {r.kartResults.map((kr, ki) => {
                       const isStartKart = startKartIdx === ki;
+                      const startTimeBorder = isStartKart && !isSkipStart ? 'ring-1 ring-inset ring-yellow-500/60' : '';
+                      const startPlaceBorder = isStartKart && isSkipStart ? 'ring-1 ring-inset ring-yellow-500/60' : '';
                       const colHighlight = sortKey === `kart_${data.karts[ki]}` ? SORT_HL : '';
                       const excluded = excludedKarts.has(data.karts[ki]) ? 'opacity-40' : '';
                       if (kr.bestTime === null) {
                         return (
                           <React.Fragment key={ki}>
-                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded}`}>—</td>
-                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded} ${isStartKart ? 'bg-yellow-500/20' : ''}`}>—</td>
+                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded} ${startTimeBorder}`}>—</td>
+                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded} ${startPlaceBorder}`}>—</td>
                           </React.Fragment>
                         );
                       }
@@ -327,20 +349,21 @@ export default function GonzalesResults({
                       const timeColor = isBestOnKart ? 'text-purple-400 font-bold' : isBestOfPilot ? 'text-green-400' : 'text-dark-300';
                       return (
                         <React.Fragment key={ki}>
-                          <td className={`table-cell text-center font-mono ${timeColor} ${colHighlight} ${excluded}`}>
-                            {toSeconds(kr.bestTimeStr!)}
+                          <td className={`table-cell text-center font-mono ${timeColor} ${colHighlight} ${excluded} ${startTimeBorder}`}>
+                            <div>{toSeconds(kr.bestTimeStr!)}</div>
+                            {viewMode === 'tb' && kr.theoreticalBest !== null && (
+                              <div className="text-[8px] leading-tight text-dark-500">
+                                <span className="text-cyan-400">{kr.theoreticalBest.toFixed(3)}</span>
+                                {kr.bestTime !== null && <span className="text-yellow-500/80 ml-0.5">+{(kr.bestTime - kr.theoreticalBest).toFixed(3)}</span>}
+                              </div>
+                            )}
                           </td>
-                          <td className={`table-cell text-center font-mono text-dark-500 ${colHighlight} ${excluded} ${isStartKart ? 'bg-yellow-500/20 text-yellow-300' : ''}`}>
+                          <td className={`table-cell text-center font-mono text-dark-500 ${colHighlight} ${excluded} ${startPlaceBorder}`}>
                             {kr.place ?? '—'}
                           </td>
                         </React.Fragment>
                       );
                     })}
-                    <td className={`table-cell text-center font-mono font-bold ${
-                      i === 0 && r.averageTime !== null ? 'text-purple-400' : r.averageTime !== null ? 'text-green-400' : 'text-dark-700'
-                    } ${sortKey === 'average' ? SORT_HL : ''}`}>
-                      {r.averageTime !== null ? r.averageTime.toFixed(3) : '—'}
-                    </td>
                     {canManage && (
                       <td className="table-cell text-center">
                         <button onClick={(e) => { e.stopPropagation(); toggleExcludePilot(r.pilot); }}
@@ -575,7 +598,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   };
 
   return (
-    <div className="card p-3 space-y-3 text-xs">
+    <div className="card p-3 space-y-3 text-xs relative z-10">
       <h4 className="text-white font-semibold text-sm">Привʼязка пілотів до початкового карту</h4>
 
       {/* Two-column assignment table */}

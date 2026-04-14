@@ -4,9 +4,10 @@ import { useLayoutPrefs, type PageLayout } from '../services/layoutPrefs';
 interface Props {
   pageId: string;
   sections: { id: string; label: string }[];
+  disabledSections?: Set<string>;
 }
 
-export default function TableLayoutBar({ pageId, sections }: Props) {
+export default function TableLayoutBar({ pageId, sections, disabledSections }: Props) {
   const { getPageLayout, toggleSection, reorderSections } = useLayoutPrefs();
   const layout = getPageLayout(pageId);
   const dragFromIdx = useRef<number | null>(null);
@@ -91,21 +92,23 @@ export default function TableLayoutBar({ pageId, sections }: Props) {
       <span className="text-dark-500 text-[9px]">Вид:</span>
       {displayed.map((s, i) => {
         const pref = layout.find(p => p.id === s.id);
-        const visible = pref?.visible !== false;
+        const isDisabled = disabledSections?.has(s.id) ?? false;
+        const visible = pref?.visible !== false && !isDisabled;
         const isDragged = dragging && s.id === draggedId;
         const originalIdx = ordered.findIndex(o => o.id === s.id);
         return (
           <button
             key={s.id}
             data-pill-idx={i}
-            draggable
-            onClick={() => toggleSection(pageId, s.id)}
-            onDragStart={(e) => handleDragStart(originalIdx, e)}
+            draggable={!isDisabled}
+            onClick={() => !isDisabled && toggleSection(pageId, s.id)}
+            onDragStart={(e) => { if (isDisabled) { e.preventDefault(); return; } handleDragStart(originalIdx, e); }}
             onDragEnd={handleDragEnd}
             className={`px-1.5 py-0.5 rounded text-[9px] transition-colors select-none ${
               isDragged ? 'opacity-40' : ''
-            } ${
-              visible ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
+            } ${isDisabled
+              ? 'bg-dark-800/50 text-dark-700 cursor-not-allowed'
+              : visible ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
             }`}
           >
             {s.label}
