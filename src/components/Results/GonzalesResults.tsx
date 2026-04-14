@@ -234,7 +234,7 @@ export default function GonzalesResults({
     return `rgb(${r},${g},${b})`;
   };
 
-  /** Per-kart best/worst for coloring: best lap among ALL pilots, worst lap among those with data */
+  /** Per-kart best time for P1-diff */
   const kartBestTime = useMemo(() => data.karts.map((_, ki) => {
     let best = Infinity;
     for (const r of data.rows) {
@@ -244,64 +244,10 @@ export default function GonzalesResults({
     return best < Infinity ? best : null;
   }), [data]);
 
-  const kartWorstTime = useMemo(() => data.karts.map((_, ki) => {
-    let worst = -Infinity;
-    for (const r of data.rows) {
-      const t = r.kartResults[ki]?.bestTime;
-      if (t !== null && t !== undefined && t > worst) worst = t;
-    }
-    return worst > -Infinity ? worst : null;
-  }), [data]);
-
-  /** Per-kart best/worst sectors across ALL pilots */
-  const kartBestS1 = useMemo(() => data.karts.map((_, ki) => {
-    let best = Infinity;
-    for (const r of data.rows) {
-      for (const lap of r.kartResults[ki]?.allLaps ?? []) {
-        if (lap.s1 !== null && lap.s1 < best) best = lap.s1;
-      }
-    }
-    return best < Infinity ? best : null;
-  }), [data]);
-  const kartBestS2 = useMemo(() => data.karts.map((_, ki) => {
-    let best = Infinity;
-    for (const r of data.rows) {
-      for (const lap of r.kartResults[ki]?.allLaps ?? []) {
-        if (lap.s2 !== null && lap.s2 < best) best = lap.s2;
-      }
-    }
-    return best < Infinity ? best : null;
-  }), [data]);
-  const kartWorstS1 = useMemo(() => data.karts.map((_, ki) => {
-    let worst = -Infinity;
-    for (const r of data.rows) {
-      for (const lap of r.kartResults[ki]?.allLaps ?? []) {
-        if (lap.s1 !== null && lap.s1 > worst) worst = lap.s1;
-      }
-    }
-    return worst > -Infinity ? worst : null;
-  }), [data]);
-  const kartWorstS2 = useMemo(() => data.karts.map((_, ki) => {
-    let worst = -Infinity;
-    for (const r of data.rows) {
-      for (const lap of r.kartResults[ki]?.allLaps ?? []) {
-        if (lap.s2 !== null && lap.s2 > worst) worst = lap.s2;
-      }
-    }
-    return worst > -Infinity ? worst : null;
-  }), [data]);
-
-  const timeColor = (time: number, best: number | null, worst: number | null): string => {
-    if (best === null || worst === null) return 'text-dark-300';
-    if (Math.abs(time - best) < 0.002) return 'text-green-400';
-    if (Math.abs(time - worst) < 0.002) return 'text-yellow-400';
-    return 'text-dark-300';
-  };
-
   const sectorStyle = (val: number, best: number | null, worst: number | null): React.CSSProperties | undefined => {
-    if (best === null || worst === null) return undefined;
+    if (best === null) return undefined;
+    if (worst !== null && Math.abs(val - worst) < 0.002 && Math.abs(best - worst) > 0.002) return { color: 'rgb(250,204,21)' };
     if (Math.abs(val - best) < 0.002) return { color: 'rgb(74,222,128)' };
-    if (Math.abs(val - worst) < 0.002) return { color: 'rgb(250,204,21)' };
     return undefined;
   };
 
@@ -449,6 +395,12 @@ export default function GonzalesResults({
                       const worseLap = kr.allLaps.length > 1
                         ? kr.allLaps.reduce<typeof kr.allLaps[0] | null>((w, l) => l !== bestLap ? (!w || l.time > w.time ? l : w) : w, null)
                         : null;
+                      const hasTwoLaps = bestLap !== null && worseLap !== null;
+
+                      const pilotBestS1 = kr.allLaps.reduce<number | null>((b, l) => l.s1 !== null && (b === null || l.s1 < b) ? l.s1 : b, null);
+                      const pilotBestS2 = kr.allLaps.reduce<number | null>((b, l) => l.s2 !== null && (b === null || l.s2 < b) ? l.s2 : b, null);
+                      const pilotWorstS1 = hasTwoLaps ? kr.allLaps.reduce<number | null>((w, l) => l.s1 !== null && (w === null || l.s1 > w) ? l.s1 : w, null) : null;
+                      const pilotWorstS2 = hasTwoLaps ? kr.allLaps.reduce<number | null>((w, l) => l.s2 !== null && (w === null || l.s2 > w) ? l.s2 : w, null) : null;
 
                       const p1Best = kartBestTime[ki];
                       const p1Diff = p1Best !== null && kr.bestTime !== null ? kr.bestTime - p1Best : null;
@@ -459,11 +411,11 @@ export default function GonzalesResults({
                         if (lap.s1 === null && lap.s2 === null) return null;
                         return (
                           <div className="text-[8px] leading-tight font-normal">
-                            <span style={lap.s1 !== null ? sectorStyle(lap.s1, kartBestS1[ki], kartWorstS1[ki]) : undefined} className={lap.s1 === null ? 'text-dark-600' : 'text-dark-500'}>
+                            <span style={lap.s1 !== null ? sectorStyle(lap.s1, pilotBestS1, pilotWorstS1) : undefined} className={lap.s1 === null ? 'text-dark-600' : 'text-dark-500'}>
                               {lap.s1 !== null ? lap.s1.toFixed(2) : '—'}
                             </span>
                             <span className="text-dark-700"> </span>
-                            <span style={lap.s2 !== null ? sectorStyle(lap.s2, kartBestS2[ki], kartWorstS2[ki]) : undefined} className={lap.s2 === null ? 'text-dark-600' : 'text-dark-500'}>
+                            <span style={lap.s2 !== null ? sectorStyle(lap.s2, pilotBestS2, pilotWorstS2) : undefined} className={lap.s2 === null ? 'text-dark-600' : 'text-dark-500'}>
                               {lap.s2 !== null ? lap.s2.toFixed(2) : '—'}
                             </span>
                           </div>
@@ -486,7 +438,7 @@ export default function GonzalesResults({
                             )}
                             {lapsToShow.map(({ lap, isBest }, li) => (
                               <div key={li} className={!isBest ? 'text-[8px] mt-0.5' : ''}>
-                                <span className={isBest ? timeColor(lap.time, kartBestTime[ki], kartWorstTime[ki]) : 'text-dark-500'}>
+                                <span className={isBest ? 'text-green-400' : 'text-yellow-400'}>
                                   {lap.time.toFixed(2)}
                                 </span>
                                 {renderSectors(lap)}
