@@ -435,7 +435,7 @@ export default function GonzalesResults({
                         if (!showSectors) return null;
                         if (lap.s1 === null && lap.s2 === null) return null;
                         return (
-                          <div className="text-[8px] leading-tight font-normal">
+                          <div className="text-[8px] leading-tight font-normal whitespace-nowrap">
                             <span style={lap.s1 !== null ? sectorStyle(lap.s1, pilotBestS1, pilotWorstS1) : undefined} className={lap.s1 === null ? 'text-dark-600' : 'text-dark-500'}>
                               {lap.s1 !== null ? lap.s1.toFixed(2) : '—'}
                             </span>
