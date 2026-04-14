@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { toSeconds, KART_COLOR } from '../../utils/timing';
+import { KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { useLayoutPrefs } from '../../services/layoutPrefs';
 import { COLLECTOR_URL } from '../../services/config';
 import {
   computeGonzalesStandings, gonzalesToStandings,
-  parseLapSec, type SessionLap, type CompSession,
+  type SessionLap, type CompSession,
   type GonzalesPilotRow, type GonzalesStandingsData, type GonzalesKartResult,
 } from '../../utils/scoring';
 import { buildGonzalesRotation } from '../../data/competitions';
@@ -49,8 +49,11 @@ export default function GonzalesResults({
   const [selectedPilot, setSelectedPilot] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('average');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [viewMode, setViewMode] = useState<'all' | 'tb'>('all');
-  const [timeMode, setTimeMode] = useState<'best' | 'full'>('best');
+  const [showBest, setShowBest] = useState(true);
+  const [showWorse, setShowWorse] = useState(false);
+  const [showTB, setShowTB] = useState(false);
+  const [showTBDiff, setShowTBDiff] = useState(false);
+  const [showP1Diff, setShowP1Diff] = useState(false);
   const [showSectors, setShowSectors] = useState(false);
 
   const [kartList, setKartList] = useState<number[]>(gonzalesConfig?.kartList || []);
@@ -218,6 +221,90 @@ export default function GonzalesResults({
 
   const SORT_HL = 'bg-primary-600/10';
 
+  /** 0→green, 0.5→yellow, 1.0→red, >2.0→deep red. Returns inline style color. */
+  const diffColor = (diff: number): string => {
+    if (diff <= 0.0005) return 'rgb(74,222,128)'; // green-400
+    if (diff >= 2.0) return 'rgb(185,28,28)'; // red-700
+    if (diff >= 1.0) return 'rgb(248,113,113)'; // red-400
+    // 0→green, 1→red  (10 steps of 0.1)
+    const t = Math.min(diff, 1.0);
+    const r = Math.round(74 + (248 - 74) * t);
+    const g = Math.round(222 + (113 - 222) * t);
+    const b = Math.round(128 + (113 - 128) * t);
+    return `rgb(${r},${g},${b})`;
+  };
+
+  /** Per-kart best/worst for coloring: best lap among ALL pilots, worst lap among those with data */
+  const kartBestTime = useMemo(() => data.karts.map((_, ki) => {
+    let best = Infinity;
+    for (const r of data.rows) {
+      const t = r.kartResults[ki]?.bestTime;
+      if (t !== null && t !== undefined && t < best) best = t;
+    }
+    return best < Infinity ? best : null;
+  }), [data]);
+
+  const kartWorstTime = useMemo(() => data.karts.map((_, ki) => {
+    let worst = -Infinity;
+    for (const r of data.rows) {
+      const t = r.kartResults[ki]?.bestTime;
+      if (t !== null && t !== undefined && t > worst) worst = t;
+    }
+    return worst > -Infinity ? worst : null;
+  }), [data]);
+
+  /** Per-kart best/worst sectors across ALL pilots */
+  const kartBestS1 = useMemo(() => data.karts.map((_, ki) => {
+    let best = Infinity;
+    for (const r of data.rows) {
+      for (const lap of r.kartResults[ki]?.allLaps ?? []) {
+        if (lap.s1 !== null && lap.s1 < best) best = lap.s1;
+      }
+    }
+    return best < Infinity ? best : null;
+  }), [data]);
+  const kartBestS2 = useMemo(() => data.karts.map((_, ki) => {
+    let best = Infinity;
+    for (const r of data.rows) {
+      for (const lap of r.kartResults[ki]?.allLaps ?? []) {
+        if (lap.s2 !== null && lap.s2 < best) best = lap.s2;
+      }
+    }
+    return best < Infinity ? best : null;
+  }), [data]);
+  const kartWorstS1 = useMemo(() => data.karts.map((_, ki) => {
+    let worst = -Infinity;
+    for (const r of data.rows) {
+      for (const lap of r.kartResults[ki]?.allLaps ?? []) {
+        if (lap.s1 !== null && lap.s1 > worst) worst = lap.s1;
+      }
+    }
+    return worst > -Infinity ? worst : null;
+  }), [data]);
+  const kartWorstS2 = useMemo(() => data.karts.map((_, ki) => {
+    let worst = -Infinity;
+    for (const r of data.rows) {
+      for (const lap of r.kartResults[ki]?.allLaps ?? []) {
+        if (lap.s2 !== null && lap.s2 > worst) worst = lap.s2;
+      }
+    }
+    return worst > -Infinity ? worst : null;
+  }), [data]);
+
+  const timeColor = (time: number, best: number | null, worst: number | null): string => {
+    if (best === null || worst === null) return 'text-dark-300';
+    if (Math.abs(time - best) < 0.002) return 'text-green-400';
+    if (Math.abs(time - worst) < 0.002) return 'text-yellow-400';
+    return 'text-dark-300';
+  };
+
+  const sectorStyle = (val: number, best: number | null, worst: number | null): React.CSSProperties | undefined => {
+    if (best === null || worst === null) return undefined;
+    if (Math.abs(val - best) < 0.002) return { color: 'rgb(74,222,128)' };
+    if (Math.abs(val - worst) < 0.002) return { color: 'rgb(250,204,21)' };
+    return undefined;
+  };
+
   return (
     <div className="space-y-2">
       {/* Toolbar */}
@@ -268,27 +355,28 @@ export default function GonzalesResults({
           </div>
           <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
             <span className="text-dark-500 text-[9px]">Вид:</span>
-            <span className="flex rounded overflow-hidden">
-              <button onClick={() => setViewMode('all')}
-                className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${viewMode === 'all' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
-                Все</button>
-              <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-              <button onClick={() => setViewMode('tb')}
-                className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${viewMode === 'tb' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
-                ТБ</button>
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
-            <span className="text-dark-500 text-[9px]">Час:</span>
-            <span className="flex rounded overflow-hidden">
-              <button onClick={() => setTimeMode('best')}
-                className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${timeMode === 'best' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
-                Best</button>
-              <span className="text-dark-700 text-[9px] bg-dark-800 flex items-center">/</span>
-              <button onClick={() => setTimeMode('full')}
-                className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${timeMode === 'full' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
-                Full</button>
-            </span>
+            {(() => {
+              const allOn = showBest && showWorse && showTB && showTBDiff && showP1Diff;
+              const toggleAll = () => {
+                const next = !allOn;
+                setShowBest(next); setShowWorse(next); setShowTB(next); setShowTBDiff(next); setShowP1Diff(next);
+              };
+              const pill = (label: string, on: boolean, toggle: () => void) => (
+                <button key={label} onClick={toggle}
+                  className={`px-1.5 py-0.5 text-[9px] font-medium transition-colors ${on ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+                  {label}</button>
+              );
+              return (
+                <span className="flex rounded overflow-hidden divide-x divide-dark-700">
+                  {pill('Все', allOn, toggleAll)}
+                  {pill('Best', showBest, () => setShowBest(v => !v))}
+                  {pill('Worse', showWorse, () => setShowWorse(v => !v))}
+                  {pill('TB', showTB, () => setShowTB(v => !v))}
+                  {pill('TB-diff', showTBDiff, () => setShowTBDiff(v => !v))}
+                  {pill('P1-diff', showP1Diff, () => setShowP1Diff(v => !v))}
+                </span>
+              );
+            })()}
           </div>
           <button onClick={() => setShowSectors(v => !v)}
             className={`px-2 py-0.5 rounded text-[9px] font-medium border transition-colors ${showSectors ? 'border-primary-500/40 bg-primary-600/20 text-primary-400' : 'border-dark-700 bg-dark-800 text-dark-600'}`}>
@@ -339,7 +427,7 @@ export default function GonzalesResults({
                     <td className={`table-cell text-center font-mono font-bold ${
                       r.averageTime !== null ? 'text-white' : 'text-dark-700'
                     } ${sortKey === 'average' ? SORT_HL : ''}`}>
-                      {r.averageTime !== null ? r.averageTime.toFixed(3) : '—'}
+                      {r.averageTime !== null ? r.averageTime.toFixed(2) : '—'}
                     </td>
                     {r.kartResults.map((kr, ki) => {
                       const isStartKart = startKartIdx === ki;
@@ -357,64 +445,66 @@ export default function GonzalesResults({
                         );
                       }
 
-                      const renderLapCell = (lap: { time: number; timeStr: string; s1: number | null; s2: number | null }, isSecondary: boolean) => {
-                        const tbDiff = viewMode === 'tb' && kr.theoreticalBest !== null
-                          ? lap.time - kr.theoreticalBest : null;
+                      const bestLap = kr.allLaps.reduce<typeof kr.allLaps[0] | null>((b, l) => !b || l.time < b.time ? l : b, null);
+                      const worseLap = kr.allLaps.length > 1
+                        ? kr.allLaps.reduce<typeof kr.allLaps[0] | null>((w, l) => l !== bestLap ? (!w || l.time > w.time ? l : w) : w, null)
+                        : null;
+
+                      const p1Best = kartBestTime[ki];
+                      const p1Diff = p1Best !== null && kr.bestTime !== null ? kr.bestTime - p1Best : null;
+                      const tbDiffVal = kr.theoreticalBest !== null && kr.bestTime !== null ? kr.bestTime - kr.theoreticalBest : null;
+
+                      const renderSectors = (lap: { s1: number | null; s2: number | null }) => {
+                        if (!showSectors) return null;
+                        if (lap.s1 === null && lap.s2 === null) return null;
                         return (
-                          <div className={isSecondary ? 'text-[8px] text-dark-500 mt-0.5' : ''}>
-                            <div>{toSeconds(lap.timeStr)}</div>
-                            {viewMode === 'tb' && kr.theoreticalBest !== null && (
-                              <div className="text-[8px] leading-tight">
-                                <span className="text-cyan-400">{kr.theoreticalBest.toFixed(3)}</span>
-                                {tbDiff !== null && (
-                                  <span className={`ml-0.5 ${tbDiff > 0.0005 ? 'text-red-400' : 'text-dark-500'}`}>
-                                    -{tbDiff.toFixed(3)}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                            {showSectors && (lap.s1 !== null || lap.s2 !== null) && (
-                              <div className="text-[7px] leading-tight text-dark-600 font-normal">
-                                {lap.s1 !== null ? lap.s1.toFixed(3) : '—'} / {lap.s2 !== null ? lap.s2.toFixed(3) : '—'}
-                              </div>
-                            )}
+                          <div className="text-[7px] leading-tight font-normal">
+                            <span style={lap.s1 !== null ? sectorStyle(lap.s1, kartBestS1[ki], kartWorstS1[ki]) : undefined} className={lap.s1 === null ? 'text-dark-600' : 'text-dark-500'}>
+                              {lap.s1 !== null ? lap.s1.toFixed(2) : '—'}
+                            </span>
+                            <span className="text-dark-700"> / </span>
+                            <span style={lap.s2 !== null ? sectorStyle(lap.s2, kartBestS2[ki], kartWorstS2[ki]) : undefined} className={lap.s2 === null ? 'text-dark-600' : 'text-dark-500'}>
+                              {lap.s2 !== null ? lap.s2.toFixed(2) : '—'}
+                            </span>
                           </div>
                         );
                       };
 
+                      const lapsToShow: { lap: typeof kr.allLaps[0]; isBest: boolean }[] = [];
+                      if (showBest && showWorse && bestLap && worseLap) {
+                        for (const l of kr.allLaps) lapsToShow.push({ lap: l, isBest: l === bestLap });
+                      } else {
+                        if (showBest && bestLap) lapsToShow.push({ lap: bestLap, isBest: true });
+                        if (showWorse && worseLap) lapsToShow.push({ lap: worseLap, isBest: false });
+                      }
+
                       return (
                         <React.Fragment key={ki}>
-                          <td className={`table-cell text-center font-mono text-dark-300 ${colHighlight} ${excluded} ${startTimeBorder} ${kartBorder}`}>
-                            {timeMode === 'best' ? (
-                              <>
-                                <div>{toSeconds(kr.bestTimeStr!)}</div>
-                                {viewMode === 'tb' && kr.theoreticalBest !== null && (() => {
-                                  const diff = kr.bestTime! - kr.theoreticalBest!;
-                                  return (
-                                    <div className="text-[8px] leading-tight">
-                                      <span className="text-cyan-400">{kr.theoreticalBest!.toFixed(3)}</span>
-                                      <span className={`ml-0.5 ${diff > 0.0005 ? 'text-red-400' : 'text-dark-500'}`}>
-                                        -{diff.toFixed(3)}
-                                      </span>
-                                    </div>
-                                  );
-                                })()}
-                                {showSectors && (() => {
-                                  const bestLap = kr.allLaps[0];
-                                  if (!bestLap || (bestLap.s1 === null && bestLap.s2 === null)) return null;
-                                  return (
-                                    <div className="text-[7px] leading-tight text-dark-600">
-                                      {bestLap.s1 !== null ? bestLap.s1.toFixed(3) : '—'} / {bestLap.s2 !== null ? bestLap.s2.toFixed(3) : '—'}
-                                    </div>
-                                  );
-                                })()}
-                              </>
-                            ) : (
-                              <div className="space-y-0.5">
-                                {kr.allLaps.map((lap, li) => (
-                                  <React.Fragment key={li}>{renderLapCell(lap, li > 0)}</React.Fragment>
-                                ))}
-                                {kr.allLaps.length === 0 && <div>{toSeconds(kr.bestTimeStr!)}</div>}
+                          <td className={`table-cell text-center font-mono ${colHighlight} ${excluded} ${startTimeBorder} ${kartBorder}`}>
+                            {lapsToShow.length === 0 && !showTB && !showTBDiff && !showP1Diff && (
+                              <span className="text-dark-500">{kr.bestTime.toFixed(2)}</span>
+                            )}
+                            {lapsToShow.map(({ lap, isBest }, li) => (
+                              <div key={li} className={!isBest ? 'text-[8px] mt-0.5' : ''}>
+                                <span className={isBest ? timeColor(lap.time, kartBestTime[ki], kartWorstTime[ki]) : 'text-dark-500'}>
+                                  {lap.time.toFixed(2)}
+                                </span>
+                                {renderSectors(lap)}
+                              </div>
+                            ))}
+                            {showTB && kr.theoreticalBest !== null && (
+                              <div className="mt-0.5">
+                                <span className="text-purple-400 text-[8px]">{kr.theoreticalBest.toFixed(2)}</span>
+                              </div>
+                            )}
+                            {showTBDiff && tbDiffVal !== null && (
+                              <div className="text-[8px] mt-0.5" style={{ color: diffColor(tbDiffVal) }}>
+                                -{tbDiffVal.toFixed(2)}
+                              </div>
+                            )}
+                            {showP1Diff && p1Diff !== null && (
+                              <div className="text-[8px] mt-0.5" style={{ color: diffColor(p1Diff) }}>
+                                {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}
                               </div>
                             )}
                           </td>

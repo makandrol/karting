@@ -827,7 +827,7 @@ export function computeGonzalesStandings(params: ComputeGonzalesParams): Gonzale
       const result = kartMap.get(k);
       const tb = (result?.bestS1 !== null && result?.bestS2 !== null && result?.bestS1 !== undefined && result?.bestS2 !== undefined)
         ? result.bestS1 + result.bestS2 : null;
-      const allLaps = result?.laps?.slice().sort((a, b) => a.time - b.time) ?? [];
+      const allLaps = result?.laps?.slice() ?? [];
       return {
         kart: k, bestTime: result?.time ?? null, bestTimeStr: result?.timeStr ?? null, place: null, theoreticalBest: tb,
         allLaps, bestS1: result?.bestS1 ?? null, bestS2: result?.bestS2 ?? null,
