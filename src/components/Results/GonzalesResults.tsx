@@ -471,7 +471,7 @@ export default function GonzalesResults({
                             ))}
                             {showTB && kr.theoreticalBest !== null && (
                               <div className="leading-tight">
-                                <span className="text-dark-400 text-[9px]">{kr.theoreticalBest.toFixed(2)}</span>
+                                <span className="text-dark-400">{kr.theoreticalBest.toFixed(2)}</span>
                               </div>
                             )}
                             {showTBDiff && tbDiffVal !== null && (
