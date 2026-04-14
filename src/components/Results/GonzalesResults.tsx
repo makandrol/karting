@@ -181,13 +181,11 @@ export default function GonzalesResults({
     if (slot && slot.kart !== null) {
       return data.karts.indexOf(slot.kart);
     }
-    // Skip — find the kart before the skip in the slot list
-    for (let i = startSlot - 1; i >= 0; i--) {
-      if (slots[i].kart !== null) return data.karts.indexOf(slots[i].kart!);
+    for (let i = Math.min(startSlot - 1, slots.length - 1); i >= 0; i--) {
+      if (slots[i]?.kart !== null) return data.karts.indexOf(slots[i].kart!);
     }
-    // Wrap around
     for (let i = slots.length - 1; i > startSlot; i--) {
-      if (slots[i].kart !== null) return data.karts.indexOf(slots[i].kart!);
+      if (slots[i]?.kart !== null) return data.karts.indexOf(slots[i].kart!);
     }
     return null;
   }, [slots, data.karts]);
