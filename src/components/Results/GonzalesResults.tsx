@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { toSeconds, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import {
@@ -21,7 +22,7 @@ interface Props {
   gonzalesConfig?: GonzalesConfig;
   onPilotCount?: (n: number) => void;
   onAutoGroups?: (n: number) => void;
-  showKartManager?: boolean;
+  kartManagerPortal?: HTMLElement | null;
 }
 
 export interface GonzalesConfig {
@@ -38,7 +39,7 @@ type SortKey = 'average' | 'name' | `kart_${number}`;
 export default function GonzalesResults({
   competitionId, sessions, sessionLaps, liveSessionId, liveEnabled,
   onToggleLive, initialExcludedPilots, excludedLapKeys, onSaveResults, gonzalesConfig,
-  onPilotCount, onAutoGroups, showKartManager = false,
+  onPilotCount, onAutoGroups, kartManagerPortal,
 }: Props) {
   const { hasPermission, isOwner } = useAuth();
   const canManage = hasPermission('manage_results');
@@ -227,8 +228,8 @@ export default function GonzalesResults({
         </span>
       </div>
 
-      {/* Kart Manager */}
-      {showKartManager && canManage && (
+      {/* Kart Manager — portaled to separate section */}
+      {kartManagerPortal && canManage && createPortal(
         <PilotKartAssignment
           autoKarts={data.karts}
           kartList={kartList}
@@ -245,7 +246,8 @@ export default function GonzalesResults({
           slotOrder={slotOrder}
           setSlotOrder={(so) => { setSlotOrder(so); saveGonzalesConfig({ slotOrder: so }); }}
           onExcludePilot={toggleExcludePilot}
-        />
+        />,
+        kartManagerPortal,
       )}
 
       {/* Results table */}
