@@ -317,10 +317,10 @@ export default function GonzalesResults({
           <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
             <span className="text-dark-500 text-[9px]">Вид:</span>
             {(() => {
-              const allOn = showBest && showWorse && showTB && showTBDiff && showP1Diff;
+              const allOn = showBest && showWorse && showTB && showTBDiff && showP1Diff && showSectors;
               const toggleAll = () => {
                 const next = !allOn;
-                setShowBest(next); setShowWorse(next); setShowTB(next); setShowTBDiff(next); setShowP1Diff(next);
+                setShowBest(next); setShowWorse(next); setShowTB(next); setShowTBDiff(next); setShowP1Diff(next); setShowSectors(next);
               };
               const pill = (label: string, on: boolean, toggle: () => void) => (
                 <button key={label} onClick={toggle}
@@ -329,9 +329,12 @@ export default function GonzalesResults({
               );
               return (
                 <span className="flex rounded overflow-hidden divide-x divide-dark-700">
-                  {pill('Все', allOn, toggleAll)}
+                  <button onClick={toggleAll}
+                    className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${allOn ? 'bg-primary-600/30 text-primary-300' : 'bg-dark-700/60 text-dark-400'}`}>
+                    Все</button>
                   {pill('Best', showBest, () => setShowBest(v => !v))}
                   {pill('Worse', showWorse, () => setShowWorse(v => !v))}
+                  {pill('S1-S2', showSectors, () => setShowSectors(v => !v))}
                   {pill('TB', showTB, () => setShowTB(v => !v))}
                   {pill('TB-diff', showTBDiff, () => setShowTBDiff(v => !v))}
                   {pill('P1-diff', showP1Diff, () => setShowP1Diff(v => !v))}
@@ -339,10 +342,6 @@ export default function GonzalesResults({
               );
             })()}
           </div>
-          <button onClick={() => setShowSectors(v => !v)}
-            className={`px-2 py-0.5 rounded text-[9px] font-medium border transition-colors ${showSectors ? 'border-primary-500/40 bg-primary-600/20 text-primary-400' : 'border-dark-700 bg-dark-800 text-dark-600'}`}>
-            Сектори
-          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[10px]">
