@@ -74,16 +74,25 @@ function serializeState(state: PageVisibilityState): SerializedState {
   };
 }
 
+const VALID_IDS = new Set(ALL_PAGES.map(p => p.id));
+const ALWAYS_IDS = ALL_PAGES.filter(p => p.always).map(p => p.id);
+
 function deserializeState(parsed: SerializedState): PageVisibilityState {
   const overrides = new Map<string, Set<string>>();
   if (parsed.accountOverrides) {
     for (const [email, pages] of Object.entries(parsed.accountOverrides)) {
-      overrides.set(email, new Set(pages as string[]));
+      overrides.set(email, new Set((pages as string[]).filter(id => VALID_IDS.has(id))));
     }
   }
+  const filterValid = (ids: string[] | undefined, fallback: Set<string>) => {
+    if (!ids) return new Set(fallback);
+    const filtered = ids.filter(id => VALID_IDS.has(id));
+    ALWAYS_IDS.forEach(id => { if (!filtered.includes(id)) filtered.push(id); });
+    return new Set(filtered);
+  };
   return {
-    userPages: new Set(parsed.userPages ?? [...defaults.userPages]),
-    adminPages: new Set(parsed.adminPages ?? [...defaults.adminPages]),
+    userPages: filterValid(parsed.userPages, defaults.userPages),
+    adminPages: filterValid(parsed.adminPages, defaults.adminPages),
     accountOverrides: overrides,
   };
 }
