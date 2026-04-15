@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { COLLECTOR_URL } from './config';
 
 export interface PageConfig {
   id: string;
@@ -46,6 +47,7 @@ interface PageVisibilityContextValue {
   state: PageVisibilityState;
   togglePage: (pageId: string, audience: 'user' | 'admin') => void;
   setAccountOverrides: (overrides: Map<string, Set<string>>) => void;
+  loaded: boolean;
 }
 
 const defaults: PageVisibilityState = {
@@ -54,48 +56,50 @@ const defaults: PageVisibilityState = {
   accountOverrides: new Map(),
 };
 
-function loadState(): PageVisibilityState {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) {
-      const oldRaw = localStorage.getItem('karting_page_visibility_v1');
-      if (oldRaw) {
-        const parsed = JSON.parse(oldRaw);
-        return {
-          userPages: new Set(parsed.userPages ?? [...defaults.userPages]),
-          adminPages: new Set(parsed.adminPages ?? [...defaults.adminPages]),
-          accountOverrides: new Map(),
-        };
-      }
-      return defaults;
-    }
-    const parsed = JSON.parse(raw);
-    const overrides = new Map<string, Set<string>>();
-    if (parsed.accountOverrides) {
-      for (const [email, pages] of Object.entries(parsed.accountOverrides)) {
-        overrides.set(email, new Set(pages as string[]));
-      }
-    }
-    return {
-      userPages: new Set(parsed.userPages ?? [...defaults.userPages]),
-      adminPages: new Set(parsed.adminPages ?? [...defaults.adminPages]),
-      accountOverrides: overrides,
-    };
-  } catch {
-    return defaults;
-  }
+interface SerializedState {
+  userPages: string[];
+  adminPages: string[];
+  accountOverrides: Record<string, string[]>;
 }
 
-function saveState(state: PageVisibilityState) {
+function serializeState(state: PageVisibilityState): SerializedState {
   const overrides: Record<string, string[]> = {};
   for (const [email, pages] of state.accountOverrides) {
     overrides[email] = [...pages];
   }
-  localStorage.setItem(LS_KEY, JSON.stringify({
+  return {
     userPages: [...state.userPages],
     adminPages: [...state.adminPages],
     accountOverrides: overrides,
-  }));
+  };
+}
+
+function deserializeState(parsed: SerializedState): PageVisibilityState {
+  const overrides = new Map<string, Set<string>>();
+  if (parsed.accountOverrides) {
+    for (const [email, pages] of Object.entries(parsed.accountOverrides)) {
+      overrides.set(email, new Set(pages as string[]));
+    }
+  }
+  return {
+    userPages: new Set(parsed.userPages ?? [...defaults.userPages]),
+    adminPages: new Set(parsed.adminPages ?? [...defaults.adminPages]),
+    accountOverrides: overrides,
+  };
+}
+
+function loadLocalCache(): PageVisibilityState | null {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    return deserializeState(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function saveLocalCache(state: PageVisibilityState) {
+  localStorage.setItem(LS_KEY, JSON.stringify(serializeState(state)));
 }
 
 function findPageByPath(path: string): PageConfig | undefined {
@@ -108,9 +112,41 @@ function findPageByPath(path: string): PageConfig | undefined {
 const PageVisibilityContext = createContext<PageVisibilityContextValue | null>(null);
 
 export function PageVisibilityProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<PageVisibilityState>(loadState);
+  const [state, setState] = useState<PageVisibilityState>(() => loadLocalCache() || defaults);
+  const [loaded, setLoaded] = useState(false);
+  const savingRef = useRef(false);
 
-  useEffect(() => { saveState(state); }, [state]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${COLLECTOR_URL}/page-visibility`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        if (data && data.userPages) {
+          const serverState = deserializeState(data);
+          setState(serverState);
+          saveLocalCache(serverState);
+        }
+        setLoaded(true);
+      })
+      .catch(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveToServer = useCallback(async (newState: PageVisibilityState) => {
+    saveLocalCache(newState);
+    if (savingRef.current) return;
+    savingRef.current = true;
+    try {
+      const token = import.meta.env.VITE_ADMIN_TOKEN || '';
+      await fetch(`${COLLECTOR_URL}/page-visibility`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(serializeState(newState)),
+      });
+    } catch {}
+    savingRef.current = false;
+  }, []);
 
   const isPageVisible = (pageId: string, role: 'owner' | 'moderator' | 'user', email?: string): boolean => {
     const page = ALL_PAGES.find(p => p.id === pageId);
@@ -144,18 +180,24 @@ export function PageVisibilityProvider({ children }: { children: ReactNode }) {
       const set = audience === 'user' ? new Set(prev.userPages) : new Set(prev.adminPages);
       if (set.has(pageId)) set.delete(pageId);
       else set.add(pageId);
-      return audience === 'user'
+      const next = audience === 'user'
         ? { ...prev, userPages: set }
         : { ...prev, adminPages: set };
+      saveToServer(next);
+      return next;
     });
   };
 
   const setAccountOverrides = (overrides: Map<string, Set<string>>) => {
-    setState(prev => ({ ...prev, accountOverrides: overrides }));
+    setState(prev => {
+      const next = { ...prev, accountOverrides: overrides };
+      saveToServer(next);
+      return next;
+    });
   };
 
   return (
-    <PageVisibilityContext.Provider value={{ isPageVisible, isPathAccessible, getVisiblePages, state, togglePage, setAccountOverrides }}>
+    <PageVisibilityContext.Provider value={{ isPageVisible, isPathAccessible, getVisiblePages, state, togglePage, setAccountOverrides, loaded }}>
       {children}
     </PageVisibilityContext.Provider>
   );

@@ -949,6 +949,15 @@ export const storage = {
     this.setSystemState('view_defaults', JSON.stringify(data));
   },
 
+  getPageVisibility() {
+    const raw = this.getSystemState('page_visibility');
+    return raw ? JSON.parse(raw) : null;
+  },
+
+  setPageVisibility(data) {
+    this.setSystemState('page_visibility', JSON.stringify(data));
+  },
+
   updateSessionsTrack(sessionIds, trackId) {
     if (!sessionIds || sessionIds.length === 0) return 0;
     const placeholders = sessionIds.map(() => '?').join(',');
