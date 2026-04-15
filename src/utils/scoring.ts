@@ -82,13 +82,14 @@ export interface ComputeStandingsParams {
   maxGroups: number;
   pilotsOverride: number | null;
   pilotsLocked: boolean;
+  racePilotCount?: number | null;
   liveSessionId?: string | null;
   livePhase?: string | null;
   livePositions?: { pilot: string; position: number }[];
 }
 
 export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
-  const { format, sessions, sessionLaps, scoring, edits, excludedPilots, maxGroups, pilotsOverride, pilotsLocked, liveSessionId, livePhase, livePositions } = params;
+  const { format, sessions, sessionLaps, scoring, edits, excludedPilots, maxGroups, pilotsOverride, pilotsLocked, racePilotCount, liveSessionId, livePhase, livePositions } = params;
   const raceCount = format === 'champions_league' ? 3 : 2;
   const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
 
@@ -107,7 +108,8 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
   const qualiSorted = [...qualiData.entries()]
     .filter(([p]) => !excludedPilots.has(p))
     .sort((a, b) => a[1].bestTime - b[1].bestTime);
-  const maxQualified = format === 'champions_league' ? 24 : 36;
+  const defaultMaxQualified = format === 'champions_league' ? 24 : 36;
+  const maxQualified = racePilotCount ?? defaultMaxQualified;
   const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
   const disqualifiedPilots = new Set(qualiSorted.slice(maxQualified).map(([p]) => p));
   const autoTotalPilots = qualifiedPilots.length;

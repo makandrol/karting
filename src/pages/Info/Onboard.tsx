@@ -35,6 +35,7 @@ interface FullCompData {
   pilotsOverride: number | null;
   pilotsLocked: boolean;
   format: string;
+  racePilotCount: number | null;
 }
 
 const Pill = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
@@ -234,6 +235,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
           pilotsOverride: results.totalPilotsOverride ?? null,
           pilotsLocked: results.totalPilotsLocked ?? false,
           format: compInfo.format!,
+          racePilotCount: results.racePilotCount ?? null,
         });
       } catch {
         if (active) setFullComp(null);
@@ -268,6 +270,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
       maxGroups: fullComp.maxGroups,
       pilotsOverride: fullComp.pilotsOverride,
       pilotsLocked: fullComp.pilotsLocked,
+      racePilotCount: fullComp.racePilotCount,
       liveSessionId: sessionId,
       livePhase: compInfo.phase,
       livePositions,

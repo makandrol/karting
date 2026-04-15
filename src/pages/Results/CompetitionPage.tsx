@@ -220,6 +220,8 @@ export default function CompetitionPage() {
                 autoGroups={autoGroups}
                 maxGroups={competition.format === 'champions_league' ? 2 : competition.format === 'gonzales' ? 2 : 3}
                 canManage={canManage}
+                format={competition.format}
+                racePilotCount={competition.results?.racePilotCount ?? null}
                 onSave={async (partial) => {
                   try {
                     const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
@@ -602,6 +604,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
         totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
         groupCountOverride={competition.results?.groupCountOverride ?? null}
+        racePilotCount={competition.results?.racePilotCount ?? null}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
         onSaveResults={saveResults}
@@ -743,18 +746,25 @@ function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScr
   );
 }
 
-function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverride, autoGroups, maxGroups, canManage, onSave }: {
+function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverride, autoGroups, maxGroups, canManage, onSave, format, racePilotCount }: {
   pilotCount: number; pilotOverride: number | null; pilotLocked: boolean;
   groupOverride: number | null; autoGroups: number; maxGroups: number; canManage: boolean;
   onSave: (partial: Record<string, any>) => Promise<void>;
+  format?: string; racePilotCount?: number | null;
 }) {
   const effectivePilots = (pilotLocked && pilotOverride !== null) ? pilotOverride : pilotCount;
   const effectiveGroups = groupOverride ?? autoGroups;
   const pilotsAuto = pilotOverride === null;
   const groupsAuto = groupOverride === null;
 
+  const defaultRacePilots = format === 'champions_league' ? 24 : 36;
+  const autoRacePilots = Math.min(defaultRacePilots, effectivePilots);
+  const effectiveRacePilots = racePilotCount ?? autoRacePilots;
+  const racePilotsAuto = racePilotCount == null;
+
   const [pilotDraft, setPilotDraft] = useState<string | null>(null);
   const [groupDraft, setGroupDraft] = useState<string | null>(null);
+  const [racePilotDraft, setRacePilotDraft] = useState<string | null>(null);
 
   const commitPilots = () => {
     if (pilotDraft === null) return;
@@ -767,6 +777,12 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
     const v = parseInt(groupDraft);
     if (!isNaN(v) && v > 0 && v <= maxGroups) onSave({ groupCountOverride: v });
     setGroupDraft(null);
+  };
+  const commitRacePilots = () => {
+    if (racePilotDraft === null) return;
+    const v = parseInt(racePilotDraft);
+    if (!isNaN(v) && v > 0) onSave({ racePilotCount: v });
+    setRacePilotDraft(null);
   };
 
   return (
@@ -816,6 +832,30 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
           </button>
         )}
       </div>
+
+      {(format === 'light_league' || format === 'champions_league' || format === 'sprint') && (
+        <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
+          <span title="Пілотів у гонці">🏁</span>
+          {canManage ? (
+            <input type="text" inputMode="numeric"
+              value={racePilotDraft !== null ? racePilotDraft : effectiveRacePilots}
+              onChange={e => setRacePilotDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') commitRacePilots(); }}
+              onBlur={commitRacePilots}
+              disabled={racePilotsAuto}
+              className={`w-8 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${racePilotsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
+          ) : (
+            <span className="text-dark-300 font-mono">{effectiveRacePilots}</span>
+          )}
+          {canManage && (
+            <button onClick={() => onSave({ racePilotCount: racePilotsAuto ? effectiveRacePilots : null })} 
+              className={`text-[10px] font-bold transition-colors ${racePilotsAuto ? 'bg-red-600 text-white px-1 rounded' : 'text-dark-500 hover:text-dark-300'}`}
+              title={racePilotsAuto ? 'Вимкнути авто' : 'Включити авто'}>
+              А
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1276,7 +1316,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     const qualiSorted = [...qualiData.entries()]
       .filter(([p]) => !excludedPilots.has(p))
       .sort((a, b) => a[1].bestTime - b[1].bestTime);
-    const maxQualified = isCL ? 24 : 36;
+    const maxQualified = competition.results?.racePilotCount ?? (isCL ? 24 : 36);
     const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
 
     if (isSprint) {
