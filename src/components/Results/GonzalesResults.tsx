@@ -927,7 +927,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
       {/* Replacements */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-dark-500 text-[10px] font-semibold uppercase">Заміни картів:</span>
+        <span className="text-dark-500 text-[10px] font-semibold uppercase">Заміни картів: Було → Стало</span>
         {Object.entries(kartReplacements).map(([from, to]) => (
           <div key={from} className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-dark-800">
             <span className={KART_COLOR}>{from}</span>
@@ -939,11 +939,11 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
         <div className="flex items-center gap-1">
           <input type="number" value={replFrom} onChange={e => setReplFrom(e.target.value)}
             placeholder="Було"
-            className="w-12 bg-dark-800 rounded px-1.5 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-[10px]" />
+            className="w-16 bg-dark-800 rounded px-2 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-[10px]" />
           <span className="text-dark-600">→</span>
           <input type="number" value={replTo} onChange={e => setReplTo(e.target.value)}
             placeholder="Стало"
-            className="w-12 bg-dark-800 rounded px-1.5 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-[10px]" />
+            className="w-16 bg-dark-800 rounded px-2 py-0.5 text-dark-300 outline-none border border-dark-700 focus:border-primary-500 text-[10px]" />
           <button onClick={addReplacement} className="px-1.5 py-0.5 rounded bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 transition-colors text-[10px]">+</button>
         </div>
       </div>
