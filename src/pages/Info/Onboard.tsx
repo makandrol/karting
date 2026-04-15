@@ -669,9 +669,9 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
                     {item.delta > 0 ? '\u25B2' : '\u25BC'}{Math.abs(item.delta)}
                   </span>
                 )}
-                <span>{clipped}</span>
+                <span className="inline-block w-[7.5ch] truncate">{clipped}</span>
                 {item.gapToNext != null && (
-                  <span className={`font-semibold ${item.gapToNext < 0 ? 'text-green-400' : 'text-white'}`}>
+                  <span className={`tabular-nums font-semibold ${item.gapToNext < 0 ? 'text-green-400' : 'text-white'}`}>
                     {item.gapToNext > 0 ? '+' : item.gapToNext < 0 ? '\u2212' : ''}{Math.abs(item.gapToNext).toFixed(2)}
                   </span>
                 )}
