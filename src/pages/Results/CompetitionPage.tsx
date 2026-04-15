@@ -378,7 +378,11 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const saveResults = useCallback(async (partial: Record<string, any>) => {
     saveLockRef.current = saveLockRef.current.then(async () => {
       try {
-        const currentResults = resultsRef.current || {};
+        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+        const fresh = res.ok ? await res.json() : null;
+        const currentResults = fresh?.results
+          ? (typeof fresh.results === 'string' ? JSON.parse(fresh.results) : fresh.results)
+          : (resultsRef.current || {});
         const merged = { ...currentResults, ...partial };
         await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
           method: 'PATCH',
