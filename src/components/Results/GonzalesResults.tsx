@@ -85,15 +85,36 @@ export default function GonzalesResults({
     });
   }, [sessions, effectiveLaps, excludedPilots, kartList, kartReplacements, excludedKarts, scoringLaps, pilotStartSlots, slotOrder]);
 
+  const excludedKartSet = excludedKarts;
+  const getRowAverage = useCallback((r: GonzalesPilotRow): number | null => {
+    const useWorse = showWorse && !showBest;
+    const times: number[] = [];
+    for (let ki = 0; ki < r.kartResults.length; ki++) {
+      const kr = r.kartResults[ki];
+      if (excludedKartSet.has(data.karts[ki])) continue;
+      if (kr.bestTime === null) continue;
+      if (useWorse && kr.allLaps.length > 1) {
+        const best = kr.allLaps.reduce((b, l) => l.time < b.time ? l : b, kr.allLaps[0]);
+        const worse = kr.allLaps.reduce((w, l) => l !== best && l.time > w.time ? l : w, kr.allLaps[0]);
+        times.push(worse.time);
+      } else {
+        times.push(kr.bestTime);
+      }
+    }
+    return times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : null;
+  }, [showBest, showWorse, excludedKartSet, data.karts]);
+
   const sortedRows = useMemo(() => {
     const rows = [...data.rows];
     rows.sort((a, b) => {
       let cmp = 0;
       if (sortKey === 'average') {
-        if (a.averageTime === null && b.averageTime === null) cmp = 0;
-        else if (a.averageTime === null) cmp = 1;
-        else if (b.averageTime === null) cmp = -1;
-        else cmp = a.averageTime - b.averageTime;
+        const aa = getRowAverage(a);
+        const bb = getRowAverage(b);
+        if (aa === null && bb === null) cmp = 0;
+        else if (aa === null) cmp = 1;
+        else if (bb === null) cmp = -1;
+        else cmp = aa - bb;
       } else if (sortKey === 'name') {
         cmp = a.pilot.localeCompare(b.pilot, 'uk');
       } else if (sortKey.startsWith('kart_')) {
@@ -107,7 +128,7 @@ export default function GonzalesResults({
       return sortDir === 'desc' ? -cmp : cmp;
     });
     return rows;
-  }, [data, sortKey, sortDir]);
+  }, [data, sortKey, sortDir, getRowAverage]);
 
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef(data);
@@ -256,10 +277,11 @@ export default function GonzalesResults({
   const bestAverage = useMemo(() => {
     let best = Infinity;
     for (const r of data.rows) {
-      if (r.averageTime !== null && r.averageTime < best) best = r.averageTime;
+      const avg = getRowAverage(r);
+      if (avg !== null && avg < best) best = avg;
     }
     return best < Infinity ? best : null;
-  }, [data]);
+  }, [data, getRowAverage]);
 
   const sectorStyle = (val: number, best: number | null, worst: number | null): React.CSSProperties | undefined => {
     if (best === null) return undefined;
@@ -382,12 +404,15 @@ export default function GonzalesResults({
                     className={`table-row cursor-pointer ${isSelected ? 'bg-primary-600/10' : ''} active:bg-dark-700/30`}>
                     <td className={`table-cell text-center font-mono text-white font-bold ${stickyBg} ${STICKY_NUM}`}>{i + 1}</td>
                     <td className={`table-cell text-left text-white whitespace-nowrap ${stickyBg} ${STICKY_PILOT}`}>{r.pilot}</td>
+                    {(() => {
+                      const avg = getRowAverage(r);
+                      return (
                     <td className={`table-cell text-center font-mono font-bold ${
-                      r.averageTime !== null ? 'text-white' : 'text-dark-700'
+                      avg !== null ? 'text-white' : 'text-dark-700'
                     } ${sortKey === 'average' ? SORT_HL : ''}`}>
-                      {r.averageTime !== null ? r.averageTime.toFixed(2) : '—'}
-                      {showP1Diff && r.averageTime !== null && bestAverage !== null && (() => {
-                        const d = r.averageTime! - bestAverage;
+                      {avg !== null ? avg.toFixed(2) : '—'}
+                      {showP1Diff && avg !== null && bestAverage !== null && (() => {
+                        const d = avg - bestAverage;
                         return (
                           <div className="text-[9px] font-normal leading-tight" style={{ color: diffColor(d) }}>
                             P1_diff={d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}
@@ -395,6 +420,8 @@ export default function GonzalesResults({
                         );
                       })()}
                     </td>
+                      );
+                    })()}
                     {r.kartResults.map((kr, ki) => {
                       const isStartKart = startKartIdx === ki;
                       const startTimeBorder = isStartKart && !isSkipStart ? 'ring-1 ring-inset ring-yellow-500/60' : '';
