@@ -767,7 +767,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
                 <span>{clipped}</span>
                 <span className={`w-8 text-right tabular-nums ${isMe ? 'text-green-400' : 'text-dark-500'}`}>{item.pts}</span>
                 {!isMe && diff !== 0 && (
-                  <span className={`text-[0.8em] ${diff > 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                  <span className={`ml-1 text-[0.8em] ${diff > 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
                     {diff > 0 ? '+' : ''}{diff}
                   </span>
                 )}
@@ -782,10 +782,10 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
         </div>
       )}
 
-      {/* Time ranks — bottom right, under standings */}
+      {/* Time ranks — left center between Поз and Бали */}
       {entry && effectiveShowTime && (timeGroupData?.pos != null || timeGlobalData?.pos != null) && (
-        <div className="absolute bottom-3 right-3 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5 flex items-center gap-3"
-             style={{ fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
+        <div className="absolute left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5 flex items-center gap-3"
+             style={{ top: '50%', transform: 'translateY(-50%)', fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
           {timeGroupData?.pos != null && (
             <span className="text-dark-300 font-semibold">T1={timeGroupData.pos}/{timeGroupData.total}</span>
           )}
