@@ -357,6 +357,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const [loading, setLoading] = useState(true);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [livePositions, setLivePositions] = useState<{ pilot: string; position: number }[]>([]);
+  const [kartManagerPortalEl, setKartManagerPortalEl] = useState<HTMLDivElement | null>(null);
+  const kartManagerPortalRef = useCallback((node: HTMLDivElement | null) => { setKartManagerPortalEl(node); }, []);
   const [liveEntries, setLiveEntries] = useState<any[]>([]);
   const [liveTeams, setLiveTeams] = useState<any[]>([]);
   const [liveEnabled, setLiveEnabled] = useState(true);
@@ -516,6 +518,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         onSaveResults={saveResults}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
+        kartManagerPortal={kartManagerPortalEl}
       />
     );
 
@@ -541,8 +544,9 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       </div>
     ) : null;
 
-    const sectionMap: Record<string, React.ReactNode> = {
+    const sectionMap: Record<string, ReactNode> = {
       leaguePoints: gonzalesResultsEl,
+      kartManager: <div ref={kartManagerPortalRef} />,
       liveSession: liveSessionEl,
       sessions: sessionsEl,
     };
@@ -605,7 +609,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       </div>
     ) : null;
 
-    const sectionMap: Record<string, React.ReactNode> = {
+    const sectionMap: Record<string, ReactNode> = {
       leaguePoints: leagueResultsEl,
       liveSession: liveSessionEl,
       sessions: sessionsEl,

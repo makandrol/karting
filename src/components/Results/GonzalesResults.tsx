@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { useLayoutPrefs } from '../../services/layoutPrefs';
@@ -23,6 +24,7 @@ interface Props {
   gonzalesConfig?: GonzalesConfig;
   onPilotCount?: (n: number) => void;
   onAutoGroups?: (n: number) => void;
+  kartManagerPortal?: HTMLDivElement | null;
 }
 
 export interface GonzalesConfig {
@@ -39,7 +41,7 @@ type SortKey = 'average' | 'name' | `kart_${number}`;
 export default function GonzalesResults({
   competitionId, sessions, sessionLaps, liveSessionId, liveEnabled,
   onToggleLive, initialExcludedPilots, excludedLapKeys, onSaveResults, gonzalesConfig,
-  onPilotCount, onAutoGroups,
+  onPilotCount, onAutoGroups, kartManagerPortal,
 }: Props) {
   const { hasPermission, isOwner } = useAuth();
   const { isSectionVisible } = useLayoutPrefs();
@@ -295,8 +297,32 @@ export default function GonzalesResults({
     return undefined;
   };
 
+  const kartManagerEl = canManage ? (
+    <PilotKartAssignment
+      autoKarts={data.karts}
+      kartList={kartList}
+      setKartList={(kl) => { setKartList(kl); saveGonzalesConfig({ kartList: kl }); }}
+      kartReplacements={kartReplacements}
+      setKartReplacements={(kr) => { setKartReplacements(kr); saveGonzalesConfig({ kartReplacements: kr }); }}
+      excludedKarts={excludedKarts}
+      setExcludedKarts={(ek) => { setExcludedKarts(ek); saveGonzalesConfig({ excludedKarts: [...ek] as any }); }}
+      pilotCount={pilotCount}
+      allPilots={activePilots}
+      excludedPilots={excludedPilots}
+      pilotStartSlots={pilotStartSlots}
+      setPilotStartSlots={(ps) => { setPilotStartSlots(ps); saveGonzalesConfig({ pilotStartSlots: ps }); }}
+      slotOrder={slotOrder}
+      setSlotOrder={(so) => { setSlotOrder(so); saveGonzalesConfig({ slotOrder: so }); }}
+      onExcludePilot={toggleExcludePilot}
+    />
+  ) : null;
+
+  const portalTarget = kartManagerPortal;
+
   return (
-    <div className="space-y-2">
+    <>
+      {portalTarget && kartManagerEl && createPortal(kartManagerEl, portalTarget)}
+      <div className="space-y-2">
       {/* Toolbar */}
       <div className="flex items-center gap-2 flex-wrap px-1">
         <button onClick={onToggleLive}
@@ -307,27 +333,6 @@ export default function GonzalesResults({
           {pilotCount} пілотів · {data.karts.length} картів · {roundSessions.length}/{roundCount} гонок
         </span>
       </div>
-
-      {/* Kart Manager — controlled by its own layout section visibility */}
-      {isSectionVisible('competition', 'kartManager') && canManage && (
-        <PilotKartAssignment
-          autoKarts={data.karts}
-          kartList={kartList}
-          setKartList={(kl) => { setKartList(kl); saveGonzalesConfig({ kartList: kl }); }}
-          kartReplacements={kartReplacements}
-          setKartReplacements={(kr) => { setKartReplacements(kr); saveGonzalesConfig({ kartReplacements: kr }); }}
-          excludedKarts={excludedKarts}
-          setExcludedKarts={(ek) => { setExcludedKarts(ek); saveGonzalesConfig({ excludedKarts: [...ek] as any }); }}
-          pilotCount={pilotCount}
-          allPilots={activePilots}
-          excludedPilots={excludedPilots}
-          pilotStartSlots={pilotStartSlots}
-          setPilotStartSlots={(ps) => { setPilotStartSlots(ps); saveGonzalesConfig({ pilotStartSlots: ps }); }}
-          slotOrder={slotOrder}
-          setSlotOrder={(so) => { setSlotOrder(so); saveGonzalesConfig({ slotOrder: so }); }}
-          onExcludePilot={toggleExcludePilot}
-        />
-      )}
 
       {/* Results table */}
       <div className="card p-0 overflow-hidden relative">
@@ -534,6 +539,7 @@ export default function GonzalesResults({
         <GonzalesEditLog competitionId={competitionId} />
       )}
     </div>
+    </>
   );
 }
 
