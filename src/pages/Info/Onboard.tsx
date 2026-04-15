@@ -750,50 +750,50 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
             </div>
           </div>
         )}
-      </div>
 
-      {/* Бали — standings leaderboard + race points, bottom left */}
-      {entry && effectiveShowPoints && standingsLeaderboard && (
-        <div className="absolute bottom-3 left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5"
-             style={{ fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
-          {standingsLeaderboard.items.map((item) => {
-            const isMe = item.pilot === standingsLeaderboard.myPilot;
-            const diff = Math.round((item.pts - standingsLeaderboard.myPts) * 10) / 10;
-            const name = shortName(item.pilot);
-            const clipped = name.length > 10 ? name.slice(0, 10) + '.' : name;
-            return (
-              <div key={item.pilot} className={`flex items-center gap-1.5 leading-snug ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
-                <span className="w-5 text-right tabular-nums">{item.pos}.</span>
-                <span>{clipped}</span>
-                <span className={`w-8 text-right tabular-nums ${isMe ? 'text-green-400' : 'text-dark-500'}`}>{item.pts}</span>
-                {!isMe && diff !== 0 && (
-                  <span className={`ml-1 text-[0.8em] ${diff > 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
-                    {diff > 0 ? '+' : ''}{diff}
-                  </span>
-                )}
+        {/* T1/T2 — left center */}
+        {entry && effectiveShowTime && (timeGroupData?.pos != null || timeGlobalData?.pos != null) && (
+          <div className="absolute left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5 flex items-center gap-3"
+               style={{ top: '50%', transform: 'translateY(-50%)', fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
+            {timeGroupData?.pos != null && (
+              <span className="text-dark-300 font-semibold">T1={timeGroupData.pos}/{timeGroupData.total}</span>
+            )}
+            {timeGlobalData?.pos != null && (
+              <span className="text-dark-400">T2={timeGlobalData.pos}/{timeGlobalData.total}</span>
+            )}
+          </div>
+        )}
+
+        {/* Бали — standings leaderboard + race points, bottom left */}
+        {entry && effectiveShowPoints && standingsLeaderboard && (
+          <div className="absolute bottom-2 left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5"
+               style={{ fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
+            {standingsLeaderboard.items.map((item) => {
+              const isMe = item.pilot === standingsLeaderboard.myPilot;
+              const diff = Math.round((item.pts - standingsLeaderboard.myPts) * 10) / 10;
+              const name = shortName(item.pilot);
+              const clipped = name.length > 10 ? name.slice(0, 10) + '.' : name;
+              return (
+                <div key={item.pilot} className={`flex items-center gap-1.5 leading-snug ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
+                  <span className="w-5 text-right tabular-nums">{item.pos}.</span>
+                  <span>{clipped}</span>
+                  <span className={`w-8 text-right tabular-nums ${isMe ? 'text-green-400' : 'text-dark-500'}`}>{item.pts}</span>
+                  {!isMe && diff !== 0 && (
+                    <span className={`ml-1 text-[0.8em] ${diff > 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                      {diff > 0 ? '+' : ''}{diff}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+            {pointsData && pointsData.total > 0 && (
+              <div className="mt-1.5 pt-1.5 border-t border-dark-700 text-green-400/80 text-center">
+                P = {pointsData.total} = {pointsData.posPoints} + {pointsData.overtakePoints}
               </div>
-            );
-          })}
-          {pointsData && pointsData.total > 0 && (
-            <div className="mt-1.5 pt-1.5 border-t border-dark-700 text-green-400/80 text-center">
-              P = {pointsData.total} = {pointsData.posPoints} + {pointsData.overtakePoints}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Time ranks — left center between Поз and Бали */}
-      {entry && effectiveShowTime && (timeGroupData?.pos != null || timeGlobalData?.pos != null) && (
-        <div className="absolute left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5 flex items-center gap-3"
-             style={{ top: '50%', transform: 'translateY(-50%)', fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
-          {timeGroupData?.pos != null && (
-            <span className="text-dark-300 font-semibold">T1={timeGroupData.pos}/{timeGroupData.total}</span>
-          )}
-          {timeGlobalData?.pos != null && (
-            <span className="text-dark-400">T2={timeGlobalData.pos}/{timeGlobalData.total}</span>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
+      </div>
 
     </div>
   );
