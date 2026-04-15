@@ -641,12 +641,10 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   useEffect(() => {
     if (slots.length === 0 || allPilots.length === 0) return;
 
-    // Collect current pilots in their slot order
     const ordered = allPilots
-      .map(p => ({ pilot: p, idx: pilotStartSlots[p] ?? Infinity }))
-      .sort((a, b) => a.idx - b.idx);
+      .map((p, origIdx) => ({ pilot: p, idx: pilotStartSlots[p] ?? Infinity, origIdx }))
+      .sort((a, b) => a.idx - b.idx || a.origIdx - b.origIdx);
 
-    // Assign sequentially: 0, 1, 2, ...
     const next: Record<string, number> = {};
     let changed = false;
     for (let i = 0; i < ordered.length && i < slots.length; i++) {
@@ -654,7 +652,6 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
       if (pilotStartSlots[ordered[i].pilot] !== i) changed = true;
     }
 
-    // Check if any pilots were removed
     if (Object.keys(pilotStartSlots).length !== Object.keys(next).length) changed = true;
 
     if (changed) setPilotStartSlots(next);

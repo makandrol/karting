@@ -1,5 +1,5 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
 import { toSeconds, isValidSession, KART_COLOR } from '../../utils/timing';
@@ -356,6 +356,27 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const [liveEnabled, setLiveEnabled] = useState(true);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
 
+  const resultsRef = useRef(competition.results);
+  useEffect(() => { resultsRef.current = competition.results; }, [competition.results]);
+  const saveLockRef = useRef<Promise<void>>(Promise.resolve());
+
+  const saveResults = useCallback(async (partial: Record<string, any>) => {
+    saveLockRef.current = saveLockRef.current.then(async () => {
+      try {
+        const currentResults = resultsRef.current || {};
+        const merged = { ...currentResults, ...partial };
+        await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+          body: JSON.stringify({ results: merged }),
+        });
+        resultsRef.current = merged;
+        setCompetition(prev => prev ? { ...prev, results: merged } : prev);
+      } catch {}
+    });
+    return saveLockRef.current;
+  }, [competition.id]);
+
   const sessionTimes = useMemo(() => {
     return compSessions
       .filter(s => {
@@ -486,18 +507,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         initialExcludedPilots={competition.results?.excludedPilots}
         excludedLapKeys={competition.results?.excludedLaps}
         gonzalesConfig={competition.results?.gonzalesConfig}
-        onSaveResults={async (partial) => {
-          try {
-            const currentResults = competition.results || {};
-            const merged = { ...currentResults, ...partial };
-            await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-              body: JSON.stringify({ results: merged }),
-            });
-            setCompetition(prev => prev ? { ...prev, results: merged } : prev);
-          } catch {}
-        }}
+        onSaveResults={saveResults}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
       />
@@ -563,20 +573,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         groupCountOverride={competition.results?.groupCountOverride ?? null}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
-        onSaveResults={async (partial) => {
-          try {
-            const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-            if (!res.ok) return;
-            const comp = await res.json();
-            const currentResults = comp.results || {};
-            await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-              body: JSON.stringify({ results: { ...currentResults, ...partial } }),
-            });
-            setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
-          } catch {}
-        }}
+        onSaveResults={saveResults}
       />
     );
 
