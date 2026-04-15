@@ -53,24 +53,24 @@ type StEntry = { pilot: string; pos: number; pts: number };
 function buildWindow(list: PosEntry[], myIdx: number, myPilot: string) {
   const total = list.length;
   if (total === 0) return null;
-  const windowSize = Math.min(5, total);
+  const windowSize = Math.min(4, total);
   let start: number;
-  if (total <= 5) { start = 0; }
+  if (total <= 4) { start = 0; }
   else if (myIdx <= 1) { start = 0; }
   else if (myIdx >= total - 2) { start = total - windowSize; }
-  else { start = myIdx - 2; }
+  else { start = myIdx - 1; }
   return { items: list.slice(start, start + windowSize), myPilot, total };
 }
 
 function buildStandingsWindow(list: StEntry[], myIdx: number, myPilot: string) {
   const total = list.length;
   if (total === 0) return null;
-  const windowSize = Math.min(5, total);
+  const windowSize = Math.min(3, total);
   let start: number;
-  if (total <= 5) { start = 0; }
-  else if (myIdx <= 1) { start = 0; }
-  else if (myIdx >= total - 2) { start = total - windowSize; }
-  else { start = myIdx - 2; }
+  if (total <= 3) { start = 0; }
+  else if (myIdx === 0) { start = 0; }
+  else if (myIdx >= total - 1) { start = total - windowSize; }
+  else { start = myIdx - 1; }
   const myPts = list[myIdx].pts;
   return { items: list.slice(start, start + windowSize), myPilot, myPts, total };
 }
@@ -623,10 +623,12 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
 
         {/* Position leaderboard — top left */}
         {entry && effectiveShowPos && positionLeaderboard && (
-          <div className="absolute top-2 left-14 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5"
+          <div className="absolute top-2 left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5"
                style={{ fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
             {positionLeaderboard.items.map((item) => {
               const isMe = item.pilot === positionLeaderboard.myPilot;
+              const name = shortName(item.pilot);
+              const clipped = name.length > 7 ? name.slice(0, 7) + '.' : name;
               return (
                 <div key={item.pilot} className={`flex items-center gap-1.5 leading-snug ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
                   <span className={isMe ? 'text-lg' : ''} style={isMe ? { fontSize: 'clamp(1rem, 3vw, 1.4rem)' } : {}}>P{item.pos}</span>
@@ -635,7 +637,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
                       {item.delta > 0 ? '\u25B2' : '\u25BC'}{Math.abs(item.delta)}
                     </span>
                   )}
-                  <span className="truncate max-w-[90px]">{shortName(item.pilot)}</span>
+                  <span>{clipped}</span>
                   {item.gapToNext != null && (
                     <span className="text-dark-600 text-[0.8em]">+{item.gapToNext.toFixed(2)}</span>
                   )}
