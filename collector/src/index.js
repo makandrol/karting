@@ -509,6 +509,44 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /page-visibility — налаштування видимості сторінок
+    if (req.method === 'GET' && url.pathname === '/page-visibility') {
+      const data = storage.getPageVisibility();
+      sendJson(res, 200, data || {});
+      return;
+    }
+
+    // POST /page-visibility — зберегти видимість сторінок (admin only)
+    if (req.method === 'POST' && url.pathname === '/page-visibility') {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      try {
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        storage.setPageVisibility(data);
+        sendJson(res, 200, { ok: true });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
+    // GET /moderators — список модераторів
+    if (req.method === 'GET' && url.pathname === '/moderators') {
+      const data = storage.getModerators();
+      sendJson(res, 200, data || []);
+      return;
+    }
+
+    // POST /moderators — зберегти модераторів (admin only)
+    if (req.method === 'POST' && url.pathname === '/moderators') {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      try {
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        storage.setModerators(data);
+        sendJson(res, 200, { ok: true });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
     // POST /db/update-sessions-track — оновити трасу для сесій (admin only)
     if (req.method === 'POST' && url.pathname === '/db/update-sessions-track') {
       if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
