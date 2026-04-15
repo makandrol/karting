@@ -193,8 +193,8 @@ export default function CompetitionTimeline({ format, groupCount, sessions, sess
                 style={{ left: `${left}%`, width: `${width}%` }}
                 onClick={isSession ? (e) => { e.stopPropagation(); navigate(`/sessions/${seg.sessionId}`); } : undefined}
               >
-                {isSession && seg.phase && width > 3 && (
-                  <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold text-green-200/70 pointer-events-none select-none overflow-hidden whitespace-nowrap">
+                {isSession && seg.phase && width > 1.2 && (
+                  <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold text-green-200/70 pointer-events-none select-none overflow-hidden whitespace-nowrap leading-none">
                     {getPhaseShortLabel(format, seg.phase, groupCount)}
                   </span>
                 )}

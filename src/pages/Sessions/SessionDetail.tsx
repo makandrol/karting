@@ -1,5 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { COLLECTOR_URL } from '../../services/config';
 import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
@@ -13,6 +14,9 @@ import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import type { TimingEntry } from '../../types';
 import { type DbLap, buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
+import { lazy, Suspense } from 'react';
+
+const Onboard = lazy(() => import('../Info/Onboard'));
 
 interface DbSession {
   id: string;
@@ -60,6 +64,7 @@ export default function SessionDetail() {
   const [dbLoading, setDbLoading] = useState(true);
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
   const [excludedLaps, setExcludedLaps] = useState<Set<string>>(new Set());
+  const [onboardOpen, setOnboardOpen] = useState(false);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -282,6 +287,16 @@ export default function SessionDetail() {
           </p>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
+          {dbSession.end_time && dbLaps.length > 0 && (
+            <button onClick={() => setOnboardOpen(true)}
+              className="p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 transition-colors"
+              title="Онборд">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" />
+                <path d="M8 21h8M12 17v4" />
+              </svg>
+            </button>
+          )}
           {prevSession ? (
             <Link to={`/sessions/${prevSession.id}`}
               className="p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 transition-colors"
@@ -423,6 +438,17 @@ export default function SessionDetail() {
               startPositions={isRace ? startPositions : undefined} />
           )}
         </>
+      )}
+
+      {onboardOpen && createPortal(
+        <Suspense fallback={null}>
+          <Onboard
+            replayEntries={trackEntries}
+            replaySessionId={sessionId!}
+            onClose={() => setOnboardOpen(false)}
+          />
+        </Suspense>,
+        document.body
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
 import { toSeconds, isValidSession, KART_COLOR } from '../../utils/timing';
@@ -174,8 +174,8 @@ export default function CompetitionPage() {
       {(competition.format === 'gonzales' || competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
         <TableLayoutBar pageId="competition" sections={[
           ...PAGE_SECTIONS.competition.filter(s => s.id !== 'kartManager' || competition.format === 'gonzales'),
-          ...(isOwner ? [{ id: 'editLog', label: 'Журнал змін' }] : []),
-        ]} />
+          { id: 'editLog', label: 'Журнал змін' },
+        ]} disabledSections={isOwner ? undefined : new Set(['kartManager', 'editLog'])} />
       )}
       <div className="flex items-center justify-between">
         <div>
@@ -221,19 +221,50 @@ export default function CompetitionPage() {
                     const pilotChanged = 'totalPilotsOverride' in partial || 'totalPilotsLocked' in partial;
 
                     if (groupChanged || pilotChanged) {
-                      const newGroupCount = partial.groupCountOverride !== undefined
-                        ? (partial.groupCountOverride ?? currentResults.autoDetectedGroups ?? autoGroups)
-                        : (currentResults.groupCountOverride ?? currentResults.autoDetectedGroups ?? autoGroups);
-                      const gonzRoundCount = competition.format === 'gonzales' ? (currentResults.gonzalesRoundCount ?? null) : null;
-                      const newPhases = getPhasesForFormat(competition.format, newGroupCount, gonzRoundCount);
-                      const currentSessions: { sessionId: string; phase: string | null }[] = comp.sessions || [];
-                      const reassigned = currentSessions.map((s: { sessionId: string; phase: string | null }, idx: number) => ({
-                        sessionId: s.sessionId,
-                        phase: idx < newPhases.length ? newPhases[idx].id : s.phase,
-                      }));
+                      const isGonzales = competition.format === 'gonzales';
 
-                      const filledCount = Math.min(reassigned.length, newPhases.length);
-                      if (filledCount < newPhases.length && reassigned.length > 0) {
+                      // When pilot count changes for Gonzales, derive groupCount and roundCount
+                      if (pilotChanged && isGonzales) {
+                        const newPilots = newResults.totalPilotsLocked && newResults.totalPilotsOverride != null
+                          ? newResults.totalPilotsOverride
+                          : pilotCount;
+                        if (newPilots > 0) {
+                          newResults.groupCountOverride = getGonzalesGroupCount(newPilots);
+                          newResults.gonzalesRoundCount = getGonzalesRoundCount(newPilots);
+                        }
+                      }
+
+                      const newGroupCount = newResults.groupCountOverride
+                        ?? newResults.autoDetectedGroups ?? autoGroups;
+                      const gonzRoundCount = isGonzales ? (newResults.gonzalesRoundCount ?? null) : null;
+                      const newPhases = getPhasesForFormat(competition.format, newGroupCount, gonzRoundCount);
+
+                      const currentSessions: { sessionId: string; phase: string | null }[] = comp.sessions || [];
+
+                      // Split current sessions into qualifying and non-qualifying
+                      const qualiSessions = currentSessions.filter(s => s.phase?.startsWith('qualifying'));
+                      const nonQualiSessions = currentSessions.filter(s => !s.phase?.startsWith('qualifying'));
+
+                      const qualiPhases = newPhases.filter(p => p.id.startsWith('qualifying'));
+                      const roundPhases = newPhases.filter(p => !p.id.startsWith('qualifying'));
+
+                      // Keep qualifying sessions matched by phase, up to the new qualifying count
+                      const reassigned: { sessionId: string; phase: string | null }[] = [];
+                      for (const qp of qualiPhases) {
+                        const existing = qualiSessions.find(s => s.phase === qp.id);
+                        if (existing) {
+                          reassigned.push({ sessionId: existing.sessionId, phase: qp.id });
+                        }
+                      }
+
+                      // Assign non-qualifying sessions to round phases sequentially
+                      for (let i = 0; i < roundPhases.length && i < nonQualiSessions.length; i++) {
+                        reassigned.push({ sessionId: nonQualiSessions[i].sessionId, phase: roundPhases[i].id });
+                      }
+
+                      // If we need more sessions, try to find available ones from the same day
+                      const filledRounds = Math.min(roundPhases.length, nonQualiSessions.length);
+                      if (filledRounds < roundPhases.length && reassigned.length > 0) {
                         const lastTs = Math.max(...reassigned.map(s => {
                           const m = s.sessionId.match(/session-(\d+)/);
                           return m ? parseInt(m[1]) : 0;
@@ -250,8 +281,8 @@ export default function CompetitionPage() {
                               .filter(s => s.start_time > lastTs)
                               .sort((a, b) => a.start_time - b.start_time);
 
-                            for (let i = filledCount; i < newPhases.length && (i - filledCount) < available.length; i++) {
-                              reassigned.push({ sessionId: available[i - filledCount].id, phase: newPhases[i].id });
+                            for (let i = filledRounds; i < roundPhases.length && (i - filledRounds) < available.length; i++) {
+                              reassigned.push({ sessionId: available[i - filledRounds].id, phase: roundPhases[i].id });
                             }
                           }
                         } catch {}
@@ -324,6 +355,27 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const [liveTeams, setLiveTeams] = useState<any[]>([]);
   const [liveEnabled, setLiveEnabled] = useState(true);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
+
+  const resultsRef = useRef(competition.results);
+  useEffect(() => { resultsRef.current = competition.results; }, [competition.results]);
+  const saveLockRef = useRef<Promise<void>>(Promise.resolve());
+
+  const saveResults = useCallback(async (partial: Record<string, any>) => {
+    saveLockRef.current = saveLockRef.current.then(async () => {
+      try {
+        const currentResults = resultsRef.current || {};
+        const merged = { ...currentResults, ...partial };
+        await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+          body: JSON.stringify({ results: merged }),
+        });
+        resultsRef.current = merged;
+        setCompetition(prev => prev ? { ...prev, results: merged } : prev);
+      } catch {}
+    });
+    return saveLockRef.current;
+  }, [competition.id]);
 
   const sessionTimes = useMemo(() => {
     return compSessions
@@ -455,23 +507,9 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         initialExcludedPilots={competition.results?.excludedPilots}
         excludedLapKeys={competition.results?.excludedLaps}
         gonzalesConfig={competition.results?.gonzalesConfig}
-        onSaveResults={async (partial) => {
-          try {
-            const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-            if (!res.ok) return;
-            const comp = await res.json();
-            const currentResults = comp.results || {};
-            await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-              body: JSON.stringify({ results: { ...currentResults, ...partial } }),
-            });
-            setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
-          } catch {}
-        }}
+        onSaveResults={saveResults}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
-        showKartManager={isSectionVisible('competition', 'kartManager')}
       />
     );
 
@@ -535,20 +573,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         groupCountOverride={competition.results?.groupCountOverride ?? null}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
-        onSaveResults={async (partial) => {
-          try {
-            const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-            if (!res.ok) return;
-            const comp = await res.json();
-            const currentResults = comp.results || {};
-            await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-              body: JSON.stringify({ results: { ...currentResults, ...partial } }),
-            });
-            setCompetition(prev => prev ? { ...prev, results: { ...prev.results, ...partial } } : prev);
-          } catch {}
-        }}
+        onSaveResults={saveResults}
       />
     );
 

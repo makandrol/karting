@@ -4,6 +4,26 @@ import { parseTime, isValidSession } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 
+const LS_SESSIONS_FILTERS = 'karting_sessions_filters';
+
+function loadSessionsFilters(): { selectedDate?: string; sortBy?: string } | null {
+  try {
+    const s = localStorage.getItem(LS_SESSIONS_FILTERS);
+    if (s) {
+      const { value, expiresAt } = JSON.parse(s);
+      if (expiresAt && Date.now() > expiresAt) { localStorage.removeItem(LS_SESSIONS_FILTERS); return null; }
+      return value;
+    }
+  } catch {}
+  return null;
+}
+
+function saveSessionsFilters(filters: { selectedDate: string; sortBy: string }) {
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+  localStorage.setItem(LS_SESSIONS_FILTERS, JSON.stringify({ value: filters, expiresAt: endOfDay.getTime() }));
+}
+
 function fmtDateLabel(dateStr: string): string {
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -20,10 +40,15 @@ function fmtDateLabel(dateStr: string): string {
 export default function SessionsList() {
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const [selectedDate, setSelectedDate] = useState(todayStr);
+  const saved = loadSessionsFilters();
+  const [selectedDate, setSelectedDate] = useState(saved?.selectedDate || todayStr);
   const [sessions, setSessions] = useState<SessionTableRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [sortBy, setSortBy] = useState<'time_asc' | 'time_desc' | 'best_asc' | 'best_desc'>('time_desc');
+  const [sortBy, setSortBy] = useState<'time_asc' | 'time_desc' | 'best_asc' | 'best_desc'>((saved?.sortBy as any) || 'time_desc');
+
+  useEffect(() => {
+    saveSessionsFilters({ selectedDate, sortBy });
+  }, [selectedDate, sortBy]);
 
   const fetchSessions = useCallback(async (date: string) => {
     setLoading(true);
