@@ -349,13 +349,13 @@ export default function GonzalesResults({
           <table className="w-full text-[10px]">
             <thead className="sticky top-0 z-20">
               <tr className="table-header">
-                <th className={`table-cell text-center w-6 bg-[#1a1d23] ${STICKY_NUM}`} rowSpan={2}>#</th>
+                <th className={`table-cell text-center w-6 bg-[#1a1d23] ${STICKY_NUM}`}>#</th>
                 <th className={`table-cell text-left min-w-[100px] cursor-pointer hover:text-white bg-[#1a1d23] ${STICKY_PILOT} ${sortKey === 'name' ? SORT_HL : ''}`}
-                  onClick={() => handleSort('name')} rowSpan={2}>
+                  onClick={() => handleSort('name')}>
                   Пілот<SortArrow k="name" />
                 </th>
                 <th className={`table-cell text-center min-w-[65px] font-bold cursor-pointer hover:text-white bg-[#1a1d23] ${sortKey === 'average' ? SORT_HL : ''}`}
-                  onClick={() => handleSort('average')} rowSpan={2}>
+                  onClick={() => handleSort('average')}>
                   Сер.<SortArrow k="average" />
                 </th>
                 {data.karts.map((k, ki) => {
@@ -368,18 +368,7 @@ export default function GonzalesResults({
                   </th>
                   );
                 })}
-                {canManage && <th className="table-cell text-center w-6 bg-[#1a1d23]" rowSpan={2}></th>}
-              </tr>
-              <tr className="table-header">
-                {data.karts.map((k, ki) => {
-                  if (excludedKarts.has(k)) return null;
-                  return (
-                  <React.Fragment key={k}>
-                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal min-w-[60px] bg-[#1a1d23] ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}>час</th>
-                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal w-[28px] bg-[#1a1d23]`}>м.</th>
-                  </React.Fragment>
-                  );
-                })}
+                {canManage && <th className="table-cell text-center w-6 bg-[#1a1d23]"></th>}
               </tr>
             </thead>
             <tbody>
