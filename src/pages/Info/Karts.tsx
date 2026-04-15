@@ -65,13 +65,13 @@ export default function Karts() {
   const [sortByRank, setSortByRank] = useState(() => loadFilters()?.sortByRank ?? true);
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const [topNInput, setTopNInput] = useState('1');
-  const [topNPrev, setTopNPrev] = useState('1');
-  const [topN, setTopN] = useState(1);
+  const [topNInput, setTopNInput] = useState(() => String(loadFilters()?.topN ?? 1));
+  const [topNPrev, setTopNPrev] = useState(() => String(loadFilters()?.topN ?? 1));
+  const [topN, setTopN] = useState(() => loadFilters()?.topN ?? 1);
 
   useEffect(() => {
-    localStorage.setItem(LS_KARTS_FILTERS, JSON.stringify({ viewMode, sortByRank }));
-  }, [viewMode, sortByRank]);
+    localStorage.setItem(LS_KARTS_FILTERS, JSON.stringify({ viewMode, sortByRank, topN, showDisabled }));
+  }, [viewMode, sortByRank, topN, showDisabled]);
 
   // Selected dates for stats (multi-select)
   const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
@@ -152,7 +152,7 @@ export default function Karts() {
   }, [statSessionIds]);
 
   const [disabledKarts, setDisabledKarts] = useState<Set<number>>(loadDisabledKarts);
-  const [showDisabled, setShowDisabled] = useState(false);
+  const [showDisabled, setShowDisabled] = useState(() => loadFilters()?.showDisabled ?? false);
   useEffect(() => { localStorage.setItem(LS_DISABLED_KARTS, JSON.stringify([...disabledKarts])); }, [disabledKarts]);
   const toggleKartDisabled = (num: number) => {
     const next = new Set(disabledKarts); next.has(num) ? next.delete(num) : next.add(num); setDisabledKarts(next);

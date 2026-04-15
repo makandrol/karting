@@ -48,7 +48,11 @@ function sortQualifyingMode(entries: TimingEntry[]): TimingEntry[] {
 }
 
 export default function TimingBoard({ entries, mode, lastUpdate, compact = false }: TimingBoardProps) {
-  const [sortMode, setSortMode] = useState<SortMode>('qualifying');
+  const [sortMode, setSortMode] = useState<SortMode>(() => {
+    try { const s = localStorage.getItem('karting_board_sort'); if (s === 'race' || s === 'qualifying') return s; } catch {} return 'qualifying';
+  });
+
+  const updateSortMode = (m: SortMode) => { setSortMode(m); localStorage.setItem('karting_board_sort', m); };
 
   const formatTime = (ts: number | null) => {
     if (!ts) return '—';
@@ -102,7 +106,7 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
           <span className="text-dark-500 text-[10px]">Режим:</span>
           <div className="flex bg-dark-800 rounded-md p-0.5">
             <button
-              onClick={() => setSortMode('qualifying')}
+              onClick={() => updateSortMode('qualifying')}
               className={`px-2.5 py-1 text-[10px] font-semibold rounded transition-colors ${
                 sortMode === 'qualifying' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
               }`}
@@ -110,7 +114,7 @@ export default function TimingBoard({ entries, mode, lastUpdate, compact = false
               ⏱️ Квала
             </button>
             <button
-              onClick={() => setSortMode('race')}
+              onClick={() => updateSortMode('race')}
               className={`px-2.5 py-1 text-[10px] font-semibold rounded transition-colors ${
                 sortMode === 'race' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'
               }`}

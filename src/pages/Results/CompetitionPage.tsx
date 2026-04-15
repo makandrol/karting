@@ -52,6 +52,7 @@ export default function CompetitionPage() {
   const [allSessionsEnded, setAllSessionsEnded] = useState(false);
   const [pilotCount, setPilotCount] = useState(0);
   const [autoGroups, setAutoGroups] = useState(1);
+  const manuallyReopened = useRef(false);
 
   const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[]) => {
     const dates = new Set<string>();
@@ -108,6 +109,7 @@ export default function CompetitionPage() {
   const toggleStatus = async () => {
     if (!competition) return;
     const newStatus = competition.status === 'live' ? 'finished' : 'live';
+    if (newStatus === 'live') manuallyReopened.current = true;
     try {
       const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
         method: 'PATCH',
@@ -174,6 +176,25 @@ export default function CompetitionPage() {
   const totalPhases = effectivePhases.length;
   const linkedPhases = competition.sessions.filter(s => s.phase).length;
   const allPhasesLinked = totalPhases > 0 && linkedPhases >= totalPhases;
+
+  // Auto-close competition when all sessions ended and all phases linked
+  const autoClosedRef = useRef(false);
+  useEffect(() => {
+    if (!competition || competition.status !== 'live' || !canManage) return;
+    if (!allSessionsEnded || !allPhasesLinked) return;
+    if (manuallyReopened.current || autoClosedRef.current) return;
+    autoClosedRef.current = true;
+    (async () => {
+      try {
+        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+          body: JSON.stringify({ status: 'finished' }),
+        });
+        if (res.ok) setCompetition(await res.json());
+      } catch {}
+    })();
+  }, [competition?.status, allSessionsEnded, allPhasesLinked, canManage]);
 
   return (
     <div className="space-y-4">

@@ -51,13 +51,22 @@ export default function GonzalesResults({
 
   const [excludedPilots, setExcludedPilots] = useState<Set<string>>(() => new Set(initialExcludedPilots || []));
   const [selectedPilot, setSelectedPilot] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>('average');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [showBest, setShowBest] = useState(true);
-  const [showWorse, setShowWorse] = useState(false);
-  const [showTB, setShowTB] = useState(false);
-  const [showPos, setShowPos] = useState(true);
-  const [showSectors, setShowSectors] = useState(false);
+
+  const gonzViewKey = `karting_gonzales_view_${competitionId}`;
+  const loadGonzView = () => { try { const s = localStorage.getItem(gonzViewKey); return s ? JSON.parse(s) : null; } catch { return null; } };
+  const savedView = useRef(loadGonzView());
+
+  const [sortKey, setSortKey] = useState<SortKey>(savedView.current?.sortKey || 'average');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(savedView.current?.sortDir || 'asc');
+  const [showBest, setShowBest] = useState(savedView.current?.showBest ?? true);
+  const [showWorse, setShowWorse] = useState(savedView.current?.showWorse ?? false);
+  const [showTB, setShowTB] = useState(savedView.current?.showTB ?? false);
+  const [showPos, setShowPos] = useState(savedView.current?.showPos ?? true);
+  const [showSectors, setShowSectors] = useState(savedView.current?.showSectors ?? false);
+
+  useEffect(() => {
+    localStorage.setItem(gonzViewKey, JSON.stringify({ sortKey, sortDir, showBest, showWorse, showTB, showPos, showSectors }));
+  }, [sortKey, sortDir, showBest, showWorse, showTB, showPos, showSectors]);
 
   const [kartList, setKartList] = useState<number[]>(gonzalesConfig?.kartList || []);
   const [kartReplacements, setKartReplacements] = useState<Record<number, number>>(gonzalesConfig?.kartReplacements || {});

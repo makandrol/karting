@@ -64,15 +64,23 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
   const entries = isReplay ? replayEntries : poller.entries;
   const sessionId = isReplay ? (replaySessionId || null) : ((poller.collectorStatus as any)?.sessionId || null);
 
-  // ── View toggles ──
-  const [showSectors, setShowSectors] = useState(true);
-  const [modeOverride, setModeOverride] = useState<OnboardMode | null>(null);
-  const [showPosition, setShowPosition] = useState<boolean | null>(null);
-  const [showTimeGroup, setShowTimeGroup] = useState(false);
-  const [showTimeGlobal, setShowTimeGlobal] = useState(false);
-  const [showPoints, setShowPoints] = useState(false);
-  const [showFinalPos, setShowFinalPos] = useState(false);
-  const [showGap, setShowGap] = useState(false);
+  // ── View toggles (persisted) ──
+  const onbViewKey = 'karting_onboard_view';
+  const loadOnbView = () => { try { const s = localStorage.getItem(onbViewKey); return s ? JSON.parse(s) : null; } catch { return null; } };
+  const savedOnbView = useRef(loadOnbView());
+
+  const [showSectors, setShowSectors] = useState(savedOnbView.current?.showSectors ?? true);
+  const [modeOverride, setModeOverride] = useState<OnboardMode | null>(savedOnbView.current?.modeOverride ?? null);
+  const [showPosition, setShowPosition] = useState<boolean | null>(savedOnbView.current?.showPosition ?? null);
+  const [showTimeGroup, setShowTimeGroup] = useState(savedOnbView.current?.showTimeGroup ?? false);
+  const [showTimeGlobal, setShowTimeGlobal] = useState(savedOnbView.current?.showTimeGlobal ?? false);
+  const [showPoints, setShowPoints] = useState(savedOnbView.current?.showPoints ?? false);
+  const [showFinalPos, setShowFinalPos] = useState(savedOnbView.current?.showFinalPos ?? false);
+  const [showGap, setShowGap] = useState(savedOnbView.current?.showGap ?? false);
+
+  useEffect(() => {
+    localStorage.setItem(onbViewKey, JSON.stringify({ showSectors, modeOverride, showPosition, showTimeGroup, showTimeGlobal, showPoints, showFinalPos, showGap }));
+  }, [showSectors, modeOverride, showPosition, showTimeGroup, showTimeGlobal, showPoints, showFinalPos, showGap]);
 
   const kart = isReplay ? replayKart : (kartId ? parseInt(kartId, 10) : null);
   const entry = kart !== null ? entries.find(e => e.kart === kart) : null;
