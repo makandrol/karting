@@ -349,8 +349,8 @@ export default function GonzalesResults({
                   {pill('Worse', showWorse, () => setShowWorse(v => !v))}
                   {pill('TB', showTB, () => setShowTB(v => !v))}
                   {pill('S1-S2', showSectors, () => setShowSectors(v => !v))}
-                  {pill('TB_diff', showTBDiff, () => setShowTBDiff(v => !v))}
-                  {pill('P1_diff', showP1Diff, () => setShowP1Diff(v => !v))}
+                  {pill('TB diff', showTBDiff, () => setShowTBDiff(v => !v))}
+                  {pill('P diff', showP1Diff, () => setShowP1Diff(v => !v))}
                 </span>
               );
             })()}
@@ -415,7 +415,7 @@ export default function GonzalesResults({
                         const d = avg - bestAverage;
                         return (
                           <div className="text-[9px] font-normal leading-tight" style={{ color: diffColor(d) }}>
-                            P1_diff={d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}
+                            P{i + 1} {d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}
                           </div>
                         );
                       })()}
@@ -498,12 +498,12 @@ export default function GonzalesResults({
                             )}
                             {showTBDiff && tbDiffVal !== null && (
                               <div className="text-[9px] leading-tight" style={{ color: diffColor(tbDiffVal) }}>
-                                TB_diff=-{tbDiffVal.toFixed(2)}
+                                TB -{tbDiffVal.toFixed(2)}
                               </div>
                             )}
                             {showP1Diff && p1Diff !== null && (
                               <div className="text-[9px] leading-tight" style={{ color: diffColor(p1Diff) }}>
-                                P1_diff={p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}
+                                P{kr.place ?? '?'} {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}
                               </div>
                             )}
                           </td>
