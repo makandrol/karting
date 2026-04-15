@@ -358,22 +358,28 @@ export default function GonzalesResults({
                   onClick={() => handleSort('average')} rowSpan={2}>
                   Сер.<SortArrow k="average" />
                 </th>
-                {data.karts.map((k, ki) => (
+                {data.karts.map((k, ki) => {
+                  if (excludedKarts.has(k)) return null;
+                  return (
                   <th key={k} colSpan={2}
-                    className={`table-cell text-center cursor-pointer hover:text-white bg-[#1a1d23] ${KART_COLOR} ${sortKey === `kart_${k}` ? SORT_HL : ''} ${excludedKarts.has(k) ? 'opacity-40' : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}
+                    className={`table-cell text-center cursor-pointer hover:text-white bg-[#1a1d23] ${KART_COLOR} ${sortKey === `kart_${k}` ? SORT_HL : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}
                     onClick={() => handleSort(`kart_${k}`)}>
                     {k}<SortArrow k={`kart_${k}`} />
                   </th>
-                ))}
+                  );
+                })}
                 {canManage && <th className="table-cell text-center w-6 bg-[#1a1d23]" rowSpan={2}></th>}
               </tr>
               <tr className="table-header">
-                {data.karts.map((k, ki) => (
+                {data.karts.map((k, ki) => {
+                  if (excludedKarts.has(k)) return null;
+                  return (
                   <React.Fragment key={k}>
-                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal min-w-[60px] bg-[#1a1d23] ${excludedKarts.has(k) ? 'opacity-40' : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}>час</th>
-                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal w-[28px] bg-[#1a1d23] ${excludedKarts.has(k) ? 'opacity-40' : ''}`}>м.</th>
+                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal min-w-[60px] bg-[#1a1d23] ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}>час</th>
+                    <th className={`table-cell text-center text-[8px] text-dark-600 font-normal w-[28px] bg-[#1a1d23]`}>м.</th>
                   </React.Fragment>
-                ))}
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -405,13 +411,13 @@ export default function GonzalesResults({
                       const startTimeBorder = isStartKart && !isSkipStart ? 'ring-1 ring-inset ring-yellow-500/60' : '';
                       const startPlaceBorder = isStartKart && isSkipStart ? 'ring-1 ring-inset ring-yellow-500/60' : '';
                       const colHighlight = sortKey === `kart_${data.karts[ki]}` ? SORT_HL : '';
-                      const excluded = excludedKarts.has(data.karts[ki]) ? 'opacity-40' : '';
+                      if (excludedKarts.has(data.karts[ki])) return null;
                       const kartBorder = ki > 0 ? 'border-l-2 border-dark-600' : '';
                       if (kr.bestTime === null) {
                         return (
                           <React.Fragment key={ki}>
-                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded} ${startTimeBorder} ${kartBorder}`}>—</td>
-                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${excluded} ${startPlaceBorder}`}>—</td>
+                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${startTimeBorder} ${kartBorder}`}>—</td>
+                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${startPlaceBorder}`}>—</td>
                           </React.Fragment>
                         );
                       }
@@ -457,7 +463,7 @@ export default function GonzalesResults({
 
                       return (
                         <React.Fragment key={ki}>
-                          <td className={`table-cell text-center font-mono ${colHighlight} ${excluded} ${startTimeBorder} ${kartBorder}`}>
+                          <td className={`table-cell text-center font-mono ${colHighlight} ${startTimeBorder} ${kartBorder}`}>
                             {lapsToShow.length === 0 && !showTB && !showTBDiff && !showP1Diff && (
                               <span className="text-dark-500">{kr.bestTime.toFixed(2)}</span>
                             )}
@@ -485,7 +491,7 @@ export default function GonzalesResults({
                               </div>
                             )}
                           </td>
-                          <td className={`table-cell text-center font-mono text-dark-500 ${colHighlight} ${excluded} ${startPlaceBorder}`}>
+                          <td className={`table-cell text-center font-mono text-dark-500 ${colHighlight} ${startPlaceBorder}`}>
                             {kr.place ?? '—'}
                           </td>
                         </React.Fragment>
