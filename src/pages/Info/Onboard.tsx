@@ -671,7 +671,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
                 )}
                 <span>{clipped}</span>
                 {item.gapToNext != null && (
-                  <span className={`text-[0.8em] ${item.gapToNext < 0 ? 'text-green-400' : item.gapToNext > 0 ? 'text-dark-600' : ''}`}>
+                  <span className={`font-semibold ${item.gapToNext < 0 ? 'text-green-400' : 'text-white'}`}>
                     {item.gapToNext > 0 ? '+' : item.gapToNext < 0 ? '\u2212' : ''}{Math.abs(item.gapToNext).toFixed(2)}
                   </span>
                 )}
