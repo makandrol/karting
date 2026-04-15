@@ -496,14 +496,17 @@ export default function GonzalesResults({
                                 <span className="text-dark-400">{kr.theoreticalBest.toFixed(2)}</span>
                               </div>
                             )}
-                            {showTBDiff && tbDiffVal !== null && (
-                              <div className="text-[9px] leading-tight" style={{ color: diffColor(tbDiffVal) }}>
-                                TB -{tbDiffVal.toFixed(2)}
-                              </div>
-                            )}
-                            {showP1Diff && p1Diff !== null && (
-                              <div className="text-[9px] leading-tight" style={{ color: diffColor(p1Diff) }}>
-                                P{kr.place ?? '?'} {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}
+                            {(showTBDiff && tbDiffVal !== null || showP1Diff && p1Diff !== null) && (
+                              <div className="text-[9px] leading-tight whitespace-nowrap">
+                                {showTBDiff && tbDiffVal !== null && (
+                                  <span style={{ color: diffColor(tbDiffVal) }}>TB -{tbDiffVal.toFixed(2)}</span>
+                                )}
+                                {showTBDiff && tbDiffVal !== null && showP1Diff && p1Diff !== null && (
+                                  <span className="text-dark-700"> </span>
+                                )}
+                                {showP1Diff && p1Diff !== null && (
+                                  <span style={{ color: diffColor(p1Diff) }}>P{kr.place ?? '?'} {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}</span>
+                                )}
                               </div>
                             )}
                           </td>
