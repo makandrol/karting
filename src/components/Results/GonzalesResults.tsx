@@ -615,12 +615,18 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   const effectiveKarts = kartList.length > 0 ? kartList : autoKarts;
 
-  // Derive effective slotOrder: only trim excess skips (don't auto-add removed ones)
+  // Derive effective slotOrder: trim excess skips or append missing ones
   const effectiveSlotOrder = useMemo((): (number | null)[] | undefined => {
     if (!slotOrder || slotOrder.length === 0) return undefined;
     const neededSkips = Math.max(0, pilotCount - effectiveKarts.length);
     const currentSkips = slotOrder.filter(v => v === null).length;
-    if (currentSkips <= neededSkips) return slotOrder;
+
+    if (currentSkips < neededSkips) {
+      const result = [...slotOrder];
+      for (let i = 0; i < neededSkips - currentSkips; i++) result.push(null);
+      return result;
+    }
+    if (currentSkips === neededSkips) return slotOrder;
 
     let toRemove = currentSkips - neededSkips;
     const result = [...slotOrder];
