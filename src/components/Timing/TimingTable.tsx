@@ -56,9 +56,11 @@ export default function TimingTable({
   startPositions, startGrid,
   raceGroup, totalQualifiedPilots, isCompetitionRace, competitionFormat, hidePoints, pilotSuffix,
 }: TimingTableProps) {
-  const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>('all');
+  const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>(() => {
+    try { const s = localStorage.getItem('karting_timing_col_filter'); if (s === 'all' || s === 'main' || s === 'custom') return s; } catch {} return 'all';
+  });
   const columnFilter = controlledColumnFilter ?? internalColumnFilter;
-  const setColumnFilter = onColumnFilterChange ?? setInternalColumnFilter;
+  const setColumnFilter = onColumnFilterChange ?? ((f: 'all' | 'main' | 'custom') => { setInternalColumnFilter(f); localStorage.setItem('karting_timing_col_filter', f); });
 
   const [customCols, setCustomCols] = useState<Record<SortMode, { visible: Set<ColId>; order: ColId[] }>>(() => {
     const load = (mode: SortMode) => {

@@ -114,15 +114,24 @@ interface SessionReplayProps {
 export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, competitionFormat, hidePoints, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent, pilotSuffix }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(durationSec);
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(() => {
+    try { const s = localStorage.getItem('karting_replay_speed'); if (s) { const v = parseFloat(s); if (v > 0) return v; } } catch {} return 1;
+  });
   const [atLive, setAtLive] = useState(!!isLive && !!autoPlay);
-  const [internalSortMode, setInternalSortMode] = useState<ReplaySortMode>(defaultSortMode || 'qualifying');
-  const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>('all');
+  const [internalSortMode, setInternalSortMode] = useState<ReplaySortMode>(() => {
+    if (defaultSortMode) return defaultSortMode;
+    try { const s = localStorage.getItem('karting_replay_sort'); if (s === 'race' || s === 'qualifying') return s; } catch {} return 'qualifying';
+  });
+  const [internalColumnFilter, setInternalColumnFilter] = useState<'all' | 'main' | 'custom'>(() => {
+    try { const s = localStorage.getItem('karting_replay_col_filter'); if (s === 'all' || s === 'main' || s === 'custom') return s; } catch {} return 'all';
+  });
 
   const sortMode = controlledSortMode ?? internalSortMode;
-  const setSortMode = onSortModeChange ?? setInternalSortMode;
+  const setSortMode = onSortModeChange ?? ((m: ReplaySortMode) => { setInternalSortMode(m); localStorage.setItem('karting_replay_sort', m); });
   const columnFilter = controlledColumnFilter ?? internalColumnFilter;
-  const setColumnFilter = onColumnFilterChange ?? setInternalColumnFilter;
+  const setColumnFilter = onColumnFilterChange ?? ((f: 'all' | 'main' | 'custom') => { setInternalColumnFilter(f); localStorage.setItem('karting_replay_col_filter', f); });
+
+  const updateSpeed = (s: number) => { setSpeed(s); localStorage.setItem('karting_replay_speed', String(s)); };
 
   useEffect(() => { if (defaultSortMode && !controlledSortMode) setInternalSortMode(defaultSortMode); }, [defaultSortMode, controlledSortMode]);
 
@@ -577,7 +586,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
 
       <select
         value={speed}
-        onChange={(e) => setSpeed(parseFloat(e.target.value))}
+        onChange={(e) => updateSpeed(parseFloat(e.target.value))}
         className="bg-dark-800 border border-dark-700 text-white text-xs rounded-md px-2 py-1 outline-none shrink-0"
       >
         <option value={0.5}>0.5x</option>

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { useLayoutPrefs } from '../../services/layoutPrefs';
@@ -8,7 +9,7 @@ import {
   type SessionLap, type CompSession,
   type GonzalesPilotRow, type GonzalesStandingsData, type GonzalesKartResult,
 } from '../../utils/scoring';
-import { buildGonzalesRotation } from '../../data/competitions';
+import { buildGonzalesRotation, type GonzalesKartSlot } from '../../data/competitions';
 
 interface Props {
   competitionId: string;
@@ -23,6 +24,7 @@ interface Props {
   gonzalesConfig?: GonzalesConfig;
   onPilotCount?: (n: number) => void;
   onAutoGroups?: (n: number) => void;
+  kartManagerPortal?: HTMLDivElement | null;
 }
 
 export interface GonzalesConfig {
@@ -32,6 +34,8 @@ export interface GonzalesConfig {
   pilotStartSlots?: Record<string, number>;
   scoringLaps?: number[];
   slotOrder?: (number | null)[];
+  configLocked?: boolean;
+  lockedPilots?: string[];
 }
 
 type SortKey = 'average' | 'name' | `kart_${number}`;
@@ -39,7 +43,7 @@ type SortKey = 'average' | 'name' | `kart_${number}`;
 export default function GonzalesResults({
   competitionId, sessions, sessionLaps, liveSessionId, liveEnabled,
   onToggleLive, initialExcludedPilots, excludedLapKeys, onSaveResults, gonzalesConfig,
-  onPilotCount, onAutoGroups,
+  onPilotCount, onAutoGroups, kartManagerPortal,
 }: Props) {
   const { hasPermission, isOwner } = useAuth();
   const { isSectionVisible } = useLayoutPrefs();
@@ -47,13 +51,22 @@ export default function GonzalesResults({
 
   const [excludedPilots, setExcludedPilots] = useState<Set<string>>(() => new Set(initialExcludedPilots || []));
   const [selectedPilot, setSelectedPilot] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>('average');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [showBest, setShowBest] = useState(true);
-  const [showWorse, setShowWorse] = useState(false);
-  const [showTB, setShowTB] = useState(false);
-  const [showPos, setShowPos] = useState(true);
-  const [showSectors, setShowSectors] = useState(false);
+
+  const gonzViewKey = `karting_gonzales_view_${competitionId}`;
+  const loadGonzView = () => { try { const s = localStorage.getItem(gonzViewKey); return s ? JSON.parse(s) : null; } catch { return null; } };
+  const savedView = useRef(loadGonzView());
+
+  const [sortKey, setSortKey] = useState<SortKey>(savedView.current?.sortKey || 'average');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(savedView.current?.sortDir || 'asc');
+  const [showBest, setShowBest] = useState(savedView.current?.showBest ?? true);
+  const [showWorse, setShowWorse] = useState(savedView.current?.showWorse ?? false);
+  const [showTB, setShowTB] = useState(savedView.current?.showTB ?? false);
+  const [showPos, setShowPos] = useState(savedView.current?.showPos ?? true);
+  const [showSectors, setShowSectors] = useState(savedView.current?.showSectors ?? false);
+
+  useEffect(() => {
+    localStorage.setItem(gonzViewKey, JSON.stringify({ sortKey, sortDir, showBest, showWorse, showTB, showPos, showSectors }));
+  }, [sortKey, sortDir, showBest, showWorse, showTB, showPos, showSectors]);
 
   const [kartList, setKartList] = useState<number[]>(gonzalesConfig?.kartList || []);
   const [kartReplacements, setKartReplacements] = useState<Record<number, number>>(gonzalesConfig?.kartReplacements || {});
@@ -61,6 +74,8 @@ export default function GonzalesResults({
   const [pilotStartSlots, setPilotStartSlots] = useState<Record<string, number>>(gonzalesConfig?.pilotStartSlots || {});
   const [scoringLaps, setScoringLaps] = useState<number[]>(gonzalesConfig?.scoringLaps || [1, 2]);
   const [slotOrder, setSlotOrder] = useState<(number | null)[] | undefined>(gonzalesConfig?.slotOrder);
+  const [configLocked, setConfigLocked] = useState(gonzalesConfig?.configLocked ?? false);
+  const [lockedPilots, setLockedPilots] = useState<string[]>(gonzalesConfig?.lockedPilots || []);
 
   const excludedLapSet = useMemo(() => new Set(excludedLapKeys || []), [excludedLapKeys]);
   const effectiveLaps = useMemo(() => {
@@ -165,10 +180,12 @@ export default function GonzalesResults({
       pilotStartSlots,
       scoringLaps,
       slotOrder,
+      configLocked,
+      lockedPilots,
       ...partial,
     };
     await onSaveResults({ gonzalesConfig: cfg });
-  }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, scoringLaps, slotOrder, onSaveResults]);
+  }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, scoringLaps, slotOrder, configLocked, lockedPilots, onSaveResults]);
 
   // Derive pilot count from qualifying sessions
   const qualifyingPilots = useMemo(() => {
@@ -182,8 +199,9 @@ export default function GonzalesResults({
   }, [sessions, sessionLaps]);
 
   const activePilots = useMemo(() => {
+    if (configLocked && lockedPilots.length > 0) return lockedPilots;
     return [...qualifyingPilots].filter(p => !excludedPilots.has(p));
-  }, [qualifyingPilots, excludedPilots]);
+  }, [qualifyingPilots, excludedPilots, configLocked, lockedPilots]);
 
   const pilotCount = activePilots.length > 0 ? activePilots.length : data.rows.length;
   const roundCount = Math.max(pilotCount, 12);
@@ -207,7 +225,51 @@ export default function GonzalesResults({
   }, [autoGroupCount, onAutoGroups]);
 
   const effectiveKarts = kartList.length > 0 ? kartList : data.karts;
-  const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount, slotOrder), [effectiveKarts, pilotCount, slotOrder]);
+
+  const effectiveSlotOrder = useMemo((): (number | null)[] | undefined => {
+    if (!slotOrder || slotOrder.length === 0) return undefined;
+    const neededSkips = Math.max(0, pilotCount - effectiveKarts.length);
+    const currentSkips = slotOrder.filter(v => v === null).length;
+    if (currentSkips < neededSkips) {
+      const result = [...slotOrder];
+      for (let i = 0; i < neededSkips - currentSkips; i++) result.push(null);
+      return result;
+    }
+    if (currentSkips === neededSkips) return slotOrder;
+    let toRemove = currentSkips - neededSkips;
+    const result = [...slotOrder];
+    for (let i = result.length - 1; i >= 0 && toRemove > 0; i--) {
+      if (result[i] === null) { result.splice(i, 1); toRemove--; }
+    }
+    return result;
+  }, [slotOrder, pilotCount, effectiveKarts.length]);
+
+  useEffect(() => {
+    if (configLocked) return;
+    if (effectiveSlotOrder === slotOrder) return;
+    if (!effectiveSlotOrder && !slotOrder) return;
+    if (effectiveSlotOrder && slotOrder &&
+      effectiveSlotOrder.length === slotOrder.length &&
+      effectiveSlotOrder.every((v, i) => v === slotOrder[i])) return;
+    setSlotOrder(effectiveSlotOrder);
+    saveGonzalesConfig({ slotOrder: effectiveSlotOrder });
+  }, [effectiveSlotOrder]);
+
+  const toggleConfigLock = useCallback(() => {
+    if (configLocked) {
+      setConfigLocked(false);
+      saveGonzalesConfig({ configLocked: false });
+    } else {
+      const kl = kartList.length > 0 ? kartList : [...data.karts];
+      if (kartList.length === 0) setKartList(kl);
+      const lp = [...activePilots];
+      setLockedPilots(lp);
+      setConfigLocked(true);
+      saveGonzalesConfig({ configLocked: true, lockedPilots: lp, kartList: kl });
+    }
+  }, [configLocked, kartList, data.karts, activePilots, saveGonzalesConfig]);
+
+  const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount, effectiveSlotOrder), [effectiveKarts, pilotCount, effectiveSlotOrder]);
 
   const getStartKartInfo = useCallback((startSlot: number): { kartIdx: number | null; fromSkip: boolean } => {
     if (startSlot < 0 || slots.length === 0) return { kartIdx: null, fromSkip: false };
@@ -262,6 +324,12 @@ export default function GonzalesResults({
     return `rgb(${r},${g},${b})`;
   };
 
+  const fmtDiff = (d: number, sign: '+' | '-' = '+'): string => {
+    const abs = Math.abs(d);
+    if (abs < 0.005) return `${sign}0.00`;
+    return `${sign}${abs.toFixed(2)}`;
+  };
+
   /** Per-kart best time for P1-diff */
   const kartBestTime = useMemo(() => data.karts.map((_, ki) => {
     let best = Infinity;
@@ -289,8 +357,35 @@ export default function GonzalesResults({
     return undefined;
   };
 
+  const kartManagerEl = canManage ? (
+    <PilotKartAssignment
+      autoKarts={data.karts}
+      kartList={kartList}
+      setKartList={(kl) => { setKartList(kl); saveGonzalesConfig({ kartList: kl }); }}
+      kartReplacements={kartReplacements}
+      setKartReplacements={(kr) => { setKartReplacements(kr); saveGonzalesConfig({ kartReplacements: kr }); }}
+      excludedKarts={excludedKarts}
+      setExcludedKarts={(ek) => { setExcludedKarts(ek); saveGonzalesConfig({ excludedKarts: [...ek] as any }); }}
+      pilotCount={pilotCount}
+      allPilots={activePilots}
+      excludedPilots={excludedPilots}
+      pilotStartSlots={pilotStartSlots}
+      setPilotStartSlots={(ps) => { setPilotStartSlots(ps); saveGonzalesConfig({ pilotStartSlots: ps }); }}
+      slots={slots}
+      slotOrder={slotOrder}
+      setSlotOrder={(so) => { setSlotOrder(so); saveGonzalesConfig({ slotOrder: so }); }}
+      configLocked={configLocked}
+      onToggleLock={toggleConfigLock}
+      onExcludePilot={toggleExcludePilot}
+    />
+  ) : null;
+
+  const portalTarget = kartManagerPortal;
+
   return (
-    <div className="space-y-2">
+    <>
+      {portalTarget && kartManagerEl && createPortal(kartManagerEl, portalTarget)}
+      <div className="space-y-2">
       {/* Toolbar */}
       <div className="flex items-center gap-2 flex-wrap px-1">
         <button onClick={onToggleLive}
@@ -301,27 +396,6 @@ export default function GonzalesResults({
           {pilotCount} пілотів · {data.karts.length} картів · {roundSessions.length}/{roundCount} гонок
         </span>
       </div>
-
-      {/* Kart Manager — controlled by its own layout section visibility */}
-      {isSectionVisible('competition', 'kartManager') && canManage && (
-        <PilotKartAssignment
-          autoKarts={data.karts}
-          kartList={kartList}
-          setKartList={(kl) => { setKartList(kl); saveGonzalesConfig({ kartList: kl }); }}
-          kartReplacements={kartReplacements}
-          setKartReplacements={(kr) => { setKartReplacements(kr); saveGonzalesConfig({ kartReplacements: kr }); }}
-          excludedKarts={excludedKarts}
-          setExcludedKarts={(ek) => { setExcludedKarts(ek); saveGonzalesConfig({ excludedKarts: [...ek] as any }); }}
-          pilotCount={pilotCount}
-          allPilots={activePilots}
-          excludedPilots={excludedPilots}
-          pilotStartSlots={pilotStartSlots}
-          setPilotStartSlots={(ps) => { setPilotStartSlots(ps); saveGonzalesConfig({ pilotStartSlots: ps }); }}
-          slotOrder={slotOrder}
-          setSlotOrder={(so) => { setSlotOrder(so); saveGonzalesConfig({ slotOrder: so }); }}
-          onExcludePilot={toggleExcludePilot}
-        />
-      )}
 
       {/* Results table */}
       <div className="card p-0 overflow-hidden relative">
@@ -414,7 +488,7 @@ export default function GonzalesResults({
                         return (
                           <div className="font-normal leading-tight whitespace-nowrap">
                             <span style={{ color: diffColor(d) }}>P{i + 1}</span>
-                            <span className="text-[9px]" style={{ color: diffColor(d) }}> {d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}</span>
+                            <span className="text-[9px]" style={{ color: diffColor(d) }}> {fmtDiff(d)}</span>
                           </div>
                         );
                       })()}
@@ -492,14 +566,14 @@ export default function GonzalesResults({
                             {showPos && p1Diff !== null && (
                               <div className="leading-tight whitespace-nowrap">
                                 <span style={{ color: diffColor(p1Diff) }}>P{kr.place ?? '?'}</span>
-                                <span className="text-[9px]" style={{ color: diffColor(p1Diff) }}> {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}</span>
+                                <span className="text-[9px]" style={{ color: diffColor(p1Diff) }}> {fmtDiff(p1Diff)}</span>
                               </div>
                             )}
                             {showTB && kr.theoreticalBest !== null && (
                               <div className="leading-tight whitespace-nowrap">
                                 <span className="text-dark-400">{kr.theoreticalBest.toFixed(2)}</span>
                                 {tbDiffVal !== null && (
-                                  <span className="text-[9px]" style={{ color: diffColor(tbDiffVal) }}> -{tbDiffVal.toFixed(2)}</span>
+                                  <span className="text-[9px]" style={{ color: diffColor(tbDiffVal) }}> {fmtDiff(tbDiffVal, '-')}</span>
                                 )}
                               </div>
                             )}
@@ -528,6 +602,7 @@ export default function GonzalesResults({
         <GonzalesEditLog competitionId={competitionId} />
       )}
     </div>
+    </>
   );
 }
 
@@ -578,7 +653,7 @@ function GonzalesEditLog({ competitionId }: { competitionId: string }) {
 
 function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacements, setKartReplacements,
   excludedKarts, setExcludedKarts, pilotCount, allPilots, excludedPilots, pilotStartSlots, setPilotStartSlots,
-  slotOrder, setSlotOrder, onExcludePilot }: {
+  slots, slotOrder, setSlotOrder, configLocked, onToggleLock, onExcludePilot }: {
   autoKarts: number[];
   kartList: number[];
   setKartList: (kl: number[]) => void;
@@ -591,8 +666,11 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   excludedPilots: Set<string>;
   pilotStartSlots: Record<string, number>;
   setPilotStartSlots: (ps: Record<string, number>) => void;
+  slots: GonzalesKartSlot[];
   slotOrder: (number | null)[] | undefined;
   setSlotOrder: (so: (number | null)[] | undefined) => void;
+  configLocked: boolean;
+  onToggleLock: () => void;
   onExcludePilot: (pilot: string) => void;
 }) {
   const [newKart, setNewKart] = useState('');
@@ -602,23 +680,6 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const [dragPilot, setDragPilot] = useState<string | null>(null);
 
   const effectiveKarts = kartList.length > 0 ? kartList : autoKarts;
-
-  // Derive effective slotOrder: only trim excess skips (don't auto-add removed ones)
-  const effectiveSlotOrder = useMemo((): (number | null)[] | undefined => {
-    if (!slotOrder || slotOrder.length === 0) return undefined;
-    const neededSkips = Math.max(0, pilotCount - effectiveKarts.length);
-    const currentSkips = slotOrder.filter(v => v === null).length;
-    if (currentSkips <= neededSkips) return slotOrder;
-
-    let toRemove = currentSkips - neededSkips;
-    const result = [...slotOrder];
-    for (let i = result.length - 1; i >= 0 && toRemove > 0; i--) {
-      if (result[i] === null) { result.splice(i, 1); toRemove--; }
-    }
-    return result;
-  }, [slotOrder, pilotCount, effectiveKarts.length]);
-
-  const slots = buildGonzalesRotation(effectiveKarts, pilotCount, effectiveSlotOrder);
 
   const slotToPilot = useMemo(() => {
     const map: Record<number, string> = {};
@@ -631,35 +692,22 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const assignedPilots = new Set(Object.values(slotToPilot));
   const unassignedPilots = allPilots.filter(p => !assignedPilots.has(p));
 
-  // Keep pilots packed sequentially: when someone is removed, shift everyone up
+  // Clean up stale pilot assignments (pilots removed from allPilots)
   useEffect(() => {
+    if (configLocked) return;
     if (slots.length === 0 || allPilots.length === 0) return;
-
-    const ordered = allPilots
-      .map((p, origIdx) => ({ pilot: p, idx: pilotStartSlots[p] ?? Infinity, origIdx }))
-      .sort((a, b) => a.idx - b.idx || a.origIdx - b.origIdx);
-
+    const pilotSet = new Set(allPilots);
     const next: Record<string, number> = {};
     let changed = false;
-    for (let i = 0; i < ordered.length && i < slots.length; i++) {
-      next[ordered[i].pilot] = i;
-      if (pilotStartSlots[ordered[i].pilot] !== i) changed = true;
+    for (const [pilot, idx] of Object.entries(pilotStartSlots)) {
+      if (pilotSet.has(pilot) && idx < slots.length) {
+        next[pilot] = idx;
+      } else {
+        changed = true;
+      }
     }
-
-    if (Object.keys(pilotStartSlots).length !== Object.keys(next).length) changed = true;
-
     if (changed) setPilotStartSlots(next);
   }, [allPilots.join(','), slots.length]);
-
-  // Persist trimmed slotOrder back when it differs from stored
-  useEffect(() => {
-    if (effectiveSlotOrder === slotOrder) return;
-    if (!effectiveSlotOrder && !slotOrder) return;
-    if (effectiveSlotOrder && slotOrder &&
-      effectiveSlotOrder.length === slotOrder.length &&
-      effectiveSlotOrder.every((v, i) => v === slotOrder[i])) return;
-    setSlotOrder(effectiveSlotOrder);
-  }, [effectiveSlotOrder]);
 
   const currentSlotOrder = (): (number | null)[] => slots.map(s => s.kart);
 
@@ -726,38 +774,25 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   const movePilot = (fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx) return;
-    const ordered = allPilots
-      .filter(p => p in pilotStartSlots)
-      .sort((a, b) => pilotStartSlots[a] - pilotStartSlots[b]);
-    const pilotAtFrom = ordered.find(p => pilotStartSlots[p] === fromIdx);
+    const next = { ...pilotStartSlots };
+    const pilotAtFrom = Object.entries(next).find(([, idx]) => idx === fromIdx)?.[0];
+    const pilotAtTo = Object.entries(next).find(([, idx]) => idx === toIdx)?.[0];
     if (!pilotAtFrom) return;
-    const filtered = ordered.filter(p => p !== pilotAtFrom);
-    const insertAt = filtered.findIndex(p => pilotStartSlots[p] >= toIdx);
-    if (insertAt === -1) filtered.push(pilotAtFrom);
-    else if (toIdx > fromIdx) filtered.splice(insertAt + 1, 0, pilotAtFrom);
-    else filtered.splice(insertAt, 0, pilotAtFrom);
-    // Reassign sequential indices
-    const next: Record<string, number> = {};
-    filtered.forEach((p, i) => { next[p] = i; });
-    // Keep unassigned pilots
-    for (const p of allPilots) {
-      if (!(p in next)) {
-        for (let i = 0; i < slots.length; i++) {
-          if (!Object.values(next).includes(i)) { next[p] = i; break; }
-        }
-      }
-    }
+    next[pilotAtFrom] = toIdx;
+    if (pilotAtTo) next[pilotAtTo] = fromIdx;
     setPilotStartSlots(next);
   };
 
   const assignPilotToSlot = (pilot: string, slotIdx: number) => {
-    // Insert pilot at slotIdx, shift others
-    const ordered = allPilots
-      .filter(p => p in pilotStartSlots && p !== pilot)
-      .sort((a, b) => pilotStartSlots[a] - pilotStartSlots[b]);
-    ordered.splice(slotIdx, 0, pilot);
-    const next: Record<string, number> = {};
-    ordered.forEach((p, i) => { next[p] = i; });
+    const next = { ...pilotStartSlots };
+    const existingPilot = Object.entries(next).find(([, idx]) => idx === slotIdx)?.[0];
+    const previousSlot = next[pilot];
+    if (existingPilot && previousSlot !== undefined) {
+      next[existingPilot] = previousSlot;
+    } else if (existingPilot) {
+      delete next[existingPilot];
+    }
+    next[pilot] = slotIdx;
     setPilotStartSlots(next);
   };
 
@@ -769,7 +804,18 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   return (
     <div className="card p-3 space-y-3 text-xs relative z-10">
-      <h4 className="text-white font-semibold text-sm">Привʼязка пілотів до початкового карту</h4>
+      <div className="flex items-center gap-2">
+        <h4 className="text-white font-semibold text-sm">Привʼязка пілотів до початкового карту</h4>
+        <button onClick={onToggleLock}
+          className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+            configLocked
+              ? 'bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30'
+              : 'bg-dark-800 text-dark-500 hover:text-dark-300'
+          }`}
+          title={configLocked ? 'Розблокувати (карти/пілоти будуть змінюватись при русі таймлайну)' : 'Зафіксувати карти, пілотів та позиції'}>
+          {configLocked ? '🔒 Зафіксовано' : '🔓 Зафіксувати'}
+        </button>
+      </div>
 
       {/* Two-column assignment table */}
       <div>
@@ -858,6 +904,9 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                         onDragStart={(e) => { e.stopPropagation(); setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
                         onDragEnd={() => setDragPilot(null)}
                       >{pilot}</span>
+                      <button onClick={() => unassignPilot(pilot)}
+                        className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-dark-700/50 text-dark-500 hover:bg-dark-700 hover:text-dark-300 text-sm"
+                        title="Зняти привʼязку">↩</button>
                       <button onClick={() => onExcludePilot(pilot)}
                         className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-red-600/20 text-red-400 hover:bg-red-600/40 text-sm font-bold"
                         title="Виключити пілота">✕</button>
@@ -927,7 +976,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
       {/* Replacements */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-dark-500 text-[10px] font-semibold uppercase">Заміни картів: Було → Стало</span>
+        <span className="text-dark-500 text-[10px] font-semibold uppercase">Заміни картів</span>
         {Object.entries(kartReplacements).map(([from, to]) => (
           <div key={from} className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-dark-800">
             <span className={KART_COLOR}>{from}</span>

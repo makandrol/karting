@@ -52,6 +52,9 @@ export default function CompetitionPage() {
   const [allSessionsEnded, setAllSessionsEnded] = useState(false);
   const [pilotCount, setPilotCount] = useState(0);
   const [autoGroups, setAutoGroups] = useState(1);
+  const manuallyReopened = useRef(false);
+  const changeTrackRef = useRef<((newTrackId: number) => Promise<void>) | null>(null);
+  const autoClosedRef = useRef(false);
 
   const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[]) => {
     const dates = new Set<string>();
@@ -77,6 +80,12 @@ export default function CompetitionPage() {
   };
 
   useEffect(() => {
+    setLoading(true);
+    setCompetition(null);
+    setCompetitions([]);
+    setCompSessions([]);
+    setAllSessionsEnded(false);
+    setPilotCount(0);
     if (eventId) {
       fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(eventId)}`)
         .then(r => r.ok ? r.json() : null)
@@ -99,9 +108,37 @@ export default function CompetitionPage() {
     }
   }, [type, eventId]);
 
+  const allPhasesLinked = (() => {
+    if (!competition) return false;
+    const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? autoGroups;
+    const gonzalesRoundCount = competition.format === 'gonzales' ? (competition.results?.gonzalesRoundCount ?? null) : null;
+    const effectivePhases = getPhasesForFormat(competition.format, groupCount, gonzalesRoundCount);
+    const totalPhases = effectivePhases.length;
+    const linkedPhases = competition.sessions.filter(s => s.phase).length;
+    return totalPhases > 0 && linkedPhases >= totalPhases;
+  })();
+
+  useEffect(() => {
+    if (!competition || competition.status !== 'live' || !canManage) return;
+    if (!allSessionsEnded || !allPhasesLinked) return;
+    if (manuallyReopened.current || autoClosedRef.current) return;
+    autoClosedRef.current = true;
+    (async () => {
+      try {
+        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+          body: JSON.stringify({ status: 'finished' }),
+        });
+        if (res.ok) setCompetition(await res.json());
+      } catch {}
+    })();
+  }, [competition?.status, allSessionsEnded, allPhasesLinked, canManage]);
+
   const toggleStatus = async () => {
     if (!competition) return;
     const newStatus = competition.status === 'live' ? 'finished' : 'live';
+    if (newStatus === 'live') manuallyReopened.current = true;
     try {
       const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
         method: 'PATCH',
@@ -137,37 +174,11 @@ export default function CompetitionPage() {
   const trackConfig = trackId ? TRACK_CONFIGS.find(t => t.id === trackId) : null;
   const trackLabel = trackConfig ? `Траса ${trackDisplayId(trackConfig.id)}` : null;
 
-  const changeTrack = async (newTrackId: number) => {
-    try {
-      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-      if (!res.ok) return;
-      const comp = await res.json();
-      const currentResults = comp.results || {};
-      
-      // Update competition results with new trackId
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ results: { ...currentResults, trackId: newTrackId } }),
-      });
-      
-      // Update track_id for all sessions in this competition
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}/update-track`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ trackId: newTrackId }),
-      });
-      
-      setCompetition({ ...competition, results: { ...competition.results, trackId: newTrackId } });
-    } catch {}
-  };
-
   const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? autoGroups;
   const gonzalesRoundCount = competition.format === 'gonzales' ? (competition.results?.gonzalesRoundCount ?? null) : null;
   const effectivePhases = getPhasesForFormat(competition.format, groupCount, gonzalesRoundCount);
   const totalPhases = effectivePhases.length;
   const linkedPhases = competition.sessions.filter(s => s.phase).length;
-  const allPhasesLinked = totalPhases > 0 && linkedPhases >= totalPhases;
 
   return (
     <div className="space-y-4">
@@ -185,7 +196,7 @@ export default function CompetitionPage() {
               <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
               <select
                 value={trackId ?? ''}
-                onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
+                onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v) && changeTrackRef.current) { changeTrackRef.current(v); setCompetition(prev => prev ? { ...prev, results: { ...prev.results, trackId: v } } : prev); } }}
                 disabled={!canManage}
                 className={`bg-transparent text-dark-300 text-xs outline-none w-10 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
               >
@@ -209,6 +220,8 @@ export default function CompetitionPage() {
                 autoGroups={autoGroups}
                 maxGroups={competition.format === 'champions_league' ? 2 : competition.format === 'gonzales' ? 2 : 3}
                 canManage={canManage}
+                format={competition.format}
+                racePilotCount={competition.results?.racePilotCount ?? null}
                 onSave={async (partial) => {
                   try {
                     const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
@@ -338,12 +351,12 @@ export default function CompetitionPage() {
         </div>
       </div>
 
-      <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
+      <LiveResults key={competition.id} competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} changeTrackRef={changeTrackRef} />
     </div>
   );
 }
 
-function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void }) {
+function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups, changeTrackRef }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void; changeTrackRef?: React.MutableRefObject<((newTrackId: number) => Promise<void>) | null> }) {
   const { isOwner } = useAuth();
   const { isSectionVisible } = useLayoutPrefs();
   const [competition, setCompetition] = useState(initialCompetition);
@@ -351,6 +364,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const [loading, setLoading] = useState(true);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [livePositions, setLivePositions] = useState<{ pilot: string; position: number }[]>([]);
+  const [kartManagerPortalEl, setKartManagerPortalEl] = useState<HTMLDivElement | null>(null);
+  const kartManagerPortalRef = useCallback((node: HTMLDivElement | null) => { setKartManagerPortalEl(node); }, []);
   const [liveEntries, setLiveEntries] = useState<any[]>([]);
   const [liveTeams, setLiveTeams] = useState<any[]>([]);
   const [liveEnabled, setLiveEnabled] = useState(true);
@@ -376,6 +391,22 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     });
     return saveLockRef.current;
   }, [competition.id]);
+
+  const changeTrack = useCallback(async (newTrackId: number) => {
+    await saveResults({ trackId: newTrackId });
+    try {
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}/update-track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ trackId: newTrackId }),
+      });
+    } catch {}
+  }, [competition.id, saveResults]);
+
+  useEffect(() => {
+    if (changeTrackRef) changeTrackRef.current = changeTrack;
+    return () => { if (changeTrackRef) changeTrackRef.current = null; };
+  }, [changeTrack, changeTrackRef]);
 
   const sessionTimes = useMemo(() => {
     return compSessions
@@ -510,6 +541,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         onSaveResults={saveResults}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
+        kartManagerPortal={kartManagerPortalEl}
       />
     );
 
@@ -535,8 +567,9 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       </div>
     ) : null;
 
-    const sectionMap: Record<string, React.ReactNode> = {
+    const sectionMap: Record<string, ReactNode> = {
       leaguePoints: gonzalesResultsEl,
+      kartManager: <div ref={kartManagerPortalRef} />,
       liveSession: liveSessionEl,
       sessions: sessionsEl,
     };
@@ -571,6 +604,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         totalPilotsOverride={competition.results?.totalPilotsOverride ?? null}
         totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
         groupCountOverride={competition.results?.groupCountOverride ?? null}
+        racePilotCount={competition.results?.racePilotCount ?? null}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
         onSaveResults={saveResults}
@@ -599,7 +633,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       </div>
     ) : null;
 
-    const sectionMap: Record<string, React.ReactNode> = {
+    const sectionMap: Record<string, ReactNode> = {
       leaguePoints: leagueResultsEl,
       liveSession: liveSessionEl,
       sessions: sessionsEl,
@@ -712,18 +746,25 @@ function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScr
   );
 }
 
-function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverride, autoGroups, maxGroups, canManage, onSave }: {
+function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverride, autoGroups, maxGroups, canManage, onSave, format, racePilotCount }: {
   pilotCount: number; pilotOverride: number | null; pilotLocked: boolean;
   groupOverride: number | null; autoGroups: number; maxGroups: number; canManage: boolean;
   onSave: (partial: Record<string, any>) => Promise<void>;
+  format?: string; racePilotCount?: number | null;
 }) {
   const effectivePilots = (pilotLocked && pilotOverride !== null) ? pilotOverride : pilotCount;
   const effectiveGroups = groupOverride ?? autoGroups;
   const pilotsAuto = pilotOverride === null;
   const groupsAuto = groupOverride === null;
 
+  const defaultRacePilots = format === 'champions_league' ? 24 : 36;
+  const autoRacePilots = Math.min(defaultRacePilots, effectivePilots);
+  const effectiveRacePilots = racePilotCount ?? autoRacePilots;
+  const racePilotsAuto = racePilotCount == null;
+
   const [pilotDraft, setPilotDraft] = useState<string | null>(null);
   const [groupDraft, setGroupDraft] = useState<string | null>(null);
+  const [racePilotDraft, setRacePilotDraft] = useState<string | null>(null);
 
   const commitPilots = () => {
     if (pilotDraft === null) return;
@@ -736,6 +777,12 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
     const v = parseInt(groupDraft);
     if (!isNaN(v) && v > 0 && v <= maxGroups) onSave({ groupCountOverride: v });
     setGroupDraft(null);
+  };
+  const commitRacePilots = () => {
+    if (racePilotDraft === null) return;
+    const v = parseInt(racePilotDraft);
+    if (!isNaN(v) && v > 0) onSave({ racePilotCount: v });
+    setRacePilotDraft(null);
   };
 
   return (
@@ -785,6 +832,30 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
           </button>
         )}
       </div>
+
+      {(format === 'light_league' || format === 'champions_league' || format === 'sprint') && (
+        <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
+          <span title="Пілотів у гонці">🏁</span>
+          {canManage ? (
+            <input type="text" inputMode="numeric"
+              value={racePilotDraft !== null ? racePilotDraft : effectiveRacePilots}
+              onChange={e => setRacePilotDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') commitRacePilots(); }}
+              onBlur={commitRacePilots}
+              disabled={racePilotsAuto}
+              className={`w-8 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${racePilotsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
+          ) : (
+            <span className="text-dark-300 font-mono">{effectiveRacePilots}</span>
+          )}
+          {canManage && (
+            <button onClick={() => onSave({ racePilotCount: racePilotsAuto ? effectiveRacePilots : null })} 
+              className={`text-[10px] font-bold transition-colors ${racePilotsAuto ? 'bg-red-600 text-white px-1 rounded' : 'text-dark-500 hover:text-dark-300'}`}
+              title={racePilotsAuto ? 'Вимкнути авто' : 'Включити авто'}>
+              А
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -914,14 +985,12 @@ function CompetitionList({ competitions: initialCompetitions, initialFilter }: {
   const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
     const saved = loadWithExpiry(storage, 'karting_comp_dates');
     if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
-    const withData = thisWeekDays.filter(d => dateCompNames[d]);
-    return new Set(withData.length > 0 ? withData : []);
+    return new Set(allCompDates);
   });
 
   useEffect(() => {
     if (selectedDates.size === 0 && allCompDates.length > 0) {
-      const withData = thisWeekDays.filter(d => dateCompNames[d]);
-      if (withData.length > 0) setSelectedDates(new Set(withData));
+      setSelectedDates(new Set(allCompDates));
     }
   }, [dateCompNames]);
 
@@ -941,13 +1010,15 @@ function CompetitionList({ competitions: initialCompetitions, initialFilter }: {
   const toggleFilter = (key: string) => {
     setActiveFilters(prev => {
       const n = new Set(prev);
-      if (n.has(key)) { n.delete(key); if (n.size === 0) { saveFilters(new Set(FORMAT_FILTERS.map(f => f.key))); return new Set(FORMAT_FILTERS.map(f => f.key)); } }
-      else n.add(key);
+      n.has(key) ? n.delete(key) : n.add(key);
       saveFilters(n); return n;
     });
   };
   const allActive = activeFilters.size === FORMAT_FILTERS.length;
-  const toggleAll = () => { const all = new Set(FORMAT_FILTERS.map(f => f.key)); setActiveFilters(all); saveFilters(all); };
+  const toggleAll = () => {
+    if (allActive) { setActiveFilters(new Set()); saveFilters(new Set()); }
+    else { const all = new Set(FORMAT_FILTERS.map(f => f.key)); setActiveFilters(all); saveFilters(all); }
+  };
   const toggleSort = () => { const next = sortDir === 'desc' ? 'asc' : 'desc'; setSortDir(next); saveWithExpiry(storage, 'karting_comp_sort', next); };
 
   const filtered = competitions
@@ -1006,8 +1077,17 @@ function CompetitionList({ competitions: initialCompetitions, initialFilter }: {
       if (!map.has(y)) map.set(y, new Set());
       map.get(y)!.add(m);
     }
+    const currentYear = String(new Date().getFullYear());
+    for (const d of [...thisWeekDays, ...prevWeekDays]) {
+      if (!dateCompNames[d]) continue;
+      const y = d.slice(0, 4);
+      if (y === currentYear) continue;
+      const m = parseInt(d.slice(5, 7)) - 1;
+      if (!map.has(y)) map.set(y, new Set());
+      map.get(y)!.add(m);
+    }
     return map;
-  }, [allCompDates]);
+  }, [allCompDates, dateCompNames]);
 
   const thisWeekWithData = thisWeekDays.filter(d => dateCompNames[d]);
   const prevWeekWithData = prevWeekDays.filter(d => dateCompNames[d]);
@@ -1040,7 +1120,12 @@ function CompetitionList({ competitions: initialCompetitions, initialFilter }: {
           </div>
         )}
         {[...yearMonths.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => {
-          const yearDates = allCompDates.filter(d => d.startsWith(year) && !new Set(thisWeekDays).has(d) && !new Set(prevWeekDays).has(d));
+          const currentYear = String(new Date().getFullYear());
+          const yearDates = allCompDates.filter(d => {
+            if (!d.startsWith(year)) return false;
+            if (year === currentYear) return !new Set(thisWeekDays).has(d) && !new Set(prevWeekDays).has(d);
+            return true;
+          });
           return (
             <div key={year}>
               <button onClick={() => { const n = new Set(expandedYears); n.has(year) ? n.delete(year) : n.add(year); setExpandedYears(n); }}
@@ -1231,7 +1316,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     const qualiSorted = [...qualiData.entries()]
       .filter(([p]) => !excludedPilots.has(p))
       .sort((a, b) => a[1].bestTime - b[1].bestTime);
-    const maxQualified = isCL ? 24 : 36;
+    const maxQualified = competition.results?.racePilotCount ?? (isCL ? 24 : 36);
     const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
 
     if (isSprint) {
@@ -1423,7 +1508,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     const allPilots = Object.keys(pilotStartSlots);
     if (allPilots.length === 0 || kartListCfg.length === 0) return new Map();
 
-    const slots = buildGonzalesRotation(kartListCfg, allPilots.length);
+    const slots = buildGonzalesRotation(kartListCfg, allPilots.length, cfg?.slotOrder ?? undefined);
     const kartToPilot = new Map<number, string>();
     for (const pilot of allPilots) {
       const startSlot = pilotStartSlots[pilot];
@@ -1433,12 +1518,17 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     }
 
     const suffix = new Map<string, string>();
+    const seen = new Set<number>();
     for (const entry of laps) {
-      if (entry.kart && kartToPilot.has(entry.kart)) {
-        const guessedPilot = kartToPilot.get(entry.kart)!;
-        if (entry.pilot !== guessedPilot) {
-          suffix.set(entry.pilot, `(${guessedPilot}?)`);
-        }
+      if (!entry.kart || seen.has(entry.kart)) continue;
+      seen.add(entry.kart);
+      const gonzPilot = kartToPilot.get(entry.kart);
+      const parts = gonzPilot?.trim().split(' ').filter(Boolean);
+      const surname = parts?.[0];
+      if (entry.pilot.startsWith('Карт ') && surname) {
+        suffix.set(entry.pilot, `(${surname})`);
+      } else if (gonzPilot && entry.pilot !== gonzPilot && surname) {
+        suffix.set(entry.pilot, `(${surname})`);
       }
     }
     return suffix;
@@ -1494,6 +1584,10 @@ function getCompetitionDisplayName(c: Competition): string {
       const realDate = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getFullYear()).slice(2)}`;
       name = name.replace(/\d{2}\.\d{2}\.\d{2}/, realDate);
     }
+  }
+  const resultsTrackId = (typeof c.results === 'string' ? JSON.parse(c.results) : c.results)?.trackId;
+  if (resultsTrackId != null) {
+    name = name.replace(/Траса\s*\d+R?/, `Траса ${trackDisplayId(resultsTrackId)}`);
   }
   return name;
 }

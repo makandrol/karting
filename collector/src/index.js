@@ -559,6 +559,18 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /db/propagate-track — оновити трасу для сесії та всіх наступних не-змагальних сесій за день
+    if (req.method === 'POST' && url.pathname === '/db/propagate-track') {
+      if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+      try {
+        const { sessionId, trackId } = JSON.parse(await readBody(req));
+        if (!sessionId || typeof trackId !== 'number') { sendJson(res, 400, { error: 'sessionId and trackId required' }); return; }
+        const changes = storage.propagateTrack(sessionId, trackId);
+        sendJson(res, 200, { ok: true, changes });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
     // POST /db/rename-pilot — перейменувати пілота в заїзді (admin only)
     if (req.method === 'POST' && url.pathname === '/db/rename-pilot') {
       if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }

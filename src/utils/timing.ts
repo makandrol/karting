@@ -141,7 +141,7 @@ export async function fetchRaceStartPositions(
     }
 
     const sorted = [...pilotBest.entries()].sort((a, b) => a[1] - b[1]);
-    const maxQualified = format === 'champions_league' ? 24 : 36;
+    const maxQualified = rawResults?.racePilotCount ?? (format === 'champions_league' ? 24 : 36);
     const qualified = sorted.slice(0, maxQualified).map(([p]) => p);
     const n = qualified.length;
 

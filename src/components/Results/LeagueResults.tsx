@@ -31,6 +31,7 @@ interface LeagueResultsProps {
   totalPilotsOverride?: number | null;
   totalPilotsLocked?: boolean;
   groupCountOverride?: number | null;
+  racePilotCount?: number | null;
   onSaveResults?: (partial: Record<string, any>) => Promise<void>;
   onPilotCount?: (n: number) => void;
   onAutoGroups?: (n: number) => void;
@@ -62,7 +63,7 @@ function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
   );
 }
 
-export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePhase, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePhase, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, racePilotCount, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
   const { isSectionVisible } = useLayoutPrefs();
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
@@ -194,10 +195,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
     const computeFn = isSprint ? computeSprintStandings : computeStandings;
     return computeFn({
       format, sessions, sessionLaps: effectiveLaps, scoring, edits,
-      excludedPilots, maxGroups, pilotsOverride, pilotsLocked,
+      excludedPilots, maxGroups, pilotsOverride, pilotsLocked, racePilotCount,
       liveSessionId, livePhase, livePositions,
     });
-  }, [sessions, effectiveLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePhase, livePositions, pilotsOverride, pilotsLocked]);
+  }, [sessions, effectiveLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePhase, livePositions, pilotsOverride, pilotsLocked, racePilotCount]);
 
   const sortedDataRef = useRef<PilotRow[]>([]);
   const sortedData = useMemo(() => {

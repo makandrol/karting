@@ -40,15 +40,15 @@ export const PAGE_SECTIONS: Record<string, { id: string; label: string }[]> = {
     { id: 'timeline', label: 'Таймлайн' },
     { id: 'liveSession', label: 'Заїзд' },
     { id: 'leaguePoints', label: 'Результати' },
-    { id: 'sessions', label: 'Список заїздів' },
     { id: 'kartManager', label: 'Стартові карти' },
+    { id: 'sessions', label: 'Список заїздів' },
   ],
 };
 
 const HARDCODED_DEFAULTS: ServerDefaults = {
   timing: { sections: [{ id: 'replay', visible: true }, { id: 'timingTable', visible: true }, { id: 'track', visible: true }, { id: 'lapsByPilots', visible: true }, { id: 'history', visible: true }], version: 0 },
   sessionDetail: { sections: [{ id: 'replay', visible: true }, { id: 'timingTable', visible: true }, { id: 'track', visible: true }, { id: 'lapsByPilots', visible: true }], version: 0 },
-  competition: { sections: [{ id: 'timeline', visible: true }, { id: 'liveSession', visible: true }, { id: 'leaguePoints', visible: true }, { id: 'sessions', visible: true }, { id: 'kartManager', visible: true }, { id: 'editLog', visible: false }], version: 4 },
+  competition: { sections: [{ id: 'timeline', visible: true }, { id: 'liveSession', visible: true }, { id: 'leaguePoints', visible: true }, { id: 'kartManager', visible: true }, { id: 'sessions', visible: true }, { id: 'editLog', visible: false }], version: 5 },
 };
 
 function getStorageKey(email: string | null): string {
