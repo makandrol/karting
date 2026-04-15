@@ -428,10 +428,14 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
       const myIdx = racePilots.findIndex(r => r.pilot === pilot);
       if (myIdx < 0) return null;
 
+      const myBestTime = pilotRow.races[currentRaceIndex]?.bestTime ?? Infinity;
       const list: PosEntry[] = racePilots.map((r) => {
         const race = r.races[currentRaceIndex]!;
         const d = race.startPos > 0 ? race.startPos - race.finishPos : null;
-        return { pilot: r.pilot, pos: race.finishPos, delta: d, gapToNext: null };
+        const gap = race.bestTime < Infinity && myBestTime < Infinity
+          ? Math.round((race.bestTime - myBestTime) * 1000) / 1000
+          : null;
+        return { pilot: r.pilot, pos: race.finishPos, delta: d, gapToNext: gap !== 0 ? gap : null };
       });
       return buildRaceWindow(list, myIdx, pilot);
     }
