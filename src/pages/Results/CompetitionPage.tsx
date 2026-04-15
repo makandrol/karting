@@ -145,30 +145,7 @@ export default function CompetitionPage() {
   const trackConfig = trackId ? TRACK_CONFIGS.find(t => t.id === trackId) : null;
   const trackLabel = trackConfig ? `Траса ${trackDisplayId(trackConfig.id)}` : null;
 
-  const changeTrack = async (newTrackId: number) => {
-    try {
-      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-      if (!res.ok) return;
-      const comp = await res.json();
-      const currentResults = comp.results || {};
-      
-      // Update competition results with new trackId
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ results: { ...currentResults, trackId: newTrackId } }),
-      });
-      
-      // Update track_id for all sessions in this competition
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}/update-track`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ trackId: newTrackId }),
-      });
-      
-      setCompetition({ ...competition, results: { ...competition.results, trackId: newTrackId } });
-    } catch {}
-  };
+  const changeTrackRef = useRef<((newTrackId: number) => Promise<void>) | null>(null);
 
   const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? autoGroups;
   const gonzalesRoundCount = competition.format === 'gonzales' ? (competition.results?.gonzalesRoundCount ?? null) : null;
@@ -212,7 +189,7 @@ export default function CompetitionPage() {
               <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
               <select
                 value={trackId ?? ''}
-                onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v)) changeTrack(v); }}
+                onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v) && changeTrackRef.current) changeTrackRef.current(v); }}
                 disabled={!canManage}
                 className={`bg-transparent text-dark-300 text-xs outline-none w-10 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
               >
@@ -365,12 +342,12 @@ export default function CompetitionPage() {
         </div>
       </div>
 
-      <LiveResults key={competition.id} competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
+      <LiveResults key={competition.id} competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} changeTrackRef={changeTrackRef} />
     </div>
   );
 }
 
-function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void }) {
+function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups, changeTrackRef }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void; changeTrackRef?: React.MutableRefObject<((newTrackId: number) => Promise<void>) | null> }) {
   const { isOwner } = useAuth();
   const { isSectionVisible } = useLayoutPrefs();
   const [competition, setCompetition] = useState(initialCompetition);
@@ -405,6 +382,22 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     });
     return saveLockRef.current;
   }, [competition.id]);
+
+  const changeTrack = useCallback(async (newTrackId: number) => {
+    await saveResults({ trackId: newTrackId });
+    try {
+      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}/update-track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ trackId: newTrackId }),
+      });
+    } catch {}
+  }, [competition.id, saveResults]);
+
+  useEffect(() => {
+    if (changeTrackRef) changeTrackRef.current = changeTrack;
+    return () => { if (changeTrackRef) changeTrackRef.current = null; };
+  }, [changeTrack, changeTrackRef]);
 
   const sessionTimes = useMemo(() => {
     return compSessions
@@ -1544,6 +1537,10 @@ function getCompetitionDisplayName(c: Competition): string {
       const realDate = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getFullYear()).slice(2)}`;
       name = name.replace(/\d{2}\.\d{2}\.\d{2}/, realDate);
     }
+  }
+  const resultsTrackId = (typeof c.results === 'string' ? JSON.parse(c.results) : c.results)?.trackId;
+  if (resultsTrackId != null) {
+    name = name.replace(/Траса\s*\d+R?/, `Траса ${trackDisplayId(resultsTrackId)}`);
   }
   return name;
 }

@@ -975,6 +975,21 @@ export const storage = {
     return result.changes;
   },
 
+  propagateTrack(sessionId, trackId) {
+    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+    if (!session) return 0;
+    const date = session.date;
+    const startTime = session.start_time;
+    if (!date || !startTime) return 0;
+
+    const compMap = this.getSessionCompetitionMap();
+    const allOnDate = db.prepare('SELECT id, start_time FROM sessions WHERE date = ? AND start_time >= ? ORDER BY start_time').all(date, startTime);
+    const toUpdate = allOnDate.filter(s => !compMap.has(s.id)).map(s => s.id);
+    if (toUpdate.length === 0) return 0;
+
+    return this.updateSessionsTrack(toUpdate, trackId);
+  },
+
   renamePilot(sessionId, oldName, newName) {
     const updLaps = db.prepare('UPDATE laps SET pilot = ? WHERE session_id = ? AND pilot = ?');
     const result = updLaps.run(newName, sessionId, oldName);

@@ -174,13 +174,22 @@ export default function SessionDetail() {
 
   const handleChangeTrack = async (newTrackId: number) => {
     if (!sessionId || !dbSession) return;
-    const sessionIds = dbSession.merged_session_ids || [sessionId];
+    const isCompSession = !!(dbSession as any)?.competition_id;
     try {
-      await fetch(`${COLLECTOR_URL}/db/update-sessions-track`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ sessionIds, trackId: newTrackId }),
-      });
+      if (isCompSession) {
+        const sessionIds = dbSession.merged_session_ids || [sessionId];
+        await fetch(`${COLLECTOR_URL}/db/update-sessions-track`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+          body: JSON.stringify({ sessionIds, trackId: newTrackId }),
+        });
+      } else {
+        await fetch(`${COLLECTOR_URL}/db/propagate-track`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+          body: JSON.stringify({ sessionId, trackId: newTrackId }),
+        });
+      }
       setDbSession({ ...dbSession, track_id: newTrackId });
     } catch { /* ignore */ }
   };
