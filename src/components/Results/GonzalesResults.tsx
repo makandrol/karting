@@ -52,8 +52,7 @@ export default function GonzalesResults({
   const [showBest, setShowBest] = useState(true);
   const [showWorse, setShowWorse] = useState(false);
   const [showTB, setShowTB] = useState(false);
-  const [showTBDiff, setShowTBDiff] = useState(false);
-  const [showP1Diff, setShowP1Diff] = useState(false);
+  const [showPos, setShowPos] = useState(false);
   const [showSectors, setShowSectors] = useState(false);
 
   const [kartList, setKartList] = useState<number[]>(gonzalesConfig?.kartList || []);
@@ -330,10 +329,10 @@ export default function GonzalesResults({
           <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
             <span className="text-dark-500 text-[9px]">Вид:</span>
             {(() => {
-              const allOn = showBest && showWorse && showTB && showTBDiff && showP1Diff && showSectors;
+              const allOn = showBest && showWorse && showTB && showPos && showSectors;
               const toggleAll = () => {
                 const next = !allOn;
-                setShowBest(next); setShowWorse(next); setShowTB(next); setShowTBDiff(next); setShowP1Diff(next); setShowSectors(next);
+                setShowBest(next); setShowWorse(next); setShowTB(next); setShowPos(next); setShowSectors(next);
               };
               const pill = (label: string, on: boolean, toggle: () => void) => (
                 <button key={label} onClick={toggle}
@@ -345,12 +344,11 @@ export default function GonzalesResults({
                   <button onClick={toggleAll}
                     className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${allOn ? 'bg-primary-600/30 text-primary-300' : 'bg-dark-700/60 text-dark-400'}`}>
                     Все</button>
+                  {pill('Pos', showPos, () => setShowPos(v => !v))}
                   {pill('Best', showBest, () => setShowBest(v => !v))}
                   {pill('Worse', showWorse, () => setShowWorse(v => !v))}
                   {pill('TB', showTB, () => setShowTB(v => !v))}
                   {pill('S1-S2', showSectors, () => setShowSectors(v => !v))}
-                  {pill('TB diff', showTBDiff, () => setShowTBDiff(v => !v))}
-                  {pill('P diff', showP1Diff, () => setShowP1Diff(v => !v))}
                 </span>
               );
             })()}
@@ -411,10 +409,10 @@ export default function GonzalesResults({
                       avg !== null ? 'text-white' : 'text-dark-700'
                     } ${sortKey === 'average' ? SORT_HL : ''}`}>
                       {avg !== null ? avg.toFixed(2) : '—'}
-                      {showP1Diff && avg !== null && bestAverage !== null && (() => {
+                      {showPos && avg !== null && bestAverage !== null && (() => {
                         const d = avg - bestAverage;
                         return (
-                          <div className="text-[9px] font-normal leading-tight" style={{ color: diffColor(d) }}>
+                          <div className="font-normal leading-tight" style={{ color: diffColor(d) }}>
                             P{i + 1} {d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}
                           </div>
                         );
@@ -479,7 +477,7 @@ export default function GonzalesResults({
 
                       return (
                           <td key={ki} className={`table-cell text-center font-mono relative ${colHighlight} ${startTimeBorder} ${kartBorder}`}>
-                            {lapsToShow.length === 0 && !showTB && !showTBDiff && !showP1Diff && (
+                            {lapsToShow.length === 0 && !showTB && !showPos && (
                               <span className="text-dark-500">{kr.bestTime.toFixed(2)}</span>
                             )}
                             {lapsToShow.map(({ lap, isBest }, li) => (
@@ -490,21 +488,16 @@ export default function GonzalesResults({
                                 {renderSectors(lap)}
                               </div>
                             ))}
-                            {showTB && kr.theoreticalBest !== null && (
-                              <div className="leading-tight">
-                                <span className="text-dark-400">{kr.theoreticalBest.toFixed(2)}</span>
+                            {showPos && p1Diff !== null && (
+                              <div className="leading-tight" style={{ color: diffColor(p1Diff) }}>
+                                P{kr.place ?? '?'} {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}
                               </div>
                             )}
-                            {(showTBDiff && tbDiffVal !== null || showP1Diff && p1Diff !== null) && (
-                              <div className="text-[9px] leading-tight whitespace-nowrap">
-                                {showTBDiff && tbDiffVal !== null && (
-                                  <span style={{ color: diffColor(tbDiffVal) }}>TB -{tbDiffVal.toFixed(2)}</span>
-                                )}
-                                {showTBDiff && tbDiffVal !== null && showP1Diff && p1Diff !== null && (
-                                  <span className="text-dark-700"> </span>
-                                )}
-                                {showP1Diff && p1Diff !== null && (
-                                  <span style={{ color: diffColor(p1Diff) }}>P{kr.place ?? '?'} {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}</span>
+                            {showTB && kr.theoreticalBest !== null && (
+                              <div className="leading-tight whitespace-nowrap">
+                                <span className="text-dark-400">{kr.theoreticalBest.toFixed(2)}</span>
+                                {tbDiffVal !== null && (
+                                  <span className="text-[9px]" style={{ color: diffColor(tbDiffVal) }}> -{tbDiffVal.toFixed(2)}</span>
                                 )}
                               </div>
                             )}
