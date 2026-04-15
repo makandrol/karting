@@ -52,7 +52,7 @@ export default function GonzalesResults({
   const [showBest, setShowBest] = useState(true);
   const [showWorse, setShowWorse] = useState(false);
   const [showTB, setShowTB] = useState(false);
-  const [showPos, setShowPos] = useState(false);
+  const [showPos, setShowPos] = useState(true);
   const [showSectors, setShowSectors] = useState(false);
 
   const [kartList, setKartList] = useState<number[]>(gonzalesConfig?.kartList || []);
