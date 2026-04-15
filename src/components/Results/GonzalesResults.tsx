@@ -929,7 +929,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
       {/* Replacements */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-dark-500 text-[10px] font-semibold uppercase">Заміни картів: Було → Стало</span>
+        <span className="text-dark-500 text-[10px] font-semibold uppercase">Заміни картів</span>
         {Object.entries(kartReplacements).map(([from, to]) => (
           <div key={from} className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-dark-800">
             <span className={KART_COLOR}>{from}</span>
