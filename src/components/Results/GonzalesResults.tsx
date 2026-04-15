@@ -9,7 +9,7 @@ import {
   type SessionLap, type CompSession,
   type GonzalesPilotRow, type GonzalesStandingsData, type GonzalesKartResult,
 } from '../../utils/scoring';
-import { buildGonzalesRotation } from '../../data/competitions';
+import { buildGonzalesRotation, type GonzalesKartSlot } from '../../data/competitions';
 
 interface Props {
   competitionId: string;
@@ -209,7 +209,36 @@ export default function GonzalesResults({
   }, [autoGroupCount, onAutoGroups]);
 
   const effectiveKarts = kartList.length > 0 ? kartList : data.karts;
-  const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount, slotOrder), [effectiveKarts, pilotCount, slotOrder]);
+
+  const effectiveSlotOrder = useMemo((): (number | null)[] | undefined => {
+    if (!slotOrder || slotOrder.length === 0) return undefined;
+    const neededSkips = Math.max(0, pilotCount - effectiveKarts.length);
+    const currentSkips = slotOrder.filter(v => v === null).length;
+    if (currentSkips < neededSkips) {
+      const result = [...slotOrder];
+      for (let i = 0; i < neededSkips - currentSkips; i++) result.push(null);
+      return result;
+    }
+    if (currentSkips === neededSkips) return slotOrder;
+    let toRemove = currentSkips - neededSkips;
+    const result = [...slotOrder];
+    for (let i = result.length - 1; i >= 0 && toRemove > 0; i--) {
+      if (result[i] === null) { result.splice(i, 1); toRemove--; }
+    }
+    return result;
+  }, [slotOrder, pilotCount, effectiveKarts.length]);
+
+  useEffect(() => {
+    if (effectiveSlotOrder === slotOrder) return;
+    if (!effectiveSlotOrder && !slotOrder) return;
+    if (effectiveSlotOrder && slotOrder &&
+      effectiveSlotOrder.length === slotOrder.length &&
+      effectiveSlotOrder.every((v, i) => v === slotOrder[i])) return;
+    setSlotOrder(effectiveSlotOrder);
+    saveGonzalesConfig({ slotOrder: effectiveSlotOrder });
+  }, [effectiveSlotOrder]);
+
+  const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount, effectiveSlotOrder), [effectiveKarts, pilotCount, effectiveSlotOrder]);
 
   const getStartKartInfo = useCallback((startSlot: number): { kartIdx: number | null; fromSkip: boolean } => {
     if (startSlot < 0 || slots.length === 0) return { kartIdx: null, fromSkip: false };
@@ -311,6 +340,7 @@ export default function GonzalesResults({
       excludedPilots={excludedPilots}
       pilotStartSlots={pilotStartSlots}
       setPilotStartSlots={(ps) => { setPilotStartSlots(ps); saveGonzalesConfig({ pilotStartSlots: ps }); }}
+      slots={slots}
       slotOrder={slotOrder}
       setSlotOrder={(so) => { setSlotOrder(so); saveGonzalesConfig({ slotOrder: so }); }}
       onExcludePilot={toggleExcludePilot}
@@ -590,7 +620,7 @@ function GonzalesEditLog({ competitionId }: { competitionId: string }) {
 
 function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacements, setKartReplacements,
   excludedKarts, setExcludedKarts, pilotCount, allPilots, excludedPilots, pilotStartSlots, setPilotStartSlots,
-  slotOrder, setSlotOrder, onExcludePilot }: {
+  slots, slotOrder, setSlotOrder, onExcludePilot }: {
   autoKarts: number[];
   kartList: number[];
   setKartList: (kl: number[]) => void;
@@ -603,6 +633,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   excludedPilots: Set<string>;
   pilotStartSlots: Record<string, number>;
   setPilotStartSlots: (ps: Record<string, number>) => void;
+  slots: GonzalesKartSlot[];
   slotOrder: (number | null)[] | undefined;
   setSlotOrder: (so: (number | null)[] | undefined) => void;
   onExcludePilot: (pilot: string) => void;
@@ -614,29 +645,6 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const [dragPilot, setDragPilot] = useState<string | null>(null);
 
   const effectiveKarts = kartList.length > 0 ? kartList : autoKarts;
-
-  // Derive effective slotOrder: trim excess skips or append missing ones
-  const effectiveSlotOrder = useMemo((): (number | null)[] | undefined => {
-    if (!slotOrder || slotOrder.length === 0) return undefined;
-    const neededSkips = Math.max(0, pilotCount - effectiveKarts.length);
-    const currentSkips = slotOrder.filter(v => v === null).length;
-
-    if (currentSkips < neededSkips) {
-      const result = [...slotOrder];
-      for (let i = 0; i < neededSkips - currentSkips; i++) result.push(null);
-      return result;
-    }
-    if (currentSkips === neededSkips) return slotOrder;
-
-    let toRemove = currentSkips - neededSkips;
-    const result = [...slotOrder];
-    for (let i = result.length - 1; i >= 0 && toRemove > 0; i--) {
-      if (result[i] === null) { result.splice(i, 1); toRemove--; }
-    }
-    return result;
-  }, [slotOrder, pilotCount, effectiveKarts.length]);
-
-  const slots = buildGonzalesRotation(effectiveKarts, pilotCount, effectiveSlotOrder);
 
   const slotToPilot = useMemo(() => {
     const map: Record<number, string> = {};
@@ -664,16 +672,6 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
     }
     if (changed) setPilotStartSlots(next);
   }, [allPilots.join(','), slots.length]);
-
-  // Persist trimmed slotOrder back when it differs from stored
-  useEffect(() => {
-    if (effectiveSlotOrder === slotOrder) return;
-    if (!effectiveSlotOrder && !slotOrder) return;
-    if (effectiveSlotOrder && slotOrder &&
-      effectiveSlotOrder.length === slotOrder.length &&
-      effectiveSlotOrder.every((v, i) => v === slotOrder[i])) return;
-    setSlotOrder(effectiveSlotOrder);
-  }, [effectiveSlotOrder]);
 
   const currentSlotOrder = (): (number | null)[] => slots.map(s => s.kart);
 
