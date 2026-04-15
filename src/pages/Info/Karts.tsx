@@ -68,6 +68,7 @@ export default function Karts() {
   const [topNInput, setTopNInput] = useState(() => String(loadFilters()?.topN ?? 1));
   const [topNPrev, setTopNPrev] = useState(() => String(loadFilters()?.topN ?? 1));
   const [topN, setTopN] = useState(() => loadFilters()?.topN ?? 1);
+  const [showDisabled, setShowDisabled] = useState(() => loadFilters()?.showDisabled ?? false);
 
   useEffect(() => {
     localStorage.setItem(LS_KARTS_FILTERS, JSON.stringify({ viewMode, sortByRank, topN, showDisabled }));
@@ -152,7 +153,6 @@ export default function Karts() {
   }, [statSessionIds]);
 
   const [disabledKarts, setDisabledKarts] = useState<Set<number>>(loadDisabledKarts);
-  const [showDisabled, setShowDisabled] = useState(() => loadFilters()?.showDisabled ?? false);
   useEffect(() => { localStorage.setItem(LS_DISABLED_KARTS, JSON.stringify([...disabledKarts])); }, [disabledKarts]);
   const toggleKartDisabled = (num: number) => {
     const next = new Set(disabledKarts); next.has(num) ? next.delete(num) : next.add(num); setDisabledKarts(next);
