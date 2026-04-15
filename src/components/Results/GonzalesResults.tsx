@@ -383,7 +383,7 @@ export default function GonzalesResults({
                 {data.karts.map((k, ki) => {
                   if (excludedKarts.has(k)) return null;
                   return (
-                  <th key={k} colSpan={2}
+                  <th key={k} colSpan={1}
                     className={`table-cell text-center cursor-pointer hover:text-white bg-[#1a1d23] ${KART_COLOR} ${sortKey === `kart_${k}` ? SORT_HL : ''} ${ki > 0 ? 'border-l-2 border-dark-600' : ''}`}
                     onClick={() => handleSort(`kart_${k}`)}>
                     {k}<SortArrow k={`kart_${k}`} />
@@ -425,16 +425,16 @@ export default function GonzalesResults({
                     {r.kartResults.map((kr, ki) => {
                       const isStartKart = startKartIdx === ki;
                       const startTimeBorder = isStartKart && !isSkipStart ? 'ring-1 ring-inset ring-yellow-500/60' : '';
-                      const startPlaceBorder = isStartKart && isSkipStart ? 'ring-1 ring-inset ring-yellow-500/60' : '';
+                      const skipIndicator = isStartKart && isSkipStart;
                       const colHighlight = sortKey === `kart_${data.karts[ki]}` ? SORT_HL : '';
                       if (excludedKarts.has(data.karts[ki])) return null;
                       const kartBorder = ki > 0 ? 'border-l-2 border-dark-600' : '';
                       if (kr.bestTime === null) {
                         return (
-                          <React.Fragment key={ki}>
-                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${startTimeBorder} ${kartBorder}`}>—</td>
-                            <td className={`table-cell text-center text-dark-700 ${colHighlight} ${startPlaceBorder}`}>—</td>
-                          </React.Fragment>
+                          <td key={ki} className={`table-cell text-center text-dark-700 relative ${colHighlight} ${startTimeBorder} ${kartBorder}`}>
+                            —
+                            {skipIndicator && <span className="absolute right-0 top-0 bottom-0 w-[3px] bg-yellow-500/60" />}
+                          </td>
                         );
                       }
 
@@ -478,8 +478,7 @@ export default function GonzalesResults({
                       }
 
                       return (
-                        <React.Fragment key={ki}>
-                          <td className={`table-cell text-center font-mono ${colHighlight} ${startTimeBorder} ${kartBorder}`}>
+                          <td key={ki} className={`table-cell text-center font-mono relative ${colHighlight} ${startTimeBorder} ${kartBorder}`}>
                             {lapsToShow.length === 0 && !showTB && !showTBDiff && !showP1Diff && (
                               <span className="text-dark-500">{kr.bestTime.toFixed(2)}</span>
                             )}
@@ -509,11 +508,8 @@ export default function GonzalesResults({
                                 )}
                               </div>
                             )}
+                            {skipIndicator && <span className="absolute right-0 top-0 bottom-0 w-[3px] bg-yellow-500/60" />}
                           </td>
-                          <td className={`table-cell text-center font-mono text-dark-500 ${colHighlight} ${startPlaceBorder}`}>
-                            {kr.place ?? '—'}
-                          </td>
-                        </React.Fragment>
                       );
                     })}
                     {canManage && (
