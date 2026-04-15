@@ -34,6 +34,8 @@ export interface GonzalesConfig {
   pilotStartSlots?: Record<string, number>;
   scoringLaps?: number[];
   slotOrder?: (number | null)[];
+  configLocked?: boolean;
+  lockedPilots?: string[];
 }
 
 type SortKey = 'average' | 'name' | `kart_${number}`;
@@ -63,6 +65,8 @@ export default function GonzalesResults({
   const [pilotStartSlots, setPilotStartSlots] = useState<Record<string, number>>(gonzalesConfig?.pilotStartSlots || {});
   const [scoringLaps, setScoringLaps] = useState<number[]>(gonzalesConfig?.scoringLaps || [1, 2]);
   const [slotOrder, setSlotOrder] = useState<(number | null)[] | undefined>(gonzalesConfig?.slotOrder);
+  const [configLocked, setConfigLocked] = useState(gonzalesConfig?.configLocked ?? false);
+  const [lockedPilots, setLockedPilots] = useState<string[]>(gonzalesConfig?.lockedPilots || []);
 
   const excludedLapSet = useMemo(() => new Set(excludedLapKeys || []), [excludedLapKeys]);
   const effectiveLaps = useMemo(() => {
@@ -167,10 +171,12 @@ export default function GonzalesResults({
       pilotStartSlots,
       scoringLaps,
       slotOrder,
+      configLocked,
+      lockedPilots,
       ...partial,
     };
     await onSaveResults({ gonzalesConfig: cfg });
-  }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, scoringLaps, slotOrder, onSaveResults]);
+  }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, scoringLaps, slotOrder, configLocked, lockedPilots, onSaveResults]);
 
   // Derive pilot count from qualifying sessions
   const qualifyingPilots = useMemo(() => {
@@ -184,8 +190,9 @@ export default function GonzalesResults({
   }, [sessions, sessionLaps]);
 
   const activePilots = useMemo(() => {
+    if (configLocked && lockedPilots.length > 0) return lockedPilots;
     return [...qualifyingPilots].filter(p => !excludedPilots.has(p));
-  }, [qualifyingPilots, excludedPilots]);
+  }, [qualifyingPilots, excludedPilots, configLocked, lockedPilots]);
 
   const pilotCount = activePilots.length > 0 ? activePilots.length : data.rows.length;
   const roundCount = Math.max(pilotCount, 12);
@@ -229,6 +236,7 @@ export default function GonzalesResults({
   }, [slotOrder, pilotCount, effectiveKarts.length]);
 
   useEffect(() => {
+    if (configLocked) return;
     if (effectiveSlotOrder === slotOrder) return;
     if (!effectiveSlotOrder && !slotOrder) return;
     if (effectiveSlotOrder && slotOrder &&
@@ -237,6 +245,20 @@ export default function GonzalesResults({
     setSlotOrder(effectiveSlotOrder);
     saveGonzalesConfig({ slotOrder: effectiveSlotOrder });
   }, [effectiveSlotOrder]);
+
+  const toggleConfigLock = useCallback(() => {
+    if (configLocked) {
+      setConfigLocked(false);
+      saveGonzalesConfig({ configLocked: false });
+    } else {
+      const kl = kartList.length > 0 ? kartList : [...data.karts];
+      if (kartList.length === 0) setKartList(kl);
+      const lp = [...activePilots];
+      setLockedPilots(lp);
+      setConfigLocked(true);
+      saveGonzalesConfig({ configLocked: true, lockedPilots: lp, kartList: kl });
+    }
+  }, [configLocked, kartList, data.karts, activePilots, saveGonzalesConfig]);
 
   const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount, effectiveSlotOrder), [effectiveKarts, pilotCount, effectiveSlotOrder]);
 
@@ -343,6 +365,8 @@ export default function GonzalesResults({
       slots={slots}
       slotOrder={slotOrder}
       setSlotOrder={(so) => { setSlotOrder(so); saveGonzalesConfig({ slotOrder: so }); }}
+      configLocked={configLocked}
+      onToggleLock={toggleConfigLock}
       onExcludePilot={toggleExcludePilot}
     />
   ) : null;
@@ -620,7 +644,7 @@ function GonzalesEditLog({ competitionId }: { competitionId: string }) {
 
 function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacements, setKartReplacements,
   excludedKarts, setExcludedKarts, pilotCount, allPilots, excludedPilots, pilotStartSlots, setPilotStartSlots,
-  slots, slotOrder, setSlotOrder, onExcludePilot }: {
+  slots, slotOrder, setSlotOrder, configLocked, onToggleLock, onExcludePilot }: {
   autoKarts: number[];
   kartList: number[];
   setKartList: (kl: number[]) => void;
@@ -636,6 +660,8 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   slots: GonzalesKartSlot[];
   slotOrder: (number | null)[] | undefined;
   setSlotOrder: (so: (number | null)[] | undefined) => void;
+  configLocked: boolean;
+  onToggleLock: () => void;
   onExcludePilot: (pilot: string) => void;
 }) {
   const [newKart, setNewKart] = useState('');
@@ -659,6 +685,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   // Clean up stale pilot assignments (pilots removed from allPilots)
   useEffect(() => {
+    if (configLocked) return;
     if (slots.length === 0 || allPilots.length === 0) return;
     const pilotSet = new Set(allPilots);
     const next: Record<string, number> = {};
@@ -768,7 +795,18 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   return (
     <div className="card p-3 space-y-3 text-xs relative z-10">
-      <h4 className="text-white font-semibold text-sm">Привʼязка пілотів до початкового карту</h4>
+      <div className="flex items-center gap-2">
+        <h4 className="text-white font-semibold text-sm">Привʼязка пілотів до початкового карту</h4>
+        <button onClick={onToggleLock}
+          className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+            configLocked
+              ? 'bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30'
+              : 'bg-dark-800 text-dark-500 hover:text-dark-300'
+          }`}
+          title={configLocked ? 'Розблокувати (карти/пілоти будуть змінюватись при русі таймлайну)' : 'Зафіксувати карти, пілотів та позиції'}>
+          {configLocked ? '🔒 Зафіксовано' : '🔓 Зафіксувати'}
+        </button>
+      </div>
 
       {/* Two-column assignment table */}
       <div>
