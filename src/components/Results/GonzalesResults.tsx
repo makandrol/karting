@@ -502,20 +502,6 @@ export default function GonzalesResults({
         </div>
       </div>
 
-      {/* Excluded pilots */}
-      {excludedPilots.size > 0 && (
-        <div className="px-1 text-[10px] text-dark-600">
-          Виключені: {[...excludedPilots].map(p => (
-            <span key={p} className="inline-flex items-center gap-0.5 mr-2">
-              {p}
-              {canManage && (
-                <button onClick={() => toggleExcludePilot(p)} className="text-dark-500 hover:text-green-400">↩</button>
-              )}
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* Edit Log — controlled by its own layout section visibility */}
       {isOwner && isSectionVisible('competition', 'editLog') && (
         <GonzalesEditLog competitionId={competitionId} />
