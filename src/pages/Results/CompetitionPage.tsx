@@ -77,6 +77,12 @@ export default function CompetitionPage() {
   };
 
   useEffect(() => {
+    setLoading(true);
+    setCompetition(null);
+    setCompetitions([]);
+    setCompSessions([]);
+    setAllSessionsEnded(false);
+    setPilotCount(0);
     if (eventId) {
       fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(eventId)}`)
         .then(r => r.ok ? r.json() : null)
@@ -338,7 +344,7 @@ export default function CompetitionPage() {
         </div>
       </div>
 
-      <LiveResults competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
+      <LiveResults key={competition.id} competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} />
     </div>
   );
 }
@@ -939,13 +945,15 @@ function CompetitionList({ competitions: initialCompetitions, initialFilter }: {
   const toggleFilter = (key: string) => {
     setActiveFilters(prev => {
       const n = new Set(prev);
-      if (n.has(key)) { n.delete(key); if (n.size === 0) { saveFilters(new Set(FORMAT_FILTERS.map(f => f.key))); return new Set(FORMAT_FILTERS.map(f => f.key)); } }
-      else n.add(key);
+      n.has(key) ? n.delete(key) : n.add(key);
       saveFilters(n); return n;
     });
   };
   const allActive = activeFilters.size === FORMAT_FILTERS.length;
-  const toggleAll = () => { const all = new Set(FORMAT_FILTERS.map(f => f.key)); setActiveFilters(all); saveFilters(all); };
+  const toggleAll = () => {
+    if (allActive) { setActiveFilters(new Set()); saveFilters(new Set()); }
+    else { const all = new Set(FORMAT_FILTERS.map(f => f.key)); setActiveFilters(all); saveFilters(all); }
+  };
   const toggleSort = () => { const next = sortDir === 'desc' ? 'asc' : 'desc'; setSortDir(next); saveWithExpiry(storage, 'karting_comp_sort', next); };
 
   const filtered = competitions

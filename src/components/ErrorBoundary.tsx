@@ -1,5 +1,4 @@
 import { Component, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 
 interface Props {
   children: ReactNode;
@@ -38,9 +37,13 @@ export default class ErrorBoundary extends Component<Props, State> {
           >
             Спробувати ще
           </button>
-          <Link to="/" className="text-primary-400 hover:underline text-sm">
+          <a
+            href="/"
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="text-primary-400 hover:underline text-sm"
+          >
             На головну
-          </Link>
+          </a>
         </div>
       );
     }

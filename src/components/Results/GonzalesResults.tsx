@@ -258,14 +258,14 @@ export default function GonzalesResults({
     const t = diff / 0.25;
     const r = Math.round(74 + (248 - 74) * t);
     const g = Math.round(222 + (113 - 222) * t);
+    const b = Math.round(128 + (113 - 128) * t);
+    return `rgb(${r},${g},${b})`;
+  };
 
   const fmtDiff = (d: number, sign: '+' | '-' = '+'): string => {
     const abs = Math.abs(d);
     if (abs < 0.005) return `${sign}0.00`;
     return `${sign}${abs.toFixed(2)}`;
-  };
-    const b = Math.round(128 + (113 - 128) * t);
-    return `rgb(${r},${g},${b})`;
   };
 
   /** Per-kart best time for P1-diff */
