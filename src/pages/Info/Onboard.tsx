@@ -644,44 +644,45 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
         ) : (
           <div className="w-full h-full flex items-center justify-center px-16">
             <div className="flex flex-col justify-center items-center">
-              <div className={`font-mono font-bold leading-none mb-4 ${COLOR_CLASSES[lapColor]}`}
+              <div className={`font-mono font-bold leading-none ${COLOR_CLASSES[lapColor]}`}
                    style={{ fontSize: 'clamp(4rem, 15vw, 10rem)' }}>
                 {entry.lastLap ? toSeconds(entry.lastLap) : '\u2014'}
               </div>
 
+              {showSectors && sectorDiffs.lap != null && (
+                <span className={`font-mono font-bold mb-2 ${sectorDiffs.lap <= 0 ? 'text-green-400' : 'text-red-400/70'}`}
+                      style={{ fontSize: 'clamp(1.2rem, 3.5vw, 2rem)' }}>
+                  {sectorDiffs.lap <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.lap).toFixed(3)}
+                </span>
+              )}
+
               {showSectors && (
-              <div className="flex flex-col items-center gap-2">
-                <div className="flex items-center justify-center gap-8">
-                  <div className="flex flex-col items-center">
-                    <div className={`font-mono font-bold ${COLOR_CLASSES[s1Color]}`}
-                         style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
-                      {entry.s1 && (parseTime(entry.s1) ?? 0) >= 10 ? toSeconds(entry.s1) : '\u2014'}
-                    </div>
-                    {sectorDiffs.s1 != null && (
-                      <span className={`font-mono text-sm ${sectorDiffs.s1 <= 0 ? 'text-green-400' : 'text-red-400/70'}`}>
-                        {sectorDiffs.s1 <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.s1).toFixed(2)}
-                      </span>
-                    )}
+              <div className="flex items-center justify-center gap-8 mt-2">
+                <div className="flex flex-col items-center">
+                  <div className={`font-mono font-bold ${COLOR_CLASSES[s1Color]}`}
+                       style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
+                    {entry.s1 && (parseTime(entry.s1) ?? 0) >= 10 ? toSeconds(entry.s1) : '\u2014'}
                   </div>
-                  <div className="w-px h-10 bg-dark-800" />
-                  <div className="flex flex-col items-center">
-                    <div className={`font-mono font-bold ${COLOR_CLASSES[s2Color]}`}
-                         style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
-                      {entry.s2 && (parseTime(entry.s2) ?? 0) >= 10 ? toSeconds(entry.s2) : '\u2014'}
-                    </div>
-                    {sectorDiffs.s2 != null && (
-                      <span className={`font-mono text-sm ${sectorDiffs.s2 <= 0 ? 'text-green-400' : 'text-red-400/70'}`}>
-                        {sectorDiffs.s2 <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.s2).toFixed(2)}
-                      </span>
-                    )}
-                  </div>
+                  {sectorDiffs.s1 != null && (
+                    <span className={`font-mono ${sectorDiffs.s1 <= 0 ? 'text-green-400' : 'text-red-400/70'}`}
+                          style={{ fontSize: 'clamp(0.85rem, 2.5vw, 1.2rem)' }}>
+                      {sectorDiffs.s1 <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.s1).toFixed(2)}
+                    </span>
+                  )}
                 </div>
-                {sectorDiffs.lap != null && (
-                  <span className={`font-mono ${sectorDiffs.lap <= 0 ? 'text-green-400' : 'text-red-400/70'}`}
-                        style={{ fontSize: 'clamp(0.9rem, 2.5vw, 1.3rem)' }}>
-                    {sectorDiffs.lap <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.lap).toFixed(3)}
-                  </span>
-                )}
+                <div className="w-px h-10 bg-dark-800" />
+                <div className="flex flex-col items-center">
+                  <div className={`font-mono font-bold ${COLOR_CLASSES[s2Color]}`}
+                       style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
+                    {entry.s2 && (parseTime(entry.s2) ?? 0) >= 10 ? toSeconds(entry.s2) : '\u2014'}
+                  </div>
+                  {sectorDiffs.s2 != null && (
+                    <span className={`font-mono ${sectorDiffs.s2 <= 0 ? 'text-green-400' : 'text-red-400/70'}`}
+                          style={{ fontSize: 'clamp(0.85rem, 2.5vw, 1.2rem)' }}>
+                      {sectorDiffs.s2 <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.s2).toFixed(2)}
+                    </span>
+                  )}
+                </div>
               </div>
               )}
             </div>
