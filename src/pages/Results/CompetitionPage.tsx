@@ -196,7 +196,7 @@ export default function CompetitionPage() {
               <svg className="w-3.5 h-3.5 text-dark-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
               <select
                 value={trackId ?? ''}
-                onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v) && changeTrackRef.current) changeTrackRef.current(v); }}
+                onChange={e => { if (!canManage) return; const v = parseInt(e.target.value); if (!isNaN(v) && changeTrackRef.current) { changeTrackRef.current(v); setCompetition(prev => prev ? { ...prev, results: { ...prev.results, trackId: v } } : prev); } }}
                 disabled={!canManage}
                 className={`bg-transparent text-dark-300 text-xs outline-none w-10 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}
               >
