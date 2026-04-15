@@ -660,7 +660,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
           const renderRow = (item: PosEntry) => {
             const isMe = item.pilot === positionLeaderboard.myPilot;
             const name = shortName(item.pilot);
-            const clipped = name.length > 7 ? name.slice(0, 7) + '.' : name;
+            const clipped = name.length > 10 ? name.slice(0, 10) + '.' : name;
             return (
               <div key={item.pilot} className={`flex items-center gap-1.5 leading-snug ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
                 <span className={isMe ? 'text-lg' : ''} style={isMe ? { fontSize: 'clamp(1rem, 3vw, 1.4rem)' } : {}}>P{item.pos}</span>
@@ -669,7 +669,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
                     {item.delta > 0 ? '\u25B2' : '\u25BC'}{Math.abs(item.delta)}
                   </span>
                 )}
-                <span className="inline-block w-[7.5ch] truncate">{clipped}</span>
+                <span className="inline-block w-[10.5ch] truncate">{clipped}</span>
                 {item.gapToNext != null && (
                   <span className={`tabular-nums font-semibold ${item.gapToNext < 0 ? 'text-green-400' : 'text-white'}`}>
                     {item.gapToNext > 0 ? '+' : item.gapToNext < 0 ? '\u2212' : ''}{Math.abs(item.gapToNext).toFixed(2)}
@@ -760,7 +760,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
             const isMe = item.pilot === standingsLeaderboard.myPilot;
             const diff = Math.round((item.pts - standingsLeaderboard.myPts) * 10) / 10;
             const name = shortName(item.pilot);
-            const clipped = name.length > 7 ? name.slice(0, 7) + '.' : name;
+            const clipped = name.length > 10 ? name.slice(0, 10) + '.' : name;
             return (
               <div key={item.pilot} className={`flex items-center gap-1.5 leading-snug ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
                 <span className="w-5 text-right tabular-nums">{item.pos}.</span>

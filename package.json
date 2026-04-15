@@ -1,7 +1,7 @@
 {
   "name": "karting-zhaga-shvydkosti",
   "private": true,
-  "version": "0.9.380",
+  "version": "0.9.381",
   "type": "module",
   "scripts": {
     "dev": "vite",
