@@ -914,14 +914,12 @@ function CompetitionList({ competitions: initialCompetitions, initialFilter }: {
   const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
     const saved = loadWithExpiry(storage, 'karting_comp_dates');
     if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
-    const withData = thisWeekDays.filter(d => dateCompNames[d]);
-    return new Set(withData.length > 0 ? withData : []);
+    return new Set(allCompDates);
   });
 
   useEffect(() => {
     if (selectedDates.size === 0 && allCompDates.length > 0) {
-      const withData = thisWeekDays.filter(d => dateCompNames[d]);
-      if (withData.length > 0) setSelectedDates(new Set(withData));
+      setSelectedDates(new Set(allCompDates));
     }
   }, [dateCompNames]);
 
@@ -1006,8 +1004,17 @@ function CompetitionList({ competitions: initialCompetitions, initialFilter }: {
       if (!map.has(y)) map.set(y, new Set());
       map.get(y)!.add(m);
     }
+    const currentYear = String(new Date().getFullYear());
+    for (const d of [...thisWeekDays, ...prevWeekDays]) {
+      if (!dateCompNames[d]) continue;
+      const y = d.slice(0, 4);
+      if (y === currentYear) continue;
+      const m = parseInt(d.slice(5, 7)) - 1;
+      if (!map.has(y)) map.set(y, new Set());
+      map.get(y)!.add(m);
+    }
     return map;
-  }, [allCompDates]);
+  }, [allCompDates, dateCompNames]);
 
   const thisWeekWithData = thisWeekDays.filter(d => dateCompNames[d]);
   const prevWeekWithData = prevWeekDays.filter(d => dateCompNames[d]);
@@ -1040,7 +1047,12 @@ function CompetitionList({ competitions: initialCompetitions, initialFilter }: {
           </div>
         )}
         {[...yearMonths.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => {
-          const yearDates = allCompDates.filter(d => d.startsWith(year) && !new Set(thisWeekDays).has(d) && !new Set(prevWeekDays).has(d));
+          const currentYear = String(new Date().getFullYear());
+          const yearDates = allCompDates.filter(d => {
+            if (!d.startsWith(year)) return false;
+            if (year === currentYear) return !new Set(thisWeekDays).has(d) && !new Set(prevWeekDays).has(d);
+            return true;
+          });
           return (
             <div key={year}>
               <button onClick={() => { const n = new Set(expandedYears); n.has(year) ? n.delete(year) : n.add(year); setExpandedYears(n); }}
