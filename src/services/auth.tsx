@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, hasConfig, type FirebaseUser } from './firebase';
+import { COLLECTOR_URL } from './config';
 
 // ============================================================
 // Types
@@ -116,19 +117,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [moderators, setModerators] = useState<ModeratorEntry[]>([]);
   const [localhostLoggedOut, setLocalhostLoggedOut] = useState(false);
+  const savingRef = useRef(false);
 
-  // Load moderators
+  // Load moderators from server (with localStorage cache for instant display)
   useEffect(() => {
     try {
       const saved = localStorage.getItem(LS_MODERATORS);
       if (saved) setModerators(JSON.parse(saved));
-    } catch { /* ignore */ }
+    } catch {}
+    fetch(`${COLLECTOR_URL}/moderators`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setModerators(data);
+          localStorage.setItem(LS_MODERATORS, JSON.stringify(data));
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  // Persist moderators
-  useEffect(() => {
-    localStorage.setItem(LS_MODERATORS, JSON.stringify(moderators));
-  }, [moderators]);
+  const saveModsToServer = useCallback((mods: ModeratorEntry[]) => {
+    localStorage.setItem(LS_MODERATORS, JSON.stringify(mods));
+    if (savingRef.current) return;
+    savingRef.current = true;
+    const token = import.meta.env.VITE_ADMIN_TOKEN || '';
+    fetch(`${COLLECTOR_URL}/moderators`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(mods),
+    }).catch(() => {}).finally(() => { savingRef.current = false; });
+  }, []);
 
   // Listen to Firebase auth state
   useEffect(() => {
@@ -184,19 +202,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const trimmed = email.trim().toLowerCase();
     if (trimmed === OWNER_EMAIL) return 'Це email власника';
     if (moderators.some((m) => m.email.toLowerCase() === trimmed)) return 'Цей email вже доданий';
-    setModerators((prev) => [...prev, { email: trimmed, permissions }]);
+    const next = [...moderators, { email: trimmed, permissions }];
+    setModerators(next);
+    saveModsToServer(next);
     return null;
-  }, [moderators]);
+  }, [moderators, saveModsToServer]);
 
   const removeModerator = useCallback((email: string) => {
-    setModerators((prev) => prev.filter((m) => m.email.toLowerCase() !== email.toLowerCase()));
-  }, []);
+    setModerators((prev) => {
+      const next = prev.filter((m) => m.email.toLowerCase() !== email.toLowerCase());
+      saveModsToServer(next);
+      return next;
+    });
+  }, [saveModsToServer]);
 
   const updateModerator = useCallback((email: string, permissions: ModeratorPermission[]) => {
-    setModerators((prev) =>
-      prev.map((m) => m.email.toLowerCase() === email.toLowerCase() ? { ...m, permissions } : m)
-    );
-  }, []);
+    setModerators((prev) => {
+      const next = prev.map((m) => m.email.toLowerCase() === email.toLowerCase() ? { ...m, permissions } : m);
+      saveModsToServer(next);
+      return next;
+    });
+  }, [saveModsToServer]);
 
   const value: AuthContextValue = {
     user,

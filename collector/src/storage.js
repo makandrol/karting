@@ -958,6 +958,15 @@ export const storage = {
     this.setSystemState('page_visibility', JSON.stringify(data));
   },
 
+  getModerators() {
+    const raw = this.getSystemState('moderators');
+    return raw ? JSON.parse(raw) : null;
+  },
+
+  setModerators(data) {
+    this.setSystemState('moderators', JSON.stringify(data));
+  },
+
   updateSessionsTrack(sessionIds, trackId) {
     if (!sessionIds || sessionIds.length === 0) return 0;
     const placeholders = sessionIds.map(() => '?').join(',');
