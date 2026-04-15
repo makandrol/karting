@@ -1,0 +1,17 @@
+---
+description: Rules for maintaining the changelog when merging dev to main
+globs:
+  - src/data/changelog.ts
+alwaysApply: true
+---
+
+# Changelog Rules
+
+When merging `dev` into `main`, ALWAYS update `src/data/changelog.ts` before the merge:
+
+1. **Add a new `ChangelogEntry`** at the top of the `CHANGELOG` array covering ALL commits being merged.
+2. **Include timestamp** in the `date` field — format: `YYYY-MM-DD HH:MM` (24h, Kyiv time). Not just the date.
+3. **List every version change** in the `changes` array with the version prefix (e.g. `v0.9.375 — опис`).
+4. **Write in Ukrainian** — match the style of existing entries.
+5. **Group related changes** under the version they were introduced in.
+6. **Be specific** — describe what changed, not generic "improvements". Include UI element names, algorithms, positions.

@@ -237,7 +237,7 @@ export default function Karts() {
             <span className="text-dark-700">|</span>
             <button onClick={() => setDisabledKarts(new Set())} className="text-dark-400 text-[10px] hover:text-white transition-colors">показати всі</button>
             <span className="text-dark-700">|</span>
-            <button onClick={() => setShowDisabled(v => !v)} className="text-dark-400 text-[10px] hover:text-white transition-colors">
+            <button onClick={() => setShowDisabled((v: boolean) => !v)} className="text-dark-400 text-[10px] hover:text-white transition-colors">
               {showDisabled ? 'сховати неактивні' : 'показати неактивні'}
             </button>
           </div>

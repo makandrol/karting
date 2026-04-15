@@ -418,11 +418,11 @@ export default function GonzalesResults({
                   <button onClick={toggleAll}
                     className={`px-2 py-0.5 text-[9px] font-bold transition-colors ${allOn ? 'bg-primary-600/30 text-primary-300' : 'bg-dark-700/60 text-dark-400'}`}>
                     Все</button>
-                  {pill('Pos', showPos, () => setShowPos(v => !v))}
-                  {pill('Best', showBest, () => setShowBest(v => !v))}
-                  {pill('Worse', showWorse, () => setShowWorse(v => !v))}
-                  {pill('TB', showTB, () => setShowTB(v => !v))}
-                  {pill('S1-S2', showSectors, () => setShowSectors(v => !v))}
+                  {pill('Pos', showPos, () => setShowPos((v: boolean) => !v))}
+                  {pill('Best', showBest, () => setShowBest((v: boolean) => !v))}
+                  {pill('Worse', showWorse, () => setShowWorse((v: boolean) => !v))}
+                  {pill('TB', showTB, () => setShowTB((v: boolean) => !v))}
+                  {pill('S1-S2', showSectors, () => setShowSectors((v: boolean) => !v))}
                 </span>
               );
             })()}
