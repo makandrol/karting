@@ -631,23 +631,19 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const assignedPilots = new Set(Object.values(slotToPilot));
   const unassignedPilots = allPilots.filter(p => !assignedPilots.has(p));
 
-  // Keep pilots packed sequentially: when someone is removed, shift everyone up
+  // Clean up stale pilot assignments (pilots removed from allPilots)
   useEffect(() => {
     if (slots.length === 0 || allPilots.length === 0) return;
-
-    const ordered = allPilots
-      .map((p, origIdx) => ({ pilot: p, idx: pilotStartSlots[p] ?? Infinity, origIdx }))
-      .sort((a, b) => a.idx - b.idx || a.origIdx - b.origIdx);
-
+    const pilotSet = new Set(allPilots);
     const next: Record<string, number> = {};
     let changed = false;
-    for (let i = 0; i < ordered.length && i < slots.length; i++) {
-      next[ordered[i].pilot] = i;
-      if (pilotStartSlots[ordered[i].pilot] !== i) changed = true;
+    for (const [pilot, idx] of Object.entries(pilotStartSlots)) {
+      if (pilotSet.has(pilot) && idx < slots.length) {
+        next[pilot] = idx;
+      } else {
+        changed = true;
+      }
     }
-
-    if (Object.keys(pilotStartSlots).length !== Object.keys(next).length) changed = true;
-
     if (changed) setPilotStartSlots(next);
   }, [allPilots.join(','), slots.length]);
 
@@ -726,38 +722,25 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   const movePilot = (fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx) return;
-    const ordered = allPilots
-      .filter(p => p in pilotStartSlots)
-      .sort((a, b) => pilotStartSlots[a] - pilotStartSlots[b]);
-    const pilotAtFrom = ordered.find(p => pilotStartSlots[p] === fromIdx);
+    const next = { ...pilotStartSlots };
+    const pilotAtFrom = Object.entries(next).find(([, idx]) => idx === fromIdx)?.[0];
+    const pilotAtTo = Object.entries(next).find(([, idx]) => idx === toIdx)?.[0];
     if (!pilotAtFrom) return;
-    const filtered = ordered.filter(p => p !== pilotAtFrom);
-    const insertAt = filtered.findIndex(p => pilotStartSlots[p] >= toIdx);
-    if (insertAt === -1) filtered.push(pilotAtFrom);
-    else if (toIdx > fromIdx) filtered.splice(insertAt + 1, 0, pilotAtFrom);
-    else filtered.splice(insertAt, 0, pilotAtFrom);
-    // Reassign sequential indices
-    const next: Record<string, number> = {};
-    filtered.forEach((p, i) => { next[p] = i; });
-    // Keep unassigned pilots
-    for (const p of allPilots) {
-      if (!(p in next)) {
-        for (let i = 0; i < slots.length; i++) {
-          if (!Object.values(next).includes(i)) { next[p] = i; break; }
-        }
-      }
-    }
+    next[pilotAtFrom] = toIdx;
+    if (pilotAtTo) next[pilotAtTo] = fromIdx;
     setPilotStartSlots(next);
   };
 
   const assignPilotToSlot = (pilot: string, slotIdx: number) => {
-    // Insert pilot at slotIdx, shift others
-    const ordered = allPilots
-      .filter(p => p in pilotStartSlots && p !== pilot)
-      .sort((a, b) => pilotStartSlots[a] - pilotStartSlots[b]);
-    ordered.splice(slotIdx, 0, pilot);
-    const next: Record<string, number> = {};
-    ordered.forEach((p, i) => { next[p] = i; });
+    const next = { ...pilotStartSlots };
+    const existingPilot = Object.entries(next).find(([, idx]) => idx === slotIdx)?.[0];
+    const previousSlot = next[pilot];
+    if (existingPilot && previousSlot !== undefined) {
+      next[existingPilot] = previousSlot;
+    } else if (existingPilot) {
+      delete next[existingPilot];
+    }
+    next[pilot] = slotIdx;
     setPilotStartSlots(next);
   };
 
@@ -858,6 +841,9 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                         onDragStart={(e) => { e.stopPropagation(); setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
                         onDragEnd={() => setDragPilot(null)}
                       >{pilot}</span>
+                      <button onClick={() => unassignPilot(pilot)}
+                        className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-dark-700/50 text-dark-500 hover:bg-dark-700 hover:text-dark-300 text-sm"
+                        title="Зняти привʼязку">↩</button>
                       <button onClick={() => onExcludePilot(pilot)}
                         className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-red-600/20 text-red-400 hover:bg-red-600/40 text-sm font-bold"
                         title="Виключити пілота">✕</button>
