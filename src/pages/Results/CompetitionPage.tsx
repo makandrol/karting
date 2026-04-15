@@ -1423,7 +1423,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     const allPilots = Object.keys(pilotStartSlots);
     if (allPilots.length === 0 || kartListCfg.length === 0) return new Map();
 
-    const slots = buildGonzalesRotation(kartListCfg, allPilots.length);
+    const slots = buildGonzalesRotation(kartListCfg, allPilots.length, cfg?.slotOrder ?? undefined);
     const kartToPilot = new Map<number, string>();
     for (const pilot of allPilots) {
       const startSlot = pilotStartSlots[pilot];
@@ -1433,12 +1433,17 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     }
 
     const suffix = new Map<string, string>();
+    const seen = new Set<number>();
     for (const entry of laps) {
-      if (entry.kart && kartToPilot.has(entry.kart)) {
-        const guessedPilot = kartToPilot.get(entry.kart)!;
-        if (entry.pilot !== guessedPilot) {
-          suffix.set(entry.pilot, `(${guessedPilot}?)`);
-        }
+      if (!entry.kart || seen.has(entry.kart)) continue;
+      seen.add(entry.kart);
+      const gonzPilot = kartToPilot.get(entry.kart);
+      const parts = gonzPilot?.trim().split(' ').filter(Boolean);
+      const surname = parts?.[0];
+      if (entry.pilot.startsWith('Карт ') && surname) {
+        suffix.set(entry.pilot, `(${surname})`);
+      } else if (gonzPilot && entry.pilot !== gonzPilot && surname) {
+        suffix.set(entry.pilot, `(${surname})`);
       }
     }
     return suffix;
