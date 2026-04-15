@@ -258,6 +258,12 @@ export default function GonzalesResults({
     const t = diff / 0.25;
     const r = Math.round(74 + (248 - 74) * t);
     const g = Math.round(222 + (113 - 222) * t);
+
+  const fmtDiff = (d: number, sign: '+' | '-' = '+'): string => {
+    const abs = Math.abs(d);
+    if (abs < 0.005) return `${sign}0.00`;
+    return `${sign}${abs.toFixed(2)}`;
+  };
     const b = Math.round(128 + (113 - 128) * t);
     return `rgb(${r},${g},${b})`;
   };
@@ -414,7 +420,7 @@ export default function GonzalesResults({
                         return (
                           <div className="font-normal leading-tight whitespace-nowrap">
                             <span style={{ color: diffColor(d) }}>P{i + 1}</span>
-                            <span className="text-[9px]" style={{ color: diffColor(d) }}> {d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}</span>
+                            <span className="text-[9px]" style={{ color: diffColor(d) }}> {fmtDiff(d)}</span>
                           </div>
                         );
                       })()}
@@ -492,14 +498,14 @@ export default function GonzalesResults({
                             {showPos && p1Diff !== null && (
                               <div className="leading-tight whitespace-nowrap">
                                 <span style={{ color: diffColor(p1Diff) }}>P{kr.place ?? '?'}</span>
-                                <span className="text-[9px]" style={{ color: diffColor(p1Diff) }}> {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}</span>
+                                <span className="text-[9px]" style={{ color: diffColor(p1Diff) }}> {fmtDiff(p1Diff)}</span>
                               </div>
                             )}
                             {showTB && kr.theoreticalBest !== null && (
                               <div className="leading-tight whitespace-nowrap">
                                 <span className="text-dark-400">{kr.theoreticalBest.toFixed(2)}</span>
                                 {tbDiffVal !== null && (
-                                  <span className="text-[9px]" style={{ color: diffColor(tbDiffVal) }}> -{tbDiffVal.toFixed(2)}</span>
+                                  <span className="text-[9px]" style={{ color: diffColor(tbDiffVal) }}> {fmtDiff(tbDiffVal, '-')}</span>
                                 )}
                               </div>
                             )}
