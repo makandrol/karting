@@ -412,8 +412,9 @@ export default function GonzalesResults({
                       {showPos && avg !== null && bestAverage !== null && (() => {
                         const d = avg - bestAverage;
                         return (
-                          <div className="font-normal leading-tight" style={{ color: diffColor(d) }}>
-                            P{i + 1} {d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}
+                          <div className="font-normal leading-tight whitespace-nowrap">
+                            <span style={{ color: diffColor(d) }}>P{i + 1}</span>
+                            <span className="text-[9px]" style={{ color: diffColor(d) }}> {d < 0.005 ? '-0.00' : `+${d.toFixed(2)}`}</span>
                           </div>
                         );
                       })()}
@@ -489,8 +490,9 @@ export default function GonzalesResults({
                               </div>
                             ))}
                             {showPos && p1Diff !== null && (
-                              <div className="leading-tight" style={{ color: diffColor(p1Diff) }}>
-                                P{kr.place ?? '?'} {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}
+                              <div className="leading-tight whitespace-nowrap">
+                                <span style={{ color: diffColor(p1Diff) }}>P{kr.place ?? '?'}</span>
+                                <span className="text-[9px]" style={{ color: diffColor(p1Diff) }}> {p1Diff < 0.005 ? '-0.00' : `+${p1Diff.toFixed(2)}`}</span>
                               </div>
                             )}
                             {showTB && kr.theoreticalBest !== null && (
