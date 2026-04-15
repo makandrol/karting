@@ -50,7 +50,15 @@ const Pill = ({ label, active, onClick }: { label: string; active: boolean; onCl
 type PosEntry = { pilot: string; pos: number; delta: number | null; gapToNext: number | null };
 type StEntry = { pilot: string; pos: number; pts: number };
 
-function buildWindow(list: PosEntry[], myIdx: number, myPilot: string) {
+interface PosWindow {
+  top: PosEntry[];
+  hasEllipsis: boolean;
+  around: PosEntry[];
+  myPilot: string;
+  total: number;
+}
+
+function buildRaceWindow(list: PosEntry[], myIdx: number, myPilot: string): PosWindow | null {
   const total = list.length;
   if (total === 0) return null;
   const windowSize = Math.min(4, total);
@@ -59,7 +67,29 @@ function buildWindow(list: PosEntry[], myIdx: number, myPilot: string) {
   else if (myIdx <= 1) { start = 0; }
   else if (myIdx >= total - 2) { start = total - windowSize; }
   else { start = myIdx - 1; }
-  return { items: list.slice(start, start + windowSize), myPilot, total };
+  return { top: [], hasEllipsis: false, around: list.slice(start, start + windowSize), myPilot, total };
+}
+
+function buildQualiWindow(list: PosEntry[], myIdx: number, myPilot: string): PosWindow | null {
+  const total = list.length;
+  if (total === 0) return null;
+
+  if (total <= 5) {
+    return { top: [], hasEllipsis: false, around: list, myPilot, total };
+  }
+
+  if (myIdx <= 3) {
+    return { top: [], hasEllipsis: false, around: list.slice(0, 5), myPilot, total };
+  }
+
+  const top = list.slice(0, 2);
+  let aroundStart: number;
+  if (myIdx >= total - 1) { aroundStart = total - 3; }
+  else { aroundStart = myIdx - 1; }
+  const around = list.slice(aroundStart, aroundStart + 3);
+
+  const needEllipsis = aroundStart > 2;
+  return { top, hasEllipsis: needEllipsis, around, myPilot, total };
 }
 
 function buildStandingsWindow(list: StEntry[], myIdx: number, myPilot: string) {
@@ -94,15 +124,16 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
   const sessionId = isReplay ? (replaySessionId || null) : ((poller.collectorStatus as any)?.sessionId || null);
 
   // ── View toggles (persisted) ──
+  // null = use contextual default; true/false = explicit user override
   const onbViewKey = 'karting_onboard_view';
   const loadOnbView = () => { try { const s = localStorage.getItem(onbViewKey); return s ? JSON.parse(s) : null; } catch { return null; } };
   const savedOnbView = useRef(loadOnbView());
 
-  const [showSectors, setShowSectors] = useState(savedOnbView.current?.showSectors ?? true);
+  const [showSectors, setShowSectors] = useState<boolean | null>(savedOnbView.current?.showSectors ?? null);
   const [modeOverride, setModeOverride] = useState<OnboardMode | null>(savedOnbView.current?.modeOverride ?? null);
   const [showPosition, setShowPosition] = useState<boolean | null>(savedOnbView.current?.showPosition ?? null);
-  const [showTime, setShowTime] = useState(savedOnbView.current?.showTime ?? savedOnbView.current?.showTimeGroup ?? false);
-  const [showPoints, setShowPoints] = useState(savedOnbView.current?.showPoints ?? false);
+  const [showTime, setShowTime] = useState<boolean | null>(savedOnbView.current?.showTime ?? null);
+  const [showPoints, setShowPoints] = useState<boolean | null>(savedOnbView.current?.showPoints ?? null);
 
   useEffect(() => {
     localStorage.setItem(onbViewKey, JSON.stringify({ showSectors, modeOverride, showPosition, showTime, showPoints }));
@@ -192,7 +223,22 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
   }, [compInfo.phase]);
 
   const effectiveMode = modeOverride ?? autoMode;
-  const effectiveShowPos = showPosition ?? (effectiveMode === 'race');
+
+  // Contextual defaults: prokat=квала+сект, comp quali=+поз+час, comp race=гонка+все
+  type CtxType = 'prokat' | 'comp_quali' | 'comp_race';
+  const contextType: CtxType = !compInfo.competitionId ? 'prokat'
+    : autoMode === 'race' ? 'comp_race' : 'comp_quali';
+  const ctxDefaults: Record<CtxType, { sectors: boolean; position: boolean; time: boolean; points: boolean }> = {
+    prokat:     { sectors: true,  position: false, time: false, points: false },
+    comp_quali: { sectors: true,  position: true,  time: true,  points: false },
+    comp_race:  { sectors: true,  position: true,  time: true,  points: true },
+  };
+  const defaults = ctxDefaults[contextType];
+
+  const effectiveShowSectors = showSectors ?? defaults.sectors;
+  const effectiveShowPos = showPosition ?? defaults.position;
+  const effectiveShowTime = showTime ?? defaults.time;
+  const effectiveShowPoints = showPoints ?? defaults.points;
 
   const sessionLabel = useMemo(() => {
     if (!sessionId) return null;
@@ -370,10 +416,9 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
     return { total: race.totalRacePoints, posPoints: race.positionPoints, overtakePoints: race.overtakePoints, posOvertake };
   }, [pilotRow, currentRaceIndex]);
 
-  // 5-pilot position leaderboard
-  const positionLeaderboard = useMemo(() => {
+  // Position leaderboard
+  const positionLeaderboard = useMemo((): PosWindow | null => {
     if (!pilot || !entry) return null;
-    type PilotPosEntry = { pilot: string; pos: number; delta: number | null; gapToNext: number | null };
 
     if (effectiveMode === 'race' && pilotRow && currentRaceIndex >= 0 && standings) {
       const racePilots = standings.sorted
@@ -383,26 +428,27 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
       const myIdx = racePilots.findIndex(r => r.pilot === pilot);
       if (myIdx < 0) return null;
 
-      const list: PilotPosEntry[] = racePilots.map((r, i) => {
+      const list: PosEntry[] = racePilots.map((r) => {
         const race = r.races[currentRaceIndex]!;
         const d = race.startPos > 0 ? race.startPos - race.finishPos : null;
         return { pilot: r.pilot, pos: race.finishPos, delta: d, gapToNext: null };
       });
-      return buildWindow(list, myIdx, pilot);
+      return buildRaceWindow(list, myIdx, pilot);
     }
 
-    // Fallback: best lap ranking
+    // Quali / fallback: best lap ranking with gaps relative to my best
+    const myBest = parseTime(entry.bestLap);
     const withBest = entries
       .map(e => ({ pilot: e.pilot, best: parseTime(e.bestLap) }))
       .filter(e => e.best !== null && e.best! >= 38) as { pilot: string; best: number }[];
     withBest.sort((a, b) => a.best - b.best);
     const myIdx = withBest.findIndex(e => e.pilot === pilot);
-    if (myIdx < 0) return null;
-    const list: PilotPosEntry[] = withBest.map((e, i) => {
-      const gap = i > 0 ? Math.round((e.best - withBest[i - 1].best) * 1000) / 1000 : null;
-      return { pilot: e.pilot, pos: i + 1, delta: null, gapToNext: gap };
+    if (myIdx < 0 || myBest === null) return null;
+    const list: PosEntry[] = withBest.map((e, i) => {
+      const gap = Math.round((e.best - myBest) * 1000) / 1000;
+      return { pilot: e.pilot, pos: i + 1, delta: null, gapToNext: gap !== 0 ? gap : null };
     });
-    return buildWindow(list, myIdx, pilot);
+    return buildQualiWindow(list, myIdx, pilot);
   }, [pilot, entry, pilotRow, currentRaceIndex, standings, entries, effectiveMode]);
 
   // Standings leaderboard for Бали (5-pilot list)
@@ -540,10 +586,10 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
                   Гонка
                 </button>
               </div>
-              <Pill label="Сект." active={showSectors} onClick={() => setShowSectors((v: boolean) => !v)} />
-              <Pill label="Поз" active={effectiveShowPos} onClick={() => setShowPosition((v: boolean | null) => v === null ? (effectiveMode !== 'race') : !v)} />
-              <Pill label="Час" active={showTime} onClick={() => setShowTime((v: boolean) => !v)} />
-              <Pill label="Бали" active={showPoints} onClick={() => setShowPoints((v: boolean) => !v)} />
+              <Pill label="Сект." active={effectiveShowSectors} onClick={() => setShowSectors(v => !(v ?? defaults.sectors))} />
+              <Pill label="Поз" active={effectiveShowPos} onClick={() => setShowPosition(v => !(v ?? defaults.position))} />
+              <Pill label="Час" active={effectiveShowTime} onClick={() => setShowTime(v => !(v ?? defaults.time))} />
+              <Pill label="Бали" active={effectiveShowPoints} onClick={() => setShowPoints(v => !(v ?? defaults.points))} />
             </>
           )}
         </div>
@@ -605,47 +651,52 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
       {/* Main content */}
       <div className="flex-1 flex items-center justify-center relative overflow-hidden">
 
-        {/* Time ranks — top right */}
-        {entry && showTime && (timeGroupData?.pos != null || timeGlobalData?.pos != null) && (
-          <div className="absolute top-3 right-4 z-10 text-right">
+        {/* Time ranks — left center between Поз and Бали */}
+        {entry && effectiveShowTime && (timeGroupData?.pos != null || timeGlobalData?.pos != null) && (
+          <div className="absolute left-3 z-10 font-mono flex items-center gap-3" style={{ top: '50%', transform: 'translateY(-50%)', fontSize: 'clamp(1rem, 3vw, 1.4rem)' }}>
             {timeGroupData?.pos != null && (
-              <div className="font-mono text-dark-300 font-semibold" style={{ fontSize: 'clamp(1rem, 3vw, 1.4rem)' }}>
-                T1={timeGroupData.pos}/{timeGroupData.total}
-              </div>
+              <span className="text-dark-300 font-semibold">T1={timeGroupData.pos}/{timeGroupData.total}</span>
             )}
             {timeGlobalData?.pos != null && (
-              <div className="font-mono text-dark-400" style={{ fontSize: 'clamp(1rem, 3vw, 1.4rem)' }}>
-                T2={timeGlobalData.pos}/{timeGlobalData.total}
-              </div>
+              <span className="text-dark-400">T2={timeGlobalData.pos}/{timeGlobalData.total}</span>
             )}
           </div>
         )}
 
         {/* Position leaderboard — top left */}
-        {entry && effectiveShowPos && positionLeaderboard && (
-          <div className="absolute top-2 left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5"
-               style={{ fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
-            {positionLeaderboard.items.map((item) => {
-              const isMe = item.pilot === positionLeaderboard.myPilot;
-              const name = shortName(item.pilot);
-              const clipped = name.length > 7 ? name.slice(0, 7) + '.' : name;
-              return (
-                <div key={item.pilot} className={`flex items-center gap-1.5 leading-snug ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
-                  <span className={isMe ? 'text-lg' : ''} style={isMe ? { fontSize: 'clamp(1rem, 3vw, 1.4rem)' } : {}}>P{item.pos}</span>
-                  {item.delta != null && item.delta !== 0 && (
-                    <span className={`text-[0.7em] ${item.delta > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {item.delta > 0 ? '\u25B2' : '\u25BC'}{Math.abs(item.delta)}
-                    </span>
-                  )}
-                  <span>{clipped}</span>
-                  {item.gapToNext != null && (
-                    <span className="text-dark-600 text-[0.8em]">+{item.gapToNext.toFixed(2)}</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {entry && effectiveShowPos && positionLeaderboard && (() => {
+          const renderRow = (item: PosEntry) => {
+            const isMe = item.pilot === positionLeaderboard.myPilot;
+            const name = shortName(item.pilot);
+            const clipped = name.length > 7 ? name.slice(0, 7) + '.' : name;
+            return (
+              <div key={item.pilot} className={`flex items-center gap-1.5 leading-snug ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
+                <span className={isMe ? 'text-lg' : ''} style={isMe ? { fontSize: 'clamp(1rem, 3vw, 1.4rem)' } : {}}>P{item.pos}</span>
+                {item.delta != null && item.delta !== 0 && (
+                  <span className={`text-[0.7em] ${item.delta > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {item.delta > 0 ? '\u25B2' : '\u25BC'}{Math.abs(item.delta)}
+                  </span>
+                )}
+                <span>{clipped}</span>
+                {item.gapToNext != null && (
+                  <span className={`text-[0.8em] ${item.gapToNext < 0 ? 'text-green-400' : item.gapToNext > 0 ? 'text-dark-600' : ''}`}>
+                    {item.gapToNext > 0 ? '+' : item.gapToNext < 0 ? '\u2212' : ''}{Math.abs(item.gapToNext).toFixed(2)}
+                  </span>
+                )}
+              </div>
+            );
+          };
+          return (
+            <div className="absolute top-2 left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5"
+                 style={{ fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
+              {positionLeaderboard.top.map(renderRow)}
+              {positionLeaderboard.hasEllipsis && (
+                <div className="text-dark-600 text-center leading-none py-0.5">···</div>
+              )}
+              {positionLeaderboard.around.map(renderRow)}
+            </div>
+          );
+        })()}
 
         {!isLive ? (
           <div className="text-center">
@@ -659,21 +710,23 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
             <p className="text-dark-600 text-sm mt-1">\u041d\u0435 \u0431\u0435\u0440\u0435 \u0443\u0447\u0430\u0441\u0442\u0456 \u0432 \u0446\u044c\u043e\u043c\u0443 \u0437\u0430\u0457\u0437\u0434\u0456</p>
           </div>
         ) : (
-          <div className="w-full h-full flex items-center justify-end pr-8 pl-4">
+          <div className={`w-full h-full flex items-center pl-4 ${
+            effectiveShowPos || effectiveShowPoints ? 'justify-end pr-8' : 'justify-center'
+          }`}>
             <div className="flex flex-col justify-center items-center">
               <div className={`font-mono font-bold leading-none ${COLOR_CLASSES[lapColor]}`}
                    style={{ fontSize: 'clamp(4rem, 15vw, 10rem)' }}>
                 {entry.lastLap ? toSeconds(entry.lastLap) : '\u2014'}
               </div>
 
-              {showSectors && sectorDiffs.lap != null && (
+              {effectiveShowSectors && sectorDiffs.lap != null && (
                 <span className={`font-mono font-bold mb-2 ${sectorDiffs.lap <= 0 ? 'text-green-400' : 'text-red-400/70'}`}
                       style={{ fontSize: 'clamp(1.2rem, 3.5vw, 2rem)' }}>
                   {sectorDiffs.lap <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.lap).toFixed(3)}
                 </span>
               )}
 
-              {showSectors && (
+              {effectiveShowSectors && (
               <div className="flex items-center justify-center gap-8 mt-2">
                 <div className="flex flex-col items-center">
                   <div className={`font-mono font-bold ${COLOR_CLASSES[s1Color]}`}
@@ -708,7 +761,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
       </div>
 
       {/* Бали — standings leaderboard + race points, bottom left */}
-      {entry && showPoints && standingsLeaderboard && (
+      {entry && effectiveShowPoints && standingsLeaderboard && (
         <div className="absolute bottom-3 left-3 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-3 py-2"
              style={{ fontSize: 'clamp(0.8rem, 2.5vw, 1.1rem)' }}>
           {standingsLeaderboard.items.map((item) => {
