@@ -1686,11 +1686,11 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
   return (
     <Link to={`/results/${type}/${c.id}`}
       className="card px-4 py-2.5 block hover:bg-dark-700/50 transition-colors">
-      <div className="flex items-start gap-4">
-        <span className="text-dark-400 font-mono text-xs w-[6.5ch] shrink-0 pt-0.5">{compDate}</span>
-        <span className="text-white font-medium text-sm w-[8em] shrink-0 pt-0.5">{compName}</span>
+      <div className="flex items-center gap-4">
+        <span className="text-dark-300 font-mono text-sm w-[7ch] shrink-0">{compDate}</span>
+        <span className="text-white font-semibold text-sm w-[8em] shrink-0">{compName}</span>
         {trackId != null && (
-          <span className="text-white text-xs w-[3.5em] shrink-0 pt-0.5">Тр. {trackDisplayId(trackId)}</span>
+          <span className="text-white text-sm w-[3.5em] shrink-0">Тр. {trackDisplayId(trackId)}</span>
         )}
         {top3.length > 0 && (
           <div className="flex flex-col text-xs font-mono min-w-0">
@@ -1703,7 +1703,7 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
             ))}
           </div>
         )}
-        <div className="flex items-center gap-2 shrink-0 ml-auto pt-0.5">
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
           {isOwner && (
             <button
               onClick={handleDelete}
