@@ -437,7 +437,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const SortBtn = ({ k, label, fixedDir }: { k: SortKey; label: string; fixedDir?: 'asc' | 'desc' }) => (
     <button onClick={() => toggleSort(k, fixedDir)}
-      className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${sortKey === k ? 'bg-primary-600/30 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
+      className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${sortKey === k ? 'bg-yellow-500/20 text-yellow-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
       {label} {fixedDir ? (fixedDir === 'asc' ? '↑' : '↓') : (sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '')}
     </button>
   );
