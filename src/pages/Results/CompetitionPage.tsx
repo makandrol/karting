@@ -56,7 +56,7 @@ export default function CompetitionPage() {
   const changeTrackRef = useRef<((newTrackId: number) => Promise<void>) | null>(null);
   const autoClosedRef = useRef(false);
 
-  const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[]) => {
+  const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[], cancelled: () => boolean) => {
     const dates = new Set<string>();
     for (const s of sessions) {
       const m = s.sessionId.match(/session-(\d+)/);
@@ -65,6 +65,7 @@ export default function CompetitionPage() {
     const sessionIds = new Set(sessions.map(s => s.sessionId));
     const all: SessionTableRow[] = [];
     for (const date of dates) {
+      if (cancelled()) return;
       try {
         const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
         if (res.ok) {
@@ -73,6 +74,7 @@ export default function CompetitionPage() {
         }
       } catch {}
     }
+    if (cancelled()) return;
     setCompSessions(all);
     if (all.length > 0 && all.every(s => s.end_time !== null && s.end_time !== undefined)) {
       setAllSessionsEnded(true);
@@ -80,32 +82,37 @@ export default function CompetitionPage() {
   };
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setCompetition(null);
     setCompetitions([]);
     setCompSessions([]);
     setAllSessionsEnded(false);
     setPilotCount(0);
+    manuallyReopened.current = false;
+    autoClosedRef.current = false;
     if (eventId) {
       fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(eventId)}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
+          if (cancelled) return;
           setCompetition(data);
-          if (data?.sessions?.length > 0) fetchCompSessions(data.sessions);
+          if (data?.sessions?.length > 0) fetchCompSessions(data.sessions, () => cancelled);
           setLoading(false);
         })
-        .catch(() => setLoading(false));
+        .catch(() => { if (!cancelled) setLoading(false); });
     } else if (type) {
       fetch(`${COLLECTOR_URL}/competitions?format=${type}`)
         .then(r => r.json())
-        .then(data => { setCompetitions(data); setLoading(false); })
-        .catch(() => setLoading(false));
+        .then(data => { if (!cancelled) { setCompetitions(data); setLoading(false); } })
+        .catch(() => { if (!cancelled) setLoading(false); });
     } else {
       fetch(`${COLLECTOR_URL}/competitions`)
         .then(r => r.json())
-        .then(data => { setCompetitions(data); setLoading(false); })
-        .catch(() => setLoading(false));
+        .then(data => { if (!cancelled) { setCompetitions(data); setLoading(false); } })
+        .catch(() => { if (!cancelled) setLoading(false); });
     }
+    return () => { cancelled = true; };
   }, [type, eventId]);
 
   const allPhasesLinked = (() => {
@@ -307,7 +314,7 @@ export default function CompetitionPage() {
                         body: JSON.stringify({ results: newResults, sessions: reassigned }),
                       });
                       setCompetition(prev => prev ? { ...prev, results: newResults, sessions: reassigned } : prev);
-                      if (reassigned.length > currentSessions.length) fetchCompSessions(reassigned);
+                      if (reassigned.length > currentSessions.length) fetchCompSessions(reassigned, () => false);
                     } else {
                       await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
                         method: 'PATCH',

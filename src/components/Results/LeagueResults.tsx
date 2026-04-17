@@ -491,7 +491,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const topOrder = showCustom ? customTopOrder : DEFAULT_TOP_ORDER;
 
   const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && (r.quali || r.qualis?.some(q => q))).length;
-  Promise.resolve().then(() => {
+  useEffect(() => {
     onPilotCount?.(autoTotalPilots);
     onAutoGroups?.(autoGroupsByQuali);
 
@@ -505,7 +505,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
         onSaveResults({ standings });
       }
     }
-  });
+  }, [autoTotalPilots, autoGroupsByQuali, data, excludedPilots]);
 
   const handlePilotsOverrideChange = (val: number) => {
     setPilotsOverride(val);
