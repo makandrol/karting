@@ -1687,7 +1687,7 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
     <Link to={`/results/${type}/${c.id}`}
       className="card px-4 py-2.5 block hover:bg-dark-700/50 transition-colors">
       <div className="flex items-center gap-3">
-        <span className="text-white font-semibold text-sm w-[14em] shrink-0">{compDate}, {compLabel}</span>
+        <span className="text-white font-semibold text-sm w-[11em] shrink-0">{compDate}, {compLabel}</span>
         {c.status === 'live' && (
           <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-500/15 text-green-400 shrink-0">
             Live
@@ -1698,7 +1698,7 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
             {top3.map((p, i) => (
               <span key={p.pilot} className="flex items-center gap-1 whitespace-nowrap leading-tight">
                 <span className={i === 0 ? 'text-yellow-400' : i === 1 ? 'text-dark-400' : 'text-amber-700'}>{i + 1}.</span>
-                <span className="text-white inline-block w-[10ch] truncate">{shortName(p.pilot)}</span>
+                <span className="text-white inline-block w-[12ch] truncate">{shortName(p.pilot)}</span>
                 <span className="text-green-400 tabular-nums">{isGonzales ? p.value.toFixed(2) : p.value}</span>
               </span>
             ))}
