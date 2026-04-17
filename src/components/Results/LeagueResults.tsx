@@ -408,6 +408,23 @@ export default function LeagueResults({ format, competitionId, sessions, session
   };
   const sortableCursor = (colId: string) => colSortInfo(colId) ? ' cursor-pointer hover:text-white' : '';
 
+  const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && (r.quali || r.qualis?.some(q => q))).length;
+  useEffect(() => {
+    onPilotCount?.(autoTotalPilots);
+    onAutoGroups?.(autoGroupsByQuali);
+
+    if (data.length > 0 && onSaveResults) {
+      const standings = rowsToStandings(data, excludedPilots, format);
+      const json = JSON.stringify(standings.pilots);
+      const now = Date.now();
+      if (json !== lastStandingsJsonRef.current && now - lastStandingsPushTsRef.current > 10_000) {
+        lastStandingsJsonRef.current = json;
+        lastStandingsPushTsRef.current = now;
+        onSaveResults({ standings });
+      }
+    }
+  }, [autoTotalPilots, autoGroupsByQuali, data, excludedPilots]);
+
   if (!scoring) return <div className="card text-center py-6 text-dark-500">Завантаження балів...</div>;
   if (sortedData.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
 
@@ -489,23 +506,6 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const thClass = (base: string, colId?: string) => colId && isSortCol(colId) ? `${base} ${SORT_HL}` : base;
 
   const topOrder = showCustom ? customTopOrder : DEFAULT_TOP_ORDER;
-
-  const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && (r.quali || r.qualis?.some(q => q))).length;
-  useEffect(() => {
-    onPilotCount?.(autoTotalPilots);
-    onAutoGroups?.(autoGroupsByQuali);
-
-    if (data.length > 0 && onSaveResults) {
-      const standings = rowsToStandings(data, excludedPilots, format);
-      const json = JSON.stringify(standings.pilots);
-      const now = Date.now();
-      if (json !== lastStandingsJsonRef.current && now - lastStandingsPushTsRef.current > 10_000) {
-        lastStandingsJsonRef.current = json;
-        lastStandingsPushTsRef.current = now;
-        onSaveResults({ standings });
-      }
-    }
-  }, [autoTotalPilots, autoGroupsByQuali, data, excludedPilots]);
 
   const handlePilotsOverrideChange = (val: number) => {
     setPilotsOverride(val);
