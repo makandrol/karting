@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
-import { toSeconds, isValidSession, KART_COLOR } from '../../utils/timing';
+import { toSeconds, isValidSession, KART_COLOR, shortName } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
@@ -569,10 +569,32 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       />
     );
 
+    const gonzalesTop3 = (() => {
+      const pilots = competition.results?.standings?.pilots;
+      if (!pilots || pilots.length === 0) return null;
+      const top = pilots
+        .filter((p: any) => p.averageTime != null)
+        .sort((a: any, b: any) => a.averageTime - b.averageTime)
+        .slice(0, 3);
+      if (top.length === 0) return null;
+      return top as { pilot: string; averageTime: number }[];
+    })();
+
     const sessionsEl = compSessions.length > 0 ? (
       <div key="sessions" className="card p-0 overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-dark-800">
+        <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
           <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
+          {gonzalesTop3 && (
+            <div className="flex items-center gap-3 text-xs font-mono">
+              {gonzalesTop3.map((p, i) => (
+                <span key={p.pilot} className="flex items-center gap-1">
+                  <span className={i === 0 ? 'text-yellow-400' : i === 1 ? 'text-dark-300' : 'text-amber-700'}>{i + 1}.</span>
+                  <span className="text-dark-400">{shortName(p.pilot)}</span>
+                  <span className="text-green-400">{p.averageTime.toFixed(2)}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <SessionsTable sessions={compSessions} />
       </div>
