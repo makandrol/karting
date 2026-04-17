@@ -1625,17 +1625,49 @@ function getCompetitionDisplayName(c: Competition): string {
   return name;
 }
 
+const COMP_LIST_NAMES: Record<string, string> = {
+  gonzales: 'Гонзалес',
+  light_league: 'Лайт Ліга',
+  champions_league: 'Ліга чемп.',
+  sprint: 'Спринт',
+  marathon: 'Марафон',
+};
+
 function CompetitionListItem({ competition: c, type, onDelete }: { competition: Competition; type: string; onDelete?: (id: string) => void }) {
   const { isOwner } = useAuth();
   const [confirming, setConfirming] = useState(false);
-  let top3: { pilot: string; totalPoints: number }[] = [];
+
+  const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
+  const isGonzales = c.format === 'gonzales';
+  let top3: { pilot: string; value: number }[] = [];
   try {
-    const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
     const pilots = results?.standings?.pilots;
     if (Array.isArray(pilots)) {
-      top3 = pilots.slice(0, 3).map((p: any) => ({ pilot: p.pilot, totalPoints: p.totalPoints }));
+      if (isGonzales) {
+        top3 = pilots
+          .filter((p: any) => p.averageTime != null)
+          .sort((a: any, b: any) => a.averageTime - b.averageTime)
+          .slice(0, 3)
+          .map((p: any) => ({ pilot: p.pilot, value: p.averageTime }));
+      } else {
+        top3 = pilots.slice(0, 3).map((p: any) => ({ pilot: p.pilot, value: p.totalPoints }));
+      }
     }
   } catch {}
+
+  const compDate = (() => {
+    if (c.sessions.length > 0) {
+      const m = c.sessions[0].sessionId.match(/session-(\d+)/);
+      if (m) {
+        const d = new Date(parseInt(m[1]));
+        return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getFullYear()).slice(2)}`;
+      }
+    }
+    return c.date || '';
+  })();
+
+  const trackId = results?.trackId;
+  const compName = COMP_LIST_NAMES[c.format] || c.format;
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -1653,21 +1685,25 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
 
   return (
     <Link to={`/results/${type}/${c.id}`}
-      className="card p-4 block hover:bg-dark-700/50 transition-colors">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="text-white font-medium truncate">{getCompetitionDisplayName(c)}</div>
-          {top3.length > 0 && (
-            <div className="flex flex-col shrink-0">
-              {top3.map((p, i) => (
-                <span key={p.pilot} className="text-dark-400 text-[10px] leading-tight whitespace-nowrap">
-                  {i + 1}. {p.pilot} — {p.totalPoints}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+      className="card px-4 py-2.5 block hover:bg-dark-700/50 transition-colors">
+      <div className="flex items-center gap-4">
+        <span className="text-dark-400 font-mono text-xs w-[5.5ch] shrink-0">{compDate}</span>
+        <span className="text-white font-medium text-sm w-[7.5em] shrink-0">{compName}</span>
+        {trackId != null && (
+          <span className="text-dark-500 text-xs w-[3.5em] shrink-0">Тр. {trackDisplayId(trackId)}</span>
+        )}
+        {top3.length > 0 && (
+          <div className="flex items-center gap-3 text-xs font-mono min-w-0">
+            {top3.map((p, i) => (
+              <span key={p.pilot} className="flex items-center gap-1 whitespace-nowrap">
+                <span className={i === 0 ? 'text-yellow-400' : i === 1 ? 'text-dark-400' : 'text-amber-700'}>{i + 1}.</span>
+                <span className="text-white">{shortName(p.pilot)}</span>
+                <span className="text-green-400">{isGonzales ? p.value.toFixed(2) : p.value}</span>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
           {isOwner && (
             <button
               onClick={handleDelete}
