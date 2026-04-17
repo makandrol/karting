@@ -1687,8 +1687,7 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
     <Link to={`/results/${type}/${c.id}`}
       className="card px-4 py-2.5 block hover:bg-dark-700/50 transition-colors">
       <div className="flex items-center gap-3">
-        <span className="text-dark-300 font-mono text-sm shrink-0">{compDate}</span>
-        <span className="text-white font-semibold text-sm shrink-0">{compLabel}</span>
+        <span className="text-white font-semibold text-sm shrink-0">{compDate}, {compLabel}</span>
         {c.status === 'live' && (
           <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-500/15 text-green-400 shrink-0">
             Live
