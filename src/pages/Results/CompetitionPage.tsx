@@ -1627,8 +1627,8 @@ function getCompetitionDisplayName(c: Competition): string {
 
 const COMP_LIST_NAMES: Record<string, string> = {
   gonzales: 'Гонзалес',
-  light_league: 'Лайт Ліга',
-  champions_league: 'Ліга чемп.',
+  light_league: 'Лайт ліга',
+  champions_league: 'Ліга чемпіонів',
   sprint: 'Спринт',
   marathon: 'Марафон',
 };
@@ -1688,7 +1688,7 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
       className="card px-4 py-2.5 block hover:bg-dark-700/50 transition-colors">
       <div className="flex items-center gap-4">
         <span className="text-dark-300 font-mono text-sm w-[7ch] shrink-0">{compDate}</span>
-        <span className="text-white font-semibold text-sm w-[8em] shrink-0">{compName}</span>
+        <span className="text-white font-semibold text-sm w-[10em] shrink-0">{compName}</span>
         {trackId != null && (
           <span className="text-white text-sm w-[3.5em] shrink-0">Тр. {trackDisplayId(trackId)}</span>
         )}
