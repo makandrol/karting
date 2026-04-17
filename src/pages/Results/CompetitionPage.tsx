@@ -590,7 +590,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
                 <span key={p.pilot} className="flex items-center gap-1">
                   <span className={i === 0 ? 'text-yellow-400' : i === 1 ? 'text-dark-300' : 'text-amber-700'}>{i + 1}.</span>
                   <span className="text-dark-400">{shortName(p.pilot)}</span>
-                  <span className="text-green-400">{p.averageTime.toFixed(2)}</span>
+                  <span className="text-green-400">{p.averageTime.toFixed(2)}с</span>
                 </span>
               ))}
             </div>
@@ -1699,7 +1699,7 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
               <span key={p.pilot} className="flex items-center gap-1 whitespace-nowrap leading-tight">
                 <span className={i === 0 ? 'text-yellow-400' : i === 1 ? 'text-dark-400' : 'text-amber-700'}>{i + 1}.</span>
                 <span className="text-white inline-block w-[12ch] truncate">{shortName(p.pilot)}</span>
-                <span className="text-green-400 tabular-nums">{isGonzales ? p.value.toFixed(2) : p.value}</span>
+                <span className="text-green-400 tabular-nums">{isGonzales ? `${p.value.toFixed(2)}с` : p.value}</span>
               </span>
             ))}
           </div>
