@@ -644,6 +644,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
         groupCountOverride={competition.results?.groupCountOverride ?? null}
         racePilotCount={competition.results?.racePilotCount ?? null}
+        officialResultsUrl={competition.results?.officialResultsUrl}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
         onSaveResults={saveResults}

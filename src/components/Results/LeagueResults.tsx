@@ -8,6 +8,7 @@ import {
   type PilotQualiData, type PilotRaceData, type PilotRow, type ManualEdits,
   computeStandings, computeSprintStandings, rowsToStandings, sprintAwareSort,
 } from '../../utils/scoring';
+import { getCsvExportUrl, parseSheetData, comparePilots, debugParseColumns, type ComparisonDiff } from '../../utils/sheetsCompare';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -32,6 +33,7 @@ interface LeagueResultsProps {
   totalPilotsLocked?: boolean;
   groupCountOverride?: number | null;
   racePilotCount?: number | null;
+  officialResultsUrl?: string;
   onSaveResults?: (partial: Record<string, any>) => Promise<void>;
   onPilotCount?: (n: number) => void;
   onAutoGroups?: (n: number) => void;
@@ -63,7 +65,7 @@ function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
   );
 }
 
-export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePhase, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, racePilotCount, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
+export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePhase, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, racePilotCount, officialResultsUrl, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
   const { isSectionVisible } = useLayoutPrefs();
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
@@ -99,6 +101,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const editingRef = useRef(false);
   const lastStandingsJsonRef = useRef('');
   const lastStandingsPushTsRef = useRef(0);
+
+  const [sheetUrl, setSheetUrl] = useState(officialResultsUrl || '');
+  const [editingUrl, setEditingUrl] = useState(false);
+  const [comparisonDiffs, setComparisonDiffs] = useState<ComparisonDiff[] | null>(null);
+  const [comparingLoading, setComparingLoading] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string | null>(null);
   const [selectedPilot, setSelectedPilot] = useState<string | null>(null);
 
   const [pilotsOverride, setPilotsOverride] = useState<number | null>(totalPilotsOverride ?? null);
@@ -564,6 +573,48 @@ export default function LeagueResults({ format, competitionId, sessions, session
     });
   };
 
+  const handleSaveUrl = async (url: string) => {
+    setSheetUrl(url);
+    setEditingUrl(false);
+    if (onSaveResults) await onSaveResults({ officialResultsUrl: url });
+  };
+
+  const handleCompare = async () => {
+    const url = sheetUrl.trim();
+    if (!url) return;
+    setComparingLoading(true);
+    setCompareError(null);
+    setComparisonDiffs(null);
+    setDebugInfo(null);
+    try {
+      const csvUrl = getCsvExportUrl(url);
+      if (!csvUrl) throw new Error('Невалідне посилання на Google Sheets');
+      const proxyUrl = `${COLLECTOR_URL}/proxy/sheets-csv?url=${encodeURIComponent(csvUrl)}`;
+      const resp = await fetch(proxyUrl);
+      if (!resp.ok) throw new Error(`Помилка завантаження: ${resp.status}`);
+      const csv = await resp.text();
+
+      const debug = debugParseColumns(csv);
+      if (debug) {
+        setDebugInfo(
+          `Рядок даних: ${debug.dataStart}, Стовпці: група=[${debug.groupCols}] старт=[${debug.startCols}] фініш=[${debug.finishCols}] штрафи=[${debug.penaltyCols}] сума=${debug.sumaCol}\n` +
+          `Заголовки: ${debug.headers.map(h => `${h.col}:[${h.labels.join(',')}]`).join(' ')}\n` +
+          `Приклад: ${debug.sampleRow.slice(0, 20).join(' | ')}`
+        );
+      }
+
+      const sheetPilots = parseSheetData(csv, raceCount);
+      if (sheetPilots.length === 0) throw new Error('Не вдалося розпарсити таблицю');
+      const included = data.filter(r => !excludedPilots.has(r.pilot));
+      const diffs = comparePilots(included, sheetPilots, raceCount);
+      setComparisonDiffs(diffs);
+    } catch (e: any) {
+      setCompareError(e.message || 'Помилка порівняння');
+    } finally {
+      setComparingLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-4 max-w-full overflow-hidden">
         <div className="card p-0 overflow-hidden">
@@ -649,6 +700,53 @@ export default function LeagueResults({ format, competitionId, sessions, session
                 </>
               )}
             </div>
+            {canManage ? (
+              <div className="flex items-center gap-1.5 flex-wrap border border-dark-700 rounded-lg px-2.5 py-1">
+                <span className="text-dark-500 text-[9px]">Офіц:</span>
+                {editingUrl ? (
+                  <input
+                    type="text"
+                    value={sheetUrl}
+                    onChange={e => setSheetUrl(e.target.value)}
+                    onBlur={() => handleSaveUrl(sheetUrl)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleSaveUrl(sheetUrl); if (e.key === 'Escape') { setSheetUrl(officialResultsUrl || ''); setEditingUrl(false); } }}
+                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                    className="flex-1 min-w-[200px] bg-dark-800 text-dark-300 text-[10px] px-1.5 py-0.5 rounded outline-none border border-dark-600 focus:border-primary-500"
+                    autoFocus
+                  />
+                ) : (
+                  <>
+                    {sheetUrl ? (
+                      <a href={sheetUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary-400 hover:underline truncate max-w-[250px]" title={sheetUrl}>
+                        Google Sheets
+                      </a>
+                    ) : (
+                      <span className="text-dark-600 text-[10px]">не вказано</span>
+                    )}
+                    <button onClick={() => setEditingUrl(true)} className="px-1 py-0.5 rounded text-[9px] bg-dark-800 text-dark-600 hover:text-dark-400 transition-colors">
+                      {sheetUrl ? '✎' : '+ додати'}
+                    </button>
+                  </>
+                )}
+                {sheetUrl && !editingUrl && (
+                  <button
+                    onClick={handleCompare}
+                    disabled={comparingLoading}
+                    className="px-1.5 py-0.5 rounded text-[9px] bg-dark-800 text-dark-500 hover:text-yellow-400 hover:bg-yellow-500/10 transition-colors disabled:opacity-50"
+                  >
+                    {comparingLoading ? '...' : 'Порівняти'}
+                  </button>
+                )}
+                {compareError && <span className="text-red-400 text-[9px]">{compareError}</span>}
+              </div>
+            ) : sheetUrl ? (
+              <div className="flex items-center gap-1.5 border border-dark-700 rounded-lg px-2.5 py-1">
+                <span className="text-dark-500 text-[9px]">Офіц:</span>
+                <a href={sheetUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary-400 hover:underline truncate max-w-[300px]" title={sheetUrl}>
+                  Google Sheets
+                </a>
+              </div>
+            ) : null}
           </div>
           <div className="overflow-x-auto">
             <table className="text-[10px] border-separate border-spacing-0" style={{ tableLayout: 'auto', width: 'auto' }}>
@@ -1156,6 +1254,56 @@ export default function LeagueResults({ format, competitionId, sessions, session
             </table>
           </div>
         </div>
+
+      {comparisonDiffs !== null && (
+        <div className="card p-0 overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
+            <span className="text-white text-sm font-medium">Порівняння з офіційною таблицею</span>
+            <button onClick={() => { setComparisonDiffs(null); setDebugInfo(null); }} className="text-dark-500 hover:text-dark-300 text-xs transition-colors">Закрити</button>
+          </div>
+          {debugInfo && (
+            <details className="px-4 py-1.5 border-b border-dark-800/50">
+              <summary className="text-dark-600 text-[10px] cursor-pointer hover:text-dark-400">Дебаг-інфо розпарсених колонок</summary>
+              <pre className="text-dark-500 text-[9px] mt-1 whitespace-pre-wrap font-mono">{debugInfo}</pre>
+            </details>
+          )}
+          {comparisonDiffs.length === 0 ? (
+            <div className="px-4 py-6 text-center text-green-400 text-sm">Все збігається!</div>
+          ) : (
+            <div className="max-h-96 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-dark-900 z-10">
+                  <tr className="border-b border-dark-700">
+                    <th className="text-left px-3 py-2 text-dark-400">Пілот</th>
+                    <th className="text-left px-3 py-2 text-dark-400">Поле</th>
+                    <th className="text-center px-3 py-2 text-dark-400">Ми</th>
+                    <th className="text-center px-3 py-2 text-dark-400">Картодром</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparisonDiffs.map((d, di) => (
+                    d.diffs.map((diff, dfi) => (
+                      <tr key={`${di}-${dfi}`} className="border-b border-dark-800/50 hover:bg-dark-800/30">
+                        {dfi === 0 && (
+                          <td rowSpan={d.diffs.length} className="px-3 py-1.5 text-white font-medium align-top border-r border-dark-800/50">
+                            {d.pilot}{d.pilot !== d.sheetPilot && d.sheetPilot !== '???' && <span className="text-dark-500 text-[10px] block">{d.sheetPilot}</span>}
+                          </td>
+                        )}
+                        <td className="px-3 py-1.5 text-dark-300">{diff.field}</td>
+                        <td className={`px-3 py-1.5 text-center font-mono ${diff.ours !== diff.theirs ? 'text-yellow-400' : 'text-dark-300'}`}>{diff.ours}</td>
+                        <td className={`px-3 py-1.5 text-center font-mono ${diff.ours !== diff.theirs ? 'text-red-400' : 'text-dark-300'}`}>{diff.theirs}</td>
+                      </tr>
+                    ))
+                  ))}
+                </tbody>
+              </table>
+              <div className="px-4 py-2 text-dark-500 text-[10px] border-t border-dark-800">
+                {comparisonDiffs.length} {comparisonDiffs.length === 1 ? 'пілот' : comparisonDiffs.length < 5 ? 'пілоти' : 'пілотів'} з розбіжностями
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {isOwner && isSectionVisible('competition', 'editLog') && (
         <EditLog competitionId={competitionId} />
