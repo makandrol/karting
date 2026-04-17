@@ -358,12 +358,12 @@ export default function CompetitionPage() {
         </div>
       </div>
 
-      <LiveResults key={competition.id} competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} changeTrackRef={changeTrackRef} />
+      <LiveResults key={competition.id} competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} changeTrackRef={changeTrackRef} onRefreshSessions={(sessions) => fetchCompSessions(sessions, () => false)} />
     </div>
   );
 }
 
-function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups, changeTrackRef }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void; changeTrackRef?: React.MutableRefObject<((newTrackId: number) => Promise<void>) | null> }) {
+function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups, changeTrackRef, onRefreshSessions }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void; changeTrackRef?: React.MutableRefObject<((newTrackId: number) => Promise<void>) | null>; onRefreshSessions?: (sessions: { sessionId: string; phase: string | null }[]) => void }) {
   const { isOwner } = useAuth();
   const { isSectionVisible } = useLayoutPrefs();
   const [competition, setCompetition] = useState(initialCompetition);
@@ -480,6 +480,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     return map;
   };
 
+  const knownSessionCountRef = useRef(initialCompetition.sessions.length);
+
   useEffect(() => {
     let cancelled = false;
     fetchAllLaps(initialCompetition).then(map => {
@@ -497,6 +499,10 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         if (typeof fresh.sessions === 'string') fresh.sessions = JSON.parse(fresh.sessions);
         if (typeof fresh.results === 'string') fresh.results = JSON.parse(fresh.results);
         setCompetition(fresh);
+        if (fresh.sessions.length !== knownSessionCountRef.current) {
+          knownSessionCountRef.current = fresh.sessions.length;
+          onRefreshSessions?.(fresh.sessions);
+        }
         const map = await fetchAllLaps(fresh);
         if (!cancelled) setSessionLaps(map);
       } catch {}
