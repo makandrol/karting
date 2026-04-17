@@ -383,6 +383,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
   }, [sortKey]);
   const isSortCol = (colId: string) => colId === sortColId;
   const SORT_HL = 'bg-primary-600/10';
+  const PENALTY_BG = 'bg-red-500/[0.04]';
+  const CHECKERED_STYLE = { backgroundImage: 'repeating-conic-gradient(rgba(255,255,255,0.03) 0% 25%, transparent 0% 50%)', backgroundSize: '8px 8px' } as const;
 
   const colSortInfo = (colId: string): { key: SortKey; dir: 'asc' | 'desc' } | null => {
     if (colId === '__total__') return { key: 'total', dir: 'desc' };
@@ -723,7 +725,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         return <Fragment key={gid}>
                           {visible.map(sc => {
                             const cid = raceColId(rn, sc.col);
-                            return <th key={sc.col} className={`${TH_V}${isSortCol(cid) ? ` ${SORT_HL}` : ''}${sortableCursor(cid)}`} onClick={() => handleColClick(cid)}><span className={TH_R}>{sc.label}</span></th>;
+                            return <th key={sc.col} className={`${TH_V}${isSortCol(cid) ? ` ${SORT_HL}` : ''}${sortableCursor(cid)}`} style={sc.col === 'finish' ? CHECKERED_STYLE : undefined} onClick={() => handleColClick(cid)}><span className={TH_R}>{sc.label}</span></th>;
                           })}
                         </Fragment>;
                       })}
@@ -773,10 +775,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           if (base === 'speed') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30${hl}`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>;
                           if (base === 'group') return <td key={col} className={`px-1 py-1 text-center font-mono text-dark-500 border-r border-dark-700/30${hl}`}>{race?.group || '—'}</td>;
                           if (base === 'start') return <td key={col} className={`px-1 py-1 text-center font-mono text-dark-400 border-r border-dark-700/30${hl}`}>{race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell editingRef={editingRef} value={race.startPos} onChange={v => setEdit(row.pilot, rn, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}</td>;
-                          if (base === 'finish') return <td key={col} className={`px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30${hl}`}>{race ? (<span className="inline-flex items-center gap-0.5">{canManage ? <EditableCell editingRef={editingRef} value={race.finishPos} onChange={v => setEdit(row.pilot, rn, 'finishPos', v)} /> : <span>{race.finishPos}</span>}{posChange !== 0 && <span className={`text-[8px] ${posChange > 0 ? 'text-green-400' : 'text-red-400'}`}>{posChange > 0 ? `▲${posChange}` : `▼${Math.abs(posChange)}`}</span>}</span>) : '—'}</td>;
+                          if (base === 'finish') return <td key={col} className={`px-1 py-1 text-center font-mono text-dark-300 border-r border-dark-700/30${hl}`} style={CHECKERED_STYLE}>{race ? (<span className="inline-flex items-center justify-center relative">{canManage ? <EditableCell editingRef={editingRef} value={race.finishPos} onChange={v => setEdit(row.pilot, rn, 'finishPos', v)} /> : <span>{race.finishPos}</span>}{posChange !== 0 && <span className={`absolute -right-3 text-[8px] ${posChange > 0 ? 'text-green-400' : 'text-red-400'}`}>{posChange > 0 ? `▲${posChange}` : `▼${Math.abs(posChange)}`}</span>}</span>) : '—'}</td>;
                           if (base === 'pos_pts') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30${hl}`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>;
                           if (base === 'overtake') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30${hl}`}>{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>;
-                          if (base === 'penalties') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30${hl}`}>{race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, rn, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}</td>;
+                          if (base === 'penalties') return <td key={col} className={`px-1 py-1 text-center font-mono border-r border-dark-700/30 ${PENALTY_BG}${hl}`}>{race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, rn, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}</td>;
                           if (base === 'sum') {
                             let sumVal = race?.totalRacePoints ?? 0;
                             if (isSprint && rn === 2) {
@@ -945,11 +947,11 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     return <Fragment key={gid}>
                       {colVisible(raceColId(rn, 'group')) && <th className={thClass(TH_V, raceColId(rn, 'group'))}><span className={TH_R}>Група</span></th>}
                       {colVisible(raceColId(rn, 'start')) && <th className={thClass(TH_V, raceColId(rn, 'start'))}><span className={TH_R}>Старт</span></th>}
-                      {colVisible(raceColId(rn, 'finish')) && <th className={thClass(TH_V, raceColId(rn, 'finish'))}><span className={TH_R}>Фініш</span></th>}
+                      {colVisible(raceColId(rn, 'finish')) && <th className={thClass(TH_V, raceColId(rn, 'finish'))} style={CHECKERED_STYLE}><span className={TH_R}>Фініш</span></th>}
                       {colVisible(raceColId(rn, 'kart')) && <th className={thClass(TH_V, raceColId(rn, 'kart'))}><span className={TH_R}>Карт</span></th>}
                       {colVisible(raceColId(rn, 'time')) && <th className={`${thClass(TH_V, raceColId(rn, 'time'))}${sortableCursor(raceColId(rn, 'time'))}`} onClick={() => handleColClick(raceColId(rn, 'time'))}><span className={TH_R}>Час</span></th>}
                       {colVisible(raceColId(rn, 'speed')) && <th className={thClass(TH_V, raceColId(rn, 'speed'))}><span className={TH_R}>Швидк.</span></th>}
-                      {colVisible(raceColId(rn, 'penalties')) && <th className={thClass(TH_V, raceColId(rn, 'penalties'))}><span className={TH_R}>Штрафи</span></th>}
+                      {colVisible(raceColId(rn, 'penalties')) && <th className={`${thClass(TH_V, raceColId(rn, 'penalties'))} ${PENALTY_BG}`}><span className={TH_R}>Штрафи</span></th>}
                       {colVisible(raceColId(rn, 'pos_pts')) && <th className={`${thClass(TH_V, raceColId(rn, 'pos_pts'))}${sortableCursor(raceColId(rn, 'pos_pts'))}`} onClick={() => handleColClick(raceColId(rn, 'pos_pts'))}><span className={TH_R}>Позиція</span></th>}
                       {colVisible(raceColId(rn, 'sum')) && <th className={`${thClass(TH_V, raceColId(rn, 'sum'))}${sortableCursor(raceColId(rn, 'sum'))}`} onClick={() => handleColClick(raceColId(rn, 'sum'))}><span className={TH_R}>Сума</span></th>}
                     </Fragment>;
@@ -961,13 +963,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       <Fragment key={i}>
                         {colVisible(raceColId(rn, 'group')) && <th className={thClass(TH_V, raceColId(rn, 'group'))}><span className={TH_R}>Група</span></th>}
                         {colVisible(raceColId(rn, 'start')) && <th className={thClass(TH_V, raceColId(rn, 'start'))}><span className={TH_R}>Старт</span></th>}
-                        {colVisible(raceColId(rn, 'finish')) && <th className={thClass(TH_V, raceColId(rn, 'finish'))}><span className={TH_R}>Фініш</span></th>}
+                        {colVisible(raceColId(rn, 'finish')) && <th className={thClass(TH_V, raceColId(rn, 'finish'))} style={CHECKERED_STYLE}><span className={TH_R}>Фініш</span></th>}
                         {colVisible(raceColId(rn, 'kart')) && <th className={thClass(TH_V, raceColId(rn, 'kart'))}><span className={TH_R}>Карт</span></th>}
                         {colVisible(raceColId(rn, 'time')) && <th className={`${thClass(TH_V, raceColId(rn, 'time'))}${sortableCursor(raceColId(rn, 'time'))}`} onClick={() => handleColClick(raceColId(rn, 'time'))}><span className={TH_R}>Час</span></th>}
                         {colVisible(raceColId(rn, 'speed')) && <th className={thClass(TH_V, raceColId(rn, 'speed'))}><span className={TH_R}>Швидк.</span></th>}
                         {colVisible(raceColId(rn, 'pos_pts')) && <th className={`${thClass(TH_V, raceColId(rn, 'pos_pts'))}${sortableCursor(raceColId(rn, 'pos_pts'))}`} onClick={() => handleColClick(raceColId(rn, 'pos_pts'))}><span className={TH_R}>Позиція</span></th>}
                         {colVisible(raceColId(rn, 'overtake')) && <th className={thClass(TH_V, raceColId(rn, 'overtake'))}><span className={TH_R}>Обгони</span></th>}
-                        {colVisible(raceColId(rn, 'penalties')) && <th className={thClass(TH_V, raceColId(rn, 'penalties'))}><span className={TH_R}>Штрафи</span></th>}
+                        {colVisible(raceColId(rn, 'penalties')) && <th className={`${thClass(TH_V, raceColId(rn, 'penalties'))} ${PENALTY_BG}`}><span className={TH_R}>Штрафи</span></th>}
                         {colVisible(raceColId(rn, 'sum')) && <th className={`${thClass(TH_V, raceColId(rn, 'sum'))}${sortableCursor(raceColId(rn, 'sum'))}`} onClick={() => handleColClick(raceColId(rn, 'sum'))}><span className={TH_R}>Сума</span></th>}
                       </Fragment>
                     );
@@ -1075,11 +1077,11 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       return <Fragment key={gid}>
                         {cv('group') && <td className={`px-1 py-1 text-center font-mono text-dark-500 ${rBorder('group')}${rhl('group')}`}>{race?.group || '—'}</td>}
                         {cv('start') && <td className={`px-1 py-1 text-center font-mono text-dark-400 ${rBorder('start')}${rhl('start')}`}>{race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell editingRef={editingRef} value={race.startPos} onChange={v => setEdit(row.pilot, rn, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}</td>}
-                        {cv('finish') && <td className={`px-1 py-1 text-center font-mono text-dark-300 ${rBorder('finish')}${rhl('finish')}`}>{race ? (<span className="inline-flex items-center gap-0.5">{canManage ? <EditableCell editingRef={editingRef} value={race.finishPos} onChange={v => setEdit(row.pilot, rn, 'finishPos', v)} /> : <span>{race.finishPos}</span>}{posChange !== 0 && <span className={`text-[8px] ${posChange > 0 ? 'text-green-400' : 'text-red-400'}`}>{posChange > 0 ? `▲${posChange}` : `▼${Math.abs(posChange)}`}</span>}</span>) : '—'}</td>}
+                        {cv('finish') && <td className={`px-1 py-1 text-center font-mono text-dark-300 ${rBorder('finish')}${rhl('finish')}`} style={CHECKERED_STYLE}>{race ? (<span className="inline-flex items-center justify-center relative">{canManage ? <EditableCell editingRef={editingRef} value={race.finishPos} onChange={v => setEdit(row.pilot, rn, 'finishPos', v)} /> : <span>{race.finishPos}</span>}{posChange !== 0 && <span className={`absolute -right-3 text-[8px] ${posChange > 0 ? 'text-green-400' : 'text-red-400'}`}>{posChange > 0 ? `▲${posChange}` : `▼${Math.abs(posChange)}`}</span>}</span>) : '—'}</td>}
                         {cv('kart') && <td className={`px-1 py-1 text-center font-mono ${KART_COLOR} ${rBorder('kart')}${rhl('kart')}`}>{race?.kart || '—'}</td>}
                         {cv('time') && <td className={`px-1 py-1 text-center font-mono text-yellow-300/70 ${rBorder('time')}${rhl('time')}`}>{race ? toSeconds(race.bestTimeStr) : '—'}</td>}
                         {cv('speed') && <td className={`px-1 py-1 text-center font-mono ${rBorder('speed')}${rhl('speed')}`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
-                        {cv('penalties') && <td className={`px-1 py-1 text-center font-mono ${rBorder('penalties')}${rhl('penalties')}`}>{race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, rn, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}</td>}
+                        {cv('penalties') && <td className={`px-1 py-1 text-center font-mono ${rBorder('penalties')} ${PENALTY_BG}${rhl('penalties')}`}>{race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, rn, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}</td>}
                         {cv('pos_pts') && <td className={`px-1 py-1 text-center font-mono ${rBorder('pos_pts')}${rhl('pos_pts')}`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                         {cv('sum') && (() => {
                           let sumVal = race?.totalRacePoints ?? 0;
@@ -1119,11 +1121,11 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           {cv('start') && <td className={`px-1 py-1 text-center font-mono text-dark-400 ${rBorder('start')}${rhl('start')}`}>
                             {race ? (race.startPos === -1 ? <span className="text-red-400">X</span> : canManage ? <EditableCell editingRef={editingRef} value={race.startPos} onChange={v => setEdit(row.pilot, rn, 'startPos', v)} /> : <span>{race.startPos}</span>) : '—'}
                           </td>}
-                          {cv('finish') && <td className={`px-1 py-1 text-center font-mono text-dark-300 ${rBorder('finish')}${rhl('finish')}`}>
+                          {cv('finish') && <td className={`px-1 py-1 text-center font-mono text-dark-300 ${rBorder('finish')}${rhl('finish')}`} style={CHECKERED_STYLE}>
                             {race ? (
-                              <span className="inline-flex items-center gap-0.5">
+                              <span className="inline-flex items-center justify-center relative">
                                 {canManage ? <EditableCell editingRef={editingRef} value={race.finishPos} onChange={v => setEdit(row.pilot, rn, 'finishPos', v)} /> : <span>{race.finishPos}</span>}
-                                {posChange !== 0 && <span className={`text-[8px] ${posChange > 0 ? 'text-green-400' : 'text-red-400'}`}>{posChange > 0 ? `▲${posChange}` : `▼${Math.abs(posChange)}`}</span>}
+                                {posChange !== 0 && <span className={`absolute -right-3 text-[8px] ${posChange > 0 ? 'text-green-400' : 'text-red-400'}`}>{posChange > 0 ? `▲${posChange}` : `▼${Math.abs(posChange)}`}</span>}
                               </span>
                             ) : '—'}
                           </td>}
@@ -1132,7 +1134,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           {cv('speed') && <td className={`px-1 py-1 text-center font-mono ${rBorder('speed')}${rhl('speed')}`}>{race?.speedPoints ? <span className="text-green-400/80">{race.speedPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                           {cv('pos_pts') && <td className={`px-1 py-1 text-center font-mono ${rBorder('pos_pts')}${rhl('pos_pts')}`}>{race?.positionPoints ? <span className="text-green-400/60">{race.positionPoints}</span> : <span className="text-dark-700">—</span>}</td>}
                           {cv('overtake') && <td className={`px-1 py-1 text-center font-mono ${rBorder('overtake')}${rhl('overtake')}`}>{race?.overtakePoints ? <span className="text-green-400/60">{race.overtakePoints}</span> : <span className="text-dark-700">—</span>}</td>}
-                          {cv('penalties') && <td className={`px-1 py-1 text-center font-mono ${rBorder('penalties')}${rhl('penalties')}`}>
+                          {cv('penalties') && <td className={`px-1 py-1 text-center font-mono ${rBorder('penalties')} ${PENALTY_BG}${rhl('penalties')}`}>
                             {race ? (canManage ? <EditableCell editingRef={editingRef} value={race.penalties} onChange={v => setEdit(row.pilot, rn, 'penalties', v)} colorClass={race.penalties ? 'text-red-400' : 'text-dark-300'} prefix="-" /> : race.penalties ? <span className="text-red-400">-{race.penalties}</span> : <span className="text-dark-700">—</span>) : '—'}
                           </td>}
                           {cv('sum') && <td className={`px-1 py-1 text-center font-mono font-bold ${rBorder('sum')}${rhl('sum')}`}>{race?.totalRacePoints ? <span className="text-green-400/80">{race.totalRacePoints}</span> : <span className="text-dark-700">—</span>}</td>}
