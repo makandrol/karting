@@ -579,6 +579,10 @@ export interface CompetitionStandings {
 }
 
 export function sprintAwareSort(a: PilotRow, b: PilotRow, format?: string): number {
+  const aRaced = a.races.some(r => r && r.finishPos > 0);
+  const bRaced = b.races.some(r => r && r.finishPos > 0);
+  if (aRaced !== bRaced) return aRaced ? -1 : 1;
+
   const diff = b.totalPoints - a.totalPoints;
   if (diff !== 0) return diff;
 
