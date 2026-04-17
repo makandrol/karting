@@ -26,6 +26,7 @@ export interface PilotQualiData { bestTime: number; bestTimeStr: string; kart: n
 export interface PilotRaceData {
   kart: number; bestTime: number; bestTimeStr: string;
   group: number; startPos: number; finishPos: number;
+  lapCount: number;
   positionPoints: number; overtakePoints: number; speedPoints: number; penalties: number; totalRacePoints: number;
 }
 export interface PilotRow {
@@ -216,20 +217,22 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
 
         const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos, format === 'champions_league');
         const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
-        const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos, format);
+        const incompleteRace = pData.lapCount < 10;
+        const posPoints = incompleteRace ? 0 : getPositionPoints(scoring, totalPilots, groupLabel, finishPos, format);
+        const effOvertake = incompleteRace ? 0 : overtakePoints;
 
         rData.set(pilot, {
           kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
-          group, startPos, finishPos,
-          positionPoints: posPoints, overtakePoints, speedPoints: 0, penalties,
-          totalRacePoints: Math.round((posPoints + overtakePoints - penalties) * 10) / 10,
+          group, startPos, finishPos, lapCount: pData.lapCount,
+          positionPoints: posPoints, overtakePoints: effOvertake, speedPoints: 0, penalties,
+          totalRacePoints: Math.round((posPoints + effOvertake - penalties) * 10) / 10,
         });
         raceTimes.push({ pilot, time: pData.bestTime });
       });
       excludedEntries.forEach(([pilot, pData]) => {
         rData.set(pilot, {
           kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
-          group: 0, startPos: 0, finishPos: 0,
+          group: 0, startPos: 0, finishPos: 0, lapCount: pData.lapCount,
           positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
         });
       });
@@ -245,14 +248,20 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
     });
 
     raceResults.push(rData);
-    if (raceTimes.length > 0) prevRaceTimes = raceTimes.filter(r => !excludedPilots.has(r.pilot));
+    if (raceTimes.length > 0) {
+      const active = raceTimes.filter(r => !excludedPilots.has(r.pilot));
+      const raceParticipants = new Set(active.map(r => r.pilot));
+      const noTimePilots = [...startPositions.keys()]
+        .filter(p => !raceParticipants.has(p) && !excludedPilots.has(p) && !disqualifiedPilots.has(p));
+      prevRaceTimes = [...active, ...noTimePilots.map(p => ({ pilot: p, time: Infinity }))];
+    }
 
     if (shouldShowStartPositions) {
       for (const [pilot, sp] of startPositions) {
         if (!rData.has(pilot) && !excludedPilots.has(pilot)) {
           rData.set(pilot, {
             kart: 0, bestTime: Infinity, bestTimeStr: '',
-            group: sp.group, startPos: sp.startPos, finishPos: 0,
+            group: sp.group, startPos: sp.startPos, finishPos: 0, lapCount: 0,
             positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
           });
         }
@@ -385,11 +394,13 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
         const finishPos = edit?.finishPos ?? (i + 1);
         const group = isDisq ? 0 : (sp?.group ?? groupNum);
         const penalties = edit?.penalties ?? 0;
-        const posPoints = posPointsFn ? posPointsFn(finishPos, group) : getSprintPositionPoints(finishPos);
+        const minLaps = raceIndex === 3 ? 17 : 14;
+        const incompleteRace = pData.lapCount < minLaps;
+        const posPoints = incompleteRace ? 0 : (posPointsFn ? posPointsFn(finishPos, group) : getSprintPositionPoints(finishPos));
 
         rData.set(pilot, {
           kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
-          group, startPos, finishPos,
+          group, startPos, finishPos, lapCount: pData.lapCount,
           positionPoints: posPoints, overtakePoints: 0, speedPoints: 0, penalties,
           totalRacePoints: Math.round((posPoints - penalties) * 10) / 10,
         });
@@ -400,7 +411,7 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
       excludedEntries.forEach(([pilot, pData]) => {
         rData.set(pilot, {
           kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
-          group: 0, startPos: 0, finishPos: 0,
+          group: 0, startPos: 0, finishPos: 0, lapCount: pData.lapCount,
           positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
         });
       });
@@ -425,7 +436,7 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
         if (!rData.has(pilot) && !excludedPilots.has(pilot)) {
           rData.set(pilot, {
             kart: 0, bestTime: Infinity, bestTimeStr: '',
-            group: sp.group, startPos: sp.startPos, finishPos: 0,
+            group: sp.group, startPos: sp.startPos, finishPos: 0, lapCount: 0,
             positionPoints: 0, overtakePoints: 0, speedPoints: 0, penalties: 0, totalRacePoints: 0,
           });
         }
