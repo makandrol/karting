@@ -1628,7 +1628,7 @@ function getCompetitionDisplayName(c: Competition): string {
 const COMP_LIST_NAMES: Record<string, string> = {
   gonzales: 'Гонзалес',
   light_league: 'Лайт ліга',
-  champions_league: 'Ліга чемп.',
+  champions_league: 'Ліга Чемп',
   sprint: 'Спринт',
   marathon: 'Марафон',
 };
@@ -1695,9 +1695,9 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
           </span>
         )}
         {top3.length > 0 && (
-          <div className="flex flex-col text-xs font-mono min-w-0 ml-auto">
+          <div className="flex flex-col text-xs font-mono min-w-0">
             {top3.map((p, i) => (
-              <span key={p.pilot} className="flex items-center gap-1 whitespace-nowrap leading-tight justify-end">
+              <span key={p.pilot} className="flex items-center gap-1 whitespace-nowrap leading-tight">
                 <span className={i === 0 ? 'text-yellow-400' : i === 1 ? 'text-dark-400' : 'text-amber-700'}>{i + 1}.</span>
                 <span className="text-white">{shortName(p.pilot)}</span>
                 <span className="text-green-400">{isGonzales ? p.value.toFixed(2) : p.value}</span>
