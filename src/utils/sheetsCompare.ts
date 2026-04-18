@@ -20,6 +20,33 @@ export interface ComparisonDiff {
   diffs: { field: string; ours: string | number; theirs: string | number }[];
 }
 
+export interface ComparisonRow {
+  pilot: string;
+  sheetPilot: string;
+  matched: boolean;
+  /** only in our table */
+  onlyLocal: boolean;
+  /** only in sheet */
+  onlySheet: boolean;
+  fields: ComparisonField[];
+}
+
+export interface ComparisonField {
+  key: string;
+  label: string;
+  ours: number | string;
+  theirs: number | string;
+  diff: boolean;
+}
+
+export interface MatchDebugEntry {
+  localPilot: string;
+  localSurname: string;
+  sheetPilot: string;
+  sheetSurname: string;
+  matched: boolean;
+}
+
 function parseSheetsUrl(url: string): { id: string; gid: string } | null {
   const m = url.match(/\/spreadsheets\/d\/([^/]+)/);
   if (!m) return null;
@@ -84,7 +111,12 @@ function parseCsv(text: string): string[][] {
 }
 
 function extractSurname(name: string): string {
-  return name.split(/\s+/)[0].toLowerCase().trim();
+  return name.split(/\s+/)[0].toLowerCase().trim()
+    .replace(/ё/g, 'е')
+    .replace(/ъ/g, '')
+    .replace(/'/g, '')
+    .replace(/'/g, '')
+    .replace(/ʼ/g, '');
 }
 
 /**
@@ -257,79 +289,152 @@ export function debugParseColumns(csv: string): {
   };
 }
 
+export function buildComparisonTable(
+  local: PilotRow[],
+  sheet: SheetPilotData[],
+  raceCount: number,
+): { rows: ComparisonRow[]; matchDebug: MatchDebugEntry[] } {
+  const matchDebug: MatchDebugEntry[] = [];
+
+  const localSurnames = local.map(lp => ({ pilot: lp, surname: extractSurname(lp.pilot) }));
+  const sheetSurnames = sheet.map(sp => ({ pilot: sp, surname: sp.surname }));
+
+  const matchedLocal = new Set<number>();
+  const matchedSheet = new Set<number>();
+  const pairs: [number, number][] = [];
+
+  for (let si = 0; si < sheetSurnames.length; si++) {
+    for (let li = 0; li < localSurnames.length; li++) {
+      if (matchedLocal.has(li)) continue;
+      if (localSurnames[li].surname === sheetSurnames[si].surname) {
+        pairs.push([li, si]);
+        matchedLocal.add(li);
+        matchedSheet.add(si);
+        matchDebug.push({
+          localPilot: localSurnames[li].pilot.pilot,
+          localSurname: localSurnames[li].surname,
+          sheetPilot: sheetSurnames[si].pilot.pilot,
+          sheetSurname: sheetSurnames[si].surname,
+          matched: true,
+        });
+        break;
+      }
+    }
+  }
+
+  for (let si = 0; si < sheetSurnames.length; si++) {
+    if (!matchedSheet.has(si)) {
+      matchDebug.push({
+        localPilot: '',
+        localSurname: '',
+        sheetPilot: sheetSurnames[si].pilot.pilot,
+        sheetSurname: sheetSurnames[si].surname,
+        matched: false,
+      });
+    }
+  }
+  for (let li = 0; li < localSurnames.length; li++) {
+    if (!matchedLocal.has(li)) {
+      matchDebug.push({
+        localPilot: localSurnames[li].pilot.pilot,
+        localSurname: localSurnames[li].surname,
+        sheetPilot: '',
+        sheetSurname: '',
+        matched: false,
+      });
+    }
+  }
+
+  const buildFields = (lp: PilotRow | null, sp: SheetPilotData | null): ComparisonField[] => {
+    const fields: ComparisonField[] = [];
+    for (let r = 0; r < raceCount; r++) {
+      const lr = lp?.races[r];
+      const sr = sp?.races[r];
+      const rL = `Г${r + 1}`;
+      const lGroup = lr?.group ?? '-';
+      const sGroup = sr?.group ?? '-';
+      fields.push({ key: `r${r}_group`, label: `${rL} гр`, ours: lGroup, theirs: sGroup, diff: lGroup !== '-' && sGroup !== '-' && lGroup !== sGroup });
+      const lStart = lr?.startPos ?? '-';
+      const sStart = sr?.startPos ?? '-';
+      fields.push({ key: `r${r}_start`, label: `${rL} ст`, ours: lStart, theirs: sStart, diff: lStart !== '-' && sStart !== '-' && lStart !== sStart });
+      const lFinish = lr?.finishPos ?? '-';
+      const sFinish = sr?.finishPos ?? '-';
+      fields.push({ key: `r${r}_finish`, label: `${rL} фін`, ours: lFinish, theirs: sFinish, diff: lFinish !== '-' && sFinish !== '-' && lFinish !== sFinish });
+      const lPen = lr?.penalties ?? '-';
+      const sPen = sr?.penalties ?? '-';
+      fields.push({ key: `r${r}_pen`, label: `${rL} штр`, ours: lPen, theirs: sPen, diff: typeof lPen === 'number' && typeof sPen === 'number' && Math.abs(sPen - lPen) > 0.01 });
+      const lRT = lr ? Math.round(lr.totalRacePoints * 10) / 10 : '-';
+      const sRT = sr ? Math.round(sr.raceTotal * 10) / 10 : '-';
+      fields.push({ key: `r${r}_total`, label: `${rL} Σ`, ours: lRT, theirs: sRT, diff: typeof lRT === 'number' && typeof sRT === 'number' && Math.abs(sRT - lRT) > 0.01 });
+    }
+    const lTotal = lp ? Math.round(lp.totalPoints * 10) / 10 : '-';
+    const sTotal = sp ? Math.round(sp.total * 10) / 10 : '-';
+    fields.push({ key: 'total', label: 'Σ', ours: lTotal, theirs: sTotal, diff: typeof lTotal === 'number' && typeof sTotal === 'number' && Math.abs(sTotal - lTotal) > 0.01 });
+    return fields;
+  };
+
+  const rows: ComparisonRow[] = [];
+
+  for (const [li, si] of pairs) {
+    const lp = local[li];
+    const sp = sheet[si];
+    rows.push({
+      pilot: lp.pilot,
+      sheetPilot: sp.pilot,
+      matched: true,
+      onlyLocal: false,
+      onlySheet: false,
+      fields: buildFields(lp, sp),
+    });
+  }
+
+  for (let si = 0; si < sheet.length; si++) {
+    if (!matchedSheet.has(si)) {
+      const sp = sheet[si];
+      rows.push({
+        pilot: '',
+        sheetPilot: sp.pilot,
+        matched: false,
+        onlyLocal: false,
+        onlySheet: true,
+        fields: buildFields(null, sp),
+      });
+    }
+  }
+
+  for (let li = 0; li < local.length; li++) {
+    if (!matchedLocal.has(li) && local[li].races.some(r => r && r.finishPos > 0)) {
+      const lp = local[li];
+      rows.push({
+        pilot: lp.pilot,
+        sheetPilot: '',
+        matched: false,
+        onlyLocal: true,
+        onlySheet: false,
+        fields: buildFields(lp, null),
+      });
+    }
+  }
+
+  return { rows, matchDebug };
+}
+
 export function comparePilots(
   local: PilotRow[],
   sheet: SheetPilotData[],
   raceCount: number,
 ): ComparisonDiff[] {
+  const { rows } = buildComparisonTable(local, sheet, raceCount);
   const diffs: ComparisonDiff[] = [];
-
-  for (const sp of sheet) {
-    const localPilot = local.find(lp => {
-      const lSurname = extractSurname(lp.pilot);
-      return lSurname === sp.surname;
-    });
-
-    if (!localPilot) {
-      diffs.push({
-        pilot: '???',
-        sheetPilot: sp.pilot,
-        diffs: [{ field: 'Пілот не знайдений в нашій таблиці', ours: '—', theirs: sp.pilot }],
-      });
-      continue;
-    }
-
-    const pilotDiffs: ComparisonDiff['diffs'] = [];
-
-    for (let r = 0; r < raceCount; r++) {
-      const lr = localPilot.races[r];
-      const sr = sp.races[r];
-      if (!lr || !sr) continue;
-
-      const rLabel = `Г${r + 1}`;
-
-      if (sr.group > 0 && lr.group > 0 && sr.group !== lr.group) {
-        pilotDiffs.push({ field: `${rLabel} група`, ours: lr.group, theirs: sr.group });
-      }
-      if (sr.startPos > 0 && lr.startPos > 0 && sr.startPos !== lr.startPos) {
-        pilotDiffs.push({ field: `${rLabel} старт`, ours: lr.startPos, theirs: sr.startPos });
-      }
-      if (sr.finishPos > 0 && lr.finishPos > 0 && sr.finishPos !== lr.finishPos) {
-        pilotDiffs.push({ field: `${rLabel} фініш`, ours: lr.finishPos, theirs: sr.finishPos });
-      }
-      if (Math.abs(sr.penalties - lr.penalties) > 0.01) {
-        pilotDiffs.push({ field: `${rLabel} штрафи`, ours: lr.penalties, theirs: sr.penalties });
-      }
-      const lrTotal = Math.round(lr.totalRacePoints * 10) / 10;
-      const srTotal = Math.round(sr.raceTotal * 10) / 10;
-      if (Math.abs(srTotal - lrTotal) > 0.01) {
-        pilotDiffs.push({ field: `${rLabel} сума`, ours: lrTotal, theirs: srTotal });
-      }
-    }
-
-    const lTotal = Math.round(localPilot.totalPoints * 10) / 10;
-    const sTotal = Math.round(sp.total * 10) / 10;
-    if (Math.abs(sTotal - lTotal) > 0.01) {
-      pilotDiffs.push({ field: 'Загальна сума', ours: lTotal, theirs: sTotal });
-    }
-
-    if (pilotDiffs.length > 0) {
-      diffs.push({ pilot: localPilot.pilot, sheetPilot: sp.pilot, diffs: pilotDiffs });
+  for (const row of rows) {
+    const diffFields = row.fields.filter(f => f.diff);
+    if (row.onlySheet) {
+      diffs.push({ pilot: '???', sheetPilot: row.sheetPilot, diffs: [{ field: 'Пілот не знайдений в нашій таблиці', ours: '—', theirs: row.sheetPilot }] });
+    } else if (row.onlyLocal) {
+      diffs.push({ pilot: row.pilot, sheetPilot: '???', diffs: [{ field: 'Пілот не знайдений в таблиці картодрому', ours: row.pilot, theirs: '—' }] });
+    } else if (diffFields.length > 0) {
+      diffs.push({ pilot: row.pilot, sheetPilot: row.sheetPilot, diffs: diffFields.map(f => ({ field: f.label, ours: f.ours, theirs: f.theirs })) });
     }
   }
-
-  // Find local pilots not in the sheet
-  const sheetSurnames = new Set(sheet.map(s => s.surname));
-  for (const lp of local) {
-    const lSurname = extractSurname(lp.pilot);
-    if (!sheetSurnames.has(lSurname) && lp.races.some(r => r && r.finishPos > 0)) {
-      diffs.push({
-        pilot: lp.pilot,
-        sheetPilot: '???',
-        diffs: [{ field: 'Пілот не знайдений в таблиці картодрому', ours: lp.pilot, theirs: '—' }],
-      });
-    }
-  }
-
   return diffs;
 }

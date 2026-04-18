@@ -8,7 +8,7 @@ import {
   type PilotQualiData, type PilotRaceData, type PilotRow, type ManualEdits,
   computeStandings, computeSprintStandings, rowsToStandings, sprintAwareSort,
 } from '../../utils/scoring';
-import { getCsvExportUrl, parseSheetData, comparePilots, debugParseColumns, type ComparisonDiff } from '../../utils/sheetsCompare';
+import { getCsvExportUrl, parseSheetData, buildComparisonTable, debugParseColumns, type ComparisonRow, type MatchDebugEntry } from '../../utils/sheetsCompare';
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -104,10 +104,12 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const [sheetUrl, setSheetUrl] = useState(officialResultsUrl || '');
   const [editingUrl, setEditingUrl] = useState(false);
-  const [comparisonDiffs, setComparisonDiffs] = useState<ComparisonDiff[] | null>(null);
+  const [comparisonRows, setComparisonRows] = useState<ComparisonRow[] | null>(null);
+  const [matchDebugEntries, setMatchDebugEntries] = useState<MatchDebugEntry[] | null>(null);
   const [comparingLoading, setComparingLoading] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<string | null>(null);
+  const [showOnlyDiffs, setShowOnlyDiffs] = useState(true);
   const [selectedPilot, setSelectedPilot] = useState<string | null>(null);
 
   const [pilotsOverride, setPilotsOverride] = useState<number | null>(totalPilotsOverride ?? null);
@@ -584,7 +586,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
     if (!url) return;
     setComparingLoading(true);
     setCompareError(null);
-    setComparisonDiffs(null);
+    setComparisonRows(null);
+    setMatchDebugEntries(null);
     setDebugInfo(null);
     try {
       const csvUrl = getCsvExportUrl(url);
@@ -606,8 +609,9 @@ export default function LeagueResults({ format, competitionId, sessions, session
       const sheetPilots = parseSheetData(csv, raceCount);
       if (sheetPilots.length === 0) throw new Error('Не вдалося розпарсити таблицю');
       const included = data.filter(r => !excludedPilots.has(r.pilot));
-      const diffs = comparePilots(included, sheetPilots, raceCount);
-      setComparisonDiffs(diffs);
+      const { rows, matchDebug } = buildComparisonTable(included, sheetPilots, raceCount);
+      setComparisonRows(rows);
+      setMatchDebugEntries(matchDebug);
     } catch (e: any) {
       setCompareError(e.message || 'Помилка порівняння');
     } finally {
@@ -1255,53 +1259,108 @@ export default function LeagueResults({ format, competitionId, sessions, session
           </div>
         </div>
 
-      {comparisonDiffs !== null && (
+      {comparisonRows !== null && (
         <div className="card p-0 overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
+          <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between gap-2">
             <span className="text-white text-sm font-medium">Порівняння з офіційною таблицею</span>
-            <button onClick={() => { setComparisonDiffs(null); setDebugInfo(null); }} className="text-dark-500 hover:text-dark-300 text-xs transition-colors">Закрити</button>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1 text-[10px] text-dark-400 cursor-pointer select-none">
+                <input type="checkbox" checked={showOnlyDiffs} onChange={e => setShowOnlyDiffs(e.target.checked)} className="accent-yellow-500 w-3 h-3" />
+                Тільки розбіжності
+              </label>
+              <button onClick={() => { setComparisonRows(null); setMatchDebugEntries(null); setDebugInfo(null); }} className="text-dark-500 hover:text-dark-300 text-xs transition-colors">Закрити</button>
+            </div>
           </div>
           {debugInfo && (
             <details className="px-4 py-1.5 border-b border-dark-800/50">
-              <summary className="text-dark-600 text-[10px] cursor-pointer hover:text-dark-400">Дебаг-інфо розпарсених колонок</summary>
+              <summary className="text-dark-600 text-[10px] cursor-pointer hover:text-dark-400">Дебаг: розпарсені колонки</summary>
               <pre className="text-dark-500 text-[9px] mt-1 whitespace-pre-wrap font-mono">{debugInfo}</pre>
             </details>
           )}
-          {comparisonDiffs.length === 0 ? (
-            <div className="px-4 py-6 text-center text-green-400 text-sm">Все збігається!</div>
-          ) : (
-            <div className="max-h-96 overflow-y-auto">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-dark-900 z-10">
-                  <tr className="border-b border-dark-700">
-                    <th className="text-left px-3 py-2 text-dark-400">Пілот</th>
-                    <th className="text-left px-3 py-2 text-dark-400">Поле</th>
-                    <th className="text-center px-3 py-2 text-dark-400">Ми</th>
-                    <th className="text-center px-3 py-2 text-dark-400">Картодром</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {comparisonDiffs.map((d, di) => (
-                    d.diffs.map((diff, dfi) => (
-                      <tr key={`${di}-${dfi}`} className="border-b border-dark-800/50 hover:bg-dark-800/30">
-                        {dfi === 0 && (
-                          <td rowSpan={d.diffs.length} className="px-3 py-1.5 text-white font-medium align-top border-r border-dark-800/50">
-                            {d.pilot}{d.pilot !== d.sheetPilot && d.sheetPilot !== '???' && <span className="text-dark-500 text-[10px] block">{d.sheetPilot}</span>}
-                          </td>
-                        )}
-                        <td className="px-3 py-1.5 text-dark-300">{diff.field}</td>
-                        <td className={`px-3 py-1.5 text-center font-mono ${diff.ours !== diff.theirs ? 'text-yellow-400' : 'text-dark-300'}`}>{diff.ours}</td>
-                        <td className={`px-3 py-1.5 text-center font-mono ${diff.ours !== diff.theirs ? 'text-red-400' : 'text-dark-300'}`}>{diff.theirs}</td>
-                      </tr>
-                    ))
+          {matchDebugEntries && matchDebugEntries.some(m => !m.matched) && (
+            <details className="px-4 py-1.5 border-b border-dark-800/50">
+              <summary className="text-orange-400/80 text-[10px] cursor-pointer hover:text-orange-300">
+                Дебаг: матчинг пілотів ({matchDebugEntries.filter(m => !m.matched).length} не знайдено)
+              </summary>
+              <div className="mt-1 text-[9px] font-mono space-y-0.5">
+                {matchDebugEntries.filter(m => !m.matched).map((m, i) => (
+                  <div key={i} className="text-orange-400/70">
+                    {m.localPilot
+                      ? <span>Наш: <span className="text-white">{m.localPilot}</span> (surname: &quot;{m.localSurname}&quot;) — не знайдено в таблиці</span>
+                      : <span>Картодром: <span className="text-white">{m.sheetPilot}</span> (surname: &quot;{m.sheetSurname}&quot;) — не знайдено у нас</span>
+                    }
+                  </div>
+                ))}
+                <details className="mt-1">
+                  <summary className="text-dark-600 cursor-pointer hover:text-dark-400">Всі зв&apos;язки</summary>
+                  {matchDebugEntries.filter(m => m.matched).map((m, i) => (
+                    <div key={i} className="text-dark-500">
+                      &quot;{m.localSurname}&quot; = &quot;{m.sheetSurname}&quot; → {m.localPilot} ↔ {m.sheetPilot}
+                    </div>
                   ))}
-                </tbody>
-              </table>
-              <div className="px-4 py-2 text-dark-500 text-[10px] border-t border-dark-800">
-                {comparisonDiffs.length} {comparisonDiffs.length === 1 ? 'пілот' : comparisonDiffs.length < 5 ? 'пілоти' : 'пілотів'} з розбіжностями
+                </details>
               </div>
-            </div>
+            </details>
           )}
+          {(() => {
+            const visibleRows = showOnlyDiffs
+              ? comparisonRows.filter(r => r.onlyLocal || r.onlySheet || r.fields.some(f => f.diff))
+              : comparisonRows;
+            if (visibleRows.length === 0 && showOnlyDiffs) {
+              return <div className="px-4 py-6 text-center text-green-400 text-sm">Все збігається!</div>;
+            }
+            const fieldKeys = visibleRows[0]?.fields.map(f => f.key) || [];
+            const fieldLabels = visibleRows[0]?.fields.map(f => f.label) || [];
+            return (
+              <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
+                <table className="w-full text-[10px] whitespace-nowrap">
+                  <thead className="sticky top-0 bg-dark-900 z-10">
+                    <tr className="border-b border-dark-700">
+                      <th className="text-left px-2 py-1.5 text-dark-400 sticky left-0 bg-dark-900 z-20">Пілот</th>
+                      {fieldLabels.map((label, i) => (
+                        <th key={fieldKeys[i]} className="text-center px-1 py-1.5 text-dark-400 min-w-[52px]">{label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRows.map((row, ri) => {
+                      const hasDiff = row.fields.some(f => f.diff);
+                      const rowBg = row.onlyLocal ? 'bg-blue-900/10' : row.onlySheet ? 'bg-orange-900/10' : hasDiff ? 'bg-yellow-900/5' : '';
+                      return (
+                        <tr key={ri} className={`border-b border-dark-800/50 hover:bg-dark-800/30 ${rowBg}`}>
+                          <td className="px-2 py-1 text-white font-medium sticky left-0 bg-dark-900/95 z-10 border-r border-dark-800/50">
+                            <div className="leading-tight">
+                              {row.pilot || <span className="text-orange-400">???</span>}
+                              {row.sheetPilot && row.pilot !== row.sheetPilot && row.sheetPilot !== '' && (
+                                <div className="text-dark-500 text-[9px]">{row.sheetPilot}</div>
+                              )}
+                              {row.onlyLocal && <span className="text-blue-400 text-[8px] ml-1">тільки у нас</span>}
+                              {row.onlySheet && <span className="text-orange-400 text-[8px] ml-1">тільки картодром</span>}
+                            </div>
+                          </td>
+                          {row.fields.map((f, fi) => (
+                            <td key={fieldKeys[fi]} className={`px-1 py-1 text-center font-mono ${f.diff ? 'bg-yellow-500/10' : ''}`}>
+                              <div className={`leading-tight ${f.diff ? 'text-yellow-400' : 'text-dark-300'}`}>
+                                {f.ours !== '-' ? f.ours : <span className="text-dark-700">-</span>}
+                              </div>
+                              <div className={`leading-tight text-[9px] ${f.diff ? 'text-red-400' : 'text-dark-600'}`}>
+                                {f.theirs !== '-' ? f.theirs : <span className="text-dark-700">-</span>}
+                              </div>
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="px-4 py-2 text-dark-500 text-[10px] border-t border-dark-800 flex items-center gap-3">
+                  <span>{visibleRows.length} пілотів</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-yellow-500/30 inline-block"></span>наше значення</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500/30 inline-block"></span>картодром</span>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
