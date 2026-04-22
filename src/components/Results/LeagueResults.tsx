@@ -396,7 +396,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
   const SORT_HL = 'bg-yellow-500/10';
   const PENALTY_BG = 'bg-red-500/[0.04]';
   const CHECKERED_STYLE = { backgroundImage: 'repeating-conic-gradient(rgba(255,255,255,0.03) 0% 25%, transparent 0% 50%)', backgroundSize: '8px 8px' } as const;
-  const isIncompleteRace = (race: PilotRaceData | undefined, raceNum: number) => {
+  const isIncompleteRace = (race: PilotRaceData | null | undefined, raceNum: number) => {
     if (!race || race.lapCount === 0) return false;
     const minLaps = isSprint ? (raceNum === 3 ? 17 : 14) : 10;
     return race.lapCount < minLaps;
