@@ -11,6 +11,8 @@ import {
 } from '../../utils/scoring';
 import { buildGonzalesRotation, type GonzalesKartSlot } from '../../data/competitions';
 
+const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
+
 interface Props {
   competitionId: string;
   sessions: CompSession[];
@@ -51,6 +53,8 @@ export default function GonzalesResults({
 
   const [excludedPilots, setExcludedPilots] = useState<Set<string>>(() => new Set(initialExcludedPilots || []));
   const [selectedPilot, setSelectedPilot] = useState<string | null>(null);
+  const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   const gonzViewKey = `karting_gonzales_view_${competitionId}`;
   const loadGonzView = () => { try { const s = localStorage.getItem(gonzViewKey); return s ? JSON.parse(s) : null; } catch { return null; } };
@@ -186,6 +190,30 @@ export default function GonzalesResults({
     };
     await onSaveResults({ gonzalesConfig: cfg });
   }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, scoringLaps, slotOrder, configLocked, lockedPilots, onSaveResults]);
+
+  const handleRenamePilot = useCallback(async (oldName: string, newName: string) => {
+    setRenamingPilot(null);
+    for (const s of sessions) {
+      await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ sessionId: s.sessionId, oldName, newName }),
+      }).catch(() => {});
+    }
+    const nextSlots = { ...pilotStartSlots };
+    if (oldName in nextSlots) {
+      nextSlots[newName] = nextSlots[oldName];
+      delete nextSlots[oldName];
+    }
+    const nextLocked = lockedPilots.map(p => p === oldName ? newName : p);
+    const nextExcluded = new Set([...excludedPilots].map(p => p === oldName ? newName : p));
+    setPilotStartSlots(nextSlots);
+    setLockedPilots(nextLocked);
+    setExcludedPilots(nextExcluded);
+    await saveGonzalesConfig({ pilotStartSlots: nextSlots, lockedPilots: nextLocked });
+    await onSaveResults({ excludedPilots: [...nextExcluded] });
+    window.location.reload();
+  }, [sessions, pilotStartSlots, lockedPilots, excludedPilots, saveGonzalesConfig, onSaveResults]);
 
   // Derive pilot count from qualifying sessions
   const qualifyingPilots = useMemo(() => {
@@ -377,6 +405,7 @@ export default function GonzalesResults({
       configLocked={configLocked}
       onToggleLock={toggleConfigLock}
       onExcludePilot={toggleExcludePilot}
+      onRenamePilot={handleRenamePilot}
     />
   ) : null;
 
@@ -475,7 +504,32 @@ export default function GonzalesResults({
                     onClick={() => setSelectedPilot(isSelected ? null : r.pilot)}
                     className={`table-row cursor-pointer ${isSelected ? 'bg-primary-600/10' : ''} active:bg-dark-700/30`}>
                     <td className={`table-cell text-center font-mono text-white font-bold ${stickyBg} ${STICKY_NUM}`}>{i + 1}</td>
-                    <td className={`table-cell text-left text-white whitespace-nowrap ${stickyBg} ${STICKY_PILOT}`}>{r.pilot}</td>
+                    <td className={`table-cell text-left text-white whitespace-nowrap ${stickyBg} ${STICKY_PILOT}`}>
+                      {renamingPilot === r.pilot ? (
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          const newName = renameValue.trim();
+                          if (newName && newName !== r.pilot) {
+                            handleRenamePilot(r.pilot, newName);
+                          } else {
+                            setRenamingPilot(null);
+                          }
+                        }} className="flex items-center gap-1">
+                          <input autoFocus type="text" value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Escape') setRenamingPilot(null); }}
+                            className="w-32 bg-dark-800 border border-primary-500 text-white text-[10px] rounded px-1.5 py-0.5 outline-none" />
+                        </form>
+                      ) : (
+                        <>
+                          <span>{r.pilot}</span>
+                          {canManage && (
+                            <button onClick={(e) => { e.stopPropagation(); setRenamingPilot(r.pilot); setRenameValue(r.pilot); }}
+                              className="ml-1 text-[9px] px-0.5 rounded text-dark-600 hover:text-primary-400 transition-colors">✎</button>
+                          )}
+                        </>
+                      )}
+                    </td>
                     {(() => {
                       const avg = getRowAverage(r);
                       return (
@@ -653,7 +707,7 @@ function GonzalesEditLog({ competitionId }: { competitionId: string }) {
 
 function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacements, setKartReplacements,
   excludedKarts, setExcludedKarts, pilotCount, allPilots, excludedPilots, pilotStartSlots, setPilotStartSlots,
-  slots, slotOrder, setSlotOrder, configLocked, onToggleLock, onExcludePilot }: {
+  slots, slotOrder, setSlotOrder, configLocked, onToggleLock, onExcludePilot, onRenamePilot }: {
   autoKarts: number[];
   kartList: number[];
   setKartList: (kl: number[]) => void;
@@ -672,6 +726,7 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   configLocked: boolean;
   onToggleLock: () => void;
   onExcludePilot: (pilot: string) => void;
+  onRenamePilot: (oldName: string, newName: string) => void;
 }) {
   const [newKart, setNewKart] = useState('');
   const [replFrom, setReplFrom] = useState('');
@@ -904,6 +959,12 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                         onDragStart={(e) => { e.stopPropagation(); setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
                         onDragEnd={() => setDragPilot(null)}
                       >{pilot}</span>
+                      <button onClick={() => {
+                          const newName = window.prompt(`Перейменувати "${pilot}" на:`, pilot);
+                          if (newName && newName.trim() && newName.trim() !== pilot) onRenamePilot(pilot, newName.trim());
+                        }}
+                        className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-dark-700/50 text-dark-500 hover:bg-dark-700 hover:text-primary-400 text-sm"
+                        title="Перейменувати пілота">✎</button>
                       <button onClick={() => unassignPilot(pilot)}
                         className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-dark-700/50 text-dark-500 hover:bg-dark-700 hover:text-dark-300 text-sm"
                         title="Зняти привʼязку">↩</button>
@@ -948,6 +1009,11 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                 onDragEnd={() => setDragPilot(null)}
               >
                 <span className="text-white text-[10px]">{pilot}</span>
+                <button onClick={() => {
+                    const newName = window.prompt(`Перейменувати "${pilot}" на:`, pilot);
+                    if (newName && newName.trim() && newName.trim() !== pilot) onRenamePilot(pilot, newName.trim());
+                  }}
+                  className="text-[9px] text-dark-600 hover:text-primary-400" title="Перейменувати">✎</button>
                 <button onClick={() => onExcludePilot(pilot)}
                   className="text-[9px] text-dark-600 hover:text-red-400" title="Виключити">✕</button>
               </div>
