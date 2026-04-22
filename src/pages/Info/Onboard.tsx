@@ -40,14 +40,14 @@ interface FullCompData {
 
 const Pill = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
   <button onClick={(e) => { e.stopPropagation(); onClick(); }}
-    className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+    className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
       active ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'
     }`}>
     {label}
   </button>
 );
 
-type PosEntry = { pilot: string; pos: number; delta: number | null; gapToNext: number | null };
+type PosEntry = { pilot: string; pos: number; delta: number | null; gapToNext: number | null; bestTime: string | null };
 type StEntry = { pilot: string; pos: number; pts: number };
 
 interface PosWindow {
@@ -58,38 +58,70 @@ interface PosWindow {
   total: number;
 }
 
-function buildRaceWindow(list: PosEntry[], myIdx: number, myPilot: string): PosWindow | null {
-  const total = list.length;
-  if (total === 0) return null;
-  const windowSize = Math.min(4, total);
-  let start: number;
-  if (total <= 4) { start = 0; }
-  else if (myIdx <= 1) { start = 0; }
-  else if (myIdx >= total - 2) { start = total - windowSize; }
-  else { start = myIdx - 1; }
-  return { top: [], hasEllipsis: false, around: list.slice(start, start + windowSize), myPilot, total };
-}
-
-function buildQualiWindow(list: PosEntry[], myIdx: number, myPilot: string): PosWindow | null {
+function buildRaceWindow(list: PosEntry[], myIdx: number, myPilot: string, expanded: boolean): PosWindow | null {
   const total = list.length;
   if (total === 0) return null;
 
-  if (total <= 5) {
+  const topCount = expanded ? 2 : 1;
+  const aroundSize = expanded ? 6 : 4;
+
+  if (total <= topCount + aroundSize) {
     return { top: [], hasEllipsis: false, around: list, myPilot, total };
   }
 
-  if (myIdx <= 3) {
-    return { top: [], hasEllipsis: false, around: list.slice(0, 5), myPilot, total };
+  const top = list.slice(0, topCount);
+  const halfBefore = expanded ? 3 : 2;
+  const halfAfter = expanded ? 2 : 1;
+
+  let aroundStart: number;
+  if (myIdx <= topCount + halfBefore - 1) {
+    aroundStart = topCount;
+  } else if (myIdx >= total - halfAfter - 1) {
+    aroundStart = total - aroundSize;
+  } else {
+    aroundStart = myIdx - halfBefore;
+  }
+  aroundStart = Math.max(aroundStart, topCount);
+  const around = list.slice(aroundStart, aroundStart + aroundSize);
+
+  if (aroundStart <= topCount) {
+    return { top: [], hasEllipsis: false, around: list.slice(0, topCount + aroundSize), myPilot, total };
   }
 
-  const top = list.slice(0, 2);
-  let aroundStart: number;
-  if (myIdx >= total - 1) { aroundStart = total - 3; }
-  else { aroundStart = myIdx - 1; }
-  const around = list.slice(aroundStart, aroundStart + 3);
+  return { top, hasEllipsis: true, around, myPilot, total };
+}
 
-  const needEllipsis = aroundStart > 2;
-  return { top, hasEllipsis: needEllipsis, around, myPilot, total };
+function buildQualiWindow(list: PosEntry[], myIdx: number, myPilot: string, expanded: boolean): PosWindow | null {
+  const total = list.length;
+  if (total === 0) return null;
+
+  const topCount = expanded ? 2 : 1;
+  const aroundSize = expanded ? 6 : 4;
+
+  if (total <= topCount + aroundSize) {
+    return { top: [], hasEllipsis: false, around: list, myPilot, total };
+  }
+
+  const top = list.slice(0, topCount);
+  const halfBefore = expanded ? 3 : 2;
+  const halfAfter = expanded ? 2 : 1;
+
+  let aroundStart: number;
+  if (myIdx <= topCount + halfBefore - 1) {
+    aroundStart = topCount;
+  } else if (myIdx >= total - halfAfter - 1) {
+    aroundStart = total - aroundSize;
+  } else {
+    aroundStart = myIdx - halfBefore;
+  }
+  aroundStart = Math.max(aroundStart, topCount);
+  const around = list.slice(aroundStart, aroundStart + aroundSize);
+
+  if (aroundStart <= topCount) {
+    return { top: [], hasEllipsis: false, around: list.slice(0, topCount + aroundSize), myPilot, total };
+  }
+
+  return { top, hasEllipsis: true, around, myPilot, total };
 }
 
 function buildStandingsWindow(list: StEntry[], myIdx: number, myPilot: string) {
@@ -237,7 +269,7 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
 
   const effectiveShowSectors = showSectors ?? defaults.sectors;
   const effectiveShowPos = showPosition ?? defaults.position;
-  const effectiveShowTime = showTime ?? defaults.time;
+  const effectiveShowTime = effectiveShowPos;
   const effectiveShowPoints = showPoints ?? defaults.points;
 
   const sessionLabel = useMemo(() => {
@@ -369,35 +401,18 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
     return standings.rows.find(r => r.pilot === pilot) ?? null;
   }, [pilot, standings]);
 
-  // Time rank in group (T1)
+  // Time rank in session (from entries, same data as position leaderboard)
   const timeGroupData = useMemo(() => {
     if (!pilot) return null;
-    if (pilotRow && currentRaceIndex >= 0) {
-      const raceData = pilotRow.races[currentRaceIndex];
-      if (raceData && raceData.group > 0 && standings) {
-        const groupPilots = standings.sorted
-          .filter(r => r.races[currentRaceIndex]?.group === raceData.group && r.races[currentRaceIndex]?.bestTime && r.races[currentRaceIndex]!.bestTime < Infinity)
-          .sort((a, b) => a.races[currentRaceIndex]!.bestTime - b.races[currentRaceIndex]!.bestTime);
-        const idx = groupPilots.findIndex(r => r.pilot === pilot);
-        return { pos: idx >= 0 ? idx + 1 : null, total: groupPilots.length };
-      }
-    }
-    if (pilotRow && compInfo.phase?.startsWith('qualifying') && standings) {
-      const withQuali = standings.sorted
-        .filter(r => r.quali && r.quali.bestTime < Infinity)
-        .sort((a, b) => a.quali!.bestTime - b.quali!.bestTime);
-      const idx = withQuali.findIndex(r => r.pilot === pilot);
-      return { pos: idx >= 0 ? idx + 1 : null, total: withQuali.length };
-    }
     const withBest = entries
       .map(e => ({ pilot: e.pilot, best: parseTime(e.bestLap) }))
       .filter(e => e.best !== null && e.best! >= 38) as { pilot: string; best: number }[];
     withBest.sort((a, b) => a.best - b.best);
     const idx = withBest.findIndex(e => e.pilot === pilot);
     return { pos: idx >= 0 ? idx + 1 : null, total: withBest.length };
-  }, [pilot, pilotRow, currentRaceIndex, standings, compInfo.phase, entries]);
+  }, [pilot, entries]);
 
-  // Time rank global (T2)
+  // Time rank global (T2) — across all groups in race mode
   const timeGlobalData = useMemo(() => {
     if (!pilot || !standings || currentRaceIndex < 0) return null;
     const allWithTime = standings.sorted
@@ -417,43 +432,51 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
   }, [pilotRow, currentRaceIndex]);
 
   // Position leaderboard
+  const posExpandedPos = useMemo(() => {
+    if (!effectiveShowPoints) return true;
+    if (!pilot || !standings) return true;
+    return standings.sorted.findIndex(r => r.pilot === pilot) < 0;
+  }, [effectiveShowPoints, pilot, standings]);
+
   const positionLeaderboard = useMemo((): PosWindow | null => {
     if (!pilot || !entry) return null;
 
-    if (effectiveMode === 'race' && pilotRow && currentRaceIndex >= 0 && standings) {
-      const racePilots = standings.sorted
-        .filter(r => r.races[currentRaceIndex]?.finishPos && r.races[currentRaceIndex]!.finishPos > 0)
-        .sort((a, b) => a.races[currentRaceIndex]!.finishPos - b.races[currentRaceIndex]!.finishPos);
-      if (racePilots.length === 0) return null;
-      const myIdx = racePilots.findIndex(r => r.pilot === pilot);
+    if (effectiveMode === 'race') {
+      const myBest = parseTime(entry.bestLap);
+      const sorted = [...entries]
+        .filter(e => e.lapNumber >= 0)
+        .sort((a, b) => a.position - b.position);
+      if (sorted.length === 0) return null;
+      const myIdx = sorted.findIndex(e => e.pilot === pilot);
       if (myIdx < 0) return null;
 
-      const myBestTime = pilotRow.races[currentRaceIndex]?.bestTime ?? Infinity;
-      const list: PosEntry[] = racePilots.map((r) => {
-        const race = r.races[currentRaceIndex]!;
-        const d = race.startPos > 0 ? race.startPos - race.finishPos : null;
-        const gap = race.bestTime < Infinity && myBestTime < Infinity
-          ? Math.round((race.bestTime - myBestTime) * 1000) / 1000
+      const list: PosEntry[] = sorted.map((e) => {
+        const startPos = e.currentLapSec as number | null;
+        const d = startPos != null && startPos > 0 ? startPos - e.position : null;
+        const eBest = parseTime(e.bestLap);
+        const gap = eBest !== null && myBest !== null
+          ? Math.round((eBest - myBest) * 1000) / 1000
           : null;
-        return { pilot: r.pilot, pos: race.finishPos, delta: d, gapToNext: gap !== 0 ? gap : null };
+        return { pilot: e.pilot, pos: e.position, delta: d, gapToNext: gap !== 0 ? gap : null, bestTime: null };
       });
-      return buildRaceWindow(list, myIdx, pilot);
+      return buildRaceWindow(list, myIdx, pilot, posExpandedPos);
     }
 
     // Quali / fallback: best lap ranking with gaps relative to my best
     const myBest = parseTime(entry.bestLap);
     const withBest = entries
-      .map(e => ({ pilot: e.pilot, best: parseTime(e.bestLap) }))
-      .filter(e => e.best !== null && e.best! >= 38) as { pilot: string; best: number }[];
+      .map(e => ({ pilot: e.pilot, best: parseTime(e.bestLap), bestStr: e.bestLap }))
+      .filter(e => e.best !== null && e.best! >= 38) as { pilot: string; best: number; bestStr: string }[];
     withBest.sort((a, b) => a.best - b.best);
     const myIdx = withBest.findIndex(e => e.pilot === pilot);
     if (myIdx < 0 || myBest === null) return null;
     const list: PosEntry[] = withBest.map((e, i) => {
+      const isMe = e.pilot === pilot;
       const gap = Math.round((e.best - myBest) * 1000) / 1000;
-      return { pilot: e.pilot, pos: i + 1, delta: null, gapToNext: gap !== 0 ? gap : null };
+      return { pilot: e.pilot, pos: i + 1, delta: null, gapToNext: gap !== 0 ? gap : null, bestTime: isMe ? e.bestStr : null };
     });
-    return buildQualiWindow(list, myIdx, pilot);
-  }, [pilot, entry, pilotRow, currentRaceIndex, standings, entries, effectiveMode]);
+    return buildQualiWindow(list, myIdx, pilot, posExpandedPos);
+  }, [pilot, entry, pilotRow, currentRaceIndex, standings, entries, effectiveMode, posExpandedPos]);
 
   // Standings leaderboard for Бали (5-pilot list)
   const standingsLeaderboard = useMemo(() => {
@@ -525,74 +548,74 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
     return { s1: diffFor(myS1, allS1), s2: diffFor(myS2, allS2), lap: diffFor(myBest, allBest) };
   }, [entry, entries]);
 
+  const personalDiffs = useMemo(() => {
+    if (!entry) return { s1: null, s2: null, lap: null };
+    const curLap = parseTime(entry.lastLap);
+    const curS1 = parseTime(entry.s1);
+    const curS2 = parseTime(entry.s2);
+    const myBestLap = parseTime(entry.bestLap);
+    const myBestS1 = parseTime(entry.bestS1);
+    const myBestS2 = parseTime(entry.bestS2);
+
+    const diff = (cur: number | null, best: number | null) =>
+      cur !== null && best !== null ? cur - best : null;
+
+    return {
+      lap: diff(curLap, myBestLap),
+      s1: diff(curS1, myBestS1),
+      s2: diff(curS2, myBestS2),
+    };
+  }, [entry]);
+
   const isLive = isReplay ? entries.length > 0 : (poller.mode === 'live' && entries.length > 0);
 
   return (
     <div className="fixed inset-0 bg-dark-950 flex flex-col z-50 select-none">
       {/* Top bar */}
-      <div className="flex items-center px-2 py-1.5 bg-dark-900/90 border-b border-dark-800 shrink-0 gap-1.5">
+      <div className="flex items-center px-3 py-2 bg-dark-900/90 border-b border-dark-800 shrink-0 gap-2">
         {/* Left: back/close + lock + session label + view */}
         {onClose ? (
-          <button onClick={onClose} className="text-dark-400 hover:text-white px-1.5 py-1 rounded-lg hover:bg-dark-800 transition-colors shrink-0">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <button onClick={onClose} className="text-dark-400 hover:text-white px-2 py-1.5 rounded-lg hover:bg-dark-800 transition-colors shrink-0">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         ) : (
-          <Link to="/" className="text-dark-400 hover:text-white px-1.5 py-1 rounded-lg hover:bg-dark-800 transition-colors shrink-0">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <Link to="/" className="text-dark-400 hover:text-white px-2 py-1.5 rounded-lg hover:bg-dark-800 transition-colors shrink-0">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
         )}
 
-        <button onClick={() => setLocked(l => !l)}
-          className={`px-2.5 py-2 rounded-lg transition-colors shrink-0 ${
-            locked ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'
-          }`}
-          title={locked ? 'Розблокувати обертання' : 'Заблокувати обертання'}>
-          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="8" y="11" width="8" height="7" rx="1" />
-            {locked
-              ? <path d="M10 11V8a2 2 0 1 1 4 0v3" />
-              : <path d="M14 11V8a2 2 0 0 0-4 0" />
-            }
-            <path d="M12 21a9 9 0 0 0 9-9h-2" />
-            <path d="M19 10l2 2 2-2" />
-            <path d="M12 3a9 9 0 0 0-9 9h2" />
-            <path d="M5 14l-2-2-2 2" />
-          </svg>
-        </button>
-
         {sessionLabel && (
-          <span className={`text-sm font-semibold shrink-0 ${compInfo.competitionId ? 'text-purple-400' : 'text-dark-400'}`}>
+          <span className={`text-base font-semibold shrink-0 ${compInfo.competitionId ? 'text-purple-400' : 'text-dark-400'}`}>
             {sessionLabel}
           </span>
         )}
 
         {/* View toggles inline */}
-        <div ref={viewRef} className="flex items-center gap-1 shrink-0 ml-1">
+        <div ref={viewRef} className="flex items-center gap-1.5 shrink-0 ml-1">
           <button onClick={() => setViewOpen(v => !v)}
-            className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+            className={`px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               viewOpen ? 'text-primary-400' : 'text-dark-500 hover:text-dark-300'
             }`}>
             Вид
           </button>
           {viewOpen && (
             <>
-              <div className="flex items-center rounded overflow-hidden text-[11px]">
+              <div className="flex items-center rounded overflow-hidden text-xs">
                 <button onClick={() => setModeOverride('quali')}
-                  className={`px-2 py-1 transition-colors ${effectiveMode === 'quali' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+                  className={`px-2.5 py-1.5 transition-colors ${effectiveMode === 'quali' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
                   Квала
                 </button>
                 <button onClick={() => setModeOverride('race')}
-                  className={`px-2 py-1 transition-colors ${effectiveMode === 'race' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
+                  className={`px-2.5 py-1.5 transition-colors ${effectiveMode === 'race' ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
                   Гонка
                 </button>
               </div>
-              <Pill label="Сект." active={effectiveShowSectors} onClick={() => setShowSectors(v => !(v ?? defaults.sectors))} />
-              <Pill label="Поз" active={effectiveShowPos} onClick={() => setShowPosition(v => !(v ?? defaults.position))} />
-              <Pill label="Час" active={effectiveShowTime} onClick={() => setShowTime(v => !(v ?? defaults.time))} />
+              <Pill label="S" active={effectiveShowSectors} onClick={() => setShowSectors(v => !(v ?? defaults.sectors))} />
+              <Pill label="Pos" active={effectiveShowPos} onClick={() => setShowPosition(v => !(v ?? defaults.position))} />
               <Pill label="Бали" active={effectiveShowPoints} onClick={() => setShowPoints(v => !(v ?? defaults.points))} />
             </>
           )}
@@ -601,9 +624,9 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
         <div className="flex-1" />
 
         {/* Right: pilot, kart, lap */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2.5 shrink-0">
           {pilot && (
-            <span className="text-sm font-medium text-white truncate max-w-[130px]">
+            <span className="text-base font-medium text-white truncate max-w-[140px]">
               {shortName(pilot)}
             </span>
           )}
@@ -611,10 +634,10 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
           <div ref={selectorRef} className="relative">
             <button
               onClick={() => setSelectorOpen(o => !o)}
-              className="flex items-center gap-1 bg-dark-800 border border-dark-700 text-white text-xl font-bold rounded-lg px-3 py-1 hover:border-primary-500 transition-colors"
+              className="flex items-center gap-1.5 bg-dark-800 border border-dark-700 text-white text-2xl font-bold rounded-lg px-3.5 py-1.5 hover:border-primary-500 transition-colors"
             >
               {kart ?? '—'}
-              <svg className={`w-3.5 h-3.5 text-dark-400 transition-transform ${selectorOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className={`w-4 h-4 text-dark-400 transition-transform ${selectorOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
@@ -637,11 +660,13 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
             )}
           </div>
 
-          {entry && (
-            <span className="text-white font-mono font-semibold text-base">
-              L{entry.lapNumber}
-            </span>
-          )}
+          <div className="flex flex-col items-end shrink-0">
+            {entry && (
+              <span className="text-white font-mono font-bold" style={{ fontSize: 'clamp(1.5rem, 5vw, 2.5rem)' }}>
+                L{entry.lapNumber}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -655,40 +680,98 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
       {/* Main content */}
       <div className="flex-1 flex items-center justify-center relative overflow-hidden">
 
-        {/* Position leaderboard — top left */}
-        {entry && effectiveShowPos && positionLeaderboard && (() => {
-          const renderRow = (item: PosEntry) => {
-            const isMe = item.pilot === positionLeaderboard.myPilot;
-            const name = shortName(item.pilot);
-            const clipped = name.length > 10 ? name.slice(0, 10) + '.' : name;
-            return (
-              <div key={item.pilot} className={`flex items-center gap-1.5 leading-snug ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
-                <span className={isMe ? 'text-lg' : ''} style={isMe ? { fontSize: 'clamp(1rem, 3vw, 1.4rem)' } : {}}>P{item.pos}</span>
-                {item.delta != null && item.delta !== 0 && (
-                  <span className={`text-[0.7em] ${item.delta > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {item.delta > 0 ? '\u25B2' : '\u25BC'}{Math.abs(item.delta)}
-                  </span>
-                )}
-                <span className="inline-block w-[10.5ch] truncate">{clipped}</span>
-                {item.gapToNext != null && (
-                  <span className={`tabular-nums font-semibold ${item.gapToNext < 0 ? 'text-green-400' : 'text-white'}`}>
-                    {item.gapToNext > 0 ? '+' : item.gapToNext < 0 ? '\u2212' : ''}{Math.abs(item.gapToNext).toFixed(2)}
-                  </span>
-                )}
+        {/* Left column: position + standings */}
+        {entry && (effectiveShowPos || effectiveShowPoints) && (
+          <div className="absolute top-2 left-2 z-10 flex flex-col gap-1" style={{ maxHeight: 'calc(100% - 0.5rem)' }}>
+            {/* Position leaderboard */}
+            {effectiveShowPos && positionLeaderboard && (() => {
+              const renderRow = (item: PosEntry) => {
+                const isMe = item.pilot === positionLeaderboard.myPilot;
+                const name = shortName(item.pilot);
+                const clipped = name.length > 10 ? name.slice(0, 10) + '.' : name;
+                return (
+                  <div key={item.pilot} className={`flex items-center gap-1.5 leading-tight ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
+                    <span className={isMe ? 'text-lg' : ''} style={isMe ? { fontSize: 'clamp(1rem, 3vw, 1.4rem)' } : {}}>P{item.pos}</span>
+                    {item.delta != null && item.delta !== 0 && (
+                      <span className={`text-[0.7em] ${item.delta > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {item.delta > 0 ? '\u25B2' : '\u25BC'}{Math.abs(item.delta)}
+                      </span>
+                    )}
+                    <span className="inline-block w-[10.5ch] truncate">{clipped}</span>
+                    {item.bestTime != null && (
+                      <span className="ml-auto tabular-nums font-bold text-[1.35em] text-white">
+                        {toSeconds(item.bestTime)}
+                      </span>
+                    )}
+                    {item.gapToNext != null && (
+                      <span className={`${item.bestTime == null ? 'ml-auto' : ''} tabular-nums font-bold text-[1.35em] ${item.gapToNext < 0 ? 'text-green-400' : 'text-white'}`}>
+                        {item.gapToNext > 0 ? '+' : item.gapToNext < 0 ? '\u2212' : ''}{Math.abs(item.gapToNext).toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                );
+              };
+              return (
+                <div className="font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5"
+                     style={{ fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
+                  {effectiveShowTime && (timeGroupData?.pos != null || timeGlobalData?.pos != null) && (
+                    <div className="flex items-center gap-4 mb-1.5 pb-1.5 border-b border-dark-700" style={{ fontSize: 'clamp(1rem, 3vw, 1.4rem)' }}>
+                      {timeGroupData?.pos != null && (
+                        <span className="text-white font-bold">T={timeGroupData.pos}/{timeGroupData.total}</span>
+                      )}
+                      {timeGlobalData?.pos != null && (
+                        <span className="text-dark-300 font-semibold">T={timeGlobalData.pos}/{timeGlobalData.total}</span>
+                      )}
+                    </div>
+                  )}
+                  {positionLeaderboard.top.map(renderRow)}
+                  {positionLeaderboard.hasEllipsis && (
+                    <div className="text-dark-600 text-center leading-none py-px text-[0.7em]">···</div>
+                  )}
+                  {positionLeaderboard.around.map(renderRow)}
+                </div>
+              );
+            })()}
+
+            <div className="flex-1" />
+
+            {/* Standings */}
+            {effectiveShowPoints && standingsLeaderboard && (
+              <div className="font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5"
+                   style={{ fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
+                {standingsLeaderboard.items.map((item) => {
+                  const isMe = item.pilot === standingsLeaderboard.myPilot;
+                  const diff = Math.round((item.pts - standingsLeaderboard.myPts) * 10) / 10;
+                  const name = shortName(item.pilot);
+                  const clipped = name.length > 10 ? name.slice(0, 10) + '.' : name;
+                  const diffColor = (d: number) => {
+                    if (d <= -10) return 'text-green-400';
+                    if (d <= -5)  return 'text-green-400/80';
+                    if (d <= -2)  return 'text-lime-400';
+                    if (d < 0)    return 'text-yellow-400';
+                    if (d < 2)    return 'text-red-300/60';
+                    if (d < 5)    return 'text-red-400/80';
+                    if (d < 10)   return 'text-red-500';
+                    return 'text-red-700';
+                  };
+                  return (
+                    <div key={item.pilot} className={`flex items-center leading-tight ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
+                      <span className="w-5 text-right tabular-nums shrink-0">{item.pos}</span>
+                      <span className="ml-1.5 inline-block w-[10.5ch] truncate">{clipped}</span>
+                      {isMe ? (
+                        <span className="ml-auto pl-3 text-white font-bold text-[1.35em] tabular-nums text-right w-[5ch]">{item.pts}</span>
+                      ) : (
+                        <span className={`ml-auto pl-3 font-bold text-[1.35em] tabular-nums text-right w-[5ch] ${diffColor(diff)}`}>
+                          {diff > 0 ? '+' : ''}{diff.toFixed(1)}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          };
-          return (
-            <div className="absolute top-2 left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5"
-                 style={{ fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
-              {positionLeaderboard.top.map(renderRow)}
-              {positionLeaderboard.hasEllipsis && (
-                <div className="text-dark-600 text-center leading-none py-0.5">···</div>
-              )}
-              {positionLeaderboard.around.map(renderRow)}
-            </div>
-          );
-        })()}
+            )}
+          </div>
+        )}
 
         {!isLive ? (
           <div className="text-center">
@@ -705,44 +788,68 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
           <div className={`w-full h-full flex items-center pl-4 ${
             effectiveShowPos || effectiveShowPoints ? 'justify-end pr-8' : 'justify-center'
           }`}>
-            <div className="flex flex-col justify-center items-center">
+            <div className="flex flex-col justify-center items-center mt-2">
               <div className={`font-mono font-bold leading-none ${COLOR_CLASSES[lapColor]}`}
                    style={{ fontSize: 'clamp(4rem, 15vw, 10rem)' }}>
                 {entry.lastLap ? toSeconds(entry.lastLap) : '\u2014'}
               </div>
 
-              {effectiveShowSectors && sectorDiffs.lap != null && (
-                <span className={`font-mono font-bold mb-2 ${sectorDiffs.lap <= 0 ? 'text-green-400' : 'text-red-400/70'}`}
-                      style={{ fontSize: 'clamp(1.2rem, 3.5vw, 2rem)' }}>
-                  {sectorDiffs.lap <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.lap).toFixed(3)}
-                </span>
+              {(personalDiffs.lap != null || sectorDiffs.lap != null) && (
+                <div className="flex items-center gap-6 mb-2" style={{ fontSize: 'clamp(1.4rem, 4vw, 2.4rem)' }}>
+                  {personalDiffs.lap != null && (
+                    <span className={`font-mono font-bold ${personalDiffs.lap <= 0.001 ? 'text-green-400' : 'text-yellow-400/80'}`}>
+                      {personalDiffs.lap <= 0.001 ? '\u2212' : '+'}{Math.abs(personalDiffs.lap).toFixed(3)}
+                    </span>
+                  )}
+                  {sectorDiffs.lap != null && (
+                    <span className={`font-mono font-bold ${sectorDiffs.lap <= 0 ? 'text-purple-400' : 'text-red-400/70'}`}>
+                      {sectorDiffs.lap <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.lap).toFixed(3)}
+                    </span>
+                  )}
+                </div>
               )}
 
               {effectiveShowSectors && (
               <div className="flex items-center justify-center gap-8 mt-2">
                 <div className="flex flex-col items-center">
                   <div className={`font-mono font-bold ${COLOR_CLASSES[s1Color]}`}
-                       style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
+                       style={{ fontSize: 'clamp(1.8rem, 6vw, 4rem)' }}>
                     {entry.s1 && (parseTime(entry.s1) ?? 0) >= 10 ? toSeconds(entry.s1) : '\u2014'}
                   </div>
-                  {sectorDiffs.s1 != null && (
-                    <span className={`font-mono ${sectorDiffs.s1 <= 0 ? 'text-green-400' : 'text-red-400/70'}`}
-                          style={{ fontSize: 'clamp(0.85rem, 2.5vw, 1.2rem)' }}>
-                      {sectorDiffs.s1 <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.s1).toFixed(2)}
-                    </span>
+                  {(personalDiffs.s1 != null || sectorDiffs.s1 != null) && (
+                    <div className="flex items-center gap-3" style={{ fontSize: 'clamp(1.1rem, 3.5vw, 1.7rem)' }}>
+                      {personalDiffs.s1 != null && (
+                        <span className={`font-mono ${personalDiffs.s1 <= 0.001 ? 'text-green-400' : 'text-yellow-400/80'}`}>
+                          {personalDiffs.s1 <= 0.001 ? '\u2212' : '+'}{Math.abs(personalDiffs.s1).toFixed(2)}
+                        </span>
+                      )}
+                      {sectorDiffs.s1 != null && (
+                        <span className={`font-mono ${sectorDiffs.s1 <= 0 ? 'text-purple-400' : 'text-red-400/70'}`}>
+                          {sectorDiffs.s1 <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.s1).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="w-px h-10 bg-dark-800" />
                 <div className="flex flex-col items-center">
                   <div className={`font-mono font-bold ${COLOR_CLASSES[s2Color]}`}
-                       style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
+                       style={{ fontSize: 'clamp(1.8rem, 6vw, 4rem)' }}>
                     {entry.s2 && (parseTime(entry.s2) ?? 0) >= 10 ? toSeconds(entry.s2) : '\u2014'}
                   </div>
-                  {sectorDiffs.s2 != null && (
-                    <span className={`font-mono ${sectorDiffs.s2 <= 0 ? 'text-green-400' : 'text-red-400/70'}`}
-                          style={{ fontSize: 'clamp(0.85rem, 2.5vw, 1.2rem)' }}>
-                      {sectorDiffs.s2 <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.s2).toFixed(2)}
-                    </span>
+                  {(personalDiffs.s2 != null || sectorDiffs.s2 != null) && (
+                    <div className="flex items-center gap-3" style={{ fontSize: 'clamp(1.1rem, 3.5vw, 1.7rem)' }}>
+                      {personalDiffs.s2 != null && (
+                        <span className={`font-mono ${personalDiffs.s2 <= 0.001 ? 'text-green-400' : 'text-yellow-400/80'}`}>
+                          {personalDiffs.s2 <= 0.001 ? '\u2212' : '+'}{Math.abs(personalDiffs.s2).toFixed(2)}
+                        </span>
+                      )}
+                      {sectorDiffs.s2 != null && (
+                        <span className={`font-mono ${sectorDiffs.s2 <= 0 ? 'text-purple-400' : 'text-red-400/70'}`}>
+                          {sectorDiffs.s2 <= 0 ? '\u2212' : '+'}{Math.abs(sectorDiffs.s2).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -751,48 +858,6 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
           </div>
         )}
 
-        {/* T1/T2 — left center */}
-        {entry && effectiveShowTime && (timeGroupData?.pos != null || timeGlobalData?.pos != null) && (
-          <div className="absolute left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5 flex items-center gap-3"
-               style={{ top: '50%', transform: 'translateY(-50%)', fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
-            {timeGroupData?.pos != null && (
-              <span className="text-dark-300 font-semibold">T1={timeGroupData.pos}/{timeGroupData.total}</span>
-            )}
-            {timeGlobalData?.pos != null && (
-              <span className="text-dark-400">T2={timeGlobalData.pos}/{timeGlobalData.total}</span>
-            )}
-          </div>
-        )}
-
-        {/* Бали — standings leaderboard + race points, bottom left */}
-        {entry && effectiveShowPoints && standingsLeaderboard && (
-          <div className="absolute bottom-2 left-2 z-10 font-mono bg-dark-900/80 border border-dark-700 rounded-lg px-2.5 py-1.5"
-               style={{ fontSize: 'clamp(0.75rem, 2.2vw, 1rem)' }}>
-            {standingsLeaderboard.items.map((item) => {
-              const isMe = item.pilot === standingsLeaderboard.myPilot;
-              const diff = Math.round((item.pts - standingsLeaderboard.myPts) * 10) / 10;
-              const name = shortName(item.pilot);
-              const clipped = name.length > 10 ? name.slice(0, 10) + '.' : name;
-              return (
-                <div key={item.pilot} className={`flex items-center gap-1.5 leading-snug ${isMe ? 'text-white font-bold' : 'text-dark-400'}`}>
-                  <span className="w-5 text-right tabular-nums">{item.pos}.</span>
-                  <span>{clipped}</span>
-                  <span className={`w-8 text-right tabular-nums ${isMe ? 'text-green-400' : 'text-dark-500'}`}>{item.pts}</span>
-                  {!isMe && diff !== 0 && (
-                    <span className={`ml-1 text-[0.8em] ${diff > 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
-                      {diff > 0 ? '+' : ''}{diff}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-            {pointsData && pointsData.total > 0 && (
-              <div className="mt-1.5 pt-1.5 border-t border-dark-700 text-green-400/80 text-center">
-                P = {pointsData.total} = {pointsData.posPoints} + {pointsData.overtakePoints}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
     </div>

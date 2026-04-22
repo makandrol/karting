@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
-import { toSeconds, isValidSession, KART_COLOR } from '../../utils/timing';
+import { toSeconds, isValidSession, KART_COLOR, shortName } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
@@ -56,7 +56,7 @@ export default function CompetitionPage() {
   const changeTrackRef = useRef<((newTrackId: number) => Promise<void>) | null>(null);
   const autoClosedRef = useRef(false);
 
-  const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[]) => {
+  const fetchCompSessions = async (sessions: { sessionId: string; phase: string | null }[], cancelled: () => boolean) => {
     const dates = new Set<string>();
     for (const s of sessions) {
       const m = s.sessionId.match(/session-(\d+)/);
@@ -65,6 +65,7 @@ export default function CompetitionPage() {
     const sessionIds = new Set(sessions.map(s => s.sessionId));
     const all: SessionTableRow[] = [];
     for (const date of dates) {
+      if (cancelled()) return;
       try {
         const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
         if (res.ok) {
@@ -73,6 +74,7 @@ export default function CompetitionPage() {
         }
       } catch {}
     }
+    if (cancelled()) return;
     setCompSessions(all);
     if (all.length > 0 && all.every(s => s.end_time !== null && s.end_time !== undefined)) {
       setAllSessionsEnded(true);
@@ -80,32 +82,37 @@ export default function CompetitionPage() {
   };
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setCompetition(null);
     setCompetitions([]);
     setCompSessions([]);
     setAllSessionsEnded(false);
     setPilotCount(0);
+    manuallyReopened.current = false;
+    autoClosedRef.current = false;
     if (eventId) {
       fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(eventId)}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
+          if (cancelled) return;
           setCompetition(data);
-          if (data?.sessions?.length > 0) fetchCompSessions(data.sessions);
+          if (data?.sessions?.length > 0) fetchCompSessions(data.sessions, () => cancelled);
           setLoading(false);
         })
-        .catch(() => setLoading(false));
+        .catch(() => { if (!cancelled) setLoading(false); });
     } else if (type) {
       fetch(`${COLLECTOR_URL}/competitions?format=${type}`)
         .then(r => r.json())
-        .then(data => { setCompetitions(data); setLoading(false); })
-        .catch(() => setLoading(false));
+        .then(data => { if (!cancelled) { setCompetitions(data); setLoading(false); } })
+        .catch(() => { if (!cancelled) setLoading(false); });
     } else {
       fetch(`${COLLECTOR_URL}/competitions`)
         .then(r => r.json())
-        .then(data => { setCompetitions(data); setLoading(false); })
-        .catch(() => setLoading(false));
+        .then(data => { if (!cancelled) { setCompetitions(data); setLoading(false); } })
+        .catch(() => { if (!cancelled) setLoading(false); });
     }
+    return () => { cancelled = true; };
   }, [type, eventId]);
 
   const allPhasesLinked = (() => {
@@ -307,7 +314,7 @@ export default function CompetitionPage() {
                         body: JSON.stringify({ results: newResults, sessions: reassigned }),
                       });
                       setCompetition(prev => prev ? { ...prev, results: newResults, sessions: reassigned } : prev);
-                      if (reassigned.length > currentSessions.length) fetchCompSessions(reassigned);
+                      if (reassigned.length > currentSessions.length) fetchCompSessions(reassigned, () => false);
                     } else {
                       await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
                         method: 'PATCH',
@@ -351,12 +358,12 @@ export default function CompetitionPage() {
         </div>
       </div>
 
-      <LiveResults key={competition.id} competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} changeTrackRef={changeTrackRef} />
+      <LiveResults key={competition.id} competition={competition} allSessionsEnded={allSessionsEnded && allPhasesLinked} compSessions={compSessions} onPilotCount={setPilotCount} onAutoGroups={setAutoGroups} changeTrackRef={changeTrackRef} onRefreshSessions={(sessions) => fetchCompSessions(sessions, () => false)} />
     </div>
   );
 }
 
-function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups, changeTrackRef }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void; changeTrackRef?: React.MutableRefObject<((newTrackId: number) => Promise<void>) | null> }) {
+function LiveResults({ competition: initialCompetition, allSessionsEnded, compSessions, onPilotCount, onAutoGroups, changeTrackRef, onRefreshSessions }: { competition: Competition; allSessionsEnded: boolean; compSessions: SessionTableRow[]; onPilotCount: (n: number) => void; onAutoGroups: (n: number) => void; changeTrackRef?: React.MutableRefObject<((newTrackId: number) => Promise<void>) | null>; onRefreshSessions?: (sessions: { sessionId: string; phase: string | null }[]) => void }) {
   const { isOwner } = useAuth();
   const { isSectionVisible } = useLayoutPrefs();
   const [competition, setCompetition] = useState(initialCompetition);
@@ -378,7 +385,11 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const saveResults = useCallback(async (partial: Record<string, any>) => {
     saveLockRef.current = saveLockRef.current.then(async () => {
       try {
-        const currentResults = resultsRef.current || {};
+        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
+        const fresh = res.ok ? await res.json() : null;
+        const currentResults = fresh?.results
+          ? (typeof fresh.results === 'string' ? JSON.parse(fresh.results) : fresh.results)
+          : (resultsRef.current || {});
         const merged = { ...currentResults, ...partial };
         await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
           method: 'PATCH',
@@ -469,6 +480,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     return map;
   };
 
+  const knownSessionCountRef = useRef(initialCompetition.sessions.length);
+
   useEffect(() => {
     let cancelled = false;
     fetchAllLaps(initialCompetition).then(map => {
@@ -486,6 +499,10 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         if (typeof fresh.sessions === 'string') fresh.sessions = JSON.parse(fresh.sessions);
         if (typeof fresh.results === 'string') fresh.results = JSON.parse(fresh.results);
         setCompetition(fresh);
+        if (fresh.sessions.length !== knownSessionCountRef.current) {
+          knownSessionCountRef.current = fresh.sessions.length;
+          onRefreshSessions?.(fresh.sessions);
+        }
         const map = await fetchAllLaps(fresh);
         if (!cancelled) setSessionLaps(map);
       } catch {}
@@ -558,10 +575,32 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       />
     );
 
+    const gonzalesTop3 = (() => {
+      const pilots = competition.results?.standings?.pilots;
+      if (!pilots || pilots.length === 0) return null;
+      const top = pilots
+        .filter((p: any) => p.averageTime != null)
+        .sort((a: any, b: any) => a.averageTime - b.averageTime)
+        .slice(0, 3);
+      if (top.length === 0) return null;
+      return top as { pilot: string; averageTime: number }[];
+    })();
+
     const sessionsEl = compSessions.length > 0 ? (
       <div key="sessions" className="card p-0 overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-dark-800">
+        <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
           <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
+          {gonzalesTop3 && (
+            <div className="flex items-center gap-3 text-xs font-mono">
+              {gonzalesTop3.map((p, i) => (
+                <span key={p.pilot} className="flex items-center gap-1">
+                  <span className={i === 0 ? 'text-yellow-400' : i === 1 ? 'text-dark-300' : 'text-amber-700'}>{i + 1}.</span>
+                  <span className="text-dark-400">{shortName(p.pilot)}</span>
+                  <span className="text-green-400">{p.averageTime.toFixed(2)}с</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <SessionsTable sessions={compSessions} />
       </div>
@@ -605,6 +644,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         totalPilotsLocked={competition.results?.totalPilotsLocked ?? false}
         groupCountOverride={competition.results?.groupCountOverride ?? null}
         racePilotCount={competition.results?.racePilotCount ?? null}
+        officialResultsUrl={competition.results?.officialResultsUrl}
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
         onSaveResults={saveResults}
@@ -1592,17 +1632,49 @@ function getCompetitionDisplayName(c: Competition): string {
   return name;
 }
 
+const COMP_LIST_NAMES: Record<string, string> = {
+  gonzales: 'Гонзалес',
+  light_league: 'Лайт ліга',
+  champions_league: 'Ліга Чемп',
+  sprint: 'Спринт',
+  marathon: 'Марафон',
+};
+
 function CompetitionListItem({ competition: c, type, onDelete }: { competition: Competition; type: string; onDelete?: (id: string) => void }) {
   const { isOwner } = useAuth();
   const [confirming, setConfirming] = useState(false);
-  let top3: { pilot: string; totalPoints: number }[] = [];
+
+  const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
+  const isGonzales = c.format === 'gonzales';
+  let top3: { pilot: string; value: number }[] = [];
   try {
-    const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
     const pilots = results?.standings?.pilots;
     if (Array.isArray(pilots)) {
-      top3 = pilots.slice(0, 3).map((p: any) => ({ pilot: p.pilot, totalPoints: p.totalPoints }));
+      if (isGonzales) {
+        top3 = pilots
+          .filter((p: any) => p.averageTime != null)
+          .sort((a: any, b: any) => a.averageTime - b.averageTime)
+          .slice(0, 3)
+          .map((p: any) => ({ pilot: p.pilot, value: p.averageTime }));
+      } else {
+        top3 = pilots.slice(0, 3).map((p: any) => ({ pilot: p.pilot, value: p.totalPoints }));
+      }
     }
   } catch {}
+
+  const compDate = (() => {
+    if (c.sessions.length > 0) {
+      const m = c.sessions[0].sessionId.match(/session-(\d+)/);
+      if (m) {
+        const d = new Date(parseInt(m[1]));
+        return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+      }
+    }
+    return c.date || '';
+  })();
+
+  const trackId = results?.trackId;
+  const compLabel = (COMP_LIST_NAMES[c.format] || c.format) + (trackId != null ? `, ${trackDisplayId(trackId)}` : '');
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -1620,38 +1692,36 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
 
   return (
     <Link to={`/results/${type}/${c.id}`}
-      className="card p-4 block hover:bg-dark-700/50 transition-colors">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="text-white font-medium truncate">{getCompetitionDisplayName(c)}</div>
-          {top3.length > 0 && (
-            <div className="flex flex-col shrink-0">
-              {top3.map((p, i) => (
-                <span key={p.pilot} className="text-dark-400 text-[10px] leading-tight whitespace-nowrap">
-                  {i + 1}. {p.pilot} — {p.totalPoints}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {isOwner && (
-            <button
-              onClick={handleDelete}
-              onBlur={() => setConfirming(false)}
-              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                confirming ? 'bg-red-600 text-white' : 'text-dark-600 hover:text-red-400'
-              }`}
-              title="Видалити змагання">
-              {confirming ? 'Точно?' : '✕'}
-            </button>
-          )}
-          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-            c.status === 'finished' ? 'bg-dark-800 text-dark-400' : 'bg-green-500/15 text-green-400'
-          }`}>
-            {c.status === 'finished' ? 'Завершено' : 'Live'}
+      className="card px-4 py-2.5 block hover:bg-dark-700/50 transition-colors">
+      <div className="flex items-center gap-3">
+        <span className="text-white font-semibold text-sm w-[11em] shrink-0">{compDate}, {compLabel}</span>
+        {c.status === 'live' && (
+          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-500/15 text-green-400 shrink-0">
+            Live
           </span>
-        </div>
+        )}
+        {top3.length > 0 && (
+          <div className="flex flex-col text-xs font-mono min-w-0">
+            {top3.map((p, i) => (
+              <span key={p.pilot} className="flex items-center gap-1 whitespace-nowrap leading-tight">
+                <span className={i === 0 ? 'text-yellow-400' : i === 1 ? 'text-dark-400' : 'text-amber-700'}>{i + 1}.</span>
+                <span className="text-white inline-block w-[12ch] truncate">{shortName(p.pilot)}</span>
+                <span className="text-green-400 tabular-nums">{isGonzales ? `${p.value.toFixed(2)}с` : p.value}</span>
+              </span>
+            ))}
+          </div>
+        )}
+        {isOwner && (
+          <button
+            onClick={handleDelete}
+            onBlur={() => setConfirming(false)}
+            className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors shrink-0 ${
+              confirming ? 'bg-red-600 text-white' : 'text-dark-600 hover:text-red-400'
+            }`}
+            title="Видалити змагання">
+            {confirming ? 'Точно?' : '✕'}
+          </button>
+        )}
       </div>
     </Link>
   );

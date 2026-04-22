@@ -581,6 +581,22 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // ── Proxy for Google Sheets CSV export (avoid CORS) ──
+    if (req.method === 'GET' && url.pathname === '/proxy/sheets-csv') {
+      const sheetUrl = url.searchParams.get('url');
+      if (!sheetUrl) { sendJson(res, 400, { error: 'Missing url param' }); return; }
+      try {
+        const resp = await fetch(sheetUrl, { redirect: 'follow' });
+        if (!resp.ok) { sendJson(res, resp.status, { error: `Sheets returned ${resp.status}` }); return; }
+        const text = await resp.text();
+        res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8' });
+        res.end(text);
+      } catch (e) {
+        sendJson(res, 502, { error: e.message || 'Proxy error' });
+      }
+      return;
+    }
+
     sendJson(res, 404, { error: 'Not found' });
   } catch (err) {
     console.error('Request error:', err);
