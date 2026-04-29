@@ -142,10 +142,10 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     try {
       const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${dateStr}`);
       if (!res.ok) return;
-      const allSessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; merged_session_ids?: string[] }[] = await res.json();
+      const allSessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; merged_session_ids?: string[]; best_lap_time?: string | null }[] = await res.json();
 
       const available = allSessions
-        .filter(s => s.end_time && isValidSession(s))
+        .filter(s => s.end_time && isValidSession(s) && s.best_lap_time != null)
         .filter(s => (!s.competition_id || s.competition_id === compId) && s.id !== currentSessionId);
 
       const allForDetection = allSessions
@@ -302,9 +302,9 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         const dateStr = new Date(currentTime).toISOString().split('T')[0];
         const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${dateStr}`);
         if (res.ok) {
-          const allSessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; merged_session_ids?: string[] }[] = await res.json();
+          const allSessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; merged_session_ids?: string[]; best_lap_time?: string | null }[] = await res.json();
           const after = allSessions
-            .filter(s => s.end_time && isValidSession(s) && s.start_time > currentTime && !s.competition_id && s.id !== sessionId)
+            .filter(s => s.end_time && isValidSession(s) && s.best_lap_time != null && s.start_time > currentTime && !s.competition_id && s.id !== sessionId)
             .sort((a, b) => a.start_time - b.start_time);
           const remainingPhases = allPhases.length - phaseIdx - 1;
           for (let i = 0; i < remainingPhases && i < after.length; i++) {

@@ -1,4 +1,5 @@
 import { splitIntoGroups, splitIntoGroupsSprint, buildGonzalesRotation } from '../data/competitions';
+import { mergePilotNames } from './timing';
 
 export interface SessionLap {
   pilot: string;
@@ -217,9 +218,8 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
 
         const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos, format === 'champions_league');
         const groupLabel = group === 1 ? 'I' : group === 2 ? 'II' : 'III';
-        const incompleteRace = pData.lapCount < 10;
-        const posPoints = incompleteRace ? 0 : getPositionPoints(scoring, totalPilots, groupLabel, finishPos, format);
-        const effOvertake = incompleteRace ? 0 : overtakePoints;
+        const posPoints = getPositionPoints(scoring, totalPilots, groupLabel, finishPos, format);
+        const effOvertake = overtakePoints;
 
         rData.set(pilot, {
           kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
@@ -394,9 +394,7 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
         const finishPos = edit?.finishPos ?? (i + 1);
         const group = isDisq ? 0 : (sp?.group ?? groupNum);
         const penalties = edit?.penalties ?? 0;
-        const minLaps = raceIndex === 3 ? 17 : 14;
-        const incompleteRace = pData.lapCount < minLaps;
-        const posPoints = incompleteRace ? 0 : (posPointsFn ? posPointsFn(finishPos, group) : getSprintPositionPoints(finishPos));
+        const posPoints = posPointsFn ? posPointsFn(finishPos, group) : getSprintPositionPoints(finishPos);
 
         rData.set(pilot, {
           kart: pData.kart, bestTime: pData.bestTime, bestTimeStr: pData.bestTimeStr,
@@ -697,12 +695,13 @@ export interface ComputeGonzalesParams {
 export function computeGonzalesStandings(params: ComputeGonzalesParams): GonzalesStandingsData {
   const { sessions, sessionLaps, excludedPilots, kartList, kartReplacements, excludedKarts, scoringLaps, pilotStartSlots, slotOrder } = params;
 
-  // 1. Extract real pilots from qualifying sessions
+  // 1. Extract real pilots from qualifying sessions (merge "Карт X" with real names)
   const qualifyingPilots = new Set<string>();
   for (const s of sessions) {
     if (!s.phase || !s.phase.startsWith('qualifying')) continue;
     const laps = sessionLaps.get(s.sessionId) || [];
-    for (const l of laps) qualifyingPilots.add(l.pilot);
+    const merged = mergePilotNames(laps);
+    for (const l of merged) qualifyingPilots.add(l.pilot);
   }
 
   // 2. Collect karts from round sessions
