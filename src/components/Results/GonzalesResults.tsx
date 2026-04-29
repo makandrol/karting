@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { KART_COLOR } from '../../utils/timing';
+import { KART_COLOR, mergePilotNames } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { useLayoutPrefs } from '../../services/layoutPrefs';
 import { COLLECTOR_URL } from '../../services/config';
@@ -27,6 +27,7 @@ interface Props {
   onPilotCount?: (n: number) => void;
   onAutoGroups?: (n: number) => void;
   kartManagerPortal?: HTMLDivElement | null;
+  trackId?: number | null;
 }
 
 export interface GonzalesConfig {
@@ -45,7 +46,7 @@ type SortKey = 'average' | 'name' | `kart_${number}`;
 export default function GonzalesResults({
   competitionId, sessions, sessionLaps, liveSessionId, liveEnabled,
   onToggleLive, initialExcludedPilots, excludedLapKeys, onSaveResults, gonzalesConfig,
-  onPilotCount, onAutoGroups, kartManagerPortal,
+  onPilotCount, onAutoGroups, kartManagerPortal, trackId,
 }: Props) {
   const { hasPermission, isOwner } = useAuth();
   const { isSectionVisible } = useLayoutPrefs();
@@ -76,10 +77,19 @@ export default function GonzalesResults({
   const [kartReplacements, setKartReplacements] = useState<Record<number, number>>(gonzalesConfig?.kartReplacements || {});
   const [excludedKarts, setExcludedKarts] = useState<Set<number>>(new Set(gonzalesConfig?.excludedKarts || []));
   const [pilotStartSlots, setPilotStartSlots] = useState<Record<string, number>>(gonzalesConfig?.pilotStartSlots || {});
-  const [scoringLaps, setScoringLaps] = useState<number[]>(gonzalesConfig?.scoringLaps || [1, 2]);
+  const trackScoringKey = trackId != null ? `karting_gonzales_scoring_laps_track_${trackId}` : null;
+  const [scoringLaps, setScoringLaps] = useState<number[]>(() => {
+    if (gonzalesConfig?.scoringLaps && gonzalesConfig.scoringLaps.length > 0) return gonzalesConfig.scoringLaps;
+    if (trackScoringKey) {
+      try { const s = localStorage.getItem(trackScoringKey); if (s) return JSON.parse(s); } catch {}
+    }
+    return [1, 2];
+  });
   const [slotOrder, setSlotOrder] = useState<(number | null)[] | undefined>(gonzalesConfig?.slotOrder);
   const [configLocked, setConfigLocked] = useState(gonzalesConfig?.configLocked ?? false);
   const [lockedPilots, setLockedPilots] = useState<string[]>(gonzalesConfig?.lockedPilots || []);
+
+  const scoringLapsSynced = useRef(false);
 
   const excludedLapSet = useMemo(() => new Set(excludedLapKeys || []), [excludedLapKeys]);
   const effectiveLaps = useMemo(() => {
@@ -191,6 +201,16 @@ export default function GonzalesResults({
     await onSaveResults({ gonzalesConfig: cfg });
   }, [kartList, kartReplacements, excludedKarts, pilotStartSlots, scoringLaps, slotOrder, configLocked, lockedPilots, onSaveResults]);
 
+  useEffect(() => {
+    if (scoringLapsSynced.current) return;
+    if (gonzalesConfig?.scoringLaps && gonzalesConfig.scoringLaps.length > 0) return;
+    if (!trackScoringKey) return;
+    try {
+      const s = localStorage.getItem(trackScoringKey);
+      if (s) { scoringLapsSynced.current = true; saveGonzalesConfig({ scoringLaps: JSON.parse(s) }); }
+    } catch {}
+  });
+
   const handleRenamePilot = useCallback(async (oldName: string, newName: string) => {
     setRenamingPilot(null);
     for (const s of sessions) {
@@ -221,7 +241,8 @@ export default function GonzalesResults({
     for (const s of sessions) {
       if (!s.phase || !s.phase.startsWith('qualifying')) continue;
       const laps = sessionLaps.get(s.sessionId) || [];
-      for (const l of laps) pilots.add(l.pilot);
+      const merged = mergePilotNames(laps);
+      for (const l of merged) pilots.add(l.pilot);
     }
     return pilots;
   }, [sessions, sessionLaps]);
@@ -299,6 +320,46 @@ export default function GonzalesResults({
 
   const slots = useMemo(() => buildGonzalesRotation(effectiveKarts, pilotCount, effectiveSlotOrder), [effectiveKarts, pilotCount, effectiveSlotOrder]);
 
+  // Auto-assign pilotStartSlots from qualifying karts if not configured
+  useEffect(() => {
+    if (configLocked) return;
+    if (Object.keys(pilotStartSlots).length > 0) return;
+    if (slots.length === 0 || activePilots.length === 0) return;
+
+    // Determine each pilot's qualifying kart (best lap kart after merge)
+    const pilotKart = new Map<string, number>();
+    for (const s of sessions) {
+      if (!s.phase || !s.phase.startsWith('qualifying')) continue;
+      const laps = sessionLaps.get(s.sessionId) || [];
+      const merged = mergePilotNames(laps);
+      for (const l of merged) {
+        if (!activePilots.includes(l.pilot)) continue;
+        if (!pilotKart.has(l.pilot)) pilotKart.set(l.pilot, l.kart);
+      }
+    }
+
+    // Build kart → slot index map
+    const kartToSlotIdx = new Map<number, number>();
+    for (let i = 0; i < slots.length; i++) {
+      if (slots[i].kart !== null) kartToSlotIdx.set(slots[i].kart!, i);
+    }
+
+    // Assign: pilot's startSlot = (index of their qualifying kart + 1) % totalSlots
+    const next: Record<string, number> = {};
+    for (const pilot of activePilots) {
+      const qKart = pilotKart.get(pilot);
+      if (qKart == null) continue;
+      const kartIdx = kartToSlotIdx.get(qKart);
+      if (kartIdx == null) continue;
+      next[pilot] = (kartIdx + 1) % slots.length;
+    }
+
+    if (Object.keys(next).length > 0) {
+      setPilotStartSlots(next);
+      saveGonzalesConfig({ pilotStartSlots: next });
+    }
+  }, [configLocked, pilotStartSlots, slots, activePilots, sessions, sessionLaps]);
+
   const getStartKartInfo = useCallback((startSlot: number): { kartIdx: number | null; fromSkip: boolean } => {
     if (startSlot < 0 || slots.length === 0) return { kartIdx: null, fromSkip: false };
     const slot = slots[startSlot];
@@ -318,6 +379,9 @@ export default function GonzalesResults({
     const next = scoringLaps.includes(lap) ? scoringLaps.filter(l => l !== lap) : [...scoringLaps, lap].sort((a, b) => a - b);
     setScoringLaps(next);
     saveGonzalesConfig({ scoringLaps: next });
+    if (trackScoringKey) {
+      try { localStorage.setItem(trackScoringKey, JSON.stringify(next)); } catch {}
+    }
   };
 
   if (data.rows.length === 0 && sessions.length === 0) {
@@ -734,6 +798,90 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const [dragSlotIdx, setDragSlotIdx] = useState<number | null>(null);
   const [dragPilot, setDragPilot] = useState<string | null>(null);
 
+  // Touch drag support (HTML5 drag doesn't work on mobile)
+  const slotRowRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const pilotDropRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const unassignedRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const touchDragType = useRef<'slot' | 'pilot' | null>(null);
+  const touchDragValue = useRef<number | string | null>(null);
+  const [touchActive, setTouchActive] = useState(false);
+  const [touchHighlight, setTouchHighlight] = useState<number | null>(null);
+  const touchHighlightRef = useRef<number | null>(null);
+
+  const getSlotIdxAtPoint = useCallback((x: number, y: number): number | null => {
+    for (let i = 0; i < slotRowRefs.current.length; i++) {
+      const el = slotRowRefs.current[i];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return i;
+    }
+    return null;
+  }, []);
+
+  const getPilotDropIdxAtPoint = useCallback((x: number, y: number): number | null => {
+    for (let i = 0; i < pilotDropRefs.current.length; i++) {
+      const el = pilotDropRefs.current[i];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return i;
+    }
+    return null;
+  }, []);
+
+  const handleTouchStart = useCallback((type: 'slot' | 'pilot', value: number | string) => (e: React.TouchEvent) => {
+    e.preventDefault();
+    touchDragType.current = type;
+    touchDragValue.current = value;
+    setTouchActive(true);
+    if (type === 'slot') setDragSlotIdx(value as number);
+    else setDragPilot(value as string);
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchActive) return;
+    const t = e.touches[0];
+    const type = touchDragType.current;
+    let target: number | null = null;
+    if (type === 'slot') {
+      target = getSlotIdxAtPoint(t.clientX, t.clientY);
+    } else if (type === 'pilot') {
+      target = getPilotDropIdxAtPoint(t.clientX, t.clientY);
+    }
+    touchHighlightRef.current = target;
+    setTouchHighlight(target);
+  }, [touchActive, getSlotIdxAtPoint, getPilotDropIdxAtPoint]);
+
+  const handleTouchEnd = useCallback(() => {
+    const type = touchDragType.current;
+    const value = touchDragValue.current;
+    const target = touchHighlightRef.current;
+    touchDragType.current = null;
+    touchDragValue.current = null;
+    touchHighlightRef.current = null;
+    setTouchActive(false);
+    setTouchHighlight(null);
+    setDragSlotIdx(null);
+    setDragPilot(null);
+    if (type === 'slot' && typeof value === 'number' && target !== null) {
+      if (value === target) return;
+      const order: (number | null)[] = slots.map(s => s.kart);
+      const [item] = order.splice(value, 1);
+      order.splice(target, 0, item);
+      setSlotOrder(order);
+    } else if (type === 'pilot' && typeof value === 'string' && target !== null) {
+      const next = { ...pilotStartSlots };
+      const existingPilot = Object.entries(next).find(([, idx]) => idx === target)?.[0];
+      const previousSlot = next[value];
+      if (existingPilot && previousSlot !== undefined) {
+        next[existingPilot] = previousSlot;
+      } else if (existingPilot) {
+        delete next[existingPilot];
+      }
+      next[value] = target;
+      setPilotStartSlots(next);
+    }
+  }, [slots, setSlotOrder, pilotStartSlots, setPilotStartSlots]);
+
   const effectiveKarts = kartList.length > 0 ? kartList : autoKarts;
 
   const slotToPilot = useMemo(() => {
@@ -859,6 +1007,12 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
 
   return (
     <div className="card p-3 space-y-3 text-xs relative z-10">
+      {/* Touch drag floating label */}
+      {touchActive && dragPilot && (
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-50 bg-primary-600/90 text-white text-xs px-3 py-1.5 rounded-full shadow-lg pointer-events-none">
+          {dragPilot} → {touchHighlight !== null ? `позиція ${touchHighlight + 1}` : '...'}
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <h4 className="text-white font-semibold text-sm">Привʼязка пілотів до початкового карту</h4>
         <button onClick={onToggleLock}
@@ -897,9 +1051,10 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                 isSkip ? 'bg-dark-900/30' : isExcluded ? 'bg-dark-900/50 opacity-60' : ''
               }`}>
                 {/* Left: slot + kart actions */}
-                <div className={`flex items-center gap-1 px-1 py-1 border-r border-dark-700 cursor-grab select-none ${
+                <div ref={el => { slotRowRefs.current[si] = el; }}
+                  className={`flex items-center gap-1 px-1 py-1 border-r border-dark-700 cursor-grab select-none ${
                   dragSlotIdx !== null && dragSlotIdx !== si ? 'hover:bg-dark-700/50' : ''
-                }`}
+                }${touchActive && touchDragType.current === 'slot' && touchHighlight === si ? ' bg-dark-700/50' : ''}`}
                   draggable
                   onDragStart={(e) => { if (dragPilot) return; setDragSlotIdx(si); e.dataTransfer.effectAllowed = 'move'; }}
                   onDragEnd={() => setDragSlotIdx(null)}
@@ -941,8 +1096,8 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                 </div>
 
                 {/* Right: pilot */}
-                <div
-                  className={`flex items-center gap-1 px-1 py-1 ${!pilot && dragPilot ? 'hover:bg-primary-600/10' : ''}`}
+                <div ref={el => { pilotDropRefs.current[si] = el; }}
+                  className={`flex items-center gap-1 px-1 py-1 ${!pilot && dragPilot ? 'hover:bg-primary-600/10' : ''}${touchActive && touchDragType.current === 'pilot' && touchHighlight === si ? ' bg-primary-600/10' : ''}`}
                   onDragOver={(e) => { if (dragPilot) e.preventDefault(); }}
                   onDrop={() => { if (dragPilot) { assignPilotToSlot(dragPilot, si); setDragPilot(null); } }}
                 >
@@ -954,10 +1109,13 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                         <button onClick={() => !isLast && movePilot(si, si + 1)} disabled={isLast}
                           className={`text-sm leading-none px-0.5 ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▼</button>
                       </div>
-                      <span className="text-white cursor-grab flex-1 text-xs truncate"
+                      <span className="text-white cursor-grab flex-1 text-xs truncate touch-none"
                         draggable
                         onDragStart={(e) => { e.stopPropagation(); setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
                         onDragEnd={() => setDragPilot(null)}
+                        onTouchStart={(e) => { e.stopPropagation(); handleTouchStart('pilot', pilot)(e); }}
+                        onTouchMove={handleTouchMove}
+                        onTouchEnd={handleTouchEnd}
                       >{pilot}</span>
                       <button onClick={() => {
                           const newName = window.prompt(`Перейменувати "${pilot}" на:`, pilot);
@@ -1001,12 +1159,15 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
             Непривʼязані пілоти ({unassignedPilots.length})
           </div>
           <div className="flex flex-wrap gap-1">
-            {unassignedPilots.map(pilot => (
-              <div key={pilot}
-                className="flex items-center gap-1 px-2 py-0.5 rounded bg-dark-800 cursor-grab"
+            {unassignedPilots.map((pilot, ui) => (
+              <div key={pilot} ref={el => { unassignedRefs.current[ui] = el; }}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-dark-800 cursor-grab touch-none"
                 draggable
                 onDragStart={(e) => { setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
                 onDragEnd={() => setDragPilot(null)}
+                onTouchStart={handleTouchStart('pilot', pilot)}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
               >
                 <span className="text-white text-[10px]">{pilot}</span>
                 <button onClick={() => {

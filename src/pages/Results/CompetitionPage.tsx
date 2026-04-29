@@ -1,5 +1,5 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, type ReactNode } from 'react';
 import { COLLECTOR_URL } from '../../services/config';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
 import { toSeconds, isValidSession, KART_COLOR, shortName } from '../../utils/timing';
@@ -14,6 +14,9 @@ import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import SessionReplay, { parseSessionEvents } from '../../components/Timing/SessionReplay';
 import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
+import type { TimingEntry } from '../../types';
+
+const Onboard = lazy(() => import('../Info/Onboard'));
 
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
@@ -193,7 +196,7 @@ export default function CompetitionPage() {
         <TableLayoutBar pageId="competition" sections={[
           ...PAGE_SECTIONS.competition.filter(s => s.id !== 'kartManager' || competition.format === 'gonzales'),
           { id: 'editLog', label: 'Журнал змін' },
-        ]} disabledSections={isOwner ? undefined : new Set(['kartManager', 'editLog'])} />
+        ]} disabledSections={isOwner ? undefined : new Set(['kartManager', 'editLog', 'onboard'])} />
       )}
       <div className="flex items-center justify-between">
         <div>
@@ -294,10 +297,10 @@ export default function CompetitionPage() {
                         try {
                           const sessRes = await fetch(`${COLLECTOR_URL}/db/sessions?date=${dateStr}`);
                           if (sessRes.ok) {
-                            const daySessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null }[] = await sessRes.json();
+                            const daySessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; best_lap_time?: string | null }[] = await sessRes.json();
                             const linkedIds = new Set(reassigned.map(s => s.sessionId));
                             const available = daySessions
-                              .filter(s => s.end_time && isValidSession(s) && (!s.competition_id || s.competition_id === competition.id) && !linkedIds.has(s.id))
+                              .filter(s => s.end_time && isValidSession(s) && s.best_lap_time != null && (!s.competition_id || s.competition_id === competition.id) && !linkedIds.has(s.id))
                               .filter(s => s.start_time > lastTs)
                               .sort((a, b) => a.start_time - b.start_time);
 
@@ -377,6 +380,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const [liveTeams, setLiveTeams] = useState<any[]>([]);
   const [liveEnabled, setLiveEnabled] = useState(true);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
+  const [onboardEntries, setOnboardEntries] = useState<TimingEntry[]>([]);
 
   const resultsRef = useRef(competition.results);
   useEffect(() => { resultsRef.current = competition.results; }, [competition.results]);
@@ -540,6 +544,23 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
 
   const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? 1;
 
+  const effectiveReplaySessionId = (scrubTime !== null ? scrubSessionId : liveSessionId) ?? undefined;
+
+  const onboardEl = isSectionVisible('competition', 'onboard') ? (
+    <div key="onboard" className="flex justify-center">
+      <div className="relative bg-dark-950 border border-dark-700 rounded-xl overflow-hidden" style={{ width: 844, height: 390 }}>
+        <Suspense fallback={null}>
+          <Onboard
+            replayEntries={onboardEntries}
+            replaySessionId={effectiveReplaySessionId}
+            embedded
+            scrubTime={scrubTime}
+          />
+        </Suspense>
+      </div>
+    </div>
+  ) : null;
+
   if (competition.format === 'gonzales') {
     const isScrubbing = scrubTime !== null;
 
@@ -559,6 +580,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         onPilotCount={onPilotCount}
         onAutoGroups={onAutoGroups}
         kartManagerPortal={kartManagerPortalEl}
+        trackId={competition.results?.trackId ?? null}
       />
     );
 
@@ -572,6 +594,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
         compSessions={compSessions}
         isScrubbing={isScrubbing}
+        scrubTime={scrubTime}
+        onEntriesUpdate={setOnboardEntries}
       />
     );
 
@@ -611,6 +635,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       kartManager: <div ref={kartManagerPortalRef} />,
       liveSession: liveSessionEl,
       sessions: sessionsEl,
+      onboard: onboardEl,
     };
 
     return (
@@ -661,6 +686,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
         compSessions={compSessions}
         isScrubbing={isScrubbing}
+        scrubTime={scrubTime}
+        onEntriesUpdate={setOnboardEntries}
       />
     );
 
@@ -677,6 +704,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       leaguePoints: leagueResultsEl,
       liveSession: liveSessionEl,
       sessions: sessionsEl,
+      onboard: onboardEl,
     };
 
     return (
@@ -1235,7 +1263,7 @@ function CompetitionList({ competitions: initialCompetitions, initialFilter }: {
   );
 }
 
-function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, sessionLaps, compSessions, isScrubbing }: {
+function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, sessionLaps, compSessions, isScrubbing, scrubTime, onEntriesUpdate }: {
   competition: Competition;
   liveSessionId: string | null;
   liveEntries: any[];
@@ -1243,6 +1271,8 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
   sessionLaps: Map<string, SessionLap[]>;
   compSessions: SessionTableRow[];
   isScrubbing: boolean;
+  scrubTime: number | null;
+  onEntriesUpdate?: (entries: TimingEntry[]) => void;
 }) {
   const excludedLapSet = useMemo(() => new Set(competition.results?.excludedLaps || []), [competition.results?.excludedLaps]);
   const effectiveLaps = useMemo(() => {
@@ -1300,10 +1330,13 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
 
   const durationSec = useMemo(() => {
     if (!sessionStartTime) return 0;
+    if (isScrubbing && scrubTime != null) {
+      return Math.max(0, (scrubTime - sessionStartTime) / 1000);
+    }
     const cs = compSessions.find(s => s.id === liveSessionId);
     const endTime = cs?.end_time ?? Date.now();
     return Math.max(0, (endTime - sessionStartTime) / 1000);
-  }, [sessionStartTime, liveSessionId, compSessions, laps]);
+  }, [sessionStartTime, liveSessionId, compSessions, laps, isScrubbing, scrubTime]);
 
   const mappedLiveEntries = useMemo(() => {
     return liveEntries.map((e: any) => ({
@@ -1574,7 +1607,12 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     return suffix;
   }, [competition, currentPhase, laps]);
 
-  if (!liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded) {
+  const noActiveSession = !liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded;
+  useEffect(() => {
+    if (noActiveSession) onEntriesUpdate?.([]);
+  }, [noActiveSession]);
+
+  if (noActiveSession) {
     return (
       <div className="card p-0 overflow-hidden">
         <div className="px-4 py-2.5 border-b border-dark-800">
@@ -1608,6 +1646,7 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
         defaultSortMode={isRace && !currentPhase?.startsWith('round_') ? 'race' : 'qualifying'}
         showScrubber={false}
         pilotSuffix={gonzalesPilotSuffix.size > 0 ? gonzalesPilotSuffix : undefined}
+        onEntriesUpdate={onEntriesUpdate}
       />
     </div>
   );

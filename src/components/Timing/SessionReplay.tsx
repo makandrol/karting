@@ -147,6 +147,11 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
   const durationRef = useRef(durationSec);
   durationRef.current = durationSec;
 
+  useEffect(() => {
+    if (atLive) setCurrentTime(durationSec);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [durationSec]);
+
   const pilots = useMemo(() => {
     const set = new Set(laps.map(l => l.pilot));
     if (liveEntries) for (const e of liveEntries) set.add(e.pilot);
