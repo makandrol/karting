@@ -70,11 +70,7 @@ node tools/server.cjs
 
 ## Зображення треків
 
-Editor шукає картинки за двома шляхами:
-1. `../public/tracks/nfs_{NUM}.jpg`
-2. `../tracks/nfs/nfs_{NUM}.jpg`
-
-Зображення мають бути 1280×720.
+Editor шукає картинки за шляхом `../public/tracks/nfs_{NUM}.jpg` (відносно `tools/path-editor.html`). Зображення мають бути 1280×720.
 
 ## Інтеграція з React-додатком
 
