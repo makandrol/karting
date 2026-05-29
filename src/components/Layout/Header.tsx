@@ -10,13 +10,102 @@ const ChevronDown = () => (
   </svg>
 );
 
+interface DropdownPos { top: number; left: number; right: number; }
+
+interface NavDropdownProps {
+  id: string;
+  label: string;
+  items: { label: string; path: string }[];
+  align?: 'left' | 'right';
+  openDropdown: string | null;
+  openDd: (id: string) => void;
+  closeDd: () => void;
+  toggleDd: (id: string) => void;
+  isActive: (path: string) => boolean;
+  isGroupActive: (paths: string[]) => boolean;
+  dropdownPosRef: React.MutableRefObject<DropdownPos>;
+  activeCompName: string | null;
+}
+
+function NavDropdown({
+  id, label, items, align = 'left',
+  openDropdown, openDd, closeDd, toggleDd,
+  isActive, isGroupActive, dropdownPosRef, activeCompName,
+}: NavDropdownProps) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  if (items.length === 0) return null;
+  const active = isGroupActive(items.map(i => i.path));
+  const isOpen = openDropdown === id;
+  const handleOpen = (opener: (id: string) => void) => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      dropdownPosRef.current = { top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right };
+    }
+    opener(id);
+  };
+  return (
+    <div data-dropdown onMouseEnter={() => handleOpen(openDd)} onMouseLeave={closeDd}>
+      <button
+        ref={btnRef}
+        onClick={() => handleOpen(toggleDd)}
+        className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+          active ? 'text-white bg-primary-600' : 'text-dark-300 hover:text-white hover:bg-dark-800'
+        }`}
+      >
+        {label}
+        <ChevronDown />
+      </button>
+      {isOpen && (
+        <div data-dropdown className="fixed w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
+          style={align === 'right'
+            ? { top: dropdownPosRef.current.top, right: dropdownPosRef.current.right }
+            : { top: dropdownPosRef.current.top, left: dropdownPosRef.current.left }}
+          onMouseEnter={() => openDd(id)} onMouseLeave={closeDd}>
+          {items.map(item => {
+            const isLiveItem = item.path === '/results/current';
+            const hasActiveLive = !!activeCompName;
+            if (isLiveItem) {
+              return (
+                <div key={item.path} className={`block px-4 py-2 text-sm ${hasActiveLive ? '' : 'opacity-50 cursor-default'}`}>
+                  {hasActiveLive ? (
+                    <Link to={item.path} className="flex items-center gap-2 text-dark-300 hover:text-white transition-colors">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                      <span className="text-green-400 text-[11px]">{activeCompName}</span>
+                    </Link>
+                  ) : (
+                    <span className="flex items-center gap-2 text-dark-600">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500/50" />
+                      <span className="text-[11px]">немає активного змагання</span>
+                    </span>
+                  )}
+                </div>
+              );
+            }
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`block px-4 py-2 text-sm transition-colors ${
+                  isActive(item.path) ? 'text-primary-400 bg-primary-500/10' : 'text-dark-300 hover:text-white hover:bg-dark-800'
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Header() {
   const location = useLocation();
   const { user, isOwner, isModerator, logout } = useAuth();
   const { getVisiblePages } = usePageVisibility();
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const dropdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dropdownPosRef = useRef<{ top: number; left: number; right: number }>({ top: 0, left: 0, right: 0 });
+  const dropdownPosRef = useRef<DropdownPos>({ top: 0, left: 0, right: 0 });
 
   const role = user?.role ?? 'user';
   const email = user?.email;
@@ -34,11 +123,11 @@ export default function Header() {
       .catch(() => {});
   }, [location.pathname]);
 
-  const isActive = (path: string) => {
+  const isActive = useCallback((path: string) => {
     if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
-  };
-  const isGroupActive = (paths: string[]) => paths.some(p => isActive(p));
+  }, [location.pathname]);
+  const isGroupActive = useCallback((paths: string[]) => paths.some(p => isActive(p)), [isActive]);
 
   const openDd = useCallback((id: string) => {
     if (dropdownTimerRef.current) { clearTimeout(dropdownTimerRef.current); dropdownTimerRef.current = null; }
@@ -64,75 +153,6 @@ export default function Header() {
 
   useEffect(() => { setOpenDropdown(null); }, [location.pathname]);
 
-  function Dropdown({ id, label, items, align = 'left' }: {
-    id: string; label: string; items: { label: string; path: string }[]; align?: 'left' | 'right';
-  }) {
-    if (items.length === 0) return null;
-    const active = isGroupActive(items.map(i => i.path));
-    const btnRef = useRef<HTMLButtonElement>(null);
-    const isOpen = openDropdown === id;
-    const handleOpen = (opener: (id: string) => void) => {
-      if (btnRef.current) {
-        const r = btnRef.current.getBoundingClientRect();
-        dropdownPosRef.current = { top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right };
-      }
-      opener(id);
-    };
-    return (
-      <div data-dropdown onMouseEnter={() => handleOpen(openDd)} onMouseLeave={closeDd}>
-        <button
-          ref={btnRef}
-          onClick={() => handleOpen(toggleDd)}
-          className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-            active ? 'text-white bg-primary-600' : 'text-dark-300 hover:text-white hover:bg-dark-800'
-          }`}
-        >
-          {label}
-          <ChevronDown />
-        </button>
-        {isOpen && (
-          <div data-dropdown className="fixed w-52 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-[200]"
-            style={align === 'right' ? { top: dropdownPosRef.current.top, right: dropdownPosRef.current.right } : { top: dropdownPosRef.current.top, left: dropdownPosRef.current.left }}
-            onMouseEnter={() => openDd(id)} onMouseLeave={closeDd}>
-            {items.map(item => {
-              const isLiveItem = item.path === '/results/current';
-              const hasActiveLive = !!activeCompName;
-              if (isLiveItem) {
-                return (
-                  <div key={item.path}
-                    className={`block px-4 py-2 text-sm ${hasActiveLive ? '' : 'opacity-50 cursor-default'}`}>
-                    {hasActiveLive ? (
-                      <Link to={item.path} className="flex items-center gap-2 text-dark-300 hover:text-white transition-colors">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                        <span className="text-green-400 text-[11px]">{activeCompName}</span>
-                      </Link>
-                    ) : (
-                      <span className="flex items-center gap-2 text-dark-600">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500/50" />
-                        <span className="text-[11px]">немає активного змагання</span>
-                      </span>
-                    )}
-                  </div>
-                );
-              }
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                className={`block px-4 py-2 text-sm transition-colors ${
-                  isActive(item.path) ? 'text-primary-400 bg-primary-500/10' : 'text-dark-300 hover:text-white hover:bg-dark-800'
-                }`}
-              >
-                {item.label}
-              </Link>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  }
-
   return (
     <header className="bg-dark-900/80 backdrop-blur-md border-b border-dark-800 z-[100]">
       <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
@@ -151,10 +171,22 @@ export default function Header() {
             ))}
 
             {otherPages.length > 0 && (
-              <Dropdown id="other" label="Інше" items={otherPages.map(p => ({ label: p.label, path: p.path }))} />
+              <NavDropdown
+                id="other" label="Інше"
+                items={otherPages.map(p => ({ label: p.label, path: p.path }))}
+                openDropdown={openDropdown} openDd={openDd} closeDd={closeDd} toggleDd={toggleDd}
+                isActive={isActive} isGroupActive={isGroupActive}
+                dropdownPosRef={dropdownPosRef} activeCompName={activeCompName}
+              />
             )}
             {adminPages.length > 0 && (
-              <Dropdown id="admin" label="Адмін" items={adminPages.map(p => ({ label: p.label, path: p.path }))} />
+              <NavDropdown
+                id="admin" label="Адмін"
+                items={adminPages.map(p => ({ label: p.label, path: p.path }))}
+                openDropdown={openDropdown} openDd={openDd} closeDd={closeDd} toggleDd={toggleDd}
+                isActive={isActive} isGroupActive={isGroupActive}
+                dropdownPosRef={dropdownPosRef} activeCompName={activeCompName}
+              />
             )}
           </nav>
 
@@ -181,7 +213,7 @@ function UserDropdown({ user, openDropdown, toggleDd, logout, dropdownPosRef }: 
   openDropdown: string | null;
   toggleDd: (id: string) => void;
   logout: () => void;
-  dropdownPosRef: React.MutableRefObject<{ top: number; left: number; right: number }>;
+  dropdownPosRef: React.MutableRefObject<DropdownPos>;
 }) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const isOpen = openDropdown === 'user';
