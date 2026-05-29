@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, type ReactNode } from 'react';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
 import { toSeconds, isValidSession, KART_COLOR, shortName } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
@@ -17,8 +17,6 @@ import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/sess
 import type { TimingEntry } from '../../types';
 
 const Onboard = lazy(() => import('../Info/Onboard'));
-
-const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
 interface Competition {
   id: string;
@@ -70,11 +68,8 @@ export default function CompetitionPage() {
     for (const date of dates) {
       if (cancelled()) return;
       try {
-        const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
-        if (res.ok) {
-          const data: SessionTableRow[] = await res.json();
-          all.push(...data.filter(s => sessionIds.has(s.id)));
-        }
+        const data = await api.sessions.byDate(date);
+        all.push(...(data as unknown as SessionTableRow[]).filter(s => sessionIds.has(s.id)));
       } catch {}
     }
     if (cancelled()) return;
@@ -95,24 +90,21 @@ export default function CompetitionPage() {
     manuallyReopened.current = false;
     autoClosedRef.current = false;
     if (eventId) {
-      fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(eventId)}`)
-        .then(r => r.ok ? r.json() : null)
+      api.competitions.getSafe(eventId)
         .then(data => {
           if (cancelled) return;
-          setCompetition(data);
-          if (data?.sessions?.length > 0) fetchCompSessions(data.sessions, () => cancelled);
+          setCompetition(data as unknown as Competition);
+          if ((data as any)?.sessions?.length > 0) fetchCompSessions((data as any).sessions, () => cancelled);
           setLoading(false);
         })
         .catch(() => { if (!cancelled) setLoading(false); });
     } else if (type) {
-      fetch(`${COLLECTOR_URL}/competitions?format=${type}`)
-        .then(r => r.json())
-        .then(data => { if (!cancelled) { setCompetitions(data); setLoading(false); } })
+      api.competitions.byFormat(type)
+        .then(data => { if (!cancelled) { setCompetitions(data as unknown as Competition[]); setLoading(false); } })
         .catch(() => { if (!cancelled) setLoading(false); });
     } else {
-      fetch(`${COLLECTOR_URL}/competitions`)
-        .then(r => r.json())
-        .then(data => { if (!cancelled) { setCompetitions(data); setLoading(false); } })
+      api.competitions.list()
+        .then(data => { if (!cancelled) { setCompetitions(data as unknown as Competition[]); setLoading(false); } })
         .catch(() => { if (!cancelled) setLoading(false); });
     }
     return () => { cancelled = true; };
@@ -135,12 +127,8 @@ export default function CompetitionPage() {
     autoClosedRef.current = true;
     (async () => {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-          body: JSON.stringify({ status: 'finished' }),
-        });
-        if (res.ok) setCompetition(await res.json());
+        await api.competitions.update(competition.id, { status: 'finished' });
+        setCompetition(prev => prev ? { ...prev, status: 'finished' } : prev);
       } catch {}
     })();
   }, [competition?.status, allSessionsEnded, allPhasesLinked, canManage]);
@@ -150,12 +138,8 @@ export default function CompetitionPage() {
     const newStatus = competition.status === 'live' ? 'finished' : 'live';
     if (newStatus === 'live') manuallyReopened.current = true;
     try {
-      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      if (res.ok) setCompetition(await res.json());
+      await api.competitions.update(competition.id, { status: newStatus });
+      setCompetition(prev => prev ? { ...prev, status: newStatus } : prev);
     } catch {}
   };
 
@@ -234,9 +218,8 @@ export default function CompetitionPage() {
                 racePilotCount={competition.results?.racePilotCount ?? null}
                 onSave={async (partial) => {
                   try {
-                    const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-                    if (!res.ok) return;
-                    const comp = await res.json();
+                    let comp: any = null;
+                    try { comp = await api.competitions.get(competition.id); } catch { return; }
                     const currentResults = comp.results || {};
                     const newResults = { ...currentResults, ...partial };
 
@@ -295,35 +278,24 @@ export default function CompetitionPage() {
                         const dateObj = new Date(lastTs);
                         const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
                         try {
-                          const sessRes = await fetch(`${COLLECTOR_URL}/db/sessions?date=${dateStr}`);
-                          if (sessRes.ok) {
-                            const daySessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; best_lap_time?: string | null }[] = await sessRes.json();
-                            const linkedIds = new Set(reassigned.map(s => s.sessionId));
-                            const available = daySessions
-                              .filter(s => s.end_time && isValidSession(s) && s.best_lap_time != null && (!s.competition_id || s.competition_id === competition.id) && !linkedIds.has(s.id))
-                              .filter(s => s.start_time > lastTs)
-                              .sort((a, b) => a.start_time - b.start_time);
+                          const daySessions = await api.sessions.byDate(dateStr) as any as { id: string; start_time: number; end_time: number | null; competition_id?: string | null; best_lap_time?: string | null }[];
+                          const linkedIds = new Set(reassigned.map(s => s.sessionId));
+                          const available = daySessions
+                            .filter(s => s.end_time && isValidSession(s) && s.best_lap_time != null && (!s.competition_id || s.competition_id === competition.id) && !linkedIds.has(s.id))
+                            .filter(s => s.start_time > lastTs)
+                            .sort((a, b) => a.start_time - b.start_time);
 
-                            for (let i = filledRounds; i < roundPhases.length && (i - filledRounds) < available.length; i++) {
-                              reassigned.push({ sessionId: available[i - filledRounds].id, phase: roundPhases[i].id });
-                            }
+                          for (let i = filledRounds; i < roundPhases.length && (i - filledRounds) < available.length; i++) {
+                            reassigned.push({ sessionId: available[i - filledRounds].id, phase: roundPhases[i].id });
                           }
                         } catch {}
                       }
 
-                      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                        body: JSON.stringify({ results: newResults, sessions: reassigned }),
-                      });
+                      await api.competitions.update(competition.id, { results: newResults, sessions: reassigned as any });
                       setCompetition(prev => prev ? { ...prev, results: newResults, sessions: reassigned } : prev);
                       if (reassigned.length > currentSessions.length) fetchCompSessions(reassigned, () => false);
                     } else {
-                      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                        body: JSON.stringify({ results: newResults }),
-                      });
+                      await api.competitions.update(competition.id, { results: newResults });
                       setCompetition(prev => prev ? { ...prev, results: newResults } : prev);
                     }
                   } catch {}
@@ -389,17 +361,13 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const saveResults = useCallback(async (partial: Record<string, any>) => {
     saveLockRef.current = saveLockRef.current.then(async () => {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-        const fresh = res.ok ? await res.json() : null;
+        let fresh: any = null;
+        try { fresh = await api.competitions.get(competition.id); } catch {}
         const currentResults = fresh?.results
           ? (typeof fresh.results === 'string' ? JSON.parse(fresh.results) : fresh.results)
-          : (resultsRef.current || {});
+          : (competition.results || {});
         const merged = { ...currentResults, ...partial };
-        await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-          body: JSON.stringify({ results: merged }),
-        });
+        await api.competitions.update(competition.id, { results: merged });
         resultsRef.current = merged;
         setCompetition(prev => prev ? { ...prev, results: merged } : prev);
       } catch {}
@@ -410,11 +378,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const changeTrack = useCallback(async (newTrackId: number) => {
     await saveResults({ trackId: newTrackId });
     try {
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}/update-track`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ trackId: newTrackId }),
-      });
+      await api.competitions.updateTrack(competition.id, newTrackId);
     } catch {}
   }, [competition.id, saveResults]);
 
@@ -477,8 +441,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     const map = new Map<string, SessionLap[]>();
     for (const s of comp.sessions) {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/db/laps?session=${s.sessionId}`);
-        if (res.ok) map.set(s.sessionId, await res.json());
+        const data = await api.laps.bySession(s.sessionId);
+        map.set(s.sessionId, data as any);
       } catch {}
     }
     return map;
@@ -500,9 +464,10 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     const slowTimer = setInterval(async () => {
       if (!liveEnabled) return;
       try {
-        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(initialCompetition.id)}`);
-        if (!res.ok || cancelled) return;
-        const fresh: Competition = await res.json();
+        let fresh: Competition;
+        try { fresh = await api.competitions.get(initialCompetition.id) as unknown as Competition; }
+        catch { return; }
+        if (cancelled) return;
         if (typeof fresh.sessions === 'string') fresh.sessions = JSON.parse(fresh.sessions);
         if (typeof fresh.results === 'string') fresh.results = JSON.parse(fresh.results);
         setCompetition(fresh);
@@ -519,8 +484,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       if (!liveEnabled) return;
       try {
         const [statusRes, timingRes] = await Promise.all([
-          fetch(`${COLLECTOR_URL}/status`).then(r => r.json()),
-          fetch(`${COLLECTOR_URL}/timing`).then(r => r.json()),
+          api.status(),
+          api.timing(),
         ]);
         if (cancelled) return;
         const currentLiveId = statusRes.sessionId || null;
@@ -540,11 +505,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
             if (nextFreePhase) {
               autoLinkedRef.current.add(currentLiveId);
               try {
-                await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(comp.id)}/link-session`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                  body: JSON.stringify({ sessionId: currentLiveId, phase: nextFreePhase.id }),
-                });
+                await api.competitions.linkSession(comp.id, currentLiveId, nextFreePhase.id);
               } catch {}
             }
           }
@@ -1337,8 +1298,8 @@ function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, 
     let cancelled = false;
     const fetchEvents = async () => {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/db/events?session=${liveSessionId}`);
-        if (res.ok && !cancelled) setEvents(await res.json());
+        const data = await api.events.bySession(liveSessionId);
+        if (!cancelled) setEvents(data as any);
       } catch {}
     };
     fetchEvents();
@@ -1748,10 +1709,7 @@ function CompetitionListItem({ competition: c, type, onDelete }: { competition: 
     e.stopPropagation();
     if (!confirming) { setConfirming(true); return; }
     try {
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(c.id)}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-      });
+      await api.competitions.remove(c.id);
       onDelete?.(c.id);
     } catch {}
     setConfirming(false);

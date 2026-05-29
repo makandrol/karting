@@ -2,15 +2,13 @@ import { useMemo, Fragment, useState, useEffect, useCallback, useRef } from 'rea
 import { toSeconds, KART_COLOR } from '../../utils/timing';
 import { useLayoutPrefs } from '../../services/layoutPrefs';
 import { useAuth } from '../../services/auth';
-import { COLLECTOR_URL } from '../../services/config';
+import { COLLECTOR_URL, api } from '../../services/api';
 import {
   type SessionLap, type CompSession, type ScoringData,
   type PilotQualiData, type PilotRaceData, type PilotRow, type ManualEdits,
   computeStandings, computeSprintStandings, rowsToStandings, sprintAwareSort,
 } from '../../utils/scoring';
 import { getCsvExportUrl, parseSheetData, buildComparisonTable, debugParseColumns, type ComparisonRow, type MatchDebugEntry } from '../../utils/sheetsCompare';
-
-const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
 interface LeagueResultsProps {
   format: string;
@@ -117,9 +115,11 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const [scoring, setScoring] = useState<ScoringData | null>(null);
   useEffect(() => {
-    fetch(`${COLLECTOR_URL}/scoring`).then(r => r.ok ? r.json() : fetch('/data/scoring.json').then(r2 => r2.json())).then(setScoring).catch(() => {
-      fetch('/data/scoring.json').then(r => r.json()).then(setScoring).catch(() => {});
-    });
+    api.scoring.get()
+      .then(setScoring)
+      .catch(() => {
+        fetch('/data/scoring.json').then(r => r.json()).then(setScoring).catch(() => {});
+      });
   }, []);
 
   // --- Persist view settings per user+competition ---
@@ -171,19 +171,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
   const saveToServer = useCallback(async (partial: { excludedPilots?: string[]; edits?: ManualEdits }, logEntry?: { pilot: string; action: string; detail: string }) => {
     try {
-      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competitionId)}`);
-      if (!res.ok) return;
-      const comp = await res.json();
+      const comp = await api.competitions.get(competitionId);
       const currentResults = comp.results || {};
       const editLog = currentResults.editLog || [];
       if (logEntry) {
         editLog.push({ ...logEntry, user: user?.email || 'anon', ts: Date.now() });
       }
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competitionId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ results: { ...currentResults, ...partial, editLog } }),
-      });
+      await api.competitions.update(competitionId, { results: { ...currentResults, ...partial, editLog } });
     } catch {}
   }, [competitionId, user]);
 
@@ -907,11 +901,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                                     setRenamingPilot(null);
                                     (async () => {
                                       for (const s of sessions) {
-                                        await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
-                                          method: 'POST',
-                                          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                                          body: JSON.stringify({ sessionId: s.sessionId, oldName: row.pilot, newName }),
-                                        }).catch(() => {});
+                                        await api.sessions.renamePilot(s.sessionId, row.pilot, newName).catch(() => {});
                                       }
                                       window.location.reload();
                                     })();
@@ -1113,11 +1103,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                               setRenamingPilot(null);
                               (async () => {
                                 for (const s of sessions) {
-                                  await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                                    body: JSON.stringify({ sessionId: s.sessionId, oldName: row.pilot, newName }),
-                                  }).catch(() => {});
+                                  await api.sessions.renamePilot(s.sessionId, row.pilot, newName).catch(() => {});
                                 }
                                 window.location.reload();
                               })();
@@ -1370,8 +1356,7 @@ function EditLog({ competitionId }: { competitionId: string }) {
   const [log, setLog] = useState<{ pilot: string; action: string; detail: string; user: string; ts: number }[]>([]);
 
   useEffect(() => {
-    fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competitionId)}`)
-      .then(r => r.json())
+    api.competitions.get(competitionId)
       .then(c => {
         const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
         setLog((results.editLog || []).slice().reverse());
