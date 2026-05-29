@@ -3,7 +3,7 @@
  * Sends heartbeat every 30s to measure real time on site.
  */
 
-import { COLLECTOR_URL } from './config';
+import { COLLECTOR_URL } from './api/http';
 
 const HEARTBEAT_INTERVAL = 30_000; // 30 seconds
 

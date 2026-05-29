@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
-import { COLLECTOR_URL } from './config';
+import { api } from './api';
 
 export interface PageConfig {
   id: string;
@@ -124,11 +124,11 @@ export function PageVisibilityProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<PageVisibilityState>(() => loadLocalCache() || defaults);
   const [loaded, setLoaded] = useState(false);
   const savingRef = useRef(false);
+  const pendingRef = useRef<PageVisibilityState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${COLLECTOR_URL}/page-visibility`)
-      .then(r => r.json())
+    api.pageVisibility.get()
       .then(data => {
         if (cancelled) return;
         if (data && data.userPages) {
@@ -142,18 +142,17 @@ export function PageVisibilityProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Save with debounce + queue: latest pending value is always sent.
   const saveToServer = useCallback(async (newState: PageVisibilityState) => {
     saveLocalCache(newState);
+    pendingRef.current = newState;
     if (savingRef.current) return;
     savingRef.current = true;
-    try {
-      const token = import.meta.env.VITE_ADMIN_TOKEN || '';
-      await fetch(`${COLLECTOR_URL}/page-visibility`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(serializeState(newState)),
-      });
-    } catch {}
+    while (pendingRef.current) {
+      const next = pendingRef.current;
+      pendingRef.current = null;
+      try { await api.pageVisibility.set(serializeState(next)); } catch {}
+    }
     savingRef.current = false;
   }, []);
 

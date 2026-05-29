@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import { isValidSession } from '../../utils/timing';
 
 interface DbSession {
@@ -80,8 +80,8 @@ export default function DayTimeline({ isTimingOnline, isTimingIdle = false, idle
   const fetchSessions = useCallback(async (date: Date) => {
     setLoading(true);
     try {
-      const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${fmtDate(date)}`, { signal: AbortSignal.timeout(5000) });
-      if (res.ok) setSessions(await res.json());
+      const data = await api.sessions.byDate(fmtDate(date));
+      setSessions(data as any);
     } catch { /* ignore */ }
     setLoading(false);
   }, []);

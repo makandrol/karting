@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { TimingEntry, TimingSnapshot } from '../types';
-import { COLLECTOR_URL } from './config';
+import { api } from './api';
 
 const DEFAULT_POLL_INTERVAL = 1000;
 
@@ -63,9 +63,7 @@ export function useTimingPoller(options: UseTimingPollerOptions = {}): UseTiming
 
   const pollCollector = useCallback(async () => {
     try {
-      const statusRes = await fetch(`${COLLECTOR_URL}/status`, { signal: AbortSignal.timeout(5000) });
-      if (!statusRes.ok) throw new Error('Collector unavailable');
-      const status: CollectorInfo = await statusRes.json();
+      const status = await api.status() as unknown as CollectorInfo;
       setCollectorStatus(status);
 
       if (status.online) {
@@ -75,9 +73,7 @@ export function useTimingPoller(options: UseTimingPollerOptions = {}): UseTiming
         }
         lastSessionRef.current = status.sessionId;
 
-        const timingRes = await fetch(`${COLLECTOR_URL}/timing`, { signal: AbortSignal.timeout(5000) });
-        if (!timingRes.ok) throw new Error('Failed to fetch timing');
-        const data = await timingRes.json();
+        const data = await api.timing();
 
         if (data.entries && data.entries.length > 0) {
           const mapped: TimingEntry[] = data.entries.map((e: any, i: number) => {

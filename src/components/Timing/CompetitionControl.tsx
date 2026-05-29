@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../services/auth';
-import { COLLECTOR_URL } from '../../services/config';
+import { apiPost } from '../../services/api/http';
+import { api } from '../../services/api';
 
 interface CompetitionState {
   state: string;
@@ -87,8 +88,7 @@ export default function CompetitionControl({ inline = false }: { inline?: boolea
 
   const fetchState = useCallback(async () => {
     try {
-      const res = await fetch(`${COLLECTOR_URL}/competition`);
-      if (res.ok) setComp(await res.json());
+      setComp(await api.detector.state());
     } catch {}
   }, []);
 
@@ -113,14 +113,7 @@ export default function CompetitionControl({ inline = false }: { inline?: boolea
   const apiCall = async (endpoint: string, body?: object) => {
     setLoading(true);
     try {
-      const token = import.meta.env.VITE_ADMIN_TOKEN || '';
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      await fetch(`${COLLECTOR_URL}${endpoint}`, {
-        method: 'POST',
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      await apiPost(endpoint, body);
       await fetchState();
     } catch {} finally { setLoading(false); }
   };

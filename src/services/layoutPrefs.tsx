@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useAuth } from './auth';
-import { COLLECTOR_URL } from './config';
+import { api } from './api';
 
 export interface SectionPref {
   id: string;
@@ -170,12 +170,9 @@ export function LayoutPrefsProvider({ children }: { children: ReactNode }) {
 
   const fetchDefaults = useCallback(async () => {
     try {
-      const res = await fetch(`${COLLECTOR_URL}/view-defaults`);
-      if (res.ok) {
-        const data = await res.json();
-        setServerDefaults(data);
-        return data as ServerDefaults;
-      }
+      const data = await api.viewDefaults.get();
+      setServerDefaults(data);
+      return data as ServerDefaults;
     } catch {}
     return {} as ServerDefaults;
   }, []);
@@ -238,13 +235,10 @@ export function LayoutPrefsProvider({ children }: { children: ReactNode }) {
   }, [email]);
 
   const saveServerDefaults = useCallback(async (defaults: ServerDefaults) => {
-    const token = import.meta.env.VITE_ADMIN_TOKEN || '';
-    const res = await fetch(`${COLLECTOR_URL}/view-defaults`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify(defaults),
-    });
-    if (res.ok) setServerDefaults(defaults);
+    try {
+      await api.viewDefaults.set(defaults);
+      setServerDefaults(defaults);
+    } catch {}
   }, []);
 
   const refreshServerDefaults = useCallback(async () => {

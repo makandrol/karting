@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 
 const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 const MONTH_NAMES = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
@@ -66,11 +66,11 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    fetch(`${COLLECTOR_URL}/db/session-counts?from=2020-01-01&to=${todayStr}`)
-      .then(r => r.json())
-      .then((data: { date: string; count: number }[]) => {
+    api.sessions.counts('2020-01-01', todayStr)
+      .then((data: any) => {
+        const arr = Array.isArray(data) ? data : [];
         const map: Record<string, number> = {};
-        for (const d of data) map[d.date] = d.count;
+        for (const d of arr) map[d.date] = d.count;
         setDateCounts(map);
       })
       .catch(() => {});

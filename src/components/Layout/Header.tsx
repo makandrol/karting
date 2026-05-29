@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth, ROLE_ICONS } from '../../services/auth';
 import { usePageVisibility } from '../../services/pageVisibility';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 
 const ChevronDown = () => (
   <svg className="w-3 h-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -26,9 +26,8 @@ export default function Header() {
 
   const [activeCompName, setActiveCompName] = useState<string | null>(null);
   useEffect(() => {
-    fetch(`${COLLECTOR_URL}/competitions`)
-      .then(r => r.json())
-      .then((comps: { name: string; status: string }[]) => {
+    api.competitions.list()
+      .then((comps) => {
         const live = comps.find(c => c.status === 'live');
         setActiveCompName(live?.name || null);
       })
