@@ -118,6 +118,19 @@ Live-таблиця змагання використовує `SessionReplay` з
 
 Усі — з `src/utils/timing.ts`.
 
+## Date / time / duration formatting
+
+`src/utils/datetime.ts` — централізоване форматування:
+- `fmtTime(ms)` / `fmtTimeShort(ms)` — `"HH:mm:ss"` / `"HH:mm"`
+- `fmtDateISO(date)` — `Date` → `"YYYY-MM-DD"` (LOCAL TIME, не UTC! НЕ використовуй `.toISOString()`)
+- `fmtDateDM(ms)` — `"DD.MM"`
+- `fmtDateTime(ms)` / `fmtDateTimeShort(ms)` / `fmtDateTimeFull(ms)` — комбінації дати+часу
+- `fmtDuration(start, end, opts?)` — `"Xхв Yс"`, `opts.whenActive` для null end
+- `fmtDurationMs(ms)` — то саме з одного аргументу
+- `fmtDateLabel(yyyymmdd)` — `"Сьогодні"`/`"Вчора"`/`"Пн 04.04.2026"`
+
+НЕ створюй локальні `fmtTime` чи `fmtDuration` — використовуй ці. Раніше було 8+ копій.
+
 ## Filtering / data invariants
 
 - Min valid lap: **38 секунд** (фільтрується на SQL рівні в колекторі, перевіряється також у `scoring.ts`)
@@ -129,11 +142,19 @@ Live-таблиця змагання використовує `SessionReplay` з
 
 ## Persistence
 
+- **`useLocalStorage<T>(key, defaultValue, opts?)`** з `services/useLocalStorage.ts` — переважний спосіб для всіх per-user/page налаштувань. Підтримує `endOfDayExpiry` (для filter-ів картів/змагань) і `reviver`/`serializer` (наприклад `Set` ↔ `array`).
+
+```tsx
+const [filters, setFilters] = useLocalStorage('karting_x_filters', { mode: 'today' });
+const [dates, setDates] = useLocalStorage<string[]>('karting_dates', [], { endOfDayExpiry: true });
+```
+
+  НЕ пиши `try { localStorage.setItem(...) } catch {}` руками — використай хук.
+
 - View prefs (per-user) — `src/services/viewPrefs.ts` через email
 - Layout prefs (page-level sections, drag-reorder) — `src/services/layoutPrefs.tsx` + collector `/view-defaults` для defaults з версіонуванням
 - Page visibility — `src/services/pageVisibility.tsx` + collector `/page-visibility` (server-side з v0.9.354)
 - Moderators — server-side через collector `/moderators` (v0.9.355)
-- Session/competition filters з end-of-day expiry — `loadWithExpiry()` / `saveWithExpiry()`
 
 ## Auth
 

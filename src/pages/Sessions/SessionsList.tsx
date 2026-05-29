@@ -1,42 +1,31 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../../services/api';
 import { parseTime, isValidSession } from '../../utils/timing';
-import { fmtDateLabel } from '../../utils/datetime';
+import { fmtDateLabel, fmtDateISO } from '../../utils/datetime';
+import { useLocalStorage } from '../../services/useLocalStorage';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 
-const LS_SESSIONS_FILTERS = 'karting_sessions_filters';
+type SortBy = 'time_asc' | 'time_desc' | 'best_asc' | 'best_desc';
 
-function loadSessionsFilters(): { selectedDate?: string; sortBy?: string } | null {
-  try {
-    const s = localStorage.getItem(LS_SESSIONS_FILTERS);
-    if (s) {
-      const { value, expiresAt } = JSON.parse(s);
-      if (expiresAt && Date.now() > expiresAt) { localStorage.removeItem(LS_SESSIONS_FILTERS); return null; }
-      return value;
-    }
-  } catch {}
-  return null;
-}
-
-function saveSessionsFilters(filters: { selectedDate: string; sortBy: string }) {
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
-  localStorage.setItem(LS_SESSIONS_FILTERS, JSON.stringify({ value: filters, expiresAt: endOfDay.getTime() }));
+interface SessionsFilters {
+  selectedDate: string;
+  sortBy: SortBy;
 }
 
 export default function SessionsList() {
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const saved = loadSessionsFilters();
-  const [selectedDate, setSelectedDate] = useState(saved?.selectedDate || todayStr);
+  const todayStr = fmtDateISO(new Date());
+  const [filters, setFilters] = useLocalStorage<SessionsFilters>(
+    'karting_sessions_filters',
+    { selectedDate: todayStr, sortBy: 'time_desc' },
+    { endOfDayExpiry: true },
+  );
+  const { selectedDate, sortBy } = filters;
+  const setSelectedDate = (v: string) => setFilters(f => ({ ...f, selectedDate: v }));
+  const setSortBy = (v: SortBy) => setFilters(f => ({ ...f, sortBy: v }));
+
   const [sessions, setSessions] = useState<SessionTableRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [sortBy, setSortBy] = useState<'time_asc' | 'time_desc' | 'best_asc' | 'best_desc'>((saved?.sortBy as any) || 'time_desc');
-
-  useEffect(() => {
-    saveSessionsFilters({ selectedDate, sortBy });
-  }, [selectedDate, sortBy]);
 
   const fetchSessions = useCallback(async (date: string) => {
     setLoading(true);

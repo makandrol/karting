@@ -1,7 +1,7 @@
 {
   "name": "karting-zhaga-shvydkosti",
   "private": true,
-  "version": "0.9.424",
+  "version": "0.9.425",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,10 +17,12 @@
     "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "happy-dom": "^20.9.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",
