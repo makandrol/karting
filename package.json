@@ -1,12 +1,14 @@
 {
   "name": "karting-zhaga-shvydkosti",
   "private": true,
-  "version": "0.9.419",
+  "version": "0.9.420",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "firebase": "^12.10.0",
@@ -22,6 +24,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",
-    "vite": "^6.0.1"
+    "vite": "^6.0.1",
+    "vitest": "^4.1.7"
   }
 }

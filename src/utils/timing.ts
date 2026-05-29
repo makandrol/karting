@@ -342,3 +342,27 @@ export function isValidSession(session: { end_time?: number | null; start_time?:
   if (!end) return true;
   return (end - start) >= MIN_SESSION_DURATION_MS;
 }
+
+/**
+ * Load a value from storage that was saved with `saveWithExpiry`.
+ * Returns null if missing or expired (cleans up expired keys).
+ */
+export function loadWithExpiry<T = any>(storage: Storage, key: string): T | null {
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return null;
+    const { value, expiresAt } = JSON.parse(raw);
+    if (expiresAt && Date.now() > expiresAt) { storage.removeItem(key); return null; }
+    return value as T;
+  } catch { return null; }
+}
+
+/**
+ * Save a value to storage with end-of-day expiry timestamp.
+ * `loadWithExpiry` will return null after expiry.
+ */
+export function saveWithExpiry(storage: Storage, key: string, value: any): void {
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+  try { storage.setItem(key, JSON.stringify({ value, expiresAt: endOfDay.getTime() })); } catch {}
+}

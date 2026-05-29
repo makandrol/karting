@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, type ReactNode } from 'react';
 import { api } from '../../services/api';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
-import { toSeconds, isValidSession, KART_COLOR, shortName } from '../../utils/timing';
+import { toSeconds, isValidSession, KART_COLOR, shortName, loadWithExpiry, saveWithExpiry } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
@@ -974,22 +974,6 @@ function getWeeksInMonth(year: number, month: number): string[][] {
 
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function loadWithExpiry(storage: Storage, key: string): any {
-  try {
-    const raw = storage.getItem(key);
-    if (!raw) return null;
-    const { value, expiresAt } = JSON.parse(raw);
-    if (expiresAt && Date.now() > expiresAt) { storage.removeItem(key); return null; }
-    return value;
-  } catch { return null; }
-}
-
-function saveWithExpiry(storage: Storage, key: string, value: any) {
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
-  try { storage.setItem(key, JSON.stringify({ value, expiresAt: endOfDay.getTime() })); } catch {}
 }
 
 function CompetitionList({ competitions: initialCompetitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
