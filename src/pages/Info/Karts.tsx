@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import { toSeconds, isValidSession } from '../../utils/timing';
+import { fmtTimeShort as fmtTime, fmtDateTimeShort as fmtDate } from '../../utils/datetime';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 
@@ -44,17 +45,6 @@ function loadSelectedDates(): Set<string> {
   } catch {} return new Set();
 }
 
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-}
-function fmtDate(ms: number): string {
-  const d = new Date(ms);
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  return `${dd}.${mm}, ${hh}:${min}`;
-}
 function shortPilot(name: string): string {
   const p = name.trim().split(' ').filter(Boolean);
   return p.length < 2 ? p[0] || name : `${p[0]} ${p[1][0]}.`;

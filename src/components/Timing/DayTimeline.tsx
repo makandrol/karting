@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
 import { isValidSession } from '../../utils/timing';
+import { fmtTimeShort as fmtTime, fmtDuration, fmtDateISO as fmtDate, fmtDateLabelDate as fmtDateLabel } from '../../utils/datetime';
 
 interface DbSession {
   id: string;
@@ -27,31 +28,6 @@ interface Segment {
   endH: number;
   type: SegmentType;
   session?: DbSession;
-}
-
-function fmtDate(date: Date): string {
-  return date.toISOString().split('T')[0];
-}
-
-function fmtDateLabel(date: Date): string {
-  const today = new Date();
-  if (fmtDate(date) === fmtDate(today)) return 'Сьогодні';
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (fmtDate(date) === fmtDate(yesterday)) return 'Вчора';
-  return date.toLocaleDateString('uk-UA', { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-}
-
-function fmtDuration(startMs: number, endMs: number): string {
-  const sec = Math.round((endMs - startMs) / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m === 0) return `${s}с`;
-  return `${m}хв ${s}с`;
 }
 
 function msToHour(ms: number): number {

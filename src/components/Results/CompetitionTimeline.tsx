@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getPhaseLabel, getPhaseShortLabel } from '../../data/competitions';
+import { fmtTime, fmtDurationMs as fmtDuration } from '../../utils/datetime';
 
 interface CompSession {
   sessionId: string;
@@ -22,17 +23,6 @@ interface CompetitionTimelineProps {
   currentTime: number | null;
   onTimeChange: (time: number | null) => void;
   isLive: boolean;
-}
-
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function fmtDuration(ms: number): string {
-  const sec = Math.round(ms / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return m > 0 ? `${m}хв ${s}с` : `${s}с`;
 }
 
 export default function CompetitionTimeline({ format, groupCount, sessions, sessionTimes, currentTime, onTimeChange, isLive }: CompetitionTimelineProps) {

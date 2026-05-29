@@ -3,6 +3,7 @@ import { useState, useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { COLLECTOR_URL, api } from '../../services/api';
 import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime, KART_COLOR } from '../../utils/timing';
+import { fmtTime, fmtDuration } from '../../utils/datetime';
 import { useAuth } from '../../services/auth';
 import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
@@ -31,18 +32,6 @@ interface DbSession {
   best_lap_time: string | null;
   best_lap_pilot: string | null;
   merged_session_ids?: string[];
-}
-
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function fmtDuration(startMs: number, endMs: number): string {
-  const sec = Math.round((endMs - startMs) / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m === 0) return `${s}с`;
-  return `${m}хв ${s}с`;
 }
 
 export default function SessionDetail() {

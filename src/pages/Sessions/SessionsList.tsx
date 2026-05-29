@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../../services/api';
 import { parseTime, isValidSession } from '../../utils/timing';
+import { fmtDateLabel } from '../../utils/datetime';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 
@@ -22,19 +23,6 @@ function saveSessionsFilters(filters: { selectedDate: string; sortBy: string }) 
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
   localStorage.setItem(LS_SESSIONS_FILTERS, JSON.stringify({ value: filters, expiresAt: endOfDay.getTime() }));
-}
-
-function fmtDateLabel(dateStr: string): string {
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  if (dateStr === todayStr) return 'Сьогодні';
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
-  if (dateStr === yesterdayStr) return 'Вчора';
-  const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-  const d = new Date(dateStr + 'T00:00:00');
-  return `${DAY_NAMES[d.getDay()]} ${d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
 }
 
 export default function SessionsList() {

@@ -3,6 +3,7 @@ import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
 import { trackDisplayId } from '../../data/tracks';
 import { api } from '../../services/api';
+import { fmtDuration, fmtDateTimeFull as fmtDateTime } from '../../utils/datetime';
 
 interface SessionRow {
   id: string;
@@ -13,22 +14,6 @@ interface SessionRow {
   race_number: number | null;
   is_race: number;
   date: string;
-}
-
-function fmtDuration(startMs: number, endMs: number | null): string {
-  if (!endMs) return '—';
-  const sec = Math.round((endMs - startMs) / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m === 0) return `${s}с`;
-  return `${m}хв ${s}с`;
-}
-
-function fmtDateTime(ms: number): string {
-  const d = new Date(ms);
-  const date = d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const time = d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  return `${date} ${time}`;
 }
 
 export default function CollectorLog() {

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
 import { api } from '../../services/api';
+import { fmtTime, fmtDuration } from '../../utils/datetime';
 
 interface Competition {
   id: string;
@@ -31,18 +32,6 @@ const FORMAT_OPTIONS = [
   { value: 'sprint', label: 'Спринт' },
   { value: 'marathon', label: 'Марафон' },
 ];
-
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function fmtDuration(startMs: number, endMs: number | null): string {
-  if (!endMs) return 'active';
-  const sec = Math.round((endMs - startMs) / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return m > 0 ? `${m}хв ${s}с` : `${s}с`;
-}
 
 export default function CompetitionManager() {
   const { isOwner } = useAuth();
@@ -302,7 +291,7 @@ function CompetitionCard({ competition: comp, expanded, onToggle, onDelete, onUp
                               <span className="text-dark-500 text-xs">–</span>
                               <span className="text-dark-300 text-xs font-mono">{s.end_time ? fmtTime(s.end_time) : 'active'}</span>
                               <span className="text-dark-400 text-xs">{s.pilot_count} pilot(s)</span>
-                              <span className="text-dark-600 text-xs">{fmtDuration(s.start_time, s.end_time)}</span>
+                              <span className="text-dark-600 text-xs">{fmtDuration(s.start_time, s.end_time, { whenActive: 'active' })}</span>
                             </>
                           ) : (
                             <span className="text-dark-500 text-xs font-mono">{sid}</span>
@@ -354,7 +343,7 @@ function CompetitionCard({ competition: comp, expanded, onToggle, onDelete, onUp
                             <span className="text-dark-500">–</span>
                             <span className="font-mono">{s.end_time ? fmtTime(s.end_time) : '...'}</span>
                             <span>{s.pilot_count} pilots</span>
-                            <span className="text-dark-600">{fmtDuration(s.start_time, s.end_time)}</span>
+                            <span className="text-dark-600">{fmtDuration(s.start_time, s.end_time, { whenActive: 'active' })}</span>
                             {linked && <span className="ml-auto text-dark-600">linked</span>}
                           </button>
                         );
