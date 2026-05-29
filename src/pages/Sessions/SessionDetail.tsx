@@ -1,12 +1,12 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { COLLECTOR_URL, api, type DbSession as ApiDbSession } from '../../services/api';
-import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime, KART_COLOR } from '../../utils/timing';
+import { api } from '../../services/api';
+import { toSeconds, mergePilotNames, parseTime, KART_COLOR } from '../../utils/timing';
 import { fmtTime, fmtDuration } from '../../utils/datetime';
 import { LoadingState } from '../../components/States';
 import { useAuth } from '../../services/auth';
-import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
+import SessionReplay, { type ReplaySortMode } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
@@ -15,13 +15,11 @@ import { trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import type { TimingEntry } from '../../types';
-import { type DbLap, buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
+import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
 import { lazy, Suspense } from 'react';
+import { useSessionData } from './useSessionData';
 
 const Onboard = lazy(() => import('../Info/Onboard'));
-
-/** Local alias — adds required track_id for SessionDetail's needs. */
-type DbSession = ApiDbSession & { track_id: number };
 
 export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -29,104 +27,18 @@ export default function SessionDetail() {
   const { isOwner, hasPermission } = useAuth();
   const canChangeTrack = hasPermission('change_track');
 
-  const [dbSession, setDbSession] = useState<DbSession | null>(null);
-  const [daySessions, setDaySessions] = useState<DbSession[]>([]);
-  const [dbLaps, setDbLaps] = useState<DbLap[]>([]);
-  const [s1Events, setS1Events] = useState<S1Event[]>([]);
-  const [replaySnapshots, setReplaySnapshots] = useState<SnapshotPosition[]>([]);
-  const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
-  const [totalQualifiedPilots, setTotalQualifiedPilots] = useState(0);
-  const [sessionFormat, setSessionFormat] = useState<string | null>(null);
-  const [liveEntries, setLiveEntries] = useState<any[]>([]);
-  const [dbLoading, setDbLoading] = useState(true);
+  const {
+    session: dbSession, setSession: setDbSession,
+    daySessions, laps: dbLaps,
+    s1Events, snapshots: replaySnapshots,
+    startPositions, totalQualifiedPilots,
+    sessionFormat, liveEntries,
+    excludedLaps, setExcludedLaps,
+    loading: dbLoading,
+  } = useSessionData(sessionId);
+
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
-  const [excludedLaps, setExcludedLaps] = useState<Set<string>>(new Set());
   const [onboardOpen, setOnboardOpen] = useState(false);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    let active = true;
-    (async () => {
-      try {
-        // Extract date from session ID (format: session-{timestamp})
-        const tsMatch = sessionId.match(/session-(\d+)/);
-        const date = tsMatch ? new Date(parseInt(tsMatch[1])).toISOString().split('T')[0] : null;
-
-        const [sessRes] = await Promise.all([
-          date ? api.sessions.byDate(date) : api.sessions.all(),
-        ]);
-        if (!active) return;
-        const allSessions = sessRes as unknown as DbSession[];
-        setDaySessions(allSessions);
-        const found = allSessions.find(s => s.id === sessionId);
-        if (found) setDbSession(found);
-        
-        // Fetch laps from all merged session IDs
-        const sessionIds = found?.merged_session_ids || [sessionId];
-        const allLaps: DbLap[] = [];
-        const allEvents: any[] = [];
-        for (const sid of sessionIds) {
-          const [sLaps, sEvents] = await Promise.all([
-            api.laps.bySession(sid),
-            api.events.bySessionSafe(sid),
-          ]);
-          allLaps.push(...(sLaps as unknown as DbLap[]));
-          allEvents.push(...sEvents);
-        }
-        const parsed = parseSessionEvents(allEvents);
-        setDbLaps(allLaps);
-        setS1Events(parsed.s1Events);
-        setReplaySnapshots(parsed.snapshots);
-
-        // Compute start positions from competition data
-        const compPhase = (found as any)?.competition_phase;
-        const compId = (found as any)?.competition_id;
-        const compFormat = (found as any)?.competition_format;
-        if (active) setSessionFormat(compFormat || null);
-        if (compId) {
-          try {
-            const comp = await api.competitions.get(compId);
-            const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
-            if (active && results.excludedLaps) setExcludedLaps(new Set(results.excludedLaps));
-          } catch {}
-        }
-        if (compId && (compPhase?.startsWith('race_') || compPhase?.startsWith('final_')) && compFormat) {
-          const sp = await fetchRaceStartPositions(COLLECTOR_URL, compId, compPhase, compFormat);
-          if (active) { setStartPositions(sp.positions); setTotalQualifiedPilots(sp.totalQualified); }
-        } else if (parsed.firstSnapshotPos) {
-          if (active) setStartPositions(parsed.firstSnapshotPos);
-        }
-
-        if (found && !found.end_time) {
-          try {
-            const timingRes = await api.timing();
-            if (active && timingRes.sessionId === sessionId && timingRes.entries) {
-              setLiveEntries(timingRes.entries);
-            }
-          } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
-      if (active) setDbLoading(false);
-    })();
-    return () => { active = false; };
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (!dbSession || dbSession.end_time) return;
-    const timer = setInterval(async () => {
-      try {
-        const [lapsRes, timingRes] = await Promise.all([
-          api.laps.bySession(dbSession.id),
-          api.timing(),
-        ]);
-        setDbLaps(lapsRes as unknown as DbLap[]);
-        if (timingRes.sessionId === dbSession.id && timingRes.entries) {
-          setLiveEntries(timingRes.entries);
-        }
-      } catch { /* ignore */ }
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [dbSession]);
 
   const { isSectionVisible, getPageLayout } = useLayoutPrefs();
   const sessionLayout = getPageLayout('sessionDetail');
