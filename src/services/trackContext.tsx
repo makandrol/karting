@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { TRACK_CONFIGS, type TrackConfig } from '../data/tracks';
-import { COLLECTOR_URL } from './config';
+import { api } from './api';
 
 const LS_CURRENT_TRACK = 'karting_current_track';
 
@@ -32,17 +32,9 @@ export function TrackProvider({ children }: { children: ReactNode }) {
   const setCurrentTrack = async (id: number) => {
     const found = TRACK_CONFIGS.find((t) => t.id === id);
     if (!found) return;
-    
-    // Update local state
     setCurrentTrackState(found);
-    
-    // Send to collector
     try {
-      await fetch(`${COLLECTOR_URL}/track`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trackId: id }),
-      });
+      await api.track.set(id);
     } catch { /* ignore */ }
   };
 

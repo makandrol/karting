@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import { parseTime, toSeconds, mergePilotNames, isValidSession } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
@@ -90,8 +90,7 @@ export default function KartDetail() {
   // Fetch all-time session counts for this kart
   const [kartDateCounts, setKartDateCounts] = useState<Record<string, number> | undefined>(undefined);
   useEffect(() => {
-    fetch(`${COLLECTOR_URL}/db/kart-session-counts?kart=${kartNumber}`)
-      .then(r => r.json())
+    api.karts.sessionCounts(kartNumber)
       .then((data: { date: string; count: number }[]) => {
         const counts: Record<string, number> = {};
         for (const d of data) counts[d.date] = d.count;
@@ -121,11 +120,8 @@ export default function KartDetail() {
       const allSessions: DbSession[] = [];
       for (const date of selectedDates) {
         try {
-          const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
-          if (res.ok) {
-            const data: DbSession[] = await res.json();
-            allSessions.push(...data.filter(s => s.end_time && isValidSession(s)));
-          }
+          const data = await api.sessions.byDate(date);
+          allSessions.push(...(data as unknown as DbSession[]).filter(s => s.end_time && isValidSession(s)));
         } catch {}
       }
       if (cancelled) return;
@@ -136,8 +132,7 @@ export default function KartDetail() {
       const to = sortedDates[sortedDates.length - 1];
       let kartLaps: KartLap[] = [];
       try {
-        const res = await fetch(`${COLLECTOR_URL}/db/laps?kart=${kartNumber}&from=${from}&to=${to}`);
-        if (res.ok) kartLaps = await res.json();
+        kartLaps = await api.laps.byKart(kartNumber, from, to) as unknown as KartLap[];
       } catch {}
       if (cancelled) return;
 

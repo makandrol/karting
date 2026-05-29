@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { COLLECTOR_URL } from '../../services/config';
+import { COLLECTOR_URL, api } from '../../services/api';
 import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime, KART_COLOR } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
@@ -50,7 +50,6 @@ export default function SessionDetail() {
   const { allTracks } = useTrack();
   const { isOwner, hasPermission } = useAuth();
   const canChangeTrack = hasPermission('change_track');
-  const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
   const [dbSession, setDbSession] = useState<DbSession | null>(null);
   const [daySessions, setDaySessions] = useState<DbSession[]>([]);
@@ -76,12 +75,10 @@ export default function SessionDetail() {
         const date = tsMatch ? new Date(parseInt(tsMatch[1])).toISOString().split('T')[0] : null;
 
         const [sessRes] = await Promise.all([
-          date
-            ? fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`).then(r => r.json())
-            : fetch(`${COLLECTOR_URL}/db/sessions`).then(r => r.json()),
+          date ? api.sessions.byDate(date) : api.sessions.all(),
         ]);
         if (!active) return;
-        const allSessions = sessRes as DbSession[];
+        const allSessions = sessRes as unknown as DbSession[];
         setDaySessions(allSessions);
         const found = allSessions.find(s => s.id === sessionId);
         if (found) setDbSession(found);
@@ -92,10 +89,10 @@ export default function SessionDetail() {
         const allEvents: any[] = [];
         for (const sid of sessionIds) {
           const [sLaps, sEvents] = await Promise.all([
-            fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()),
-            fetch(`${COLLECTOR_URL}/db/events?session=${sid}`).then(r => r.json()).catch(() => []),
+            api.laps.bySession(sid),
+            api.events.bySessionSafe(sid),
           ]);
-          allLaps.push(...sLaps);
+          allLaps.push(...(sLaps as unknown as DbLap[]));
           allEvents.push(...sEvents);
         }
         const parsed = parseSessionEvents(allEvents);
@@ -110,12 +107,9 @@ export default function SessionDetail() {
         if (active) setSessionFormat(compFormat || null);
         if (compId) {
           try {
-            const compRes = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(compId)}`);
-            if (compRes.ok) {
-              const comp = await compRes.json();
-              const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
-              if (active && results.excludedLaps) setExcludedLaps(new Set(results.excludedLaps));
-            }
+            const comp = await api.competitions.get(compId);
+            const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
+            if (active && results.excludedLaps) setExcludedLaps(new Set(results.excludedLaps));
           } catch {}
         }
         if (compId && (compPhase?.startsWith('race_') || compPhase?.startsWith('final_')) && compFormat) {
@@ -127,7 +121,7 @@ export default function SessionDetail() {
 
         if (found && !found.end_time) {
           try {
-            const timingRes = await fetch(`${COLLECTOR_URL}/timing`).then(r => r.json());
+            const timingRes = await api.timing();
             if (active && timingRes.sessionId === sessionId && timingRes.entries) {
               setLiveEntries(timingRes.entries);
             }
@@ -144,10 +138,10 @@ export default function SessionDetail() {
     const timer = setInterval(async () => {
       try {
         const [lapsRes, timingRes] = await Promise.all([
-          fetch(`${COLLECTOR_URL}/db/laps?session=${dbSession.id}`).then(r => r.json()),
-          fetch(`${COLLECTOR_URL}/timing`).then(r => r.json()),
+          api.laps.bySession(dbSession.id),
+          api.timing(),
         ]);
-        setDbLaps(lapsRes);
+        setDbLaps(lapsRes as unknown as DbLap[]);
         if (timingRes.sessionId === dbSession.id && timingRes.entries) {
           setLiveEntries(timingRes.entries);
         }
@@ -163,11 +157,7 @@ export default function SessionDetail() {
     if (!sessionId) return;
     const sessionIds = dbSession?.merged_session_ids || [sessionId];
     for (const sid of sessionIds) {
-      await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ sessionId: sid, oldName, newName }),
-      }).catch(() => {});
+      await api.sessions.renamePilot(sid, oldName, newName).catch(() => {});
     }
     window.location.reload();
   };
@@ -178,17 +168,9 @@ export default function SessionDetail() {
     try {
       if (isCompSession) {
         const sessionIds = dbSession.merged_session_ids || [sessionId];
-        await fetch(`${COLLECTOR_URL}/db/update-sessions-track`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-          body: JSON.stringify({ sessionIds, trackId: newTrackId }),
-        });
+        await api.sessions.updateTrack(sessionIds, newTrackId);
       } else {
-        await fetch(`${COLLECTOR_URL}/db/propagate-track`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-          body: JSON.stringify({ sessionId, trackId: newTrackId }),
-        });
+        await api.sessions.propagateTrack(sessionId, newTrackId);
       }
       setDbSession({ ...dbSession, track_id: newTrackId });
     } catch { /* ignore */ }
@@ -201,15 +183,9 @@ export default function SessionDetail() {
     next.has(lapKey) ? next.delete(lapKey) : next.add(lapKey);
     setExcludedLaps(next);
     try {
-      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(compId)}`);
-      if (!res.ok) return;
-      const comp = await res.json();
+      const comp = await api.competitions.get(compId);
       const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(compId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ results: { ...results, excludedLaps: [...next] } }),
-      });
+      await api.competitions.update(compId, { results: { ...results, excludedLaps: [...next] } });
     } catch {}
   };
 

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import { toSeconds, isValidSession } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
@@ -120,11 +120,8 @@ export default function Karts() {
       const allSessions: DbSession[] = [];
       for (const date of selectedDates) {
         try {
-          const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
-          if (res.ok) {
-            const data: DbSession[] = await res.json();
-            allSessions.push(...data.filter(s => s.end_time && isValidSession(s)));
-          }
+          const data = await api.sessions.byDate(date);
+          allSessions.push(...(data as unknown as DbSession[]).filter(s => s.end_time && isValidSession(s)));
         } catch {}
       }
       if (cancelled) return;
@@ -141,12 +138,7 @@ export default function Karts() {
   useEffect(() => {
     if (statSessionIds.size === 0) { setKartStats([]); return; }
     setLoading(true);
-    fetch(`${COLLECTOR_URL}/db/kart-stats`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionIds: [...statSessionIds] }),
-    })
-      .then(r => r.json())
+    api.karts.statsBySessions([...statSessionIds])
       .then(setKartStats)
       .catch(() => setKartStats([]))
       .finally(() => setLoading(false));

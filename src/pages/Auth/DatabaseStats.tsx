@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import { fmtBytes } from '../../utils/timing';
 
 export default function DatabaseStats() {
@@ -14,8 +14,8 @@ export default function DatabaseStats() {
     let active = true;
     (async () => {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/status`);
-        if (res.ok && active) setStatus(await res.json());
+        const data = await api.status();
+        if (active) setStatus(data);
       } catch { /* ignore */ }
       if (active) setLoading(false);
     })();

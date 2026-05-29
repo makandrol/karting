@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
-import { COLLECTOR_URL } from '../../services/config';
-
-const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
+import { api, CollectorApiError } from '../../services/api';
 
 interface OvertakeRule {
   startPosMin: number;
@@ -32,10 +30,12 @@ interface ScoringData {
 }
 
 async function loadScoring(): Promise<ScoringData> {
-  const res = await fetch(`${COLLECTOR_URL}/scoring`);
-  if (res.ok) return res.json();
-  const fallback = await fetch('/data/scoring.json');
-  return fallback.json();
+  try {
+    return await api.scoring.get();
+  } catch {
+    const fallback = await fetch('/data/scoring.json');
+    return fallback.json();
+  }
 }
 
 export default function ScoringSettings() {
@@ -60,17 +60,13 @@ export default function ScoringSettings() {
       const parsed = JSON.parse(jsonText);
       if (!parsed.positionPoints || !parsed.speedPoints || !parsed.overtakePoints) throw new Error('Invalid format');
       setSaving(true);
-      const res = await fetch(`${COLLECTOR_URL}/scoring`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: jsonText,
-      });
-      if (!res.ok) throw new Error('Server error');
+      await api.scoring.set(parsed);
       setData(parsed);
       setEditing(false);
       setError('');
     } catch (e: any) {
-      setError(e.message || 'Invalid JSON');
+      if (e instanceof CollectorApiError) setError('Server error');
+      else setError(e.message || 'Invalid JSON');
     } finally {
       setSaving(false);
     }

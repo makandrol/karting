@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
 import { trackDisplayId } from '../../data/tracks';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 
 interface SessionRow {
   id: string;
@@ -44,11 +44,9 @@ export default function CollectorLog() {
 
     async function load() {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/db/sessions`, { signal: AbortSignal.timeout(10000) });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: SessionRow[] = await res.json();
+        const data = await api.sessions.all();
         if (active) {
-          setSessions(data);
+          setSessions(data as unknown as SessionRow[]);
           setError(null);
         }
       } catch {

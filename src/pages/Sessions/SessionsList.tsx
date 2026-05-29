@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import { parseTime, isValidSession } from '../../utils/timing';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
@@ -53,11 +53,8 @@ export default function SessionsList() {
   const fetchSessions = useCallback(async (date: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`, { signal: AbortSignal.timeout(5000) });
-      if (res.ok) {
-        const all: SessionTableRow[] = await res.json();
-        setSessions(all.filter(isValidSession));
-      } else setSessions([]);
+      const all = await api.sessions.byDate(date);
+      setSessions((all as unknown as SessionTableRow[]).filter(isValidSession));
     } catch { setSessions([]); }
     setLoading(false);
   }, []);
