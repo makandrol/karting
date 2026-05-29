@@ -485,6 +485,9 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   };
 
   const knownSessionCountRef = useRef(initialCompetition.sessions.length);
+  const autoLinkedRef = useRef<Set<string>>(new Set());
+  const competitionRef = useRef(competition);
+  competitionRef.current = competition;
 
   useEffect(() => {
     let cancelled = false;
@@ -520,7 +523,32 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
           fetch(`${COLLECTOR_URL}/timing`).then(r => r.json()),
         ]);
         if (cancelled) return;
-        setLiveSessionId(statusRes.sessionId || null);
+        const currentLiveId = statusRes.sessionId || null;
+        setLiveSessionId(currentLiveId);
+
+        // Auto-link live session to the next free phase if not already linked
+        if (currentLiveId && !autoLinkedRef.current.has(currentLiveId)) {
+          const comp = competitionRef.current;
+          const alreadyLinked = comp.sessions.some(s => s.sessionId === currentLiveId);
+          if (!alreadyLinked && comp.sessions.length > 0) {
+            const results = comp.results || {};
+            const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? 1;
+            const gonzRoundCount = comp.format === 'gonzales' ? (results.gonzalesRoundCount ?? null) : null;
+            const allPhases = getPhasesForFormat(comp.format, groupCount, gonzRoundCount);
+            const linkedPhaseIds = new Set(comp.sessions.map(s => s.phase));
+            const nextFreePhase = allPhases.find(p => !linkedPhaseIds.has(p.id));
+            if (nextFreePhase) {
+              autoLinkedRef.current.add(currentLiveId);
+              try {
+                await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(comp.id)}/link-session`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
+                  body: JSON.stringify({ sessionId: currentLiveId, phase: nextFreePhase.id }),
+                });
+              } catch {}
+            }
+          }
+        }
         if (timingRes.entries?.length > 0) {
           setLivePositions(timingRes.entries.map((e: any) => ({
             pilot: e.pilot,
