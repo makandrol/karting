@@ -63,6 +63,29 @@ const NewPage = lazy(() => import('./pages/Category/NewPage'));
 
 Дефолтний `<Suspense fallback={<PageLoader />}>` уже стоїть в `App.tsx`.
 
+## Centralized API client (services/api/)
+
+**УСІ виклики до колектора йдуть через `api` об'єкт з `services/api/`.** НЕ роби `fetch(\`${COLLECTOR_URL}/...\`)` напряму.
+
+```tsx
+import { api } from '../services/api';
+
+// Замість fetch(`${COLLECTOR_URL}/competitions`)
+const list = await api.competitions.list();
+
+// Замість fetch(...).then(r => r.json()) з auth headers
+await api.competitions.update(id, { results: newResults });
+await api.sessions.renamePilot(sessionId, oldName, newName);
+```
+
+Доступні групи: `api.competitions`, `api.sessions`, `api.laps`, `api.events`, `api.karts`, `api.scoring`, `api.track`, `api.pageVisibility`, `api.viewDefaults`, `api.moderators`, `api.detector`, `api.status()`, `api.timing()`, `api.system()`, `api.analytics()`.
+
+Для кастомних шляхів — `apiGet`/`apiPost`/`apiPatch`/`apiDelete` з `services/api/http.ts`.
+
+`COLLECTOR_URL` re-exported з `services/api` для legacy-кейсів (наприклад побудова proxy URL для CSV).
+
+**Винятки**: `services/analytics.ts` — fire-and-forget heartbeat без auth, swift `fetch` залишений свідомо.
+
 ## Reusable timing/results components
 
 НЕ інлайни таблиці. Використовуй наявні reusable-компоненти:
