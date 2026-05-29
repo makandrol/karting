@@ -11,6 +11,7 @@ import Database from 'better-sqlite3';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdirSync } from 'node:fs';
+import { parseCompetitionRow, mergeSessions, parseLapTimeSec, buildKartStats } from './storage-utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_DIR = join(__dirname, '..', 'data');
@@ -234,114 +235,6 @@ const stmts = {
 // ============================================================
 // Helpers
 // ============================================================
-
-function parseCompetitionRow(row) {
-  let sessions = row.sessions ? JSON.parse(row.sessions) : [];
-  // Migrate old format: ["session-123"] → [{sessionId: "session-123", phase: null}]
-  if (sessions.length > 0 && typeof sessions[0] === 'string') {
-    sessions = sessions.map(id => ({ sessionId: id, phase: null }));
-  }
-  return {
-    ...row,
-    sessions,
-    results: row.results ? JSON.parse(row.results) : null,
-    uploaded_results: row.uploaded_results ? JSON.parse(row.uploaded_results) : null,
-    status: row.status || 'live',
-  };
-}
-
-const MERGE_GAP_MS = 5 * 60 * 1000; // 5 minutes
-
-function mergeSessions(sessions) {
-  if (sessions.length <= 1) return sessions;
-  
-  // Group sessions by race_number, merging those within MERGE_GAP_MS
-  const result = [];
-  const used = new Set();
-  
-  for (let i = 0; i < sessions.length; i++) {
-    if (used.has(i)) continue;
-    const current = { ...sessions[i], _merged_ids: [sessions[i].id] };
-    used.add(i);
-    
-    if (current.race_number !== null) {
-      // Find all subsequent sessions with same race_number within gap
-      for (let j = i + 1; j < sessions.length; j++) {
-        if (used.has(j)) continue;
-        const s = sessions[j];
-        if (s.race_number !== current.race_number) continue;
-        const currentEnd = current.end_time || s.start_time; // if no end, assume it ended when next started
-        const gap = s.start_time - currentEnd;
-        if (gap < 0 || gap >= MERGE_GAP_MS) continue;
-        
-        // Merge
-        current.end_time = s.end_time || current.end_time;
-        current.pilot_count = Math.max(current.pilot_count || 0, s.pilot_count || 0);
-        if (s.real_pilot_count) {
-          current.real_pilot_count = Math.max(current.real_pilot_count || 0, s.real_pilot_count);
-          current.pilot_count = current.real_pilot_count;
-        }
-        if (s.best_lap_time && s.best_lap_pilot) {
-          const curSec = parseLapTimeSec(current.best_lap_time);
-          const newSec = parseLapTimeSec(s.best_lap_time);
-          if (newSec !== null && (curSec === null || newSec < curSec)) {
-            current.best_lap_time = s.best_lap_time;
-            current.best_lap_pilot = s.best_lap_pilot;
-            current.best_lap_kart = s.best_lap_kart;
-          }
-        }
-        current._merged_ids.push(s.id);
-        used.add(j);
-      }
-    }
-    
-    // Fix stuck live: if no end_time but there's a next session after, close it
-    if (!current.end_time) {
-      const nextIdx = sessions.findIndex((s, idx) => idx > i && !used.has(idx));
-      if (nextIdx >= 0) {
-        current.end_time = current.start_time;
-      }
-    }
-    
-    result.push(current);
-  }
-  
-  // Sort by start_time (merging may have changed order)
-  result.sort((a, b) => a.start_time - b.start_time);
-
-  return result.map(s => {
-    const merged = s._merged_ids;
-    delete s._merged_ids;
-    if (merged.length > 1) s.merged_session_ids = merged;
-    return s;
-  });
-}
-
-function parseLapTimeSec(t) {
-  if (!t) return null;
-  const m = t.match(/^(\d+):(\d+\.\d+)$/);
-  if (m) return parseInt(m[1]) * 60 + parseFloat(m[2]);
-  const s = t.match(/^\d+\.\d+$/);
-  if (s) return parseFloat(t);
-  return null;
-}
-
-function buildKartStats(rows) {
-  const byKart = new Map();
-  for (const r of rows) {
-    if (!byKart.has(r.kart)) byKart.set(r.kart, new Map());
-    const pilots = byKart.get(r.kart);
-    if (!pilots.has(r.pilot) || r.lap_sec < pilots.get(r.pilot).lap_sec) {
-      pilots.set(r.pilot, { pilot: r.pilot, lap_time: r.lap_time, lap_sec: r.lap_sec, ts: r.ts || null });
-    }
-  }
-  const result = [];
-  for (const [kart, pilots] of byKart) {
-    const top5 = [...pilots.values()].sort((a, b) => a.lap_sec - b.lap_sec).slice(0, 5);
-    result.push({ kart, top5 });
-  }
-  return result.sort((a, b) => a.kart - b.kart);
-}
 
 // ============================================================
 // Public API
