@@ -1,0 +1,62 @@
+---
+description: High-level project orientation — stack, conventions, where to find things
+alwaysApply: true
+---
+
+# Karting Project Overview
+
+Real-time timing dashboard для картодрому "Жага швидкості".
+
+## Stack
+- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS, Firebase Auth, react-router-dom v6
+- **Collector** (backend): Node.js 20, plain `http` (НЕ Express), `better-sqlite3`, PM2 на Oracle VPS
+- **Hosting**: Netlify (frontend, auto-deploy from `main`), Oracle VPS `150.230.157.143:3001` (collector)
+- **Timing source**: `nfs.playwar.com:3333/getmaininfo.json` (адаптивний полінг 1s/10s/60s)
+
+## Версії та гілки
+- Frontend: `package.json` → `0.9.x`
+- Collector: `collector/package.json` → `0.3.x`
+- **Інкрементуй версію з кожною зміною** (навіть для дрібних фіксів)
+- `APP_VERSION` авто-читається з `package.json` (`src/data/changelog.ts`)
+- Гілки: `main` (prod), `dev` (work). **НІКОЛИ не мерджи в `main` без явного прохання користувача**
+- **Commit + push після кожної логічної зміни на `dev`** — автоматично, без питань. Не питай "хочеш закомітити?" — це дефолтна поведінка. Деталі — `git-workflow.mdc`.
+
+## Структура
+```
+src/
+  App.tsx                ← lazy routes
+  components/            ← Layout, Timing, Results, Sessions, Track, Filters
+  pages/                 ← Auth, Info, Pilots, Results, Sessions
+  services/              ← auth, layoutPrefs, pageVisibility, timingPoller, trackContext
+  utils/                 ← scoring, timing, session, sheetsCompare
+  data/                  ← competitions, tracks, changelog
+collector/src/
+  index.js               ← HTTP server + усі endpoints
+  poller.js              ← TimingPoller — полінг + diff → events
+  storage.js             ← SQLite schema + CRUD + auto-link
+  detector.js            ← CompetitionDetector — авто-детекція по розкладу
+  parser.js              ← парсер JSON з timing API
+  schedule.js            ← розклад змагань (Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ)
+docs/                    ← довідкова, читай за потребою (architecture, collector-api, ...)
+```
+
+## Скіли (процедури)
+Коли просять відповідну дію — читай і виконуй скіл повністю:
+- `karting-deploy-collector` — задеплоїти collector на VPS (scp + pm2 restart)
+- `karting-bump-version` — bump версії frontend або collector
+- `karting-merge-to-main` — повний flow merge `dev` → `main` з оновленням changelog
+
+## Загальні правила
+- **Українська мова** в UI. Без емодзі в коді (лише де стоять у наявному UI).
+- **TypeScript** на frontend, **plain JS** на collector.
+- **Tailwind only** — без CSS modules. Темна тема: `bg-dark-900`, `text-dark-300`, `border-dark-800`.
+- **Lazy pages** через `React.lazy()` в `App.tsx`.
+- **Не додавай коментарі-наратив** ("// імпортуємо модуль", "// викликаємо функцію"). Коментарі — лише для нетривіального intent / trade-offs.
+- **Не вигадуй версії залежностей**. Використовуй package manager.
+- **Реальні дані не видаляй** — мок-дані прибрані, реальні залишаються назавжди.
+
+## Документація
+- Architecture, API, schema, deployment → `docs/`
+- Регламент змагань → `docs/competition-rules.md`, `docs/competition-detection.md`
+- Реліз-ноти → `src/data/changelog.ts` (рендериться на `/changelog`)
+- Більше доків додавати **тільки якщо користувач явно просить** (вимога користувача)

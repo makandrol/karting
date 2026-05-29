@@ -1,0 +1,148 @@
+---
+description: Collector (Node.js backend) patterns and conventions
+globs:
+  - collector/**/*.js
+alwaysApply: false
+---
+
+# Collector Patterns
+
+Plain Node.js HTTP server. **НЕ Express. НЕ TypeScript.** Без фреймворків.
+
+## Коли просять змінити collector
+
+1. Ендпоінти живуть у `collector/src/index.js` — додавай ДО `sendJson(res, 404, { error: 'Not found' })` (404 catch-all внизу).
+2. Бамп `collector/package.json` (формат `0.3.X`).
+3. Деплоюй на VPS — використовуй скіл `karting-deploy-collector` (scp + pm2 restart).
+4. Локально collector НЕ ходить — frontend з localhost підключається до VPS через `VITE_COLLECTOR_URL` у `.env`.
+
+## Структура коду
+
+```
+collector/src/
+  index.js     ← HTTP server, всі endpoints, CORS, ADMIN_TOKEN
+  poller.js    ← TimingPoller — полінг + #diff() → events
+  parser.js    ← парсер JSON з timing API + volatile fields
+  storage.js   ← SQLite, prepared statements, CRUD, session merging, auto-link
+  detector.js  ← CompetitionDetector — авто-детекція по schedule.js
+  schedule.js  ← weekly schedule (Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ)
+```
+
+## Боди / парсинг
+
+```js
+const body = await readBody(req);
+const data = JSON.parse(body);
+```
+
+`readBody(req, maxSize)` повертає РЯДОК. ОБОВ'ЯЗКОВО `JSON.parse()`. Body limit за замовчуванням 512KB (competitions можуть мати великий JSON у `results.standings`).
+
+## Auth
+
+```js
+if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+// або
+if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+```
+
+`ADMIN_TOKEN` з env. Якщо порожній — все вільно (для dev). Заголовок: `Authorization: Bearer <token>`.
+
+**УСІ write-ендпоінти** (`POST/PATCH/DELETE`) ОБОВ'ЯЗКОВО мають `isAuthorized(req)`-чек. Read-ендпоінти переважно публічні.
+
+## Шаблон ендпоінта
+
+```js
+// GET /endpoint
+if (url.pathname === '/endpoint') {
+  sendJson(res, 200, storage.getThing());
+  return;
+}
+
+// POST /endpoint
+if (req.method === 'POST' && url.pathname === '/endpoint') {
+  if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+  try {
+    const body = await readBody(req);
+    const { param } = JSON.parse(body);
+    if (!param) { sendJson(res, 400, { error: 'param required' }); return; }
+    const result = storage.doThing(param);
+    sendJson(res, 200, { ok: true, result });
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+  return;
+}
+
+// Path with id
+if (req.method === 'POST' && url.pathname.match(/^\/competitions\/[^/]+\/link-session$/)) {
+  if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+  const id = decodeURIComponent(url.pathname.split('/')[2]);
+  // ...
+  return;
+}
+```
+
+## CORS
+
+Уже налаштований у `index.js` (`Access-Control-Allow-Origin: *`, `Methods: GET, POST, PATCH, DELETE, OPTIONS`). Не треба додавати окремо.
+
+## Storage / SQLite
+
+- `better-sqlite3` синхронний — ОК блокувати; не плутай з `sqlite3` асинхронним
+- Prepared statements: `db.prepare('...').run(...)` / `.all(...)` / `.get(...)`
+- Schema у `storage.js` верхні рядки — `CREATE TABLE IF NOT EXISTS`
+- Зміни схеми додавай безпечно: `ALTER TABLE ... ADD COLUMN` з try/catch (idempotent migration), або через `db_stats` key-value для гнучких налаштувань (page_visibility, view_defaults, moderators, scoring)
+
+## Event log
+
+`events` таблиця — append-only. Типи:
+- `snapshot` — лише на старті сесії (повний стан)
+- `lap` — пілот пройшов фініш (включає position, s1, s2, team)
+- `s1` — пілот пройшов S1 mid-lap
+- `update` — non-volatile field change (включно з position)
+- `pilot_join` / `pilot_leave`
+- `poll_ok` — без змін
+
+**Volatile fields** (ігноруються в diff): `totalOnTrack`, `secondsFromPit`, `timeFromLassPassing`, `lastPitMainTime`.
+
+**Snapshots тільки на старті сесії**, НЕ періодичні. Усі зміни позицій ловляться через `update` event.
+
+## Polling intervals
+
+Адаптивні. Не зашивай константи — використовуй наявні в `poller.js`:
+- Offline (API down) → 60s
+- Idle (API up, no pilots) → 10s
+- Online (pilots on track) → 1s
+
+## Auto-linking competitions
+
+`storage.autoLinkSessionToActiveCompetition(sessionId)` викликається з `poller.js` при старті нової сесії. **Має guard "all-phases-filled"** (v0.3.7) — НЕ хапає нові сесії, якщо змагання вже завершене за фазами.
+
+`storage.recheckSessionPhase(sessionId)` — після першого кола, overlap-аналіз ≥50% → це гонка, не квала.
+
+`storage.autoUnlinkSession(sessionId)` — для сесій < 60с (помилкові/тестові).
+
+## Filtering invariants
+
+- `MIN_LAP_SEC = 38` — застосовується в SQL queries для статистики
+- Сесії з `pilot_count = 0` не повертаються
+- `getSessionsByDate()` мерджить сесії з тим самим `race_number` у вікні 5 хв (timing API іноді коротко падає)
+
+## Розгортання
+
+`docs/deployment.md` має повні команди. Скіл `karting-deploy-collector` робить:
+1. `scp -i ~/.ssh/id_github collector/src/*.js ubuntu@150.230.157.143:/home/ubuntu/collector/src/`
+2. `ssh ... "pm2 restart collector"`
+3. Verify: `curl localhost:3001/healthz`
+
+## DB path (production)
+
+`/home/ubuntu/collector/data/karting.db`. Локально — `collector/data/karting.db` (не в git, у `.gitignore`).
+
+## НЕ роби
+
+- НЕ використовуй Express, fastify, koa та інші фреймворки
+- НЕ перетворюй на TypeScript
+- НЕ додавай періодичні snapshots (тільки на старті сесії)
+- НЕ видаляй реальні дані з БД (мок-дані прибрані, реальні залишаються)
+- НЕ зміни `MIN_BODY_SIZE` без поважної причини (512KB — competitions можуть мати великі standings)

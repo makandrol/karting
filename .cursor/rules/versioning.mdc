@@ -1,0 +1,39 @@
+---
+description: Version bumping rules for frontend and collector
+globs:
+  - package.json
+  - collector/package.json
+alwaysApply: false
+---
+
+# Versioning
+
+**Інкрементуй версію з КОЖНОЮ зміною коду, навіть найдрібнішою.**
+
+## Дві окремі версії
+
+| Що змінено | Файл | Формат |
+|---|---|---|
+| Frontend (`src/`, `public/`, `vite.config.ts`, `tailwind.config.js`, `tsconfig.json`, `index.html`) | `package.json` | `0.9.X` — інкремент `X` |
+| Collector (`collector/src/`) | `collector/package.json` | `0.3.X` — інкремент `X` |
+
+Якщо змінювалося і там, і там — інкрементуй обидві.
+
+## Правила
+- `APP_VERSION` авто-читається з `package.json` через `import { version as APP_VERSION } from '../../package.json'` у `src/data/changelog.ts`. Не оновлюй вручну.
+- НЕ переходь через минор (`0.10.0`) і НЕ змінюй мажор (`1.0.0`) без явного прохання користувача.
+- НЕ змінюй `name`, `version`, інші поля окрім `version` — без явного прохання.
+
+## Швидка команда
+
+Frontend:
+```bash
+node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json')); const [a,b,c]=p.version.split('.').map(Number); p.version=`${a}.${b}.${c+1}`; fs.writeFileSync('package.json', JSON.stringify(p, null, 2)+'\n'); console.log('frontend → '+p.version);"
+```
+
+Collector:
+```bash
+node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('collector/package.json')); const [a,b,c]=p.version.split('.').map(Number); p.version=`${a}.${b}.${c+1}`; fs.writeFileSync('collector/package.json', JSON.stringify(p, null, 2)+'\n'); console.log('collector → '+p.version);"
+```
+
+Деталі та edge cases — у скілі `karting-bump-version`.

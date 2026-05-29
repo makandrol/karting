@@ -1,0 +1,143 @@
+---
+description: Scoring rules and invariants — pure functions, format dispatch, edge cases
+globs:
+  - src/utils/scoring.ts
+  - src/components/Results/**/*.tsx
+  - src/pages/Results/**/*.tsx
+alwaysApply: false
+---
+
+# Scoring Rules
+
+Уся логіка обчислення балів — у `src/utils/scoring.ts` (pure functions). Компоненти НЕ містять алгоритмів — лише викликають функції з `scoring.ts`.
+
+## Архітектура
+
+```
+LeagueResults / GonzalesResults  ← UI, подача параметрів, рендер
+    ↓
+scoring.ts  ← pure functions:
+    computeStandings()         для LL/CL
+    computeSprintStandings()   для Sprint
+    computeGonzalesStandings() для Гонзалес
+    rowsToStandings()          → CompetitionStandings для збереження
+```
+
+Усі обчислення — pure (з deterministic input → output). Нічого з window/localStorage всередині `scoring.ts`.
+
+## Format dispatch
+
+```ts
+const computeFn = format === 'sprint' ? computeSprintStandings : computeStandings;
+// гонзалес рендериться окремим компонентом GonzalesResults
+```
+
+## Інваріанти
+
+- **MIN_LAP_SEC = 38** — кола < 38 сек ігноруються в усіх обчисленнях scoring (фільтр на SQL рівні в колекторі + повторний у `scoring.ts`)
+- **excluded laps** — зберігаються як `Set<string>` з ключами `"sessionId|pilot|ts"` (`results.excludedLaps` на колекторі)
+- **excluded pilots** — зберігаються як string array у `results.excludedPilots`
+- **edits** — `Record<pilotName, { startPos?, finishPos?, penalties? }>` per race в `results.edits[raceNum]`
+- **edit log** — `results.editLog` array з `{pilot, action, detail, user, ts}`
+
+## Standings storage flow
+
+```
+LeagueResults / GonzalesResults
+    ↓ кожен render
+computeStandings() → PilotRow[]
+    ↓ rowsToStandings(rows, excludedPilots, format)
+CompetitionStandings = { updatedAt, pilots: [...] }
+    ↓ onSaveResults({ standings })  кожні 10s (debounced)
+collector PATCH /competitions/:id  → results.standings
+    ↓
+List `/results` reads results.standings → top-3 pilots
+```
+
+При додаванні нової логіки до scoring — обов'язково оновлюй `rowsToStandings()` теж, щоб збережені standings відображали актуальні дані.
+
+## Sprint специфіка
+
+- **Без overtake points** — лише position + speed
+- **Race position points**: `getSprintPositionPoints(pos)` — 40/37/35/33/31/29/... (-2 per pos, мін. 0)
+- **Final position points**: `getSprintFinalPoints(pos, precedingPilots)` — старт від 180, -3 за кожну позицію, безперервно через всі групи (Pro → Gold → Light)
+- **Speed points**: 1 бал за найшвидше коло в групі — за кожну квалу (2) і за кожну гонку (2). НЕ топ-5.
+- **Group splitting для гонок 1, 2**: `splitIntoGroupsSprint()` — snake/round-robin
+- **Group splitting для фіналу**: послідовне ярусне (inline в `computeSprintStandings`) — за сумою балів Г1+Г2 з tiebreak найкращим часом квалі 1
+- **Phase naming**: `qualifying_N_group_X`, `race_N_group_X`, `final_group_X`
+- **races[0] = Race 1, races[1] = Race 2, races[2] = Final**
+- **qualis[0] = Quali 1, qualis[1] = Quali 2**
+
+## Sprint UI — два рендер-шляхи
+
+`LeagueResults.tsx` для Sprint має ДВА table rendering paths:
+1. Compact (перша таблиця): generic `cellForCol` + `RACE_COLS_H`
+2. Expanded (друга таблиця): explicit `cv()` / `colVisible()` checks
+
+При зміні Sprint-колонок (порядок, заголовки, дані) — **синхронізуй ОБИДВА** шляхи. Інакше один view покаже старе, інший нове.
+
+Sprint "Бали" sub-header column order: **Швидк, Штрафи, Позиція, Сума** (відрізняється від LL/CL: Позиція, Обгони, Штрафи, Сума).
+
+Race 2 "Сума" = cumulative (q1_speed + r1_total + q2_speed + r2_total).
+Final "Сума" = `row.totalPoints` (загальна сума змагання).
+
+## LL/CL специфіка
+
+- **Position points**: окремі таблиці для LL і CL (`positionPoints` і `positionPoints_CL`). Передавай `format` у `getPositionPoints()`.
+- **Overtake points** (progressive):
+  - groupI_LL: `[ {startPosMin, startPosMax, perOvertake}, ... ]` — 10+ → 1.2
+  - groupI_CL: те саме окремо — 10+ → 1.3
+  - groupII / groupIII: одне число
+- **Speed points**: топ-5 (2.5/2/1.5/1/0.5) з `scoring.speedPoints`
+- **Race count**: LL = 2, CL = 3
+- **Race pilot count**: configurable з v0.9.370 (`results.racePilotCount`), fallback CL=24, LL=36
+
+## Гонзалес
+
+- Окремий компонент `GonzalesResults.tsx` (~1228 LOC), окрема функція `computeGonzalesStandings`
+- Без груп у класичному сенсі — ротація картів (`buildGonzalesRotation`)
+- Pilots → kart slots з skips (якщо pilotCount > karts.length)
+- Rotation: `getGonzalesKartForRound(slots, startSlot, round)` — `(startSlot + round) % slots.length`
+- Scoring: середній час найкращих кіл по картах
+- `scoringLaps` — кількість залікових кіл per kart (за замовчуванням 2, налаштовуване)
+- `kartReplacements` — на льоту замінити карт у середині змагання
+- `excludedKarts` — карти повністю виключаються з таблиці
+
+## Live overrides
+
+- `liveSessionId` + `livePositions` (з timing API кожні 2с) — переважують DB position для активної сесії в гонці
+- `liveEnabled` toggle — `● LIVE` кнопка зверху таблиці
+
+## Manual edits
+
+`Edit:` mode (Ред) — owner/moderator з `manage_results` permission може:
+- Start position (race.startPos), Finish position (race.finishPos), Penalties (race.penalties)
+- Перейменувати пілота (через DB, для всіх сесій змагання — `POST /db/rename-pilot`)
+- Виключити/повернути пілота (`results.excludedPilots`)
+- Виключити/повернути окремі лапи (`results.excludedLaps`)
+
+`EditableCell` — input з focus protection — ОБОВ'ЯЗКОВО на module-level (не всередині `LeagueResults`).
+
+## Hooks before early returns
+
+`sortColId` `useMemo` (та інші useMemo/useCallback) ОБОВ'ЯЗКОВО мають бути ДО `if (!scoring) return ...`. Інакше — `Rendered more hooks` error при HMR. Це повторювана причина крашів.
+
+## Sprint sort keys
+
+`SortKey` тип: `'total' | 'quali_time' | 'race_${N}_time' | 'race_${N}_points' | 'race_${N}_pos_pts' | 'quali_${N}_time' | 'race_2_cumsum'`
+
+Sprint клікабельні заголовки:
+- "Час" → asc (first click), наступні toggle
+- "Позиція" → desc first
+- "Сума" → desc first
+  - Race 2 "Сума" → `race_2_cumsum`
+  - Final "Сума" → `total`
+
+Активний sort highlight: `bg-yellow-500/10` (через `SORT_HL` константу).
+
+## Що НЕ робити
+
+- НЕ додавай overtake points у Sprint (за регламентом їх немає)
+- НЕ міксуй sprint final scale (180, -3) з race scale (40/37/35) — це різні функції
+- НЕ обчислюй scoring у компонентах — все через `scoring.ts`
+- НЕ забувай оновити обидва Sprint table paths при зміні колонок
