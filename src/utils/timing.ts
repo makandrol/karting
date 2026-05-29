@@ -1,7 +1,9 @@
 /**
  * Shared timing utilities — parsing lap times, color coding.
- * Used by TimingBoard, SessionReplay, and timingParser.
+ * Used by TimingBoard, SessionReplay, and other timing-related components.
  */
+
+import { computeReverseStartPositions, computeSprintSnakeStartPositions } from '../data/competitions';
 
 /** Parse lap time strings to seconds: "39.800" → 39.8, "1:02.222" → 62.222, "00:42.123" → 42.123 */
 export function parseTime(t: string | null): number | null {
@@ -283,51 +285,13 @@ export async function fetchRaceStartPositions(
         return { positions: result, totalQualified: totalN };
       }
 
-      let groupCount: number;
-      if (n <= 14) groupCount = 1;
-      else if (n <= 29) groupCount = 2;
-      else groupCount = 3;
-
-      const reversed = n % groupCount !== 0;
-      const buckets: string[][] = Array.from({ length: groupCount }, () => []);
-      for (let i = 0; i < n; i++) {
-        const gi = reversed ? (groupCount - 1) - (i % groupCount) : i % groupCount;
-        buckets[gi].push(qualified[i]);
-      }
-
-      const groupPilots = buckets[groupNum - 1] || [];
-      groupPilots.forEach((p, pi) => {
-        result.set(p, pi + 1);
-      });
+      const sprintStarts = computeSprintSnakeStartPositions(qualified, groupNum);
+      sprintStarts.forEach((v, k) => result.set(k, v));
       return { positions: result, totalQualified: n };
     }
 
-    const maxGroups = format === 'champions_league' ? 2 : 3;
-    let groupCount: number;
-    if (maxGroups >= 3) {
-      if (n <= 13) groupCount = 1;
-      else if (n <= 26) groupCount = 2;
-      else groupCount = 3;
-    } else {
-      if (n <= 13) groupCount = 1;
-      else groupCount = 2;
-    }
-
-    const baseSize = Math.floor(n / groupCount);
-    let remainder = n % groupCount;
-    let idx = 0;
-    for (let g = 0; g < groupCount; g++) {
-      const size = baseSize + (remainder > 0 ? 1 : 0);
-      if (remainder > 0) remainder--;
-      if (g + 1 === groupNum) {
-        const groupPilots = qualified.slice(idx, idx + size);
-        groupPilots.forEach((p, pi) => {
-          result.set(p, groupPilots.length - pi);
-        });
-        break;
-      }
-      idx += size;
-    }
+    const llclStarts = computeReverseStartPositions(qualified, format, groupNum);
+    llclStarts.forEach((v, k) => result.set(k, v));
     return { positions: result, totalQualified: qualified.length };
   } catch { /* ignore */ }
 
