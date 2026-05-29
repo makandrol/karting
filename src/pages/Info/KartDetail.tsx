@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { api } from '../../services/api';
+import { api, type DbSession } from '../../services/api';
 import { parseTime, toSeconds, mergePilotNames, isValidSession } from '../../utils/timing';
 import { fmtTimeShort as fmtTime, fmtDateDM as fmtDate } from '../../utils/datetime';
 import DateNavigator from '../../components/Sessions/DateNavigator';
@@ -22,18 +22,6 @@ interface KartLap {
   session_start: number;
 }
 
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  real_pilot_count: number | null;
-  race_number: number | null;
-  date: string;
-  best_lap_time: string | null;
-  best_lap_pilot: string | null;
-  merged_session_ids?: string[];
-}
 
 function shortPilot(name: string): string {
   const p = name.trim().split(' ').filter(Boolean);

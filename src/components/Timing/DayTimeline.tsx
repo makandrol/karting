@@ -1,19 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../../services/api';
+import { api, type DbSession } from '../../services/api';
 import { isValidSession } from '../../utils/timing';
 import { fmtTimeShort as fmtTime, fmtDuration, fmtDateISO as fmtDate, fmtDateLabelDate as fmtDateLabel } from '../../utils/datetime';
 
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  track_id: number;
-  race_number: number | null;
-  is_race: number;
-  date: string;
-}
 
 interface DayTimelineProps {
   isTimingOnline: boolean;

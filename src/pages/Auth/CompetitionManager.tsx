@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
-import { api } from '../../services/api';
+import { api, type DbSession as ApiDbSession } from '../../services/api';
 import { fmtTime, fmtDuration } from '../../utils/datetime';
 
 interface Competition {
@@ -14,16 +14,7 @@ interface Competition {
   uploaded_results: any | null;
 }
 
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  track_id: number;
-  race_number: number | null;
-  is_race: number;
-  date: string;
-}
+type DbSession = ApiDbSession & { track_id: number };
 
 const FORMAT_OPTIONS = [
   { value: 'light_league', label: 'Лайт Ліга' },

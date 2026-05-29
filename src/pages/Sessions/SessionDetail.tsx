@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { COLLECTOR_URL, api } from '../../services/api';
+import { COLLECTOR_URL, api, type DbSession as ApiDbSession } from '../../services/api';
 import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime, KART_COLOR } from '../../utils/timing';
 import { fmtTime, fmtDuration } from '../../utils/datetime';
 import { useAuth } from '../../services/auth';
@@ -19,20 +19,8 @@ import { lazy, Suspense } from 'react';
 
 const Onboard = lazy(() => import('../Info/Onboard'));
 
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  real_pilot_count: number | null;
-  track_id: number;
-  race_number: number | null;
-  is_race: number;
-  date: string;
-  best_lap_time: string | null;
-  best_lap_pilot: string | null;
-  merged_session_ids?: string[];
-}
+/** Local alias — adds required track_id for SessionDetail's needs. */
+type DbSession = ApiDbSession & { track_id: number };
 
 export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();

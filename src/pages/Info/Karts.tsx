@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../../services/api';
+import { api, type DbSession } from '../../services/api';
 import { toSeconds, isValidSession } from '../../utils/timing';
 import { fmtTimeShort as fmtTime, fmtDateTimeShort as fmtDate, fmtDateISO } from '../../utils/datetime';
 import { useLocalStorage } from '../../services/useLocalStorage';
@@ -10,18 +10,6 @@ import SessionsTable from '../../components/Sessions/SessionsTable';
 interface KartStat {
   kart: number;
   top5: { pilot: string; lap_time: string; lap_sec: number; ts: number | null }[];
-}
-
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  real_pilot_count: number | null;
-  race_number: number | null;
-  date: string;
-  best_lap_time: string | null;
-  best_lap_pilot: string | null;
 }
 
 interface KartsFilters {

@@ -16,9 +16,21 @@ export { CollectorApiError, COLLECTOR_URL } from './http';
 // Shared types
 // ============================================================
 
+/**
+ * Session row from `/db/sessions` — has all fields the collector returns,
+ * including merged-sessions list and is_race flag.
+ *
+ * Замість того щоб писати локальні `interface DbSession` у компонентах,
+ * імпортуй цей тип з services/api.
+ */
 export interface DbSession extends SessionTableRow {
+  /** "YYYY-MM-DD" — local date when session started. */
   date?: string;
+  /** 1 if collector marked this as a race (heuristics). */
   is_race?: number;
+  /** Track config id (1..11 + reverses). */
+  track_id?: number;
+  /** When two timing-API drops are merged, original session IDs are kept here. */
   merged_session_ids?: string[];
 }
 
