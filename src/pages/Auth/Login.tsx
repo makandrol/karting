@@ -1,15 +1,12 @@
 import { useAuth, ROLE_LABELS, ROLE_ICONS } from '../../services/auth';
 import { Link } from 'react-router-dom';
+import { LoadingState } from '../../components/States';
 
 export default function Login() {
   const { user, loading, loginWithGoogle, logout, isOwner, firebaseConfigured } = useAuth();
 
   if (loading) {
-    return (
-      <div className="max-w-md mx-auto text-center py-20">
-        <div className="text-dark-500">Завантаження...</div>
-      </div>
-    );
+    return <LoadingState card={false} />;
   }
 
   // Авторизований — профіль

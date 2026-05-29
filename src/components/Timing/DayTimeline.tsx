@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type DbSession } from '../../services/api';
 import { isValidSession } from '../../utils/timing';
 import { fmtTimeShort as fmtTime, fmtDuration, fmtDateISO as fmtDate, fmtDateLabelDate as fmtDateLabel } from '../../utils/datetime';
+import { LoadingState } from '../States';
 
 
 interface DayTimelineProps {
@@ -195,7 +196,7 @@ export default function DayTimeline({ isTimingOnline, isTimingIdle = false, idle
       </div>
 
       {loading && sessions.length === 0 && (
-        <div className="text-center text-dark-500 text-[10px] py-3">Завантаження...</div>
+        <LoadingState size="sm" card={false} />
       )}
 
       {/* Timeline bar with hour labels */}
