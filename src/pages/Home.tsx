@@ -44,25 +44,25 @@ export default function HomePage() {
         <QuickCard
           title="Лайт Ліга"
           description="Ліга для новачків та аматорів"
-          href="/results/light-league"
+          href="/results/light_league"
           emoji="⭐"
         />
         <QuickCard
           title="Ліга Чемпіонів"
           description="Найпрестижніші змагання картодрому"
-          href="/results/champions-league"
+          href="/results/champions_league"
           emoji="👑"
         />
         <QuickCard
           title="Спринти"
           description="Короткі інтенсивні гонки"
-          href="/results/sprints"
+          href="/results/sprint"
           emoji="⚡"
         />
         <QuickCard
           title="Марафони"
           description="Довгі гонки на витривалість"
-          href="/results/marathons"
+          href="/results/marathon"
           emoji="🏁"
         />
         <QuickCard
