@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { COLLECTOR_URL, api, type DbSession as ApiDbSession } from '../../services/api';
 import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime, KART_COLOR } from '../../utils/timing';
 import { fmtTime, fmtDuration } from '../../utils/datetime';
+import { LoadingState } from '../../components/States';
 import { useAuth } from '../../services/auth';
 import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
@@ -167,7 +168,7 @@ export default function SessionDetail() {
   };
 
   if (dbLoading) {
-    return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
+    return <LoadingState />;
   }
 
   if (!dbSession) {

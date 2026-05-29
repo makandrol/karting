@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type DbSession } from '../../services/api';
-import { toSeconds, isValidSession } from '../../utils/timing';
+import { toSeconds, isValidSession, shortPilot } from '../../utils/timing';
 import { fmtTimeShort as fmtTime, fmtDateTimeShort as fmtDate, fmtDateISO } from '../../utils/datetime';
 import { useLocalStorage } from '../../services/useLocalStorage';
 import DateNavigator from '../../components/Sessions/DateNavigator';
@@ -25,11 +25,6 @@ const DEFAULT_FILTERS: KartsFilters = {
   topN: 1,
   showDisabled: false,
 };
-
-function shortPilot(name: string): string {
-  const p = name.trim().split(' ').filter(Boolean);
-  return p.length < 2 ? p[0] || name : `${p[0]} ${p[1][0]}.`;
-}
 
 export default function Karts() {
   const [filters, setFilters] = useLocalStorage<KartsFilters>('karting_karts_filters', DEFAULT_FILTERS);

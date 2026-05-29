@@ -3,6 +3,7 @@ import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import { fmtBytes } from '../../utils/timing';
+import { LoadingState } from '../../components/States';
 
 function fmtUptime(sec: number): string {
   const d = Math.floor(sec / 86400);
@@ -71,7 +72,7 @@ export default function Monitoring() {
       )}
 
       {loading ? (
-        <div className="card text-center py-12 text-dark-500">Завантаження...</div>
+        <LoadingState />
       ) : (
         <>
           {/* Server stats */}

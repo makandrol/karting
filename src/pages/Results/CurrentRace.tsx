@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Navigate, Link } from 'react-router-dom';
 import { api } from '../../services/api';
+import { LoadingState } from '../../components/States';
 
 export default function CurrentRace() {
   const [loading, setLoading] = useState(true);
@@ -16,7 +17,7 @@ export default function CurrentRace() {
       .catch(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
+  if (loading) return <LoadingState />;
 
   if (liveComp) {
     return <Navigate to={`/results/${liveComp.format}/${liveComp.id}`} replace />;

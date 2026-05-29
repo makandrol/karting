@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api, CollectorApiError } from '../../services/api';
+import { LoadingState } from '../../components/States';
 
 interface OvertakeRule {
   startPosMin: number;
@@ -72,7 +73,7 @@ export default function ScoringSettings() {
     }
   };
 
-  if (!data) return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
+  if (!data) return <LoadingState />;
 
   return (
     <div className="space-y-6">

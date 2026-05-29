@@ -3,6 +3,7 @@ import { api } from '../../services/api';
 import { parseTime, isValidSession } from '../../utils/timing';
 import { fmtDateLabel, fmtDateISO } from '../../utils/datetime';
 import { useLocalStorage } from '../../services/useLocalStorage';
+import { LoadingState } from '../../components/States';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 
@@ -73,7 +74,7 @@ export default function SessionsList() {
         </h2>
 
         {loading ? (
-          <div className="card text-center py-6 text-dark-500 text-sm">Завантаження...</div>
+          <LoadingState size="md" />
         ) : sessions.length === 0 ? (
           <div className="card text-center py-6 text-dark-500 text-sm">Немає заїздів за цю дату</div>
         ) : (

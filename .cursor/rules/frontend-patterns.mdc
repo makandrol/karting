@@ -187,4 +187,23 @@ const [dates, setDates] = useLocalStorage<string[]>('karting_dates', [], { endOf
 
 ## ErrorBoundary
 
-`src/components/ErrorBoundary.tsx` обгортає `<BrowserRouter>` в `App.tsx`. Якщо додаєш потенційно крашуючий код у новій навігаційній зоні — переконайся, що ErrorBoundary його ловить.
+`src/components/ErrorBoundary.tsx` обгортає `<BrowserRouter>` в `App.tsx` як top-level catch для крахів у providers.
+
+**Per-route ErrorBoundary**: кожна сторінка обгорнута в `RouteShield` (через `PageGuard` або напряму), keyed by `location.pathname`. Це гарантує, що крах однієї сторінки НЕ блокує навігацію в інші — просто перейди на інший маршрут.
+
+Якщо додаєш потенційно крашуючий код — переконайся, що ErrorBoundary його ловить (через PageGuard / RouteShield).
+
+## Loading / Error / Empty states
+
+Використовуй `<LoadingState />`, `<ErrorState text="..." onRetry={...} />`, `<EmptyState title="..." />` з `src/components/States.tsx`. НЕ пиши:
+
+```tsx
+// ❌ ПОГАНО
+<div className="card text-center py-12 text-dark-500">Завантаження...</div>
+```
+
+```tsx
+// ✅ ДОБРЕ
+<LoadingState />
+<LoadingState text="Завантаження даних..." size="md" />
+```

@@ -6,6 +6,7 @@ import { TrackProvider } from './services/trackContext';
 import { PageVisibilityProvider, usePageVisibility } from './services/pageVisibility';
 import { LayoutPrefsProvider } from './services/layoutPrefs';
 import ErrorBoundary from './components/ErrorBoundary';
+import { LoadingState } from './components/States';
 
 const HomePage = lazy(() => import('./pages/Home'));
 const CurrentRace = lazy(() => import('./pages/Results/CurrentRace'));
@@ -28,7 +29,16 @@ const SessionDetail = lazy(() => import('./pages/Sessions/SessionDetail'));
 const PilotProfile = lazy(() => import('./pages/Pilots/PilotProfile'));
 
 function PageLoader() {
-  return <div className="text-center py-20 text-dark-500">Завантаження...</div>;
+  return <LoadingState />;
+}
+
+/**
+ * Wraps page content in an ErrorBoundary keyed by current path —
+ * ensures a crash in one route doesn't block navigation to another.
+ */
+function RouteShield({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  return <ErrorBoundary key={location.pathname}>{children}</ErrorBoundary>;
 }
 
 function PageGuard({ children }: { children: React.ReactNode }) {
@@ -43,7 +53,7 @@ function PageGuard({ children }: { children: React.ReactNode }) {
     return <PageBlocked />;
   }
 
-  return <>{children}</>;
+  return <RouteShield>{children}</RouteShield>;
 }
 
 function PageBlocked() {
@@ -71,7 +81,7 @@ export default function App() {
                 <Route path="/onboard/:kartId" element={<PageGuard><Onboard /></PageGuard>} />
 
                 <Route element={<Layout />}>
-                  <Route path="/" element={<Timing />} />
+                  <Route path="/" element={<RouteShield><Timing /></RouteShield>} />
                   <Route path="/home" element={<PageGuard><HomePage /></PageGuard>} />
 
                   {/* Results */}
@@ -83,21 +93,21 @@ export default function App() {
 
                   {/* Info / Analytics */}
                   <Route path="/info" element={<Navigate to="/info/timing" replace />} />
-                  <Route path="/info/timing" element={<Timing />} />
+                  <Route path="/info/timing" element={<RouteShield><Timing /></RouteShield>} />
                   <Route path="/info/tracks" element={<PageGuard><Tracks /></PageGuard>} />
                   <Route path="/info/karts" element={<PageGuard><Karts /></PageGuard>} />
                   <Route path="/info/karts/:kartId" element={<PageGuard><KartDetail /></PageGuard>} />
                   <Route path="/info/videos" element={<PageGuard><Videos /></PageGuard>} />
 
                   {/* Auth */}
-                  <Route path="/login" element={<Login />} />
+                  <Route path="/login" element={<RouteShield><Login /></RouteShield>} />
                   <Route path="/admin" element={<Navigate to="/admin/access" replace />} />
-                  <Route path="/admin/access" element={<AccessSettings />} />
+                  <Route path="/admin/access" element={<RouteShield><AccessSettings /></RouteShield>} />
                   <Route path="/admin/pages" element={<Navigate to="/admin/access" replace />} />
-                  <Route path="/admin/db" element={<DatabaseStats />} />
-                  <Route path="/admin/monitoring" element={<Monitoring />} />
-                  <Route path="/admin/collector-log" element={<CollectorLog />} />
-                  <Route path="/admin/scoring" element={<ScoringSettings />} />
+                  <Route path="/admin/db" element={<RouteShield><DatabaseStats /></RouteShield>} />
+                  <Route path="/admin/monitoring" element={<RouteShield><Monitoring /></RouteShield>} />
+                  <Route path="/admin/collector-log" element={<RouteShield><CollectorLog /></RouteShield>} />
+                  <Route path="/admin/scoring" element={<RouteShield><ScoringSettings /></RouteShield>} />
 
                   {/* Sessions */}
                   <Route path="/sessions" element={<PageGuard><SessionsList /></PageGuard>} />

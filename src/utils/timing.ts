@@ -45,6 +45,15 @@ export function shortName(name: string): string {
   return `${parts[0]} ${parts[1][0]}.`;
 }
 
+/**
+ * Like shortName but ALWAYS truncates "First Last" → "First L.", regardless of length.
+ * Used in compact tables where space is critical (Karts page).
+ */
+export function shortPilot(name: string): string {
+  const p = name.trim().split(' ').filter(Boolean);
+  return p.length < 2 ? p[0] || name : `${p[0]} ${p[1][0]}.`;
+}
+
 /** Format bytes to human readable string */
 export function fmtBytes(b: number): string {
   if (b < 1024) return b + ' B';

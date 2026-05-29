@@ -3,6 +3,7 @@ import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import { fmtBytes } from '../../utils/timing';
+import { LoadingState } from '../../components/States';
 
 export default function DatabaseStats() {
   const { isOwner } = useAuth();
@@ -41,7 +42,7 @@ export default function DatabaseStats() {
       </div>
 
       {loading ? (
-        <div className="card text-center py-12 text-dark-500">Завантаження...</div>
+        <LoadingState />
       ) : !db ? (
         <div className="card text-center py-12 text-dark-500">Collector недоступний</div>
       ) : (

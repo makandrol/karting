@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, type
 import { api } from '../../services/api';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
 import { toSeconds, isValidSession, KART_COLOR, shortName, loadWithExpiry, saveWithExpiry } from '../../utils/timing';
+import { LoadingState } from '../../components/States';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
@@ -143,7 +144,7 @@ export default function CompetitionPage() {
     } catch {}
   };
 
-  if (loading) return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
+  if (loading) return <LoadingState />;
 
   if (!eventId && !type) {
     return <CompetitionList competitions={competitions} />;
@@ -528,7 +529,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     return () => { cancelled = true; clearInterval(slowTimer); clearInterval(fastTimer); };
   }, [initialCompetition.id, liveEnabled]);
 
-  if (loading) return <div className="card text-center py-6 text-dark-500">Завантаження даних...</div>;
+  if (loading) return <LoadingState text="Завантаження даних..." size="md" />;
   if (competition.sessions.length === 0) return <div className="card text-center py-12 text-dark-500">Немає прив'язаних заїздів</div>;
 
   const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? 1;

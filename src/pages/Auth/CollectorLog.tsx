@@ -4,6 +4,7 @@ import { Navigate, Link } from 'react-router-dom';
 import { trackDisplayId } from '../../data/tracks';
 import { api } from '../../services/api';
 import { fmtDuration, fmtDateTimeFull as fmtDateTime } from '../../utils/datetime';
+import { LoadingState } from '../../components/States';
 
 interface SessionRow {
   id: string;
@@ -96,7 +97,7 @@ export default function CollectorLog() {
       </div>
 
       {loading ? (
-        <div className="card text-center py-12 text-dark-500">Завантаження...</div>
+        <LoadingState />
       ) : filtered.length === 0 ? (
         <div className="card text-center py-12 text-dark-500">Немає даних</div>
       ) : (

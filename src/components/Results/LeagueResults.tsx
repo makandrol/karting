@@ -3,6 +3,7 @@ import { toSeconds, KART_COLOR } from '../../utils/timing';
 import { useLayoutPrefs } from '../../services/layoutPrefs';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL, api } from '../../services/api';
+import { LoadingState } from '../States';
 import {
   type SessionLap, type CompSession, type ScoringData,
   type PilotQualiData, type PilotRaceData, type PilotRow, type ManualEdits,
@@ -432,7 +433,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     }
   }, [autoTotalPilots, autoGroupsByQuali, data, excludedPilots]);
 
-  if (!scoring) return <div className="card text-center py-6 text-dark-500">Завантаження балів...</div>;
+  if (!scoring) return <LoadingState text="Завантаження балів..." size="md" />;
   if (sortedData.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
 
   const SortBtn = ({ k, label, fixedDir }: { k: SortKey; label: string; fixedDir?: 'asc' | 'desc' }) => (

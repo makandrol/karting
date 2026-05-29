@@ -1,8 +1,9 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { api, type DbSession } from '../../services/api';
-import { parseTime, toSeconds, mergePilotNames, isValidSession } from '../../utils/timing';
+import { parseTime, toSeconds, mergePilotNames, isValidSession, shortPilot } from '../../utils/timing';
 import { fmtTimeShort as fmtTime, fmtDateDM as fmtDate } from '../../utils/datetime';
+import { LoadingState } from '../../components/States';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 
@@ -22,11 +23,6 @@ interface KartLap {
   session_start: number;
 }
 
-
-function shortPilot(name: string): string {
-  const p = name.trim().split(' ').filter(Boolean);
-  return p.length < 2 ? p[0] || name : `${p[0]} ${p[1][0]}.`;
-}
 
 const LS_KART_DETAIL_DATES = 'karting_kart_detail_dates';
 function loadSelectedDates(): Set<string> {
@@ -254,7 +250,7 @@ export default function KartDetail() {
       </div>
 
       {loading ? (
-        <div className="card text-center py-12 text-dark-500">Завантаження...</div>
+        <LoadingState />
       ) : laps.length === 0 ? (
         <div className="card text-center py-12 text-dark-500">Немає даних. Оберіть дні в календарі.</div>
       ) : (

@@ -3,6 +3,7 @@ import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
 import { api, type DbSession as ApiDbSession } from '../../services/api';
 import { fmtTime, fmtDuration } from '../../utils/datetime';
+import { LoadingState } from '../../components/States';
 
 interface Competition {
   id: string;
@@ -133,7 +134,7 @@ export default function CompetitionManager() {
       )}
 
       {loading ? (
-        <div className="card text-center py-12 text-dark-500">Завантаження...</div>
+        <LoadingState />
       ) : competitions.length === 0 ? (
         <div className="card text-center py-12 text-dark-500">Немає змагань. Натисніть "+ Створити" щоб додати.</div>
       ) : (
