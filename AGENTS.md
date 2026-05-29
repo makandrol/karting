@@ -13,10 +13,28 @@ Three-tier app:
 Frontend деплоїться на Netlify з `main` автоматично. Collector — на Oracle VPS `150.230.157.143`, керується PM2, ходить за даними на `nfs.playwar.com:3333` адаптивним полінгом (1s/10s/60s).
 
 Дві окремі версії:
-- Frontend: `package.json` → `0.9.x` (зараз 0.9.412)
-- Collector: `collector/package.json` → `0.3.x` (зараз 0.3.7)
+- Frontend: `package.json` → `0.9.x` (зараз 0.9.433)
+- Collector: `collector/package.json` → `0.3.x` (зараз 0.3.8)
 
 `APP_VERSION` авто-читається з `package.json` (`src/data/changelog.ts`).
+
+## Тести
+
+Vitest + happy-dom. Запуск:
+```bash
+npm test           # одноразовий run
+npm run test:watch # watch mode
+```
+
+Тести в:
+- `src/utils/scoring.test.ts` — pure scoring functions
+- `src/utils/timing.test.ts` — parseTime, mergePilotNames, isValidSession
+- `src/utils/datetime.test.ts` — fmtTime, fmtDuration, fmtDateLabel
+- `src/data/competitions.test.ts` — group splitting, phase config
+- `src/services/useLocalStorage.test.ts` — hook persistence
+- `collector/src/storage-utils.test.js` — parseCompetitionRow, mergeSessions
+
+**При змінах в scoring/timing/competitions/storage-utils — додавай тести.** Поточно: 120 passing.
 
 ## Куди дивитись
 
@@ -42,6 +60,23 @@ Frontend деплоїться на Netlify з `main` автоматично. Col
 6. **TypeScript** на frontend, plain JS на collector.
 7. **Lazy pages** — кожна сторінка через `React.lazy()` в `src/App.tsx`.
 
+## Централізовані утиліти (НЕ винаходь колесо)
+
+При написанні нового коду використовуй наявні модулі замість дублювання:
+
+| Що треба | Використай |
+|---|---|
+| HTTP-виклик до колектора | `api.*` з `services/api/` (НЕ `fetch(\`${COLLECTOR_URL}/...\`)`) |
+| Persistence в localStorage | `useLocalStorage<T>(key, defaultValue, opts?)` з `services/useLocalStorage.ts` |
+| Час/дата формат | `fmtTime/fmtDuration/fmtDateLabel/fmtDateISO` з `utils/datetime.ts` |
+| Lap times | `parseTime/toSeconds/toHundredths` з `utils/timing.ts` |
+| Скорочення імен | `shortName/shortPilot` з `utils/timing.ts` |
+| Loading/Error/Empty UI | `<LoadingState />`, `<ErrorState />`, `<EmptyState />` з `components/States.tsx` |
+| Scoring обчислення | `computeStandings/computeSprintStandings/computeGonzalesStandings` з `utils/scoring.ts` |
+| DbSession / DbLap типи | `import { type DbSession } from 'services/api'` (НЕ локальні interfaces) |
+
+Більше — у `.cursor/rules/frontend-patterns.mdc` (інжектиться автоматично при редагуванні `src/`).
+
 ## Структура проєкту
 
 ```
@@ -52,22 +87,38 @@ karting/
 │   └── skills/                ← процедурні скіли (deploy, bump, merge)
 ├── docs/                      ← довідкова, читай за потребою
 ├── src/                       ← frontend
-│   ├── App.tsx                ← роути (lazy)
-│   ├── components/            ← Layout, Timing, Results, Sessions, Track, Filters
-│   ├── pages/                 ← Auth, Info, Pilots, Results, Sessions
-│   ├── services/              ← auth, layoutPrefs, pageVisibility, timingPoller, ...
-│   ├── utils/                 ← scoring, timing, session, sheetsCompare
+│   ├── App.tsx                ← роути (lazy) + RouteShield (per-route ErrorBoundary)
+│   ├── components/
+│   │   ├── States.tsx         ← LoadingState/ErrorState/EmptyState
+│   │   ├── ErrorBoundary.tsx
+│   │   ├── Layout/, Timing/, Results/, Sessions/, Track/
+│   ├── pages/
+│   │   ├── Auth/AccessSettings/  ← розбито на 7 файлів за секціями
+│   │   ├── Results/
+│   │   │   ├── CompetitionPage.tsx          (LiveResults + helpers)
+│   │   │   ├── CompetitionList.tsx          (list + ListItem)
+│   │   │   ├── LiveSessionTable.tsx         (live timing для сесії)
+│   │   │   ├── competition-types.ts         (Competition, SessionLap)
+│   │   │   └── competition-utils.ts         (date helpers, FORMAT_FILTERS)
+│   │   └── Sessions/
+│   │       ├── SessionDetail.tsx
+│   │       └── useSessionData.ts             ← хук для даних сесії
+│   ├── services/
+│   │   ├── api/               ← http.ts + index.ts (centralized client)
+│   │   ├── useLocalStorage.ts
+│   │   ├── auth, layoutPrefs, pageVisibility, timingPoller, trackContext
+│   ├── utils/                 ← scoring, timing, datetime, session, sheetsCompare
 │   ├── data/                  ← competitions, tracks, changelog
-│   ├── types/index.ts
-│   └── index.css
+│   └── types/index.ts
 ├── collector/
-│   ├── src/                   ← index.js, poller.js, storage.js, detector.js, ...
+│   ├── src/                   ← index.js, poller.js, storage.js, storage-utils.js, ...
 │   └── package.json           ← v0.3.x
 ├── public/
 │   ├── data/scoring.json      ← fallback scoring rules
-│   └── tracks/tracks.json     ← дані для треків (svgPaths, gridPositions, ...)
+│   └── tracks/tracks.json     ← дані для треків
 ├── tools/path-editor.html     ← редактор шляхів
 ├── package.json               ← v0.9.x
+├── vitest.config.ts           ← happy-dom env
 ├── tailwind.config.js
 └── vite.config.ts
 ```
