@@ -1,10 +1,12 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds, mergePilotNames, fetchRaceStartPositions, parseTime, KART_COLOR } from '../../utils/timing';
+import { api } from '../../services/api';
+import { toSeconds, mergePilotNames, parseTime, KART_COLOR } from '../../utils/timing';
+import { fmtTime, fmtDuration } from '../../utils/datetime';
+import { LoadingState } from '../../components/States';
 import { useAuth } from '../../services/auth';
-import SessionReplay, { type S1Event, type ReplaySortMode, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
+import SessionReplay, { type ReplaySortMode } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
@@ -13,148 +15,30 @@ import { trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import type { TimingEntry } from '../../types';
-import { type DbLap, buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
+import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
 import { lazy, Suspense } from 'react';
+import { useSessionData } from './useSessionData';
 
 const Onboard = lazy(() => import('../Info/Onboard'));
-
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  real_pilot_count: number | null;
-  track_id: number;
-  race_number: number | null;
-  is_race: number;
-  date: string;
-  best_lap_time: string | null;
-  best_lap_pilot: string | null;
-  merged_session_ids?: string[];
-}
-
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function fmtDuration(startMs: number, endMs: number): string {
-  const sec = Math.round((endMs - startMs) / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m === 0) return `${s}с`;
-  return `${m}хв ${s}с`;
-}
 
 export default function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const { allTracks } = useTrack();
   const { isOwner, hasPermission } = useAuth();
   const canChangeTrack = hasPermission('change_track');
-  const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
-  const [dbSession, setDbSession] = useState<DbSession | null>(null);
-  const [daySessions, setDaySessions] = useState<DbSession[]>([]);
-  const [dbLaps, setDbLaps] = useState<DbLap[]>([]);
-  const [s1Events, setS1Events] = useState<S1Event[]>([]);
-  const [replaySnapshots, setReplaySnapshots] = useState<SnapshotPosition[]>([]);
-  const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
-  const [totalQualifiedPilots, setTotalQualifiedPilots] = useState(0);
-  const [sessionFormat, setSessionFormat] = useState<string | null>(null);
-  const [liveEntries, setLiveEntries] = useState<any[]>([]);
-  const [dbLoading, setDbLoading] = useState(true);
+  const {
+    session: dbSession, setSession: setDbSession,
+    daySessions, laps: dbLaps,
+    s1Events, snapshots: replaySnapshots,
+    startPositions, totalQualifiedPilots,
+    sessionFormat, liveEntries,
+    excludedLaps, setExcludedLaps,
+    loading: dbLoading,
+  } = useSessionData(sessionId);
+
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
-  const [excludedLaps, setExcludedLaps] = useState<Set<string>>(new Set());
   const [onboardOpen, setOnboardOpen] = useState(false);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    let active = true;
-    (async () => {
-      try {
-        // Extract date from session ID (format: session-{timestamp})
-        const tsMatch = sessionId.match(/session-(\d+)/);
-        const date = tsMatch ? new Date(parseInt(tsMatch[1])).toISOString().split('T')[0] : null;
-
-        const [sessRes] = await Promise.all([
-          date
-            ? fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`).then(r => r.json())
-            : fetch(`${COLLECTOR_URL}/db/sessions`).then(r => r.json()),
-        ]);
-        if (!active) return;
-        const allSessions = sessRes as DbSession[];
-        setDaySessions(allSessions);
-        const found = allSessions.find(s => s.id === sessionId);
-        if (found) setDbSession(found);
-        
-        // Fetch laps from all merged session IDs
-        const sessionIds = found?.merged_session_ids || [sessionId];
-        const allLaps: DbLap[] = [];
-        const allEvents: any[] = [];
-        for (const sid of sessionIds) {
-          const [sLaps, sEvents] = await Promise.all([
-            fetch(`${COLLECTOR_URL}/db/laps?session=${sid}`).then(r => r.json()),
-            fetch(`${COLLECTOR_URL}/db/events?session=${sid}`).then(r => r.json()).catch(() => []),
-          ]);
-          allLaps.push(...sLaps);
-          allEvents.push(...sEvents);
-        }
-        const parsed = parseSessionEvents(allEvents);
-        setDbLaps(allLaps);
-        setS1Events(parsed.s1Events);
-        setReplaySnapshots(parsed.snapshots);
-
-        // Compute start positions from competition data
-        const compPhase = (found as any)?.competition_phase;
-        const compId = (found as any)?.competition_id;
-        const compFormat = (found as any)?.competition_format;
-        if (active) setSessionFormat(compFormat || null);
-        if (compId) {
-          try {
-            const compRes = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(compId)}`);
-            if (compRes.ok) {
-              const comp = await compRes.json();
-              const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
-              if (active && results.excludedLaps) setExcludedLaps(new Set(results.excludedLaps));
-            }
-          } catch {}
-        }
-        if (compId && (compPhase?.startsWith('race_') || compPhase?.startsWith('final_')) && compFormat) {
-          const sp = await fetchRaceStartPositions(COLLECTOR_URL, compId, compPhase, compFormat);
-          if (active) { setStartPositions(sp.positions); setTotalQualifiedPilots(sp.totalQualified); }
-        } else if (parsed.firstSnapshotPos) {
-          if (active) setStartPositions(parsed.firstSnapshotPos);
-        }
-
-        if (found && !found.end_time) {
-          try {
-            const timingRes = await fetch(`${COLLECTOR_URL}/timing`).then(r => r.json());
-            if (active && timingRes.sessionId === sessionId && timingRes.entries) {
-              setLiveEntries(timingRes.entries);
-            }
-          } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
-      if (active) setDbLoading(false);
-    })();
-    return () => { active = false; };
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (!dbSession || dbSession.end_time) return;
-    const timer = setInterval(async () => {
-      try {
-        const [lapsRes, timingRes] = await Promise.all([
-          fetch(`${COLLECTOR_URL}/db/laps?session=${dbSession.id}`).then(r => r.json()),
-          fetch(`${COLLECTOR_URL}/timing`).then(r => r.json()),
-        ]);
-        setDbLaps(lapsRes);
-        if (timingRes.sessionId === dbSession.id && timingRes.entries) {
-          setLiveEntries(timingRes.entries);
-        }
-      } catch { /* ignore */ }
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [dbSession]);
 
   const { isSectionVisible, getPageLayout } = useLayoutPrefs();
   const sessionLayout = getPageLayout('sessionDetail');
@@ -163,11 +47,7 @@ export default function SessionDetail() {
     if (!sessionId) return;
     const sessionIds = dbSession?.merged_session_ids || [sessionId];
     for (const sid of sessionIds) {
-      await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ sessionId: sid, oldName, newName }),
-      }).catch(() => {});
+      await api.sessions.renamePilot(sid, oldName, newName).catch(() => {});
     }
     window.location.reload();
   };
@@ -178,17 +58,9 @@ export default function SessionDetail() {
     try {
       if (isCompSession) {
         const sessionIds = dbSession.merged_session_ids || [sessionId];
-        await fetch(`${COLLECTOR_URL}/db/update-sessions-track`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-          body: JSON.stringify({ sessionIds, trackId: newTrackId }),
-        });
+        await api.sessions.updateTrack(sessionIds, newTrackId);
       } else {
-        await fetch(`${COLLECTOR_URL}/db/propagate-track`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-          body: JSON.stringify({ sessionId, trackId: newTrackId }),
-        });
+        await api.sessions.propagateTrack(sessionId, newTrackId);
       }
       setDbSession({ ...dbSession, track_id: newTrackId });
     } catch { /* ignore */ }
@@ -201,20 +73,14 @@ export default function SessionDetail() {
     next.has(lapKey) ? next.delete(lapKey) : next.add(lapKey);
     setExcludedLaps(next);
     try {
-      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(compId)}`);
-      if (!res.ok) return;
-      const comp = await res.json();
-      const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(compId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ results: { ...results, excludedLaps: [...next] } }),
-      });
+      const comp = await api.competitions.getNormalized(compId);
+      const results = comp.results;
+      await api.competitions.update(compId, { results: { ...results, excludedLaps: [...next] } });
     } catch {}
   };
 
   if (dbLoading) {
-    return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
+    return <LoadingState />;
   }
 
   if (!dbSession) {

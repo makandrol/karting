@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { toSeconds, shortName } from '../../utils/timing';
+import { fmtTime, fmtDuration, fmtDateTime } from '../../utils/datetime';
 import { COMPETITION_CONFIGS, getPhaseShortLabel } from '../../data/competitions';
 import { trackDisplayId } from '../../data/tracks';
 
@@ -21,29 +22,10 @@ export interface SessionTableRow {
   competition_phase?: string | null;
 }
 
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function fmtDuration(startMs: number, endMs: number): string {
-  const sec = Math.round((endMs - startMs) / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m === 0) return `${s}с`;
-  return `${m}хв ${s}с`;
-}
-
 interface SessionsTableProps {
   sessions: SessionTableRow[];
   maxHeight?: string;
   showDate?: boolean;
-}
-
-function fmtDateTime(ms: number): string {
-  const d = new Date(ms);
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}.${mm}, ${fmtTime(ms)}`;
 }
 
 export default function SessionsTable({ sessions, maxHeight, showDate }: SessionsTableProps) {

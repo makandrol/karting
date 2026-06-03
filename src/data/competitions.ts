@@ -437,3 +437,75 @@ export function getGonzalesGroupCount(pilotCount: number): number {
 export function getGonzalesRoundCount(pilotCount: number): number {
   return Math.max(pilotCount, 12);
 }
+
+/**
+ * Determine group count by format and pilot count.
+ * Pure: no fetching, just rules.
+ */
+export function getGroupCountForFormat(format: string, pilotCount: number): number {
+  if (format === 'sprint') {
+    if (pilotCount <= 14) return 1;
+    if (pilotCount <= 29) return 2;
+    return 3;
+  }
+  // gonzales — max 2
+  if (format === 'gonzales') return getGonzalesGroupCount(pilotCount);
+  // LL = max 3, CL = max 2 (single source of truth: FORMAT_MAX_GROUPS у competitionLinking.ts)
+  const maxGroups = format === 'champions_league' ? 2 : 3;
+  if (maxGroups >= 3) {
+    if (pilotCount <= 13) return 1;
+    if (pilotCount <= 26) return 2;
+    return 3;
+  }
+  // CL: max 2
+  if (pilotCount <= 13) return 1;
+  return 2;
+}
+
+/**
+ * Reverse start order for a sequential block split — used by LL/CL races.
+ * Returns Map<pilot, startPos> where startPos is reverse position within group
+ * (last in group → starts 1, first in group → starts last).
+ */
+export function computeReverseStartPositions(qualifiedPilots: string[], format: string, groupNum: number): Map<string, number> {
+  const result = new Map<string, number>();
+  const n = qualifiedPilots.length;
+  const groupCount = getGroupCountForFormat(format, n);
+  const baseSize = Math.floor(n / groupCount);
+  let remainder = n % groupCount;
+  let idx = 0;
+  for (let g = 0; g < groupCount; g++) {
+    const size = baseSize + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder--;
+    if (g + 1 === groupNum) {
+      const groupPilots = qualifiedPilots.slice(idx, idx + size);
+      groupPilots.forEach((p, pi) => {
+        result.set(p, groupPilots.length - pi);
+      });
+      break;
+    }
+    idx += size;
+  }
+  return result;
+}
+
+/**
+ * Snake/round-robin start positions for Sprint races 1-2.
+ * For one specific group, maps each pilot to their starting position within that group.
+ */
+export function computeSprintSnakeStartPositions(qualifiedPilots: string[], groupNum: number): Map<string, number> {
+  const result = new Map<string, number>();
+  const n = qualifiedPilots.length;
+  const groupCount = n <= 14 ? 1 : n <= 29 ? 2 : 3;
+
+  const reversed = n % groupCount !== 0;
+  const buckets: string[][] = Array.from({ length: groupCount }, () => []);
+  for (let i = 0; i < n; i++) {
+    const gi = reversed ? (groupCount - 1) - (i % groupCount) : i % groupCount;
+    buckets[gi].push(qualifiedPilots[i]);
+  }
+
+  const groupPilots = buckets[groupNum - 1] || [];
+  groupPilots.forEach((p, pi) => result.set(p, pi + 1));
+  return result;
+}

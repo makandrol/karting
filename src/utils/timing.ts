@@ -1,7 +1,11 @@
 /**
  * Shared timing utilities — parsing lap times, color coding.
- * Used by TimingBoard, SessionReplay, and timingParser.
+ * Used by TimingBoard, SessionReplay, and other timing-related components.
  */
+
+import { computeReverseStartPositions, computeSprintSnakeStartPositions } from '../data/competitions';
+import { normalizeCompetition } from '../services/api';
+import { FORMAT_DEFAULT_RACE_PILOTS } from './competitionLinking';
 
 /** Parse lap time strings to seconds: "39.800" → 39.8, "1:02.222" → 62.222, "00:42.123" → 42.123 */
 export function parseTime(t: string | null): number | null {
@@ -41,6 +45,15 @@ export function shortName(name: string): string {
   const parts = name.trim().split(' ').filter(Boolean);
   if (parts.length < 2 || !parts[1]) return name;
   return `${parts[0]} ${parts[1][0]}.`;
+}
+
+/**
+ * Like shortName but ALWAYS truncates "First Last" → "First L.", regardless of length.
+ * Used in compact tables where space is critical (Karts page).
+ */
+export function shortPilot(name: string): string {
+  const p = name.trim().split(' ').filter(Boolean);
+  return p.length < 2 ? p[0] || name : `${p[0]} ${p[1][0]}.`;
 }
 
 /** Format bytes to human readable string */
@@ -109,10 +122,11 @@ export async function fetchRaceStartPositions(
   const isSprint = format === 'sprint';
 
   try {
-    const comp = await fetch(`${collectorUrl}/competitions/${encodeURIComponent(competitionId)}`).then(r => r.json());
-    const sessions: { sessionId: string; phase: string }[] =
-      typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : comp.sessions;
-    const rawResults = typeof comp.results === 'string' ? JSON.parse(comp.results) : comp.results;
+    const compRaw = await fetch(`${collectorUrl}/competitions/${encodeURIComponent(competitionId)}`).then(r => r.json());
+    const comp = normalizeCompetition(compRaw);
+    if (!comp) return { positions: result, totalQualified: 0 };
+    const sessions = comp.sessions as { sessionId: string; phase: string }[];
+    const rawResults = comp.results;
     const excluded = new Set<string>(rawResults?.excludedPilots || []);
     const excludedLapKeys = new Set<string>(rawResults?.excludedLaps || []);
 
@@ -141,7 +155,7 @@ export async function fetchRaceStartPositions(
     }
 
     const sorted = [...pilotBest.entries()].sort((a, b) => a[1] - b[1]);
-    const maxQualified = rawResults?.racePilotCount ?? (format === 'champions_league' ? 24 : 36);
+    const maxQualified = rawResults?.racePilotCount ?? (FORMAT_DEFAULT_RACE_PILOTS[format] ?? 36);
     const qualified = sorted.slice(0, maxQualified).map(([p]) => p);
     const n = qualified.length;
 
@@ -283,51 +297,13 @@ export async function fetchRaceStartPositions(
         return { positions: result, totalQualified: totalN };
       }
 
-      let groupCount: number;
-      if (n <= 14) groupCount = 1;
-      else if (n <= 29) groupCount = 2;
-      else groupCount = 3;
-
-      const reversed = n % groupCount !== 0;
-      const buckets: string[][] = Array.from({ length: groupCount }, () => []);
-      for (let i = 0; i < n; i++) {
-        const gi = reversed ? (groupCount - 1) - (i % groupCount) : i % groupCount;
-        buckets[gi].push(qualified[i]);
-      }
-
-      const groupPilots = buckets[groupNum - 1] || [];
-      groupPilots.forEach((p, pi) => {
-        result.set(p, pi + 1);
-      });
+      const sprintStarts = computeSprintSnakeStartPositions(qualified, groupNum);
+      sprintStarts.forEach((v, k) => result.set(k, v));
       return { positions: result, totalQualified: n };
     }
 
-    const maxGroups = format === 'champions_league' ? 2 : 3;
-    let groupCount: number;
-    if (maxGroups >= 3) {
-      if (n <= 13) groupCount = 1;
-      else if (n <= 26) groupCount = 2;
-      else groupCount = 3;
-    } else {
-      if (n <= 13) groupCount = 1;
-      else groupCount = 2;
-    }
-
-    const baseSize = Math.floor(n / groupCount);
-    let remainder = n % groupCount;
-    let idx = 0;
-    for (let g = 0; g < groupCount; g++) {
-      const size = baseSize + (remainder > 0 ? 1 : 0);
-      if (remainder > 0) remainder--;
-      if (g + 1 === groupNum) {
-        const groupPilots = qualified.slice(idx, idx + size);
-        groupPilots.forEach((p, pi) => {
-          result.set(p, groupPilots.length - pi);
-        });
-        break;
-      }
-      idx += size;
-    }
+    const llclStarts = computeReverseStartPositions(qualified, format, groupNum);
+    llclStarts.forEach((v, k) => result.set(k, v));
     return { positions: result, totalQualified: qualified.length };
   } catch { /* ignore */ }
 
@@ -341,4 +317,28 @@ export function isValidSession(session: { end_time?: number | null; start_time?:
   const end = session.end_time ?? session.end_time_ms ?? null;
   if (!end) return true;
   return (end - start) >= MIN_SESSION_DURATION_MS;
+}
+
+/**
+ * Load a value from storage that was saved with `saveWithExpiry`.
+ * Returns null if missing or expired (cleans up expired keys).
+ */
+export function loadWithExpiry<T = any>(storage: Storage, key: string): T | null {
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return null;
+    const { value, expiresAt } = JSON.parse(raw);
+    if (expiresAt && Date.now() > expiresAt) { storage.removeItem(key); return null; }
+    return value as T;
+  } catch { return null; }
+}
+
+/**
+ * Save a value to storage with end-of-day expiry timestamp.
+ * `loadWithExpiry` will return null after expiry.
+ */
+export function saveWithExpiry(storage: Storage, key: string, value: any): void {
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+  try { storage.setItem(key, JSON.stringify({ value, expiresAt: endOfDay.getTime() })); } catch {}
 }

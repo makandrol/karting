@@ -3,15 +3,13 @@ import { createPortal } from 'react-dom';
 import { KART_COLOR, mergePilotNames } from '../../utils/timing';
 import { useAuth } from '../../services/auth';
 import { useLayoutPrefs } from '../../services/layoutPrefs';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import {
   computeGonzalesStandings, gonzalesToStandings,
   type SessionLap, type CompSession,
   type GonzalesPilotRow, type GonzalesStandingsData, type GonzalesKartResult,
 } from '../../utils/scoring';
 import { buildGonzalesRotation, type GonzalesKartSlot } from '../../data/competitions';
-
-const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
 
 interface Props {
   competitionId: string;
@@ -214,11 +212,7 @@ export default function GonzalesResults({
   const handleRenamePilot = useCallback(async (oldName: string, newName: string) => {
     setRenamingPilot(null);
     for (const s of sessions) {
-      await fetch(`${COLLECTOR_URL}/db/rename-pilot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ sessionId: s.sessionId, oldName, newName }),
-      }).catch(() => {});
+      await api.sessions.renamePilot(s.sessionId, oldName, newName).catch(() => {});
     }
     const nextSlots = { ...pilotStartSlots };
     if (oldName in nextSlots) {
@@ -728,11 +722,9 @@ function GonzalesEditLog({ competitionId }: { competitionId: string }) {
   const [log, setLog] = useState<{ pilot: string; action: string; detail: string; user: string; ts: number }[]>([]);
 
   useEffect(() => {
-    fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competitionId)}`)
-      .then(r => r.json())
+    api.competitions.getNormalized(competitionId)
       .then(c => {
-        const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
-        setLog((results.editLog || []).slice().reverse());
+        setLog((c.results.editLog || []).slice().reverse());
       })
       .catch(() => {});
   }, [competitionId]);

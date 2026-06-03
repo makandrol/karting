@@ -1,12 +1,14 @@
 # Architecture
 
-## System Overview
+Real-time timing dashboard для картодрому "Жага швидкості" з трьома компонентами.
+
+## High-level
 
 ```
 ┌─────────────────────┐     ┌──────────────────┐     ┌───────────────────┐
 │  Timing API          │     │  Collector        │     │  Frontend (React)  │
 │  nfs.playwar.com     │────→│  Node.js + SQLite │←───→│  Vite + Tailwind   │
-│  :3333               │poll │  :3001            │HTTP │  :5173 (dev)       │
+│  :3333               │poll │  :3001            │HTTP │  Netlify           │
 └─────────────────────┘     └──────────────────┘     └───────────────────┘
                                     │
                             ┌───────┴────────┐
@@ -23,330 +25,184 @@
                             └─────────────────┘
 ```
 
-## Data Flow
+- **Frontend** — Netlify, авто-деплой з `main`. `package.json` версія `0.9.x`.
+- **Collector** — Oracle VPS `150.230.157.143:3001`, PM2. `collector/package.json` версія `0.3.x`.
+- **Timing API** — джерело `nfs.playwar.com:3333/getmaininfo.json` (зовнішній).
 
-```mermaid
-sequenceDiagram
-    participant API as Timing API
-    participant Poller as Collector Poller
-    participant DB as SQLite
-    participant FE as Frontend
+## Адаптивний полінг
 
-    loop Every 1s (when online)
-        Poller->>API: GET /getmaininfo.json
-        API-->>Poller: JSON (teams, entries, meta)
-        Poller->>Poller: diff(prev, current)
-        alt New session
-            Poller->>DB: INSERT session + snapshot event
-        end
-        alt Lap completed
-            Poller->>DB: INSERT lap event + lap record
-        end
-        alt S1 changed (mid-lap)
-            Poller->>DB: INSERT s1 event
-        end
-        alt Position/field changed
-            Poller->>DB: INSERT update event (with team.position)
-        end
-    end
-
-    FE->>DB: GET /db/sessions?date=
-    FE->>DB: GET /db/laps?session=
-    FE->>DB: GET /db/events?session=
-    FE->>FE: parseSessionEvents() → s1Events + position timeline
-
-    loop Live timing (every 1s via poller hook)
-        FE->>Poller: GET /status + /timing
-        Poller-->>FE: current entries with positions
-    end
-
-    loop Live competition (every 2-3s)
-        FE->>DB: GET /competitions/:id
-        FE->>DB: GET /db/laps (all sessions)
-        FE->>Poller: GET /timing (live positions)
-        FE->>FE: Compute scoring table
-    end
+```
+[*] → Offline (60s)
+Offline ↔ Idle (10s)  ← API up, no pilots
+Idle    ↔ Online (1s) ← pilots on track
 ```
 
-## Adaptive Polling
+Інтервали керовані з `collector/src/poller.js` (`TimingPoller`).
 
-```mermaid
-stateDiagram-v2
-    [*] --> Offline
-    Offline --> Idle: API responds, no pilots
-    Offline --> Online: API responds, pilots on track
-    Idle --> Online: Pilots appear
-    Online --> Idle: Pilots disappear
-    Idle --> Offline: API unreachable
-    Online --> Offline: API unreachable
+## Event-sourcing
 
-    Offline: Poll every 60s
-    Idle: Poll every 10s
-    Online: Poll every 1s
+Collector НЕ зберігає періодичні snapshot-и. Натомість пише події у таблицю `events`:
+
+| Тип | Коли | Дані |
+|---|---|---|
+| `snapshot` | Старт сесії (один раз!) | `{ entries, teams, meta }` — full state |
+| `lap` | Пілот пройшов фініш | `{ pilot, kart, lapNumber, lastLap, s1, s2, bestLap, position, team }` |
+| `s1` | Пілот пройшов S1 mid-lap | `{ pilot, kart, s1, team }` |
+| `update` | Position / pit status / etc | `{ pilot, kart, team }` |
+| `pilot_join` | Новий пілот з'явився | `{ pilot, kart }` |
+| `pilot_leave` | Пілот зник | `{ pilot }` |
+| `poll_ok` | Без змін | `null` |
+
+**Volatile fields** (ігноруються в diff): `totalOnTrack`, `secondsFromPit`, `timeFromLassPassing`, `lastPitMainTime`.
+
+Frontend через `parseSessionEvents()` будує таймлайн позицій, поєднуючи всі типи. Snapshots — це "якір" початку, всі зміни — приріст.
+
+## Дані: дві таблиці-близнюки
+
+- `events` — append-only лог змін (для replay і position timeline)
+- `laps` — структуровані рядки лап (для агрегатів і scoring)
+
+Обидві мають `session_id` foreign key.
+
+## Session merging
+
+Timing API іноді коротко падає (1-30с), створюючи дві окремі сесії для одної гонки. `getSessionsByDate()` мерджить сесії з тим самим `race_number` у вікні 5 хв.
+
+## Auto-link змагань
+
+```
+[Нова сесія старт]
+    ↓
+storage.autoLinkSessionToActiveCompetition(sessionId)
+    ↓ [знаходить first competition зі status='live']
+    ↓ [фільтрує phases по groupCount]
+    ↓ [бере наступну незайняту фазу]
+    ↓ [GUARD: якщо всі phases filled → return null]
+    ↓
+[Перше коло у сесії]
+    ↓
+storage.recheckSessionPhase(sessionId)
+    ↓ [overlap пілотів з попередніми qualis]
+    ↓ [≥50% → це гонка]
+    ↓ [<50% → це нова квала]
 ```
 
-## Event System
+`autoUnlinkSession(sessionId)` — для сесій < 60с (тестові/помилкові).
 
-The collector stores events in the `events` table. Each event has `session_id`, `event_type`, `ts` (unix ms), and `data` (JSON).
+Деталі в `docs/competition-detection.md`.
 
-### Event Types
+## Frontend
 
-| Type | When | Data |
-|------|------|------|
-| `snapshot` | Session start only | `{ entries, teams, meta }` — full state |
-| `lap` | Pilot crosses finish | `{ pilot, kart, lapNumber, lastLap, s1, s2, bestLap, position, team }` |
-| `s1` | Pilot passes S1 sector (mid-lap) | `{ pilot, kart, s1, team }` |
-| `update` | Non-volatile field change (position, pit status) | `{ pilot, kart, team }` |
-| `pilot_join` | New pilot appears | `{ pilot, kart }` |
-| `pilot_leave` | Pilot disappears | `{ pilot }` |
-| `poll_ok` | No changes detected | `null` |
+### Routes (lazy)
+| URL | Компонент |
+|---|---|
+| `/` (= `/info/timing`) | `Timing` — live |
+| `/onboard`, `/onboard/:kartId` | `Onboard` — повноекранний |
+| `/sessions` | `SessionsList` |
+| `/sessions/:id` | `SessionDetail` |
+| `/info/karts` | `Karts` |
+| `/info/karts/:id` | `KartDetail` |
+| `/info/tracks` | `Tracks` |
+| `/info/videos` | `Videos` |
+| `/results` | `CompetitionPage` (unified list) |
+| `/results/:type/:eventId` | `CompetitionPage` (detail) |
+| `/admin/access`, `/admin/db`, `/admin/monitoring`, `/admin/collector-log`, `/admin/scoring` | Admin |
+| `/login` | `Login` |
+| `/changelog` | `Changelog` |
 
-### Position Tracking
-
-Positions are tracked through ALL event types that include `team.position`:
-- `snapshot` → `entries[].position`
-- `lap` → `data.position` + `data.team.position`
-- `s1` → `data.team.position`
-- `update` → `data.team.position` (fires when position changes)
-
-Frontend's `parseSessionEvents()` builds an incremental position timeline from all events, giving per-second accuracy for replay.
-
-## Session Replay Architecture
-
-```mermaid
-sequenceDiagram
-    participant Page as Session Page
-    participant SR as SessionReplay
-    participant TT as TimingTable
-    participant Track as TrackMap
-
-    Page->>Page: Fetch laps + events
-    Page->>Page: parseSessionEvents() → s1Events, snapshots
-    Page->>Page: fetchRaceStartPositions() (if competition)
-    Page->>SR: laps, s1Events, snapshots, startPositions, defaultSortMode
-
-    loop Animation (requestAnimationFrame)
-        SR->>SR: getEntriesAtTime(currentTime)
-        Note over SR: 1. Count completedLaps from pilotTimelines
-        Note over SR: 2. Calculate progress (0..1) on current lap
-        Note over SR: 3. Display S1: prevLap.s1 or mid-lap s1Event
-        Note over SR: 4. Display S2, lastLap from data/live
-        Note over SR: 5. Sort (qualifying=bestLap, race=laps+progress+positions)
-        SR->>TT: entries, sortMode, columnFilter, startPositions, startGrid
-        SR->>Track: entries with positions + progress
-    end
+### Providers (top-down у `App.tsx`)
+```
+AuthProvider
+  PageVisibilityProvider
+    LayoutPrefsProvider
+      TrackProvider
+        BrowserRouter
+          ErrorBoundary
+            <Routes>...
 ```
 
-### TimingTable Component
-Standalone reusable timing table with full column management:
-- Квала/Гонка sort mode toggle (hidden when not a competition race via `isCompetitionRace` prop)
-- Вид: (Все/Осн/Своє) column visibility bar with draggable pills
-- Separate "Осн" presets per mode: `MAIN_QUAL_VISIBLE` (with Start/arrows), `MAIN_RACE_VISIBLE` (with Gap, without Start/arrows)
-- Separate column order per mode: `DEFAULT_ORDER` (qualifying), `RACE_ORDER` (race: Δ, P, Pilot, L, GAP, Kart, ...)
-- "Своє" custom view inherits the mode-specific order as default
-- Start column + SVG Bezier curved arrows (race mode only, toggleable as group)
-- `Gap` column — precise time distance to pilot ahead (race mode only, in `RACE_ONLY_COLS`):
-  - Same lap: cumulative lap time difference
-  - Different laps: `+NL`
-  - Mid-lap: S1 timestamp gap
-  - Format: `+X.XX` (hundredths)
-- `TB` (theoretical best = bestS1+bestS2) and `Loss` (best lap minus TB) as separate columns
-- `Δ` column for position change
-- Pilot progress bar with bordered outline
-- Kart number in blue (`KART_COLOR` from `utils/timing.ts`)
-- Column order/visibility persisted per sort mode in localStorage
-- `start` and `arrows` columns are fixed-position, auto-shown/hidden based on race data
+### API client (services/api/)
+Усі HTTP-виклики до колектора — через типізований клієнт `services/api/`:
+- `services/api/http.ts` — `apiGet`, `apiPost`, `apiPatch`, `apiDelete` з timeout, auth header, error handling, `CollectorApiError`
+- `services/api/index.ts` — typed endpoints groups: `api.competitions`, `api.sessions`, `api.laps`, `api.events`, `api.scoring`, `api.track`, `api.pageVisibility`, `api.moderators`, `api.viewDefaults`, etc.
 
-### Sort Modes
+Виняток: `services/analytics.ts` робить fire-and-forget heartbeat через bare `fetch` (без auth).
 
-**Qualifying** (default): sorted by best lap time
-**Race**: sorted by:
-1. Lap count (desc)
-2. Snapshot positions — ground truth from timing system (lower = ahead)
-3. Last recorded position from completed lap
-4. Track progress (desc, if diff > 0.01)
-5. Start positions (fallback)
+### Reusable компоненти
+- `SessionReplay` — головний replay-компонент (live, replay, competition-live з `showScrubber={false}`)
+- `TimingTable` — standalone timing table з вибором колонок (Все/Осн/Своє)
+- `LapsByPilots` — laps grid per pilot
+- `LeagueResults` — scoring table для LL/CL/Sprint
+- `GonzalesResults` — окремий компонент для Гонзалеса (kart manager, slot rotation)
+- `TrackMap` — SVG track з анімованими pilot-позиціями
+- `CompetitionTimeline` — горизонтальний скраббер змагання
 
-### GAP Calculation (Race Mode)
+## Scoring
 
-GAP shows the precise time distance between consecutive pilots:
-- **Different laps**: `+NL` (e.g., `+2L`)
-- **Same lap, both passed S1**: gap computed from S1 event timestamps (`pilotS1Events`)
-- **Same lap, finish line**: gap = cumulative lap time difference (`sum(lapTimes_B) - sum(lapTimes_A)`)
-  - Uses cumulative lap time sums, NOT poll timestamps — gives precise relative gap independent of polling frequency
-- **No data**: `null` (displays as "—")
-- Format: `+X.XX` (hundredths, always positive with `+` prefix, uses `Math.abs`)
-- Computed in `getEntriesAtTime()` after sorting, stored in `TimingEntry.gap` field
-- `pilotTimelines` (reconstructed from `firstTs - firstLapSec * 1000`) used for replay animation and S1 gap reference points
-- `pilotCumLapMs` (cumulative lap time sums from raw lap data) used for finish-line gap — avoids poll timestamp artifacts
+Уся логіка — pure functions у `src/utils/scoring.ts`:
+- `computeStandings()` — LL/CL
+- `computeSprintStandings()` — Sprint
+- `computeGonzalesStandings()` — Гонзалес
+- `rowsToStandings()` → `CompetitionStandings` для збереження
 
-## Competition Scoring Flow
+Format dispatch у `LeagueResults`. Деталі — у `.cursor/rules/scoring-rules.mdc`.
 
-```mermaid
-sequenceDiagram
-    participant LR as LiveResults
-    participant API as Collector API
-    participant League as LeagueResults
-    participant Scoring as scoring.ts
+## Standings storage flow
 
-    loop Every 3s (slow poll)
-        LR->>API: GET /competitions/:id
-        LR->>API: GET /db/laps (per session)
-        LR-->>League: competition + sessionLaps
-    end
-
-    loop Every 2s (fast poll)
-        LR->>API: GET /status + /timing
-        LR-->>League: liveSessionId + livePositions + livePilots
-    end
-
-    League->>Scoring: computeStandings(params) or computeSprintStandings(params)
-    Scoring->>Scoring: Build qualifying data (best times, speed points)
-    Scoring->>Scoring: Split into groups (1-3)
-    loop For each race
-        Scoring->>Scoring: Compute start positions (reverse prev race/quali)
-        Scoring->>Scoring: Compute finish positions (race mode + live positions)
-        Scoring->>Scoring: Calculate points (position + overtakes progressive for LL/CL, position only for Sprint)
-    end
-    Scoring-->>League: PilotRow[] with all computed data
-
-    loop Every 10s (debounced)
-        League->>League: rowsToStandings(rows, excludedPilots)
-        League->>API: onSaveResults({ standings })
-        API->>API: Store in competition results.standings
-    end
+```
+LeagueResults / GonzalesResults компонент
+  ↓ кожен render
+computeStandings() → PilotRow[]
+  ↓ rowsToStandings(rows, excludedPilots, format)
+CompetitionStandings { updatedAt, pilots: [...] }
+  ↓ onSaveResults({ standings }) — debounced 10s
+PATCH /competitions/:id  →  competition.results.standings
+  ↓
+Competition list `/results` reads standings → top-3 pilots з балами
 ```
 
-## Scoring Module (`src/utils/scoring.ts`)
+## Auth & ролі
 
-Shared pure-function module extracted from LeagueResults for reuse across components.
+- Owner — `makandrol@gmail.com` (хардкод у `auth.tsx`)
+- Moderator — список email-ів на колекторі (`/moderators`, server-side з v0.9.355)
+- User — будь-хто
+- `localhost`/`127.0.0.1` — auto-owner (development)
 
-### Exported Functions
-| Function | Purpose |
-|----------|---------|
-| `parseLapSec(lapTime)` | Parse lap time string to seconds |
-| `getOvertakeRate(scoring, group, pos, isCL)` | Get overtake multiplier for a position |
-| `calcOvertakePoints(scoring, group, startPos, finishPos, isCL)` | Calculate progressive overtake points |
-| `getPositionPoints(scoring, totalPilots, group, finishPos)` | Look up position points from scoring table |
-| `computeStandings(params)` | Main function: full LL/CL scoring computation |
-| `getSprintPositionPoints(finishPos)` | Sprint race position points (40/37/35/33/31... scale) |
-| `getSprintFinalPoints(finishPos, precedingPilots)` | Sprint final points (180, -3 per position across groups) |
-| `computeSprintStandings(params)` | Sprint scoring: 2 qualis + 2 races + final |
-| `sprintAwareSort(a, b, format?)` | Sort with Sprint-specific tiebreakers |
-| `rowsToStandings(rows, excludedPilots, format?)` | Convert PilotRow[] to CompetitionStandings for storage |
+Permissions: `change_track`, `manage_results`, `manage_videos`, `manage_karts`.
 
-### Exported Types
-`SessionLap`, `CompSession`, `ScoringData`, `PilotQualiData`, `PilotRaceData`, `PilotRow`, `ManualEdits`, `StandingsPilot`, `CompetitionStandings`, `ComputeStandingsParams`
+## Page visibility
 
-## Standings Storage
+Server-side controlled (з v0.9.354). Owner керує через `/admin/access` — які сторінки видні модераторам / користувачам, plus per-account overrides. Зберігається у колекторі `/page-visibility`.
 
-```mermaid
-sequenceDiagram
-    participant LR as LeagueResults
-    participant API as Collector
-    participant List as Competition List
+## Layout prefs (page-level sections)
 
-    LR->>LR: computeStandings() every render
-    LR->>LR: rowsToStandings(rows, excludedPilots)
-    LR->>API: onSaveResults({ standings }) [debounced 10s]
-    API->>API: Store in competition.results.standings
-    List->>API: GET /competitions
-    API-->>List: competitions with results.standings
-    List->>List: Display top-3 pilots with points
+Кожна сторінка має draggable sections (наприклад competition: Таймлайн, Заїзд, Результати, Список заїздів). Server defaults з версіонуванням + local overrides. Сервер може bump-нути version → reset кастомізацій.
+
+## Live competition updates
+
+```
+LeagueResults
+    ↓
+[3s slow poll] GET /competitions/:id + GET /db/laps  →  competition + sessionLaps
+[2s fast poll] GET /status + /timing                  →  liveSessionId + livePositions
+    ↓
+computeStandings(params with live) → render
+    ↓
+[10s debounced] onSaveResults({ standings }) → PATCH /competitions/:id
 ```
 
-### Standings Format
-```json
-{
-  "updatedAt": 1712000000000,
-  "pilots": [
-    {
-      "pilot": "Апанасенко Олексій",
-      "totalPoints": 42.5,
-      "qualiTime": "40.823",
-      "qualiKart": 7,
-      "qualiSpeedPoints": 2.5,
-      "group": 1,
-      "races": [
-        { "startPos": 12, "finishPos": 1, "positionPoints": 12, "overtakePoints": 8.5, "speedPoints": 2.5, "penalties": 0 }
-      ]
-    }
-  ]
-}
-```
+`● LIVE` toggle — пауза/резюм live-апдейтів. Активна сесія підсвічена (зелений тон).
 
-## Key Design Decisions
+## Mobile optimizations
 
-### Session Merging
-The timing API sometimes briefly drops (1-30s), creating multiple DB sessions for one real race. The collector merges sessions with the same `race_number` within 5 minutes via `/db/sessions?date=`.
+- `html, body { overflow-x: hidden }`
+- Headers: `overflow-x-auto scrollbar-none` для горизонтального скролу
+- Усі dropdowns: `position: fixed` з parent ref (без флікера)
+- Tailwind `hoverOnlyWhenSupported: true`
+- `-webkit-tap-highlight-color: transparent`
+- `active:bg-dark-700/30` touch feedback
+- Today highlighted green (`bg-green-600/20`) у DateNavigator
 
-### Pilot Name Merging
-The timing system sometimes shows "Карт X" for initial laps. `mergePilotNames()` replaces with real names per-session. Manual rename via `/db/rename-pilot` for competition accuracy.
+## Tools
 
-### Start Positions
-- **Competition race**: computed from qualifying/previous race (via `fetchRaceStartPositions()`)
-- **Regular session (race mode)**: from first snapshot event
-- Start positions shown even before race starts (pre-filled from previous phase)
-- `extractCompetitionReplayProps(phase)` — shared function: extracts `raceGroup` and `isRace` from competition phase string (e.g., `race_1_group_2`, `final_group_1`). Used by SessionDetail, CompetitionPage, and Timing to determine if session is a competition race. Sprint finals (`final_group_N`) are treated as races.
-
-### Live Competition Updates
-- `● LIVE` toggle button: pause/resume live polling
-- Active session pilots highlighted (green tint)
-- EditableCell keeps focus during re-renders (skips value sync while focused)
-- Overtake points use progressive calculation (each position has own rate)
-- Standings auto-pushed to collector every 10s (debounced) via `onSaveResults({ standings })`
-
-### View Modes (LeagueResults)
-- Все/Бали/Час/Поз/Ред/Своє — unified column visibility system
-- "Своє" (custom): draggable group pills, click to toggle groups/sub-columns
-- Custom column set persisted per user+competition in localStorage
-- Tap-to-select pilot rows (stays highlighted until tapped again)
-- Toolbar: "Сорт:" first row (sort buttons), "Вид:" second row (view modes)
-- **Sort column highlighting**: active sort column gets `bg-primary-600/10` (all formats)
-- **Clickable column headers**: Час (asc), Позиція (desc), Сума (desc) — first click sets direction, subsequent toggles
-- Sprint sort buttons: Сума, Кв1, Г1, Кв2, Г2, Г2 сума, Фінал
-- LL/CL sort buttons: Сума, Квала, Г1 час, Г2 час (CL also Г3 час)
-
-### View Preferences & Layout Prefs
-- `layoutPrefs.tsx` — page-level section visibility (Таймлайн, Заїзд, Результати, Список заїздів)
-- `TableLayoutBar` — draggable section pills with toggle
-- Server defaults from collector `/view-defaults` with version-based override
-- Fallback to `HARDCODED_DEFAULTS` when server unreachable
-- `updateLocal()` correctly uses `serverDefaults || HARDCODED_DEFAULTS` for version
-
-### Competition Page (Unified)
-- Single `/results` route shows ALL competitions
-- Date navigator with this week default, previous week collapsible
-- Type filter buttons (Все | Гонзалес | ЛЛ | ЛЧ | Спринти | Марафони)
-- Competition date derived from first session timestamp
-- Top-3 pilots with points shown (from stored standings)
-- "Змагання" moved from dropdown to direct Link in header nav
-
-### Mobile Optimizations
-- `html, body { overflow-x: hidden }` prevents horizontal page scroll
-- Header nav: `overflow-x-auto scrollbar-none` for horizontal scrolling
-- All dropdowns: `position: fixed` with parent-level ref (no flicker)
-- `UserDropdown` as separate component
-- Tailwind `hoverOnlyWhenSupported: true` — hover only on pointer devices
-- `-webkit-tap-highlight-color: transparent` on body
-- `active:bg-dark-700/30` for touch feedback on table rows
-- Today's date highlighted green (`bg-green-600/20`) on date navigators
-
-### Settings Persistence
-- Filter settings (competitions + karts dates) expire at end of day
-- `loadWithExpiry(storage, key)` / `saveWithExpiry(storage, key, value)` utility functions
-- Next day opens with default selections (current week for competitions, today for karts)
-- Competition type filters, date selection, sort direction all persisted with expiry
-
-### View Preferences
-User view preferences (show/hide track, laps-by-pilots, league tables) persisted in localStorage by user email.
-
-### Layout Preferences (`layoutPrefs.tsx`)
-Page-level section visibility system with server defaults + local overrides:
-- `LayoutPrefsProvider` wraps the app, provides `useLayoutPrefs()` hook
-- `toggleSection(pageId, sectionId)` — flip visibility, persist to localStorage
-- `reorderSections(pageId, fromIdx, toIdx)` — drag to reorder sections
-- Server defaults fetched from collector `GET /view-defaults` with version numbers
-- When server bumps version, local overrides reset to server defaults
-- `HARDCODED_DEFAULTS` fallback when server unreachable (competition version: 2)
-- Competition sections: timeline, liveSession, leaguePoints, sessions (default: sessions hidden)
+`tools/path-editor.html` — окремий vanilla HTML+JS редактор SVG-шляхів для треків. Не пов'язаний з React-додатком. Дані пишуться у `public/tracks/tracks.json`.

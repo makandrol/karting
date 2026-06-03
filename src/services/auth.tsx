@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, hasConfig, type FirebaseUser } from './firebase';
-import { COLLECTOR_URL } from './config';
+import { api } from './api';
 
 // ============================================================
 // Types
@@ -118,6 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [moderators, setModerators] = useState<ModeratorEntry[]>([]);
   const [localhostLoggedOut, setLocalhostLoggedOut] = useState(false);
   const savingRef = useRef(false);
+  const pendingRef = useRef<ModeratorEntry[] | null>(null);
 
   // Load moderators from server (with localStorage cache for instant display)
   useEffect(() => {
@@ -125,8 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const saved = localStorage.getItem(LS_MODERATORS);
       if (saved) setModerators(JSON.parse(saved));
     } catch {}
-    fetch(`${COLLECTOR_URL}/moderators`)
-      .then(r => r.json())
+    api.moderators.get()
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
           setModerators(data);
@@ -136,16 +136,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => {});
   }, []);
 
+  // Save with debounce + queue: latest pending value is always sent.
   const saveModsToServer = useCallback((mods: ModeratorEntry[]) => {
     localStorage.setItem(LS_MODERATORS, JSON.stringify(mods));
+    pendingRef.current = mods;
     if (savingRef.current) return;
     savingRef.current = true;
-    const token = import.meta.env.VITE_ADMIN_TOKEN || '';
-    fetch(`${COLLECTOR_URL}/moderators`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify(mods),
-    }).catch(() => {}).finally(() => { savingRef.current = false; });
+    const flush = async () => {
+      while (pendingRef.current) {
+        const next = pendingRef.current;
+        pendingRef.current = null;
+        try { await api.moderators.set(next); } catch {}
+      }
+      savingRef.current = false;
+    };
+    void flush();
   }, []);
 
   // Listen to Firebase auth state

@@ -1,18 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { COLLECTOR_URL } from '../../services/config';
+import { api, type DbSession } from '../../services/api';
 import { isValidSession } from '../../utils/timing';
+import { fmtTimeShort as fmtTime, fmtDuration, fmtDateISO as fmtDate, fmtDateLabelDate as fmtDateLabel } from '../../utils/datetime';
+import { LoadingState } from '../States';
 
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  track_id: number;
-  race_number: number | null;
-  is_race: number;
-  date: string;
-}
 
 interface DayTimelineProps {
   isTimingOnline: boolean;
@@ -27,31 +19,6 @@ interface Segment {
   endH: number;
   type: SegmentType;
   session?: DbSession;
-}
-
-function fmtDate(date: Date): string {
-  return date.toISOString().split('T')[0];
-}
-
-function fmtDateLabel(date: Date): string {
-  const today = new Date();
-  if (fmtDate(date) === fmtDate(today)) return 'Сьогодні';
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (fmtDate(date) === fmtDate(yesterday)) return 'Вчора';
-  return date.toLocaleDateString('uk-UA', { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-}
-
-function fmtDuration(startMs: number, endMs: number): string {
-  const sec = Math.round((endMs - startMs) / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m === 0) return `${s}с`;
-  return `${m}хв ${s}с`;
 }
 
 function msToHour(ms: number): number {
@@ -80,8 +47,8 @@ export default function DayTimeline({ isTimingOnline, isTimingIdle = false, idle
   const fetchSessions = useCallback(async (date: Date) => {
     setLoading(true);
     try {
-      const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${fmtDate(date)}`, { signal: AbortSignal.timeout(5000) });
-      if (res.ok) setSessions(await res.json());
+      const data = await api.sessions.byDate(fmtDate(date));
+      setSessions(data as any);
     } catch { /* ignore */ }
     setLoading(false);
   }, []);
@@ -229,7 +196,7 @@ export default function DayTimeline({ isTimingOnline, isTimingIdle = false, idle
       </div>
 
       {loading && sessions.length === 0 && (
-        <div className="text-center text-dark-500 text-[10px] py-3">Завантаження...</div>
+        <LoadingState size="sm" card={false} />
       )}
 
       {/* Timeline bar with hour labels */}

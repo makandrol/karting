@@ -1,7 +1,9 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { COLLECTOR_URL } from '../../services/config';
-import { toSeconds, isValidSession } from '../../utils/timing';
+import { api, type DbSession } from '../../services/api';
+import { toSeconds, isValidSession, shortPilot } from '../../utils/timing';
+import { fmtTimeShort as fmtTime, fmtDateTimeShort as fmtDate, fmtDateISO } from '../../utils/datetime';
+import { useLocalStorage } from '../../services/useLocalStorage';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 
@@ -10,100 +12,61 @@ interface KartStat {
   top5: { pilot: string; lap_time: string; lap_sec: number; ts: number | null }[];
 }
 
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  real_pilot_count: number | null;
-  race_number: number | null;
-  date: string;
-  best_lap_time: string | null;
-  best_lap_pilot: string | null;
+interface KartsFilters {
+  viewMode: 'list' | 'grid';
+  sortByRank: boolean;
+  topN: number;
+  showDisabled: boolean;
 }
 
-const LS_DISABLED_KARTS = 'karting_disabled_karts';
-const LS_KARTS_FILTERS = 'karting_karts_filters';
-const LS_KARTS_SELECTED_DATES = 'karting_karts_selected_dates';
-
-function loadDisabledKarts(): Set<number> {
-  try { const s = localStorage.getItem(LS_DISABLED_KARTS); if (s) return new Set(JSON.parse(s)); } catch {} return new Set();
-}
-function loadFilters() {
-  try { const s = localStorage.getItem(LS_KARTS_FILTERS); if (s) return JSON.parse(s); } catch {} return null;
-}
-function loadSelectedDates(): Set<string> {
-  try {
-    const s = localStorage.getItem(LS_KARTS_SELECTED_DATES);
-    if (s) {
-      const { value, expiresAt } = JSON.parse(s);
-      if (expiresAt && Date.now() > expiresAt) { localStorage.removeItem(LS_KARTS_SELECTED_DATES); return new Set(); }
-      if (Array.isArray(value)) return new Set(value);
-      if (Array.isArray(JSON.parse(s))) return new Set(JSON.parse(s));
-    }
-  } catch {} return new Set();
-}
-
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-}
-function fmtDate(ms: number): string {
-  const d = new Date(ms);
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  return `${dd}.${mm}, ${hh}:${min}`;
-}
-function shortPilot(name: string): string {
-  const p = name.trim().split(' ').filter(Boolean);
-  return p.length < 2 ? p[0] || name : `${p[0]} ${p[1][0]}.`;
-}
+const DEFAULT_FILTERS: KartsFilters = {
+  viewMode: 'list',
+  sortByRank: true,
+  topN: 1,
+  showDisabled: false,
+};
 
 export default function Karts() {
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => loadFilters()?.viewMode || 'list');
-  const [sortByRank, setSortByRank] = useState(() => loadFilters()?.sortByRank ?? true);
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const [topNInput, setTopNInput] = useState(() => String(loadFilters()?.topN ?? 1));
-  const [topNPrev, setTopNPrev] = useState(() => String(loadFilters()?.topN ?? 1));
-  const [topN, setTopN] = useState(() => loadFilters()?.topN ?? 1);
-  const [showDisabled, setShowDisabled] = useState(() => loadFilters()?.showDisabled ?? false);
+  const [filters, setFilters] = useLocalStorage<KartsFilters>('karting_karts_filters', DEFAULT_FILTERS);
+  const { viewMode, sortByRank, topN, showDisabled } = filters;
+  const setViewMode = (v: 'list' | 'grid') => setFilters(f => ({ ...f, viewMode: v }));
+  const setSortByRank = (v: boolean | ((p: boolean) => boolean)) =>
+    setFilters(f => ({ ...f, sortByRank: typeof v === 'function' ? v(f.sortByRank) : v }));
+  const setTopN = (v: number) => setFilters(f => ({ ...f, topN: v }));
+  const setShowDisabled = (v: boolean | ((p: boolean) => boolean)) =>
+    setFilters(f => ({ ...f, showDisabled: typeof v === 'function' ? v(f.showDisabled) : v }));
 
-  useEffect(() => {
-    localStorage.setItem(LS_KARTS_FILTERS, JSON.stringify({ viewMode, sortByRank, topN, showDisabled }));
-  }, [viewMode, sortByRank, topN, showDisabled]);
+  const todayStr = fmtDateISO(new Date());
+  const [topNInput, setTopNInput] = useState(() => String(filters.topN));
+  const [topNPrev, setTopNPrev] = useState(() => String(filters.topN));
 
-  // Selected dates for stats (multi-select)
-  const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
-    const saved = loadSelectedDates();
-    return saved.size > 0 ? saved : new Set([todayStr]);
-  });
-
-  useEffect(() => {
-    const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
-    localStorage.setItem(LS_KARTS_SELECTED_DATES, JSON.stringify({ value: [...selectedDates], expiresAt: endOfDay.getTime() }));
-  }, [selectedDates]);
+  // Selected dates for stats (multi-select), end-of-day expiry, default = today.
+  const [selectedDatesArr, setSelectedDatesArr] = useLocalStorage<string[]>(
+    'karting_karts_selected_dates',
+    [todayStr],
+    { endOfDayExpiry: true },
+  );
+  const selectedDates = useMemo(() => new Set(selectedDatesArr), [selectedDatesArr]);
 
   const handleToggleDate = useCallback((date: string) => {
-    setSelectedDates(prev => {
+    setSelectedDatesArr(prev => {
       const next = new Set(prev);
       next.has(date) ? next.delete(date) : next.add(date);
-      return next;
+      return [...next];
     });
-  }, []);
+  }, [setSelectedDatesArr]);
 
   const handleSelectDates = useCallback((dates: string[]) => {
-    setSelectedDates(prev => {
+    setSelectedDatesArr(prev => {
       const next = new Set(prev);
       for (const d of dates) next.add(d);
-      return next;
+      return [...next];
     });
-  }, []);
+  }, [setSelectedDatesArr]);
 
   const clearAllDates = useCallback(() => {
-    setSelectedDates(new Set());
-  }, []);
+    setSelectedDatesArr([]);
+  }, [setSelectedDatesArr]);
 
   // Fetch session IDs for all selected dates
   const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
@@ -120,11 +83,8 @@ export default function Karts() {
       const allSessions: DbSession[] = [];
       for (const date of selectedDates) {
         try {
-          const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
-          if (res.ok) {
-            const data: DbSession[] = await res.json();
-            allSessions.push(...data.filter(s => s.end_time && isValidSession(s)));
-          }
+          const data = await api.sessions.byDate(date);
+          allSessions.push(...(data as unknown as DbSession[]).filter(s => s.end_time && isValidSession(s)));
         } catch {}
       }
       if (cancelled) return;
@@ -141,19 +101,15 @@ export default function Karts() {
   useEffect(() => {
     if (statSessionIds.size === 0) { setKartStats([]); return; }
     setLoading(true);
-    fetch(`${COLLECTOR_URL}/db/kart-stats`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionIds: [...statSessionIds] }),
-    })
-      .then(r => r.json())
+    api.karts.statsBySessions([...statSessionIds])
       .then(setKartStats)
       .catch(() => setKartStats([]))
       .finally(() => setLoading(false));
   }, [statSessionIds]);
 
-  const [disabledKarts, setDisabledKarts] = useState<Set<number>>(loadDisabledKarts);
-  useEffect(() => { localStorage.setItem(LS_DISABLED_KARTS, JSON.stringify([...disabledKarts])); }, [disabledKarts]);
+  const [disabledKartsArr, setDisabledKartsArr] = useLocalStorage<number[]>('karting_disabled_karts', []);
+  const disabledKarts = useMemo(() => new Set(disabledKartsArr), [disabledKartsArr]);
+  const setDisabledKarts = (next: Set<number>) => setDisabledKartsArr([...next]);
   const toggleKartDisabled = (num: number) => {
     const next = new Set(disabledKarts); next.has(num) ? next.delete(num) : next.add(num); setDisabledKarts(next);
   };

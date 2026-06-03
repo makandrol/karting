@@ -1,0 +1,209 @@
+---
+description: React/TypeScript patterns specific to this project
+globs:
+  - src/**/*.tsx
+  - src/**/*.ts
+alwaysApply: false
+---
+
+# Frontend Patterns
+
+Цей проєкт має кілька неочевидних React-патернів, які повторювалися як джерело багів. Дотримуйся їх.
+
+## Hooks ordering — критично
+
+**Усі `useState` / `useMemo` / `useCallback` / `useEffect` ОБОВ'ЯЗКОВО мають бути ДО будь-яких early returns** (`if (!data) return ...`).
+
+Інакше — `Rendered more hooks than during the previous render` під час HMR і live-апдейтів. Це повторювана причина крашів у `LeagueResults`, `GonzalesResults`, `CompetitionPage`, `Karts`.
+
+```tsx
+// ❌ ПОГАНО
+function MyComp() {
+  if (!data) return <Loading />;
+  const memo = useMemo(...);  // умовний хук
+}
+
+// ✅ ДОБРЕ
+function MyComp() {
+  const memo = useMemo(...);  // усі хуки спочатку
+  if (!data) return <Loading />;
+}
+```
+
+Якщо нагально треба деферити stateUpdate до батьківського компонента і ти НЕ можеш використати `useEffect` — використовуй `Promise.resolve().then(() => setX(...))` замість додавання нового хука.
+
+## EditableCell — defined OUTSIDE parent
+
+`EditableCell` (`src/components/Results/LeagueResults.tsx`) визначається на top-level модуля, НЕ всередині `LeagueResults`. Інакше при кожному ре-рендері (а вони часті при live-апдейтах) input буде remount-итись і втрачати фокус/значення.
+
+Той самий патерн застосуй для будь-якого input у живих таблицях.
+
+## Pencil rename / clickable buttons in live tables
+
+Кнопки в таблицях, які перерендерюються щосекунди (`LapsByPilots`, `LeagueResults`), використовуй так:
+
+```tsx
+onPointerDown={() => {
+  setTimeout(() => {
+    const newName = window.prompt(`Перейменувати "${pilotName}" на:`, pilotName);
+    if (newName && newName !== pilotName) rename(pilotName, newName);
+  }, 10);
+}}
+```
+
+`onClick` губиться між mousedown і click через ре-рендери від `currentEntries` updates. Використовуй `onPointerDown` + `setTimeout(…, 10)` з IIFE-closure, що захоплює потрібні значення.
+
+## Lazy pages
+
+Кожна сторінка лазі-завантажується в `src/App.tsx`:
+
+```tsx
+const NewPage = lazy(() => import('./pages/Category/NewPage'));
+```
+
+Дефолтний `<Suspense fallback={<PageLoader />}>` уже стоїть в `App.tsx`.
+
+## Centralized API client (services/api/)
+
+**УСІ виклики до колектора йдуть через `api` об'єкт з `services/api/`.** НЕ роби `fetch(\`${COLLECTOR_URL}/...\`)` напряму.
+
+```tsx
+import { api } from '../services/api';
+
+// Замість fetch(`${COLLECTOR_URL}/competitions`)
+const list = await api.competitions.list();
+
+// Замість fetch(...).then(r => r.json()) з auth headers
+await api.competitions.update(id, { results: newResults });
+await api.sessions.renamePilot(sessionId, oldName, newName);
+```
+
+Доступні групи: `api.competitions`, `api.sessions`, `api.laps`, `api.events`, `api.karts`, `api.scoring`, `api.track`, `api.pageVisibility`, `api.viewDefaults`, `api.moderators`, `api.status()`, `api.timing()`, `api.system()`, `api.analytics()`.
+
+Для кастомних шляхів — `apiGet`/`apiPost`/`apiPatch`/`apiDelete` з `services/api/http.ts`.
+
+`COLLECTOR_URL` re-exported з `services/api` для legacy-кейсів (наприклад побудова proxy URL для CSV).
+
+**Винятки**: `services/analytics.ts` — fire-and-forget heartbeat без auth, swift `fetch` залишений свідомо.
+
+## Reusable timing/results components
+
+НЕ інлайни таблиці. Використовуй наявні reusable-компоненти:
+
+| Що треба | Компонент | Файл |
+|---|---|---|
+| Live timing / replay table | `SessionReplay` | `src/components/Timing/SessionReplay.tsx` |
+| Standalone timing table з вибором колонок | `TimingTable` | `src/components/Timing/TimingTable.tsx` |
+| Laps-by-pilots grid | `LapsByPilots` | `src/components/Timing/LapsByPilots.tsx` |
+| Список заїздів | `SessionsTable` | `src/components/Sessions/` |
+| Date navigator | `DateNavigator` | `src/components/Sessions/` |
+| Track map (live + replay) | `TrackMap` | `src/components/Track/` |
+| Day timeline | `DayTimeline` | `src/components/Timing/DayTimeline.tsx` |
+| Призначення сесії змаганню | `SessionTypeChanger` | `src/components/Timing/SessionTypeChanger.tsx` |
+| Page-level section visibility bar | `TableLayoutBar` | `src/components/TableLayoutBar.tsx` |
+| LL/CL/Sprint scoring table | `LeagueResults` | `src/components/Results/LeagueResults.tsx` |
+| Гонзалес scoring table | `GonzalesResults` | `src/components/Results/GonzalesResults.tsx` |
+
+Live-таблиця змагання використовує `SessionReplay` з `showScrubber={false}` — НЕ створюй окремих "live table" компонентів.
+
+## Time formatting
+
+- `parseTime()` — рядок → секунди
+- `toSeconds()` — `"01:00.496"` → `"60.496"` (3 знаки)
+- `toHundredths()` — `"18.080"` → `"18.08"` (для S1/S2)
+- `getTimeColor(value, personalBest, overallBest)` → `'purple' | 'green' | 'yellow' | 'none'`
+- `KART_COLOR` — uniform `'text-blue-400'` для номерів картів, скрізь
+- `shortName()` — "Апанасенко Олексій" → "Апанасенко О."
+- Compact-name 10ch варіант — локальний у `LapsByPilots`
+
+Усі — з `src/utils/timing.ts`.
+
+## Date / time / duration formatting
+
+`src/utils/datetime.ts` — централізоване форматування:
+- `fmtTime(ms)` / `fmtTimeShort(ms)` — `"HH:mm:ss"` / `"HH:mm"`
+- `fmtDateISO(date)` — `Date` → `"YYYY-MM-DD"` (LOCAL TIME, не UTC! НЕ використовуй `.toISOString()`)
+- `fmtDateDM(ms)` — `"DD.MM"`
+- `fmtDateTime(ms)` / `fmtDateTimeShort(ms)` / `fmtDateTimeFull(ms)` — комбінації дати+часу
+- `fmtDuration(start, end, opts?)` — `"Xхв Yс"`, `opts.whenActive` для null end
+- `fmtDurationMs(ms)` — то саме з одного аргументу
+- `fmtDateLabel(yyyymmdd)` — `"Сьогодні"`/`"Вчора"`/`"Пн 04.04.2026"`
+
+НЕ створюй локальні `fmtTime` чи `fmtDuration` — використовуй ці. Раніше було 8+ копій.
+
+## Filtering / data invariants
+
+- Min valid lap: **38 секунд** (фільтрується на SQL рівні в колекторі, перевіряється також у `scoring.ts`)
+- Min valid S1/S2: **10 секунд** (фільтрується на дисплейному рівні)
+- Min valid session: **60 секунд** (`isValidSession()` з `src/utils/timing.ts`, MIN_SESSION_DURATION_MS = 60000)
+- Lap times зберігаються як рядки `"42.574"` або `"1:02.222"` — конвертуй через `parseTime()`
+- Dates — завжди local (НЕ UTC)
+- Session ID format: `session-{unix_timestamp_ms}`
+
+## Persistence
+
+- **`useLocalStorage<T>(key, defaultValue, opts?)`** з `services/useLocalStorage.ts` — переважний спосіб для всіх per-user/page налаштувань. Підтримує `endOfDayExpiry` (для filter-ів картів/змагань) і `reviver`/`serializer` (наприклад `Set` ↔ `array`).
+
+```tsx
+const [filters, setFilters] = useLocalStorage('karting_x_filters', { mode: 'today' });
+const [dates, setDates] = useLocalStorage<string[]>('karting_dates', [], { endOfDayExpiry: true });
+```
+
+  НЕ пиши `try { localStorage.setItem(...) } catch {}` руками — використай хук.
+
+- View prefs (per-user) — `src/services/viewPrefs.ts` через email
+- Layout prefs (page-level sections, drag-reorder) — `src/services/layoutPrefs.tsx` + collector `/view-defaults` для defaults з версіонуванням
+- Page visibility — `src/services/pageVisibility.tsx` + collector `/page-visibility` (server-side з v0.9.354)
+- Moderators — server-side через collector `/moderators` (v0.9.355)
+
+## Auth
+
+- `useAuth()` повертає `{ user, isOwner, hasPermission(perm), loginWithGoogle, logout }`
+- Owner = `makandrol@gmail.com` (хардкод)
+- Localhost (`localhost`/`127.0.0.1`) → auto-owner; logout керується `localhostLoggedOut` state flag
+
+## Сторінки vs route-guard
+
+Нові сторінки додавай у `pageVisibility.tsx` → `ALL_PAGES`. У `App.tsx` обертай `<PageGuard>` (окрім `Onboard`, який повноекранний без `Layout`).
+
+## Mobile
+
+- `html, body { overflow-x: hidden }` глобально
+- Header: `overflow-x-auto scrollbar-none` для горизонтального скролу
+- Усі dropdowns: `position: fixed` з parent-level ref
+- `tailwind.config.js`: `hoverOnlyWhenSupported: true`
+- `-webkit-tap-highlight-color: transparent` на `body`
+- `active:bg-dark-700/30` для touch feedback
+
+## Onboard
+
+Окрема повноекранна сторінка для телефона на карті (`src/pages/Info/Onboard.tsx`, ~1500 LOC). Має:
+- Подвійний тогл Квала/Гонка
+- Оверлеї: Сект., Поз, Час, Бали (з T1/T2 — group/global ranking)
+- Smart defaults залежно від типу сесії (прокат / квала / гонка змагання)
+- Embedded режим в `SessionDetail` через `<Onboard embedded />`
+
+Працює з `replayEntries` для replay-режиму.
+
+## ErrorBoundary
+
+`src/components/ErrorBoundary.tsx` обгортає `<BrowserRouter>` в `App.tsx` як top-level catch для крахів у providers.
+
+**Per-route ErrorBoundary**: кожна сторінка обгорнута в `RouteShield` (через `PageGuard` або напряму), keyed by `location.pathname`. Це гарантує, що крах однієї сторінки НЕ блокує навігацію в інші — просто перейди на інший маршрут.
+
+Якщо додаєш потенційно крашуючий код — переконайся, що ErrorBoundary його ловить (через PageGuard / RouteShield).
+
+## Loading / Error / Empty states
+
+Використовуй `<LoadingState />`, `<ErrorState text="..." onRetry={...} />`, `<EmptyState title="..." />` з `src/components/States.tsx`. НЕ пиши:
+
+```tsx
+// ❌ ПОГАНО
+<div className="card text-center py-12 text-dark-500">Завантаження...</div>
+```
+
+```tsx
+// ✅ ДОБРЕ
+<LoadingState />
+<LoadingState text="Завантаження даних..." size="md" />
+```

@@ -1,282 +1,47 @@
-# Karting "Жага Швидкості" — Project Documentation
+# Karting "Жага швидкості" — Documentation
 
-## Quick Links
+Reference documentation для проєкту. **Не для агентів за замовчуванням** — для людей, які копаються в архітектурі або інтегруються з API. Агенти інжектять контекст через `.cursor/rules/` автоматично; для них перша точка — `AGENTS.md` у корені.
 
-| Document | Description |
-|----------|-------------|
-| [Architecture](./architecture.md) | System overview, data flow, tech stack |
-| [Collector](./collector.md) | Backend collector: API, database, polling |
-| [Frontend](./frontend.md) | React app: pages, components, services |
-| [Deployment](./deployment.md) | How to deploy collector and frontend |
-| [Development](./development.md) | Dev setup, conventions, versioning |
-| [Competition Rules](./competition-rules.md) | Formal rules for Gonzales, LL, CL |
+## Index
 
-## Project Overview
+| Документ | Про що |
+|---|---|
+| [architecture.md](./architecture.md) | Three-tier архітектура, event-sourcing, polling, frontend providers, scoring flow |
+| [collector-api.md](./collector-api.md) | REST API колектора — усі endpoints |
+| [database-schema.md](./database-schema.md) | SQLite schema, JSON структура `competitions.results` |
+| [competition-rules.md](./competition-rules.md) | Регламент: Гонзалес, Лайт Ліга, Ліга Чемпіонів, Спринт |
+| [competition-detection.md](./competition-detection.md) | Auto-detection груп / фаз / прив'язки сесій |
+| [deployment.md](./deployment.md) | Як деплоїти collector (PM2 на VPS) і frontend (Netlify) |
+| [path-editor.md](./path-editor.md) | Редактор SVG-шляхів треків (`tools/path-editor.html`) |
 
-A real-time karting timing dashboard for the "Жага Швидкості" karting track. Collects live timing data, stores it in SQLite, and provides a web interface for viewing sessions, replays, kart statistics, and managing competitions with live scoring.
+## Releases / changelog
 
-## Current State (v0.9.265)
+`src/data/changelog.ts` — автогенерована сторінка `/changelog`. Версії — у `package.json` (`0.9.x` frontend) і `collector/package.json` (`0.3.x`).
 
-### Recent Changes (v0.9.260 → v0.9.265)
+## Tools
 
-#### Sprint results table enhancements (v0.9.260–v0.9.265)
-- Column order in Sprint "Бали" sub-header: Швидк, Штрафи, Позиція, Сума
-- Cumulative sums: Race 2 shows sum of both races + speeds; Final shows total competition points
-- Sprint finals treated as races with start/finish positions + ▲/▼ arrows (in all three views: CompetitionPage live, SessionDetail, Timing)
-- "Г2 сума" sort button for cumulative points through Race 2
-- Active sort column highlighting (`bg-primary-600/10`) for ALL competition formats
-- Clickable column headers (Час/Позиція/Сума) for sorting — coexists with "Сорт:" buttons bar
-- Fixed `isSprint not defined` error in LiveSessionTable
-- Fixed "Rendered more hooks" error by moving sortColId useMemo before early returns
+- `tools/path-editor.html` — vanilla HTML+JS редактор SVG-шляхів треків. Запускай через `node tools/server.cjs` → `http://localhost:8778/tools/path-editor.html`. Виводить JSON у форматі `public/tracks/tracks.json`. Деталі — [path-editor.md](./path-editor.md).
 
-#### Collector auto-link protection (v0.3.7)
-- Auto-linker now checks if all expected competition phases are filled before linking new sessions
-- Prevents stale `live` competitions from grabbing unrelated sessions with wrong phase names
+## Tech overview (швидко)
 
-### Previous Changes (v0.9.240 → v0.9.259)
+- React 18 + TypeScript + Vite + Tailwind на frontend
+- Plain Node.js HTTP + better-sqlite3 на collector (БЕЗ Express)
+- Firebase Google Sign-In для auth
+- Netlify (frontend) + Oracle VPS PM2 (collector)
+- Timing API — зовнішній: `nfs.playwar.com:3333`
 
-#### Sprint competition format (v0.9.240)
-- Added full Sprint competition format: Квала 1 → Гонка 1 → Квала 2 → Гонка 2 → Фінал
-- Group logic: ≤14 pilots → 1 group, 15-29 → 2, 30+ → 3
-- Quali 1 determines Race 1 start positions, Quali 2 → Race 2, sum of Race 1+2 points → Final
-- No overtake points — only position points + speed points for qualifying/race best laps
-- Each phase has per-group sessions (qualifying_N_group_X, race_N_group_X, final_group_X)
-- `computeSprintStandings` in scoring.ts, `splitIntoGroupsSprint` in competitions.ts
-- LeagueResults table extended: 2 quali columns (Кв1, Кв2), 3 race columns (Г1, Г2, Фін)
-- Collector auto-linking and recheck support sprint phase progression
-- CompetitionPage.tsx routes sprint through same LeagueResults pipeline as LL/CL
+Деталі — у `architecture.md`.
 
-### Previous Changes (v0.9.223 → v0.9.238)
+## Для розробника-людини
 
-#### Session detail track selector (v0.9.223)
-- Session detail page now has a track dropdown selector (was static text)
-- Same pattern as Timing and Competition pages: `isReverseTrack`/`baseTrackId` sorting, permission check
-- Added collector endpoint `POST /db/update-sessions-track` for batch track update
+Якщо ти агент — стоп, читай `AGENTS.md` у корені, а не цю папку.
 
-#### LapsByPilots improvements (v0.9.224–v0.9.228)
-- Changed kart label from "КХ" to "Карт Х" with left alignment
-- Fixed pencil rename button not clickable — root cause: React re-renders between mousedown/click due to `currentEntries` updates from replay. Fix: `onPointerDown` + `setTimeout(…, 10)` with IIFE closure capturing `pilotName` and `rename` callback
-- Default view mode changed from "Все" to "Осн"
-- Added position change arrows (▲/▼) next to lap times for competition race laps:
-  - Green ▲N for positions gained, red ▼N for positions lost (compared to previous lap or start position for first lap)
-  - Uses `position` field from lap data and `startPositions` from competition
-- Added "Сорт: Час/Поз" toggle (only for race sessions with `startPositions`): sorts pilots by best time (default) or by last lap position
-- Toolbar order: Вид first, then Сорт
+Якщо ти людина:
+1. `architecture.md` — як це все працює
+2. `collector-api.md` — якщо інтегруєшся з API ззовні
+3. `competition-rules.md` + `competition-detection.md` — якщо хочеш зрозуміти бізнес-логіку змагань
+4. `deployment.md` — якщо треба задеплоїти
 
-#### TimingTable improvements (v0.9.229–v0.9.238)
-- "Квала/Гонка" sort toggle hidden when not a competition race (uses shared `extractCompetitionReplayProps()`)
-- Added `isCompetitionRace` prop to TimingTable, passed from SessionReplay
-- GAP column now shows precise time distance (was best lap difference):
-  - Same lap: cumulative lap time difference (sum of lap times)
-  - Different laps: "+NL" format
-  - Mid-lap S1 update: if both pilots passed S1 on current lap, shows gap from S1 timestamps
-  - Format: `+X.XX` (hundredths, always positive with `+` prefix)
-  - No data: shows "—"
-- Race mode column order: `Δ, P, Pilot, L, GAP, Kart, Last, S1, S2, Best, B.S1, B.S2, TB, Loss` (separate `RACE_ORDER` constant)
-- "Своє" custom view inherits race column order as default when in race mode
-- Race sort priority fixed: `lapNumber` → `snapshotPositions` (ground truth) → `pilotLastPos` → `progress` → `startPositions`
+## Не у docs/
 
-#### Types (v0.9.233)
-- `TimingEntry` interface: added `gap?: string | null` field
-
-### Previous Changes (v0.9.196 → v0.9.222)
-
-#### Auth & Header fixes (v0.9.209–0.9.212)
-- Fixed logout on localhost (added `localhostLoggedOut` flag in `auth.tsx`)
-- Fixed `UserDropdown` — rewritten to click-only (removed hover conflicts with `position: fixed`)
-- Fixed header dropdown click handling with `data-dropdown` attribute on fixed popups
-
-#### Admin AccessSettings (v0.9.213)
-- Fixed drag-and-drop reorder in "Дефолтні настройки таблиць" (added `wasDragged` ref)
-
-#### Track selector unification (v0.9.214)
-- All pages (competition, timing, session detail) now use same bordered frame style with flag icon + dropdown
-
-#### TimingTable columns (v0.9.205–0.9.208, v0.9.215)
-- Pilot column: `min-w-[150px]`, arrows: `min-w-[100px]`
-- Split `TB` into `TB` (theoretical best) + `Loss` (best lap minus TB)
-- Added `Gap` column (race mode only: diff in best lap to pilot ahead)
-- `Start` toggle in "Вид: Своє" — toggles start+arrows together
-- Race mode "Осн": shows Gap, hides Start/arrows
-
-#### LapsByPilots improvements (v0.9.216–0.9.221)
-- `compactName()` for pilot names (max 10 chars, surname >7 → truncate)
-- Pencil button: fixed (`onPointerDown`), moved after kart number
-- Added "Вид: Все / Осн" toggle (Осн hides sectors)
-- All columns uniform width `min-w-[100px]`
-
-#### Unified kart color (v0.9.220, v0.9.222)
-- `KART_COLOR` constant (`text-blue-400`) applied across ALL tables
-
-### Previous Changes (v0.9.161 → v0.9.195)
-
-#### TimingTable extraction (v0.9.191)
-- Extracted reusable `TimingTable` component from `SessionReplay`
-- Standalone table with sort modes (Квала/Гонка), Вид: bar (Все/Осн/Своє), draggable column pills
-- New columns: `Start` (pilot name at start position) and `arrows` (SVG Bezier curved paths from start to finish)
-- `SessionReplay` now uses `TimingTable` internally; retains replay logic
-- Column visibility persisted per sort mode in localStorage
-
-#### Competition page rewrite (v0.9.191)
-- Replaced old `QualifyingLiveTable`/`RaceLiveTable` with `SessionReplay(showScrubber=false)`
-- Full "Вид:" column selector available in live timing on competition page
-- `LiveSessionTable` fetches events, computes start positions, passes to `SessionReplay`
-- All 4 page-level sections wired up: Таймлайн, Заїзд, Результати, Список заїздів
-
-#### UI improvements (v0.9.192–0.9.194)
-- Column labels: `Start` (was "Старт"), `Δ` (was "+/-")
-- Narrower Δ column and pilot column
-- Progress bar: bordered outline, full-width
-- Arrows fixed in custom column mode (always first, not draggable)
-- Competition timeline: only session name is a link (not time)
-- Track icon: finish flag (was globe)
-- LeagueResults: Сорт: first row, Вид: second row
-
-#### Layout prefs bugfix (v0.9.195)
-- Fixed `toggleSection` not working when server defaults unavailable
-- `updateLocal` now falls back to `HARDCODED_DEFAULTS` version
-
-#### Scoring Module (v0.9.119→v0.9.161)
-- Extracted scoring logic from LeagueResults into `src/utils/scoring.ts`
-- Pure functions: `parseLapSec()`, `getOvertakeRate()`, `calcOvertakePoints()`, `getPositionPoints()`
-- `computeStandings(params)` — main function computing full competition scoring (qualifying, groups, races, points)
-- `rowsToStandings(rows, excludedPilots)` — converts PilotRow[] to CompetitionStandings for storage
-- Types exported: `SessionLap`, `CompSession`, `ScoringData`, `PilotQualiData`, `PilotRaceData`, `PilotRow`, `ManualEdits`, `StandingsPilot`, `CompetitionStandings`, `ComputeStandingsParams`
-- Used by LeagueResults, will be used by future Onboard scoring
-
-#### Standings Storage
-- LeagueResults pushes computed standings to collector via `onSaveResults({ standings })` every 10s (debounced)
-- Standings stored in competition's `results.standings` field on collector
-- Format: `{ updatedAt, pilots: [{ pilot, totalPoints, qualiTime, qualiKart, qualiSpeedPoints, group, races: [...] }] }`
-- Competition list reads standings to show top-3 pilots next to each competition
-
-#### Competition Page Redesign
-- "Змагання" in header: changed from dropdown to direct Link to `/results`
-- `/results` shows ALL competitions (unified page) with:
-  - Date navigator (this week selected by default, previous week collapsible, year/month sections)
-  - Type filter buttons: Все | Гонзалес | ЛЛ | ЛЧ | Спринти | Марафони
-  - Sort button (date ascending/descending)
-  - "+X" buttons to select all dates in a period
-  - Days show competition short names (ЛЧ, ЛЛ, Гонз) or "–" if none
-  - Top-3 pilots with points shown next to each competition
-- Competition date derived from first session timestamp (not stored date field)
-- "Тр." expanded to "Траса" in display names
-- Old URLs `/results/:type` still work (pre-filtered)
-- `pageVisibility`: competitions moved from dropdown group to main nav
-
-#### LeagueResults View Modes
-- View modes: Все/Бали/Час/Поз/Ред/Своє — unified column visibility system
-- "Своє" (custom): draggable group pills (Квала, Гонка N) with sub-group toggles
-- Clicking group headers toggles all sub-columns
-- Custom column set persisted per user+competition in localStorage
-- Added tap-to-select pilot rows (stays highlighted until tapped again)
-
-#### Mobile Fixes
-- `html, body { overflow-x: hidden }` prevents horizontal page scroll
-- Header nav uses `overflow-x-auto scrollbar-none` for horizontal scrolling
-- All dropdowns use `position: fixed` with parent-level ref for positioning (no flicker)
-- `UserDropdown` extracted as separate component
-- Tailwind `hoverOnlyWhenSupported: true` — hover styles only on devices with pointer
-- `-webkit-tap-highlight-color: transparent` on body
-- `active:bg-dark-700/30` for touch feedback on table rows
-- Today's date highlighted green (`bg-green-600/20`) on all date navigators
-
-#### Settings & Persistence
-- Filter settings (competitions + karts dates) expire at end of day
-- `loadWithExpiry(storage, key)` / `saveWithExpiry(storage, key, value)` utility functions
-- Next day opens with default selections (current week for competitions, today for karts)
-- Competition type filters, date selection, sort direction all persisted with expiry
-
-### Working Features
-- **Live timing**: real-time data from karting timing API with 1s polling
-- **Session replay**: scrubber (starts at end by default), kart positions on track map, qualifying/race sort modes, precise GAP calculation
-- **Sessions list**: date navigation, merged sessions, best lap/pilot, sortable, filters sessions < 3min
-- **Session detail**: replay, laps-by-pilots grid (with S1/S2, position arrows), live updates, lap exclusion for competitions, track dropdown selector
-- **Onboard page**: fullscreen kart timing for phone on kart mount (landscape)
-- **Kart statistics**: per-kart top laps, multi-date filtering with end-of-day expiry
-- **Day timeline**: scrollable 6h window, 3 colors (offline/idle/session), unified `isValidSession()` filter
-- **Competition system**: full CRUD, session linking with auto-numbering of phases
-- **Competition results**: live scoring for LL/CL, Gonzales table
-  - Position points, overtake points (progressive, separate tables for LL/CL), speed points — all auto-calculated
-  - Scoring logic extracted to shared `src/utils/scoring.ts` module
-  - Standings pushed to collector every 10s (debounced) for persistence
-  - Live positions from timing API (2s polling) for real-time overtake tracking
-  - Start positions always pre-filled for next race (even during live)
-  - Manual override: Start, Finish, Penalties (owner/moderator with manage_results)
-  - Pilot rename (per-session, updates DB directly)
-  - Exclude/include pilots (persisted to server)
-  - Exclude/restore individual laps from scoring (per competition, persisted)
-  - Position change indicator (▲N green / ▼N red) next to Finish
-  - Penalties displayed as negative (-5) in red
-  - Live toggle (pause/resume live updates) on competition timeline
-  - Active session pilot highlighting (green tint)
-  - Edit audit log (timestamp, user, pilot, action)
-- **Competition list**: unified `/results` page with date navigator, type filters, sort, top-3 pilots display
-- **Competition timeline**: horizontal scrubber from first to last session
-  - Green = session (with phase labels like "1-2"), yellow = idle gap
-  - Click/drag to scrub through time — table recalculates with data up to that point
-  - Phase label + time clickable to navigate to session detail
-  - LIVE button: always visible (green when live, grey when finished, blue when scrubbing)
-- **Competition header**: name (stripped "Тр. X"), track dropdown, pilot count, group count
-  - Track: editable dropdown (admin), readonly for users
-  - Pilot count: editable with lock/unlock (admin), auto-determined from qualifying data
-  - Group count: dropdown (авто/1/2/3), auto-detected from qualifying session count
-- **View modes**: Все/Бали/Час/Поз/Ред/Своє toggle group for table columns
-  - Все: all columns (Карт, Час, Швидк., Група, Старт, Фініш, all points)
-  - Бали: speed + position/overtake/penalties/sum per race, quali speed points
-  - Час/Поз: time/position focused views
-  - Ред: edit mode for manual start/finish/penalties
-  - Своє (custom): draggable group pills with sub-group toggles, persisted per user+competition
-  - Clicking group headers (Квала, Гонка N) toggles all sub-columns
-  - Clicking "Бали" sub-header toggles all 4 point columns
-  - Tap-to-select pilot rows (highlighted until tapped again)
-- **Toolbar**: 2 rows — "Сорт:" buttons (first), "Вид:" toggles (second)
-- **Sort**: by total, quali time, race times; tiebreaker by qualifying time
-- **Session type management**: dropdown to assign sessions to competitions
-  - "Змінити етап (цей і далі)" — relinks current + subsequent sessions
-  - Auto-detect group count by pilot overlap (≥50% = race, not qualifying)
-  - Phase filtering by group count via `getPhasesForFormat()`
-- **Auto-linking** (collector): detects groups during live by checking pilot overlap after first lap
-- **Session filtering**: unified `isValidSession()` — sessions < 3min filtered everywhere
-- **Admin**: page visibility, collector log, monitoring, competitions CRUD, scoring settings
-- **Scoring settings**: separate overtake tables for LL/CL, position points by pilot count (9 categories)
-- **Position tracking**: positions extracted from all event types (snapshot, lap, s1, update)
-- **View preferences**: all settings persisted per user+competition in localStorage
-- **Mobile-optimized**: no horizontal scroll, fixed dropdowns, touch feedback, hover-only on pointer devices
-
-### Data Flow
-- Collector polls timing API every 1s when online
-- Events stored: snapshot (session start only), lap, s1, update (incl. position changes), pilot_join/leave
-- Frontend replay uses events for exact S1 timing and position changes
-- Live competition results poll every 2-3s
-- Competition timeline scrubber filters sessionLaps by timestamp
-- Standings pushed to collector every 10s (debounced) and stored in `results.standings`
-- Competition list reads stored standings for top-3 display
-
-### Data Filtering
-- Laps < 38 seconds filtered from all statistics (SQL level)
-- S1/S2 < 10 seconds filtered from best calculations and display
-- S1/S2 displayed to hundredths (e.g., "18.08")
-- Sessions < 3 minutes filtered from all lists and timelines (`isValidSession()`)
-- `shortName()` doesn't truncate names <= 10 chars or "Карт X" patterns
-- Excluded laps (per competition) filtered from scoring calculations
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Frontend | React 18 + TypeScript + Vite + Tailwind CSS |
-| Backend (Collector) | Node.js 20, plain HTTP, SQLite via better-sqlite3 |
-| Auth | Firebase Google Sign-In |
-| Hosting (Frontend) | Netlify |
-| Hosting (Collector) | Oracle VPS (150.230.157.143), PM2 |
-| Timing API | nfs.playwar.com:3333/getmaininfo.json |
-
-## Repository
-
-- **GitHub**: makandrol/karting
-- **Branches**: `main` (production), `dev` (development)
-- **Merge flow**: dev → main (no-ff merge) **ONLY when user explicitly asks**
-- **Versions**: Frontend `0.9.x` in package.json, Collector `0.3.x` in collector/package.json
-- **Current**: Frontend `0.9.265`, Collector `0.3.7`
-- **APP_VERSION**: auto-read from package.json (displayed in footer)
+Інваріанти коду, патерни, гайди для агентів — у `.cursor/rules/`. Не дублюй сюди — рулі автоматично інжектяться у Claude/Cursor.

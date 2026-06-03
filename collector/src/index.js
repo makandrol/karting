@@ -18,7 +18,6 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { TimingPoller } from './poller.js';
 import { storage } from './storage.js';
-import { CompetitionDetector } from './detector.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -28,11 +27,6 @@ const MAX_BODY_SIZE = 512 * 1024; // 512 KB (competitions can have large JSON re
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 
 const poller = new TimingPoller();
-const detector = new CompetitionDetector();
-
-// Connect detector to poller events
-poller.onSessionStart = (sessionId, pilotCount) => detector.onSessionStart(sessionId, pilotCount);
-poller.onSessionEnd = (sessionId) => detector.onSessionEnd(sessionId);
 
 // ============================================================
 // Helpers
@@ -109,7 +103,6 @@ const server = http.createServer(async (req, res) => {
         trackId: storage.getCurrentTrackId(),
         lastUpdate: poller.getLastUpdateTime(),
         sessionId: poller.getCurrentSessionId(),
-        competition: detector.getState(),
       });
       return;
     }
@@ -297,52 +290,6 @@ const server = http.createServer(async (req, res) => {
       if (!isAuthorized(req)) { sendUnauthorized(res); return; }
       const days = parseInt(url.searchParams.get('days') || '7');
       sendJson(res, 200, storage.getAnalytics(days));
-      return;
-    }
-
-    // GET /competition — стан змагання
-    if (req.method === 'GET' && url.pathname === '/competition') {
-      sendJson(res, 200, detector.getState());
-      return;
-    }
-
-    // POST /competition/start — вручну запустити змагання (admin only)
-    if (req.method === 'POST' && url.pathname === '/competition/start') {
-      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
-      try {
-        const body = await readBody(req);
-        const { format, name } = JSON.parse(body);
-        detector.manualStart(format, name);
-        sendJson(res, 200, { ok: true, state: detector.getState() });
-      } catch { sendJson(res, 400, { error: 'invalid json' }); }
-      return;
-    }
-
-    // POST /competition/stop — зупинити змагання (admin only)
-    if (req.method === 'POST' && url.pathname === '/competition/stop') {
-      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
-      detector.manualStop();
-      sendJson(res, 200, { ok: true });
-      return;
-    }
-
-    // POST /competition/phase — відмітити фазу (admin only)
-    if (req.method === 'POST' && url.pathname === '/competition/phase') {
-      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
-      try {
-        const body = await readBody(req);
-        const { sessionId, type, name } = JSON.parse(body);
-        detector.markPhase(sessionId, type, name);
-        sendJson(res, 200, { ok: true, state: detector.getState() });
-      } catch { sendJson(res, 400, { error: 'invalid json' }); }
-      return;
-    }
-
-    // POST /competition/reset — скинути автовизначення (admin only)
-    if (req.method === 'POST' && url.pathname === '/competition/reset') {
-      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
-      detector.resetToday();
-      sendJson(res, 200, { ok: true });
       return;
     }
 

@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
-import { COLLECTOR_URL } from '../../services/config';
+import { api, type DbSession as ApiDbSession } from '../../services/api';
+import { fmtTime, fmtDuration } from '../../utils/datetime';
+import { LoadingState } from '../../components/States';
 
 interface Competition {
   id: string;
@@ -13,16 +15,7 @@ interface Competition {
   uploaded_results: any | null;
 }
 
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  track_id: number;
-  race_number: number | null;
-  is_race: number;
-  date: string;
-}
+type DbSession = ApiDbSession & { track_id: number };
 
 const FORMAT_OPTIONS = [
   { value: 'light_league', label: 'Лайт Ліга' },
@@ -31,25 +24,6 @@ const FORMAT_OPTIONS = [
   { value: 'sprint', label: 'Спринт' },
   { value: 'marathon', label: 'Марафон' },
 ];
-
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function fmtDuration(startMs: number, endMs: number | null): string {
-  if (!endMs) return 'active';
-  const sec = Math.round((endMs - startMs) / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return m > 0 ? `${m}хв ${s}с` : `${s}с`;
-}
-
-function adminHeaders(): Record<string, string> {
-  const token = import.meta.env.VITE_ADMIN_TOKEN || '';
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) h['Authorization'] = `Bearer ${token}`;
-  return h;
-}
 
 export default function CompetitionManager() {
   const { isOwner } = useAuth();
@@ -66,14 +40,11 @@ export default function CompetitionManager() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const res = await fetch(`${COLLECTOR_URL}/competitions`);
-      if (res.ok) {
-        const data = await res.json();
-        setCompetitions(data.map((c: any) => ({
-          ...c,
-          sessions: (c.sessions || []).map((s: any) => typeof s === 'string' ? s : s.sessionId),
-        })));
-      }
+      const data = await api.competitions.list();
+      setCompetitions(data.map((c: any) => ({
+        ...c,
+        sessions: (c.sessions || []).map((s: any) => typeof s === 'string' ? s : s.sessionId),
+      })));
     } catch { setError('Collector недоступний'); }
     setLoading(false);
   }, []);
@@ -83,41 +54,29 @@ export default function CompetitionManager() {
   const createCompetition = async () => {
     if (!newName.trim()) return;
     const id = `${newFormat}-${newDate}-${Date.now().toString(36)}`;
-    await fetch(`${COLLECTOR_URL}/competitions`, {
-      method: 'POST', headers: adminHeaders(),
-      body: JSON.stringify({ id, name: newName.trim(), format: newFormat, date: newDate, sessions: [] }),
-    });
+    await api.competitions.create({ id, name: newName.trim(), format: newFormat, date: newDate, sessions: [] });
     setNewName(''); setShowCreate(false);
     fetchAll();
   };
 
   const deleteCompetition = async (id: string) => {
     if (!confirm('Видалити змагання?')) return;
-    await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(id)}`, { method: 'DELETE', headers: adminHeaders() });
+    await api.competitions.remove(id);
     fetchAll();
   };
 
   const updateSessions = async (id: string, sessions: string[]) => {
-    await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(id)}`, {
-      method: 'PATCH', headers: adminHeaders(),
-      body: JSON.stringify({ sessions }),
-    });
+    await api.competitions.update(id, { sessions: sessions as any });
     fetchAll();
   };
 
   const updateResults = async (id: string, results: any) => {
-    await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(id)}`, {
-      method: 'PATCH', headers: adminHeaders(),
-      body: JSON.stringify({ results }),
-    });
+    await api.competitions.update(id, { results });
     fetchAll();
   };
 
   const updateUploadedResults = async (id: string, uploaded_results: any) => {
-    await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(id)}`, {
-      method: 'PATCH', headers: adminHeaders(),
-      body: JSON.stringify({ uploaded_results }),
-    });
+    await api.competitions.update(id, { uploaded_results });
     fetchAll();
   };
 
@@ -175,7 +134,7 @@ export default function CompetitionManager() {
       )}
 
       {loading ? (
-        <div className="card text-center py-12 text-dark-500">Завантаження...</div>
+        <LoadingState />
       ) : competitions.length === 0 ? (
         <div className="card text-center py-12 text-dark-500">Немає змагань. Натисніть "+ Створити" щоб додати.</div>
       ) : (
@@ -223,25 +182,24 @@ function CompetitionCard({ competition: comp, expanded, onToggle, onDelete, onUp
     (async () => {
       const date = comp.date;
       if (!date) return;
-      const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
-      if (!res.ok) return;
-      const all: DbSession[] = await res.json();
-      const map: Record<string, DbSession> = { ...sessionData };
-      for (const s of all) map[s.id] = s;
-      setSessionData(map);
+      try {
+        const all = await api.sessions.byDate(date);
+        const map: Record<string, DbSession> = { ...sessionData };
+        for (const s of all) map[s.id] = s as unknown as DbSession;
+        setSessionData(map);
+      } catch {}
     })();
   }, [expanded, comp.sessions, comp.date]);
 
   const loadDateSessions = async (date: string) => {
     setPickingDate(date);
-    const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
-    if (res.ok) {
-      const all: DbSession[] = await res.json();
-      setDateSessions(all);
+    try {
+      const all = await api.sessions.byDate(date);
+      setDateSessions(all as unknown as DbSession[]);
       const map: Record<string, DbSession> = { ...sessionData };
-      for (const s of all) map[s.id] = s;
+      for (const s of all) map[s.id] = s as unknown as DbSession;
       setSessionData(map);
-    }
+    } catch {}
   };
 
   const addSession = (sessionId: string) => {
@@ -325,7 +283,7 @@ function CompetitionCard({ competition: comp, expanded, onToggle, onDelete, onUp
                               <span className="text-dark-500 text-xs">–</span>
                               <span className="text-dark-300 text-xs font-mono">{s.end_time ? fmtTime(s.end_time) : 'active'}</span>
                               <span className="text-dark-400 text-xs">{s.pilot_count} pilot(s)</span>
-                              <span className="text-dark-600 text-xs">{fmtDuration(s.start_time, s.end_time)}</span>
+                              <span className="text-dark-600 text-xs">{fmtDuration(s.start_time, s.end_time, { whenActive: 'active' })}</span>
                             </>
                           ) : (
                             <span className="text-dark-500 text-xs font-mono">{sid}</span>
@@ -377,7 +335,7 @@ function CompetitionCard({ competition: comp, expanded, onToggle, onDelete, onUp
                             <span className="text-dark-500">–</span>
                             <span className="font-mono">{s.end_time ? fmtTime(s.end_time) : '...'}</span>
                             <span>{s.pilot_count} pilots</span>
-                            <span className="text-dark-600">{fmtDuration(s.start_time, s.end_time)}</span>
+                            <span className="text-dark-600">{fmtDuration(s.start_time, s.end_time, { whenActive: 'active' })}</span>
                             {linked && <span className="ml-auto text-dark-600">linked</span>}
                           </button>
                         );

@@ -2,7 +2,9 @@ import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
 import { trackDisplayId } from '../../data/tracks';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
+import { fmtDuration, fmtDateTimeFull as fmtDateTime } from '../../utils/datetime';
+import { LoadingState } from '../../components/States';
 
 interface SessionRow {
   id: string;
@@ -13,22 +15,6 @@ interface SessionRow {
   race_number: number | null;
   is_race: number;
   date: string;
-}
-
-function fmtDuration(startMs: number, endMs: number | null): string {
-  if (!endMs) return '—';
-  const sec = Math.round((endMs - startMs) / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m === 0) return `${s}с`;
-  return `${m}хв ${s}с`;
-}
-
-function fmtDateTime(ms: number): string {
-  const d = new Date(ms);
-  const date = d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const time = d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  return `${date} ${time}`;
 }
 
 export default function CollectorLog() {
@@ -44,11 +30,9 @@ export default function CollectorLog() {
 
     async function load() {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/db/sessions`, { signal: AbortSignal.timeout(10000) });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: SessionRow[] = await res.json();
+        const data = await api.sessions.all();
         if (active) {
-          setSessions(data);
+          setSessions(data as unknown as SessionRow[]);
           setError(null);
         }
       } catch {
@@ -113,7 +97,7 @@ export default function CollectorLog() {
       </div>
 
       {loading ? (
-        <div className="card text-center py-12 text-dark-500">Завантаження...</div>
+        <LoadingState />
       ) : filtered.length === 0 ? (
         <div className="card text-center py-12 text-dark-500">Немає даних</div>
       ) : (

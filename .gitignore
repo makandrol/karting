@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+tsconfig.tsbuildinfo
 
 # IDE
 .vscode/
@@ -12,6 +13,7 @@ dist/
 
 # OS
 .DS_Store
+**/.DS_Store
 Thumbs.db
 
 # Environment

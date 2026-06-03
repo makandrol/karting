@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Navigate, Link } from 'react-router-dom';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
+import { LoadingState } from '../../components/States';
 
 export default function CurrentRace() {
   const [loading, setLoading] = useState(true);
   const [liveComp, setLiveComp] = useState<{ id: string; format: string } | null>(null);
 
   useEffect(() => {
-    fetch(`${COLLECTOR_URL}/competitions`)
-      .then(r => r.json())
-      .then((comps: { id: string; format: string; status: string }[]) => {
+    api.competitions.list()
+      .then(comps => {
         const live = comps.find(c => c.status === 'live');
         setLiveComp(live ? { id: live.id, format: live.format } : null);
         setLoading(false);
@@ -17,7 +17,7 @@ export default function CurrentRace() {
       .catch(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
+  if (loading) return <LoadingState />;
 
   if (liveComp) {
     return <Navigate to={`/results/${liveComp.format}/${liveComp.id}`} replace />;

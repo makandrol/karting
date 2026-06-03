@@ -40,6 +40,7 @@ export class TimingPoller {
   #events = [];
   #eventsBySession = new Map();
   #timer = null;
+  #autoFinishTimer = null;
   #cleanupTimer = null;
 
   onSessionStart = null;
@@ -50,6 +51,7 @@ export class TimingPoller {
     console.log(`   API: ${TIMING_API_URL}`);
     this.#poll();
     this.#scheduleCleanup();
+    this.#scheduleAutoFinish();
   }
 
   stop() {
@@ -57,6 +59,8 @@ export class TimingPoller {
     this.#timer = null;
     if (this.#cleanupTimer) clearInterval(this.#cleanupTimer);
     this.#cleanupTimer = null;
+    if (this.#autoFinishTimer) clearInterval(this.#autoFinishTimer);
+    this.#autoFinishTimer = null;
     console.log('⏹ Poller stopped');
   }
 
@@ -79,6 +83,20 @@ export class TimingPoller {
     };
     doCleanup();
     this.#cleanupTimer = setInterval(doCleanup, 6 * 60 * 60 * 1000);
+  }
+
+  #scheduleAutoFinish() {
+    const doFinish = () => {
+      try {
+        const ids = storage.autoFinishCompletedCompetitions();
+        if (ids.length > 0) console.log(`🏁 Auto-finished ${ids.length} competition(s) on schedule check`);
+      } catch (err) {
+        console.error('autoFinish (scheduled) error:', err.message);
+      }
+    };
+    // Перший виклик — через 5 хв після старту, далі кожні 10 хв
+    this.#autoFinishTimer = setInterval(doFinish, 10 * 60 * 1000);
+    setTimeout(doFinish, 5 * 60 * 1000);
   }
 
   getStatus() {
@@ -215,6 +233,7 @@ export class TimingPoller {
       if (session) session.endTime = now;
       storage.endSession(this.#sessionId, now);
       this.#tryAutoUnlinkShortSession(this.#sessionId, session?.startTime, now);
+      try { storage.autoFinishCompletedCompetitions(now); } catch (err) { console.error('autoFinish error:', err.message); }
       if (this.onSessionEnd) this.onSessionEnd(this.#sessionId);
       this.#online = false;
       this.#sessionId = null;
@@ -234,6 +253,7 @@ export class TimingPoller {
         if (session) session.endTime = now;
         storage.endSession(this.#sessionId, now);
         this.#tryAutoUnlinkShortSession(this.#sessionId, session?.startTime, now);
+        try { storage.autoFinishCompletedCompetitions(now); } catch (err) { console.error('autoFinish error:', err.message); }
         if (this.onSessionEnd) this.onSessionEnd(this.#sessionId);
       }
       this.#entries = [];

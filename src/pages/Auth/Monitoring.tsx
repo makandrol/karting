@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import { fmtBytes } from '../../utils/timing';
+import { LoadingState } from '../../components/States';
 
 function fmtUptime(sec: number): string {
   const d = Math.floor(sec / 86400);
@@ -27,12 +28,10 @@ export default function Monitoring() {
 
     async function load() {
       try {
-        const token = import.meta.env.VITE_ADMIN_TOKEN || '';
-        const authHeaders: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
         const [sysRes, anaRes, statRes] = await Promise.all([
-          fetch(`${COLLECTOR_URL}/system`, { headers: authHeaders }).then(r => r.json()),
-          fetch(`${COLLECTOR_URL}/analytics?days=30`, { headers: authHeaders }).then(r => r.json()),
-          fetch(`${COLLECTOR_URL}/status`).then(r => r.json()),
+          api.system(),
+          api.analytics(30),
+          api.status(),
         ]);
         if (active) {
           setSystem(sysRes);
@@ -73,7 +72,7 @@ export default function Monitoring() {
       )}
 
       {loading ? (
-        <div className="card text-center py-12 text-dark-500">Завантаження...</div>
+        <LoadingState />
       ) : (
         <>
           {/* Server stats */}

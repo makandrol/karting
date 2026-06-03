@@ -1,8 +1,10 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, type ReactNode } from 'react';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
-import { toSeconds, isValidSession, KART_COLOR, shortName } from '../../utils/timing';
+import { toSeconds, isValidSession, KART_COLOR, shortName, loadWithExpiry, saveWithExpiry } from '../../utils/timing';
+import { fmtDateISO } from '../../utils/datetime';
+import { LoadingState } from '../../components/States';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
@@ -10,36 +12,24 @@ import LeagueResults from '../../components/Results/LeagueResults';
 import GonzalesResults from '../../components/Results/GonzalesResults';
 import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
 import { parseLapSec, getSprintPositionPoints } from '../../utils/scoring';
+import { FORMAT_MAX_GROUPS } from '../../utils/competitionLinking';
 import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import SessionReplay, { parseSessionEvents } from '../../components/Timing/SessionReplay';
 import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
 import type { TimingEntry } from '../../types';
+import type { Competition, SessionLap } from './competition-types';
+import {
+  FORMAT_FILTERS, COMP_LIST_NAMES, DAY_NAMES, MONTH_NAMES,
+  localDateStr, getCompRealDate, getMonday, getWeekDays, getWeeksInMonth,
+  getCompetitionDisplayName,
+} from './competition-utils';
+import CompetitionList from './CompetitionList';
+import LiveSessionTable from './LiveSessionTable';
+import CompetitionLayoutWrapper from './CompetitionLayoutWrapper';
+import CompetitionParams from './CompetitionParams';
 
 const Onboard = lazy(() => import('../Info/Onboard'));
-
-const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
-
-interface Competition {
-  id: string;
-  name: string;
-  format: string;
-  date: string;
-  status: string;
-  sessions: { sessionId: string; phase: string | null }[];
-  results: any;
-  uploaded_results: any;
-}
-
-interface SessionLap {
-  pilot: string;
-  kart: number;
-  lap_time: string | null;
-  s1: string | null;
-  s2: string | null;
-  position: number | null;
-  ts: number;
-}
 
 export default function CompetitionPage() {
   const { type, eventId } = useParams<{ type: string; eventId?: string }>();
@@ -63,18 +53,15 @@ export default function CompetitionPage() {
     const dates = new Set<string>();
     for (const s of sessions) {
       const m = s.sessionId.match(/session-(\d+)/);
-      if (m) { const d = new Date(parseInt(m[1])); dates.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }
+      if (m) { const d = new Date(parseInt(m[1])); dates.add(fmtDateISO(d)); }
     }
     const sessionIds = new Set(sessions.map(s => s.sessionId));
     const all: SessionTableRow[] = [];
     for (const date of dates) {
       if (cancelled()) return;
       try {
-        const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
-        if (res.ok) {
-          const data: SessionTableRow[] = await res.json();
-          all.push(...data.filter(s => sessionIds.has(s.id)));
-        }
+        const data = await api.sessions.byDate(date);
+        all.push(...(data as unknown as SessionTableRow[]).filter(s => sessionIds.has(s.id)));
       } catch {}
     }
     if (cancelled()) return;
@@ -95,24 +82,21 @@ export default function CompetitionPage() {
     manuallyReopened.current = false;
     autoClosedRef.current = false;
     if (eventId) {
-      fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(eventId)}`)
-        .then(r => r.ok ? r.json() : null)
+      api.competitions.getSafeNormalized(eventId)
         .then(data => {
           if (cancelled) return;
-          setCompetition(data);
-          if (data?.sessions?.length > 0) fetchCompSessions(data.sessions, () => cancelled);
+          setCompetition(data as unknown as Competition);
+          if (data?.sessions?.length) fetchCompSessions(data.sessions, () => cancelled);
           setLoading(false);
         })
         .catch(() => { if (!cancelled) setLoading(false); });
     } else if (type) {
-      fetch(`${COLLECTOR_URL}/competitions?format=${type}`)
-        .then(r => r.json())
-        .then(data => { if (!cancelled) { setCompetitions(data); setLoading(false); } })
+      api.competitions.byFormat(type)
+        .then(data => { if (!cancelled) { setCompetitions(data as unknown as Competition[]); setLoading(false); } })
         .catch(() => { if (!cancelled) setLoading(false); });
     } else {
-      fetch(`${COLLECTOR_URL}/competitions`)
-        .then(r => r.json())
-        .then(data => { if (!cancelled) { setCompetitions(data); setLoading(false); } })
+      api.competitions.list()
+        .then(data => { if (!cancelled) { setCompetitions(data as unknown as Competition[]); setLoading(false); } })
         .catch(() => { if (!cancelled) setLoading(false); });
     }
     return () => { cancelled = true; };
@@ -135,12 +119,8 @@ export default function CompetitionPage() {
     autoClosedRef.current = true;
     (async () => {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-          body: JSON.stringify({ status: 'finished' }),
-        });
-        if (res.ok) setCompetition(await res.json());
+        await api.competitions.update(competition.id, { status: 'finished' });
+        setCompetition(prev => prev ? { ...prev, status: 'finished' } : prev);
       } catch {}
     })();
   }, [competition?.status, allSessionsEnded, allPhasesLinked, canManage]);
@@ -150,16 +130,12 @@ export default function CompetitionPage() {
     const newStatus = competition.status === 'live' ? 'finished' : 'live';
     if (newStatus === 'live') manuallyReopened.current = true;
     try {
-      const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      if (res.ok) setCompetition(await res.json());
+      await api.competitions.update(competition.id, { status: newStatus });
+      setCompetition(prev => prev ? { ...prev, status: newStatus } : prev);
     } catch {}
   };
 
-  if (loading) return <div className="card text-center py-12 text-dark-500">Завантаження...</div>;
+  if (loading) return <LoadingState />;
 
   if (!eventId && !type) {
     return <CompetitionList competitions={competitions} />;
@@ -228,16 +204,15 @@ export default function CompetitionPage() {
                 pilotLocked={competition.results?.totalPilotsLocked ?? false}
                 groupOverride={competition.results?.groupCountOverride ?? null}
                 autoGroups={autoGroups}
-                maxGroups={competition.format === 'champions_league' ? 2 : competition.format === 'gonzales' ? 2 : 3}
+                maxGroups={FORMAT_MAX_GROUPS[competition.format] ?? 3}
                 canManage={canManage}
                 format={competition.format}
                 racePilotCount={competition.results?.racePilotCount ?? null}
                 onSave={async (partial) => {
                   try {
-                    const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-                    if (!res.ok) return;
-                    const comp = await res.json();
-                    const currentResults = comp.results || {};
+                    let comp: any = null;
+                    try { comp = await api.competitions.getNormalized(competition.id); } catch { return; }
+                    const currentResults = comp.results;
                     const newResults = { ...currentResults, ...partial };
 
                     const groupChanged = 'groupCountOverride' in partial;
@@ -293,37 +268,26 @@ export default function CompetitionPage() {
                           return m ? parseInt(m[1]) : 0;
                         }));
                         const dateObj = new Date(lastTs);
-                        const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                        const dateStr = fmtDateISO(dateObj);
                         try {
-                          const sessRes = await fetch(`${COLLECTOR_URL}/db/sessions?date=${dateStr}`);
-                          if (sessRes.ok) {
-                            const daySessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; best_lap_time?: string | null }[] = await sessRes.json();
-                            const linkedIds = new Set(reassigned.map(s => s.sessionId));
-                            const available = daySessions
-                              .filter(s => s.end_time && isValidSession(s) && s.best_lap_time != null && (!s.competition_id || s.competition_id === competition.id) && !linkedIds.has(s.id))
-                              .filter(s => s.start_time > lastTs)
-                              .sort((a, b) => a.start_time - b.start_time);
+                          const daySessions = await api.sessions.byDate(dateStr) as any as { id: string; start_time: number; end_time: number | null; competition_id?: string | null; best_lap_time?: string | null }[];
+                          const linkedIds = new Set(reassigned.map(s => s.sessionId));
+                          const available = daySessions
+                            .filter(s => s.end_time && isValidSession(s) && s.best_lap_time != null && (!s.competition_id || s.competition_id === competition.id) && !linkedIds.has(s.id))
+                            .filter(s => s.start_time > lastTs)
+                            .sort((a, b) => a.start_time - b.start_time);
 
-                            for (let i = filledRounds; i < roundPhases.length && (i - filledRounds) < available.length; i++) {
-                              reassigned.push({ sessionId: available[i - filledRounds].id, phase: roundPhases[i].id });
-                            }
+                          for (let i = filledRounds; i < roundPhases.length && (i - filledRounds) < available.length; i++) {
+                            reassigned.push({ sessionId: available[i - filledRounds].id, phase: roundPhases[i].id });
                           }
                         } catch {}
                       }
 
-                      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                        body: JSON.stringify({ results: newResults, sessions: reassigned }),
-                      });
+                      await api.competitions.update(competition.id, { results: newResults, sessions: reassigned as any });
                       setCompetition(prev => prev ? { ...prev, results: newResults, sessions: reassigned } : prev);
                       if (reassigned.length > currentSessions.length) fetchCompSessions(reassigned, () => false);
                     } else {
-                      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-                        body: JSON.stringify({ results: newResults }),
-                      });
+                      await api.competitions.update(competition.id, { results: newResults });
                       setCompetition(prev => prev ? { ...prev, results: newResults } : prev);
                     }
                   } catch {}
@@ -389,17 +353,11 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const saveResults = useCallback(async (partial: Record<string, any>) => {
     saveLockRef.current = saveLockRef.current.then(async () => {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`);
-        const fresh = res.ok ? await res.json() : null;
-        const currentResults = fresh?.results
-          ? (typeof fresh.results === 'string' ? JSON.parse(fresh.results) : fresh.results)
-          : (resultsRef.current || {});
+        let fresh: any = null;
+        try { fresh = await api.competitions.getSafeNormalized(competition.id); } catch {}
+        const currentResults = fresh?.results ?? competition.results ?? {};
         const merged = { ...currentResults, ...partial };
-        await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-          body: JSON.stringify({ results: merged }),
-        });
+        await api.competitions.update(competition.id, { results: merged });
         resultsRef.current = merged;
         setCompetition(prev => prev ? { ...prev, results: merged } : prev);
       } catch {}
@@ -410,11 +368,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const changeTrack = useCallback(async (newTrackId: number) => {
     await saveResults({ trackId: newTrackId });
     try {
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(competition.id)}/update-track`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-        body: JSON.stringify({ trackId: newTrackId }),
-      });
+      await api.competitions.updateTrack(competition.id, newTrackId);
     } catch {}
   }, [competition.id, saveResults]);
 
@@ -477,14 +431,17 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     const map = new Map<string, SessionLap[]>();
     for (const s of comp.sessions) {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/db/laps?session=${s.sessionId}`);
-        if (res.ok) map.set(s.sessionId, await res.json());
+        const data = await api.laps.bySession(s.sessionId);
+        map.set(s.sessionId, data as any);
       } catch {}
     }
     return map;
   };
 
   const knownSessionCountRef = useRef(initialCompetition.sessions.length);
+  const autoLinkedRef = useRef<Set<string>>(new Set());
+  const competitionRef = useRef(competition);
+  competitionRef.current = competition;
 
   useEffect(() => {
     let cancelled = false;
@@ -497,11 +454,10 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     const slowTimer = setInterval(async () => {
       if (!liveEnabled) return;
       try {
-        const res = await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(initialCompetition.id)}`);
-        if (!res.ok || cancelled) return;
-        const fresh: Competition = await res.json();
-        if (typeof fresh.sessions === 'string') fresh.sessions = JSON.parse(fresh.sessions);
-        if (typeof fresh.results === 'string') fresh.results = JSON.parse(fresh.results);
+        let fresh: Competition;
+        try { fresh = await api.competitions.getNormalized(initialCompetition.id) as unknown as Competition; }
+        catch { return; }
+        if (cancelled) return;
         setCompetition(fresh);
         if (fresh.sessions.length !== knownSessionCountRef.current) {
           knownSessionCountRef.current = fresh.sessions.length;
@@ -516,11 +472,32 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       if (!liveEnabled) return;
       try {
         const [statusRes, timingRes] = await Promise.all([
-          fetch(`${COLLECTOR_URL}/status`).then(r => r.json()),
-          fetch(`${COLLECTOR_URL}/timing`).then(r => r.json()),
+          api.status(),
+          api.timing(),
         ]);
         if (cancelled) return;
-        setLiveSessionId(statusRes.sessionId || null);
+        const currentLiveId = statusRes.sessionId || null;
+        setLiveSessionId(currentLiveId);
+
+        // Auto-link live session to the next free phase if not already linked
+        if (currentLiveId && !autoLinkedRef.current.has(currentLiveId)) {
+          const comp = competitionRef.current;
+          const alreadyLinked = comp.sessions.some(s => s.sessionId === currentLiveId);
+          if (!alreadyLinked && comp.sessions.length > 0) {
+            const results = comp.results || {};
+            const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? 1;
+            const gonzRoundCount = comp.format === 'gonzales' ? (results.gonzalesRoundCount ?? null) : null;
+            const allPhases = getPhasesForFormat(comp.format, groupCount, gonzRoundCount);
+            const linkedPhaseIds = new Set(comp.sessions.map(s => s.phase));
+            const nextFreePhase = allPhases.find(p => !linkedPhaseIds.has(p.id));
+            if (nextFreePhase) {
+              autoLinkedRef.current.add(currentLiveId);
+              try {
+                await api.competitions.linkSession(comp.id, currentLiveId, nextFreePhase.id);
+              } catch {}
+            }
+          }
+        }
         if (timingRes.entries?.length > 0) {
           setLivePositions(timingRes.entries.map((e: any) => ({
             pilot: e.pilot,
@@ -539,7 +516,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     return () => { cancelled = true; clearInterval(slowTimer); clearInterval(fastTimer); };
   }, [initialCompetition.id, liveEnabled]);
 
-  if (loading) return <div className="card text-center py-6 text-dark-500">Завантаження даних...</div>;
+  if (loading) return <LoadingState text="Завантаження даних..." size="md" />;
   if (competition.sessions.length === 0) return <div className="card text-center py-12 text-dark-500">Немає прив'язаних заїздів</div>;
 
   const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? 1;
@@ -772,996 +749,3 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   );
 }
 
-function CompetitionLayoutWrapper({ sessionTimes, competition, scrubTime, setScrubTime, allSessionsEnded, setLiveEnabled, groupCount, children }: {
-  sessionTimes: { sessionId: string; phase: string | null; startTime: number; endTime: number | null }[];
-  competition: Competition;
-  scrubTime: number | null;
-  setScrubTime: (t: number | null) => void;
-  allSessionsEnded: boolean;
-  setLiveEnabled: (v: boolean | ((prev: boolean) => boolean)) => void;
-  groupCount?: number;
-  children: Record<string, ReactNode>;
-}) {
-  const { isSectionVisible, getPageLayout } = useLayoutPrefs();
-
-  const layout = getPageLayout('competition');
-
-  const renderSection = (sectionId: string) => {
-    if (!isSectionVisible('competition', sectionId)) return null;
-    if (sectionId === 'timeline') {
-      if (sessionTimes.length === 0) return null;
-      return (
-        <CompetitionTimeline
-          key="timeline"
-          format={competition.format}
-          groupCount={groupCount}
-          sessions={competition.sessions}
-          sessionTimes={sessionTimes}
-          currentTime={scrubTime}
-          onTimeChange={(t) => { setScrubTime(t); if (t !== null) setLiveEnabled(false); else setLiveEnabled(true); }}
-          isLive={competition.status === 'live' && !allSessionsEnded}
-        />
-      );
-    }
-    if (children[sectionId] !== undefined) return children[sectionId];
-    return null;
-  };
-
-  return (
-    <div className="space-y-4">
-      {layout.map(s => renderSection(s.id))}
-    </div>
-  );
-}
-
-function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverride, autoGroups, maxGroups, canManage, onSave, format, racePilotCount }: {
-  pilotCount: number; pilotOverride: number | null; pilotLocked: boolean;
-  groupOverride: number | null; autoGroups: number; maxGroups: number; canManage: boolean;
-  onSave: (partial: Record<string, any>) => Promise<void>;
-  format?: string; racePilotCount?: number | null;
-}) {
-  const effectivePilots = (pilotLocked && pilotOverride !== null) ? pilotOverride : pilotCount;
-  const effectiveGroups = groupOverride ?? autoGroups;
-  const pilotsAuto = pilotOverride === null;
-  const groupsAuto = groupOverride === null;
-
-  const defaultRacePilots = format === 'champions_league' ? 24 : 36;
-  const autoRacePilots = Math.min(defaultRacePilots, effectivePilots);
-  const effectiveRacePilots = racePilotCount ?? autoRacePilots;
-  const racePilotsAuto = racePilotCount == null;
-
-  const [pilotDraft, setPilotDraft] = useState<string | null>(null);
-  const [groupDraft, setGroupDraft] = useState<string | null>(null);
-  const [racePilotDraft, setRacePilotDraft] = useState<string | null>(null);
-
-  const commitPilots = () => {
-    if (pilotDraft === null) return;
-    const v = parseInt(pilotDraft);
-    if (!isNaN(v) && v > 0) onSave({ totalPilotsOverride: v, totalPilotsLocked: true });
-    setPilotDraft(null);
-  };
-  const commitGroups = () => {
-    if (groupDraft === null) return;
-    const v = parseInt(groupDraft);
-    if (!isNaN(v) && v > 0 && v <= maxGroups) onSave({ groupCountOverride: v });
-    setGroupDraft(null);
-  };
-  const commitRacePilots = () => {
-    if (racePilotDraft === null) return;
-    const v = parseInt(racePilotDraft);
-    if (!isNaN(v) && v > 0) onSave({ racePilotCount: v });
-    setRacePilotDraft(null);
-  };
-
-  return (
-    <div className="flex items-center gap-3 text-xs">
-      {/* Pilots */}
-      <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
-        <span title="Пілоти">👥</span>
-        {canManage ? (
-          <input type="text" inputMode="numeric"
-            value={pilotDraft !== null ? pilotDraft : effectivePilots}
-            onChange={e => setPilotDraft(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') commitPilots(); }}
-            onBlur={commitPilots}
-            disabled={pilotsAuto}
-            className={`w-8 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${pilotsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
-        ) : (
-          <span className="text-dark-300 font-mono">{effectivePilots || '—'}</span>
-        )}
-        {canManage && (
-          <button onClick={() => onSave({ totalPilotsOverride: pilotsAuto ? effectivePilots : null, totalPilotsLocked: pilotsAuto })} 
-            className={`text-[10px] font-bold transition-colors ${pilotsAuto ? 'bg-red-600 text-white px-1 rounded' : 'text-dark-500 hover:text-dark-300'}`}
-            title={pilotsAuto ? 'Вимкнути авто' : 'Включити авто'}>
-            А
-          </button>
-        )}
-      </div>
-
-      {/* Groups */}
-      <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
-        <span title="Групи">🔢</span>
-        {canManage ? (
-          <input type="text" inputMode="numeric"
-            value={groupDraft !== null ? groupDraft : effectiveGroups}
-            onChange={e => setGroupDraft(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') commitGroups(); }}
-            onBlur={commitGroups}
-            disabled={groupsAuto}
-            className={`w-8 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${groupsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
-        ) : (
-          <span className="text-dark-300 font-mono">{effectiveGroups}</span>
-        )}
-        {canManage && (
-          <button onClick={() => onSave({ groupCountOverride: groupsAuto ? effectiveGroups : null })} 
-            className={`text-[10px] font-bold transition-colors ${groupsAuto ? 'bg-red-600 text-white px-1 rounded' : 'text-dark-500 hover:text-dark-300'}`}
-            title={groupsAuto ? 'Вимкнути авто' : 'Включити авто'}>
-            А
-          </button>
-        )}
-      </div>
-
-      {(format === 'light_league' || format === 'champions_league' || format === 'sprint') && (
-        <div className="border border-dark-700 rounded px-2 py-1 flex items-center gap-1">
-          <span title="Пілотів у гонці">🏁</span>
-          {canManage ? (
-            <input type="text" inputMode="numeric"
-              value={racePilotDraft !== null ? racePilotDraft : effectiveRacePilots}
-              onChange={e => setRacePilotDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') commitRacePilots(); }}
-              onBlur={commitRacePilots}
-              disabled={racePilotsAuto}
-              className={`w-8 bg-transparent text-center font-mono outline-none border-b border-dark-700 focus:border-primary-500 ${racePilotsAuto ? 'text-dark-500 cursor-default' : 'text-dark-300'}`} />
-          ) : (
-            <span className="text-dark-300 font-mono">{effectiveRacePilots}</span>
-          )}
-          {canManage && (
-            <button onClick={() => onSave({ racePilotCount: racePilotsAuto ? effectiveRacePilots : null })} 
-              className={`text-[10px] font-bold transition-colors ${racePilotsAuto ? 'bg-red-600 text-white px-1 rounded' : 'text-dark-500 hover:text-dark-300'}`}
-              title={racePilotsAuto ? 'Вимкнути авто' : 'Включити авто'}>
-              А
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const FORMAT_FILTERS: { key: string; label: string }[] = [
-  { key: 'gonzales', label: 'Гонзалес' },
-  { key: 'light_league', label: 'ЛЛ' },
-  { key: 'champions_league', label: 'ЛЧ' },
-  { key: 'sprint', label: 'Спринти' },
-  { key: 'marathon', label: 'Марафони' },
-];
-
-const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-
-function getCompRealDate(c: Competition): string {
-  if (c.sessions.length > 0) {
-    const m = c.sessions[0].sessionId.match(/session-(\d+)/);
-    if (m) {
-      const d = new Date(parseInt(m[1]));
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    }
-  }
-  return c.date || '';
-}
-
-function getMonday(d: Date): Date {
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.getFullYear(), d.getMonth(), diff);
-}
-
-function getWeekDays(monday: Date): string[] {
-  const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday);
-    d.setDate(d.getDate() + i);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }).filter(d => d <= todayStr);
-}
-
-const MONTH_NAMES = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
-
-function getWeeksInMonth(year: number, month: number): string[][] {
-  const todayStr = localDateStr(new Date());
-  const firstDay = new Date(year, month, 1);
-  const monday = getMonday(firstDay);
-  const weeks: string[][] = [];
-  for (let w = 0; w < 6; w++) {
-    const weekStart = new Date(monday);
-    weekStart.setDate(weekStart.getDate() + w * 7);
-    const days = getWeekDays(weekStart).filter(d => {
-      const dd = new Date(d + 'T00:00:00');
-      return dd.getMonth() === month && d <= todayStr;
-    });
-    if (days.length > 0) weeks.push(days);
-  }
-  return weeks;
-}
-
-function localDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function loadWithExpiry(storage: Storage, key: string): any {
-  try {
-    const raw = storage.getItem(key);
-    if (!raw) return null;
-    const { value, expiresAt } = JSON.parse(raw);
-    if (expiresAt && Date.now() > expiresAt) { storage.removeItem(key); return null; }
-    return value;
-  } catch { return null; }
-}
-
-function saveWithExpiry(storage: Storage, key: string, value: any) {
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
-  try { storage.setItem(key, JSON.stringify({ value, expiresAt: endOfDay.getTime() })); } catch {}
-}
-
-function CompetitionList({ competitions: initialCompetitions, initialFilter }: { competitions: Competition[]; initialFilter?: string }) {
-  const { user } = useAuth();
-  const storage = user ? localStorage : sessionStorage;
-  const [competitions, setCompetitions] = useState(initialCompetitions);
-
-  useEffect(() => { setCompetitions(initialCompetitions); }, [initialCompetitions]);
-
-  const [activeFilters, setActiveFilters] = useState<Set<string>>(() => {
-    if (initialFilter) return new Set([initialFilter]);
-    const saved = loadWithExpiry(storage, 'karting_comp_filters');
-    if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
-    return new Set(FORMAT_FILTERS.map(f => f.key));
-  });
-
-  const [sortDir, setSortDir] = useState<'desc' | 'asc'>(() => {
-    const saved = loadWithExpiry(storage, 'karting_comp_sort');
-    return saved === 'asc' ? 'asc' : 'desc';
-  });
-
-  const compDates = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const c of competitions) map.set(c.id, getCompRealDate(c));
-    return map;
-  }, [competitions]);
-
-  const dateCompNames = useMemo(() => {
-    const map: Record<string, string[]> = {};
-    for (const c of competitions) {
-      const d = compDates.get(c.id) || '';
-      if (!d) continue;
-      const cfg = COMPETITION_CONFIGS[c.format as keyof typeof COMPETITION_CONFIGS];
-      const name = cfg?.shortName || c.format;
-      if (!map[d]) map[d] = [];
-      if (!map[d].includes(name)) map[d].push(name);
-    }
-    return map;
-  }, [competitions, compDates]);
-
-  const allCompDates = useMemo(() => [...new Set(competitions.map(c => compDates.get(c.id) || '').filter(Boolean))].sort().reverse(), [competitions, compDates]);
-
-  const thisMonday = getMonday(new Date());
-  const prevMonday = new Date(thisMonday);
-  prevMonday.setDate(prevMonday.getDate() - 7);
-  const thisWeekDays = getWeekDays(thisMonday);
-  const prevWeekDays = getWeekDays(prevMonday);
-  const todayStr = localDateStr(new Date());
-
-  const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
-    const saved = loadWithExpiry(storage, 'karting_comp_dates');
-    if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
-    return new Set(allCompDates);
-  });
-
-  useEffect(() => {
-    if (selectedDates.size === 0 && allCompDates.length > 0) {
-      setSelectedDates(new Set(allCompDates));
-    }
-  }, [dateCompNames]);
-
-  const saveDates = (dates: Set<string>) => saveWithExpiry(storage, 'karting_comp_dates', [...dates]);
-  const toggleDate = (d: string) => {
-    setSelectedDates(prev => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); saveDates(n); return n; });
-  };
-  const selectDates = (dates: string[]) => {
-    setSelectedDates(prev => { const n = new Set(prev); dates.forEach(d => n.add(d)); saveDates(n); return n; });
-  };
-
-  const [prevWeekOpen, setPrevWeekOpen] = useState(() => [...selectedDates].some(d => new Set(prevWeekDays).has(d)));
-  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
-  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
-
-  const saveFilters = (filters: Set<string>) => saveWithExpiry(storage, 'karting_comp_filters', [...filters]);
-  const toggleFilter = (key: string) => {
-    setActiveFilters(prev => {
-      const n = new Set(prev);
-      n.has(key) ? n.delete(key) : n.add(key);
-      saveFilters(n); return n;
-    });
-  };
-  const allActive = activeFilters.size === FORMAT_FILTERS.length;
-  const toggleAll = () => {
-    if (allActive) { setActiveFilters(new Set()); saveFilters(new Set()); }
-    else { const all = new Set(FORMAT_FILTERS.map(f => f.key)); setActiveFilters(all); saveFilters(all); }
-  };
-  const toggleSort = () => { const next = sortDir === 'desc' ? 'asc' : 'desc'; setSortDir(next); saveWithExpiry(storage, 'karting_comp_sort', next); };
-
-  const filtered = competitions
-    .filter(c => activeFilters.has(c.format))
-    .filter(c => selectedDates.size === 0 || selectedDates.has(compDates.get(c.id) || ''))
-    .sort((a, b) => {
-      if (a.status === 'live' && b.status !== 'live') return -1;
-      if (a.status !== 'live' && b.status === 'live') return 1;
-      const cmp = (compDates.get(a.id) || '').localeCompare(compDates.get(b.id) || '');
-      return sortDir === 'desc' ? -cmp : cmp;
-    });
-
-  const DateBtn = ({ d }: { d: string }) => {
-    const isToday = d === todayStr;
-    const names = dateCompNames[d] || [];
-    const hasData = names.length > 0;
-    const isActive = selectedDates.has(d);
-    const dayDate = new Date(d + 'T00:00:00');
-    const label = `${DAY_NAMES[dayDate.getDay()]} ${String(dayDate.getDate()).padStart(2, '0')}.${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
-    return (
-      <button
-        onClick={() => hasData && toggleDate(d)}
-        className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
-          isActive ? 'bg-primary-600 text-white ring-1 ring-primary-400' :
-          isToday ? 'bg-green-600/20 text-green-400' :
-          hasData ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
-          'bg-dark-900 text-dark-700 cursor-default'
-        }`}
-      >
-        <span>{label}</span>
-        <span className={`text-[9px] ${isActive ? 'text-white/70' : 'text-dark-500'}`}>{hasData ? names.join(', ') : '–'}</span>
-      </button>
-    );
-  };
-
-  const SelectAllBtn = ({ dates }: { dates: string[] }) => {
-    const withData = dates.filter(d => dateCompNames[d]);
-    const notSelected = withData.filter(d => !selectedDates.has(d));
-    if (notSelected.length === 0) return null;
-    return (
-      <button onClick={(e) => { e.stopPropagation(); selectDates(withData); }}
-        className="bg-primary-600/20 text-primary-400 hover:bg-primary-600/40 text-[11px] font-bold rounded px-1.5 py-0.5 transition-colors ml-1.5 leading-none">
-        +{notSelected.length}
-      </button>
-    );
-  };
-
-  const yearMonths = useMemo(() => {
-    const map = new Map<string, Set<number>>();
-    for (const d of allCompDates) {
-      const thisSet = new Set(thisWeekDays);
-      const prevSet = new Set(prevWeekDays);
-      if (thisSet.has(d) || prevSet.has(d)) continue;
-      const y = d.slice(0, 4);
-      const m = parseInt(d.slice(5, 7)) - 1;
-      if (!map.has(y)) map.set(y, new Set());
-      map.get(y)!.add(m);
-    }
-    const currentYear = String(new Date().getFullYear());
-    for (const d of [...thisWeekDays, ...prevWeekDays]) {
-      if (!dateCompNames[d]) continue;
-      const y = d.slice(0, 4);
-      if (y === currentYear) continue;
-      const m = parseInt(d.slice(5, 7)) - 1;
-      if (!map.has(y)) map.set(y, new Set());
-      map.get(y)!.add(m);
-    }
-    return map;
-  }, [allCompDates, dateCompNames]);
-
-  const thisWeekWithData = thisWeekDays.filter(d => dateCompNames[d]);
-  const prevWeekWithData = prevWeekDays.filter(d => dateCompNames[d]);
-
-  return (
-    <div className="space-y-4">
-      <div className="card p-3 space-y-3">
-        <div>
-          <div className="text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 flex items-center">
-            Цей тиждень
-            <SelectAllBtn dates={thisWeekDays} />
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {thisWeekDays.map(d => <DateBtn key={d} d={d} />)}
-          </div>
-        </div>
-        {prevWeekDays.length > 0 && (
-          <div>
-            <button onClick={() => setPrevWeekOpen(v => !v)}
-              className="flex items-center gap-1.5 text-dark-500 text-[10px] font-semibold uppercase tracking-wider mb-1.5 hover:text-dark-300 transition-colors">
-              <span className={`transition-transform text-[8px] ${prevWeekOpen ? 'rotate-90' : ''}`}>&#9654;</span>
-              Попередній тиждень
-              <SelectAllBtn dates={prevWeekDays} />
-            </button>
-            {prevWeekOpen && (
-              <div className="flex flex-wrap gap-1.5">
-                {prevWeekDays.map(d => <DateBtn key={d} d={d} />)}
-              </div>
-            )}
-          </div>
-        )}
-        {[...yearMonths.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([year, months]) => {
-          const currentYear = String(new Date().getFullYear());
-          const yearDates = allCompDates.filter(d => {
-            if (!d.startsWith(year)) return false;
-            if (year === currentYear) return !new Set(thisWeekDays).has(d) && !new Set(prevWeekDays).has(d);
-            return true;
-          });
-          return (
-            <div key={year}>
-              <button onClick={() => { const n = new Set(expandedYears); n.has(year) ? n.delete(year) : n.add(year); setExpandedYears(n); }}
-                className="flex items-center gap-1.5 text-dark-300 hover:text-white text-xs font-medium transition-colors">
-                <span className={`text-[10px] transition-transform ${expandedYears.has(year) ? 'rotate-90' : ''}`}>&#9654;</span>
-                {year}
-                <SelectAllBtn dates={yearDates} />
-              </button>
-              {expandedYears.has(year) && (
-                <div className="ml-4 mt-1 space-y-2">
-                  {[...months].sort((a, b) => b - a).map(month => {
-                    const monthKey = `${year}-${month}`;
-                    const weeks = getWeeksInMonth(parseInt(year), month);
-                    const monthDates = yearDates.filter(d => d.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`));
-                    return (
-                      <div key={monthKey}>
-                        <button onClick={() => { const n = new Set(expandedMonths); n.has(monthKey) ? n.delete(monthKey) : n.add(monthKey); setExpandedMonths(n); }}
-                          className="flex items-center gap-1.5 text-dark-400 hover:text-white text-xs transition-colors">
-                          <span className={`text-[8px] transition-transform ${expandedMonths.has(monthKey) ? 'rotate-90' : ''}`}>&#9654;</span>
-                          {MONTH_NAMES[month]}
-                          <SelectAllBtn dates={monthDates} />
-                        </button>
-                        {expandedMonths.has(monthKey) && (
-                          <div className="ml-3 mt-1 space-y-1">
-                            {weeks.map((weekDays, wi) => (
-                              <div key={wi} className="flex flex-wrap gap-1.5">
-                                {weekDays.map(d => <DateBtn key={d} d={d} />)}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex gap-1 flex-wrap items-center">
-        <button onClick={toggleAll}
-          className={`px-2 py-1 rounded text-xs font-medium transition-colors ${allActive ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600'}`}>
-          Все
-        </button>
-        {FORMAT_FILTERS.map(f => (
-          <button key={f.key} onClick={() => toggleFilter(f.key)}
-            className={`px-2 py-1 rounded text-xs font-medium transition-colors ${activeFilters.has(f.key) ? 'bg-primary-600/20 text-primary-400' : 'bg-dark-800 text-dark-600 hover:text-dark-400'}`}>
-            {f.label}
-          </button>
-        ))}
-        <button onClick={toggleSort}
-          className="px-2 py-1 rounded text-xs font-medium bg-dark-800 text-dark-500 hover:text-dark-300 transition-colors ml-1">
-          Дата {sortDir === 'desc' ? '↓' : '↑'}
-        </button>
-      </div>
-      {filtered.length === 0 ? (
-        <div className="card text-center py-12 text-dark-500">Немає змагань</div>
-      ) : (
-        <div className="space-y-2">
-          {filtered.map(c => (
-            <CompetitionListItem key={c.id} competition={c} type={c.format} onDelete={(id) => setCompetitions(prev => prev.filter(x => x.id !== id))} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, sessionLaps, compSessions, isScrubbing, scrubTime, onEntriesUpdate }: {
-  competition: Competition;
-  liveSessionId: string | null;
-  liveEntries: any[];
-  liveTeams: any[];
-  sessionLaps: Map<string, SessionLap[]>;
-  compSessions: SessionTableRow[];
-  isScrubbing: boolean;
-  scrubTime: number | null;
-  onEntriesUpdate?: (entries: TimingEntry[]) => void;
-}) {
-  const excludedLapSet = useMemo(() => new Set(competition.results?.excludedLaps || []), [competition.results?.excludedLaps]);
-  const effectiveLaps = useMemo(() => {
-    if (excludedLapSet.size === 0) return sessionLaps;
-    const filtered = new Map<string, SessionLap[]>();
-    for (const [sid, laps] of sessionLaps) {
-      filtered.set(sid, laps.filter(l => !excludedLapSet.has(`${sid}|${l.pilot}|${l.ts}`)));
-    }
-    return filtered;
-  }, [sessionLaps, excludedLapSet]);
-  const currentPhase = useMemo(() => {
-    if (!liveSessionId) return null;
-    const s = competition.sessions.find(cs => cs.sessionId === liveSessionId);
-    return s?.phase ?? null;
-  }, [competition.sessions, liveSessionId]);
-
-  const isQualifying = currentPhase?.startsWith('qualifying') ?? false;
-  const isRace = (currentPhase?.startsWith('race_') || currentPhase?.startsWith('final_') || currentPhase?.startsWith('round_')) ?? false;
-  const groupCount = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? undefined;
-
-  const sessionEnded = useMemo(() => {
-    if (!liveSessionId || isScrubbing) return false;
-    const cs = compSessions.find(s => s.id === liveSessionId);
-    return cs ? cs.end_time !== null && cs.end_time !== undefined : false;
-  }, [liveSessionId, compSessions, isScrubbing]);
-
-  const laps = liveSessionId ? (effectiveLaps.get(liveSessionId) || []) : [];
-  const hasData = laps.length > 0 || liveEntries.length > 0;
-
-  const [events, setEvents] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (!liveSessionId) { setEvents([]); return; }
-    let cancelled = false;
-    const fetchEvents = async () => {
-      try {
-        const res = await fetch(`${COLLECTOR_URL}/db/events?session=${liveSessionId}`);
-        if (res.ok && !cancelled) setEvents(await res.json());
-      } catch {}
-    };
-    fetchEvents();
-    const timer = setInterval(fetchEvents, 3000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [liveSessionId]);
-
-  const { s1Events, snapshots } = useMemo(() => parseSessionEvents(events), [events]);
-
-  const replayLaps = useMemo(() => buildReplayLaps(laps as any), [laps]);
-
-  const sessionStartTime = useMemo(() => {
-    if (!liveSessionId) return undefined;
-    const cs = compSessions.find(s => s.id === liveSessionId);
-    return cs?.start_time ?? undefined;
-  }, [liveSessionId, compSessions]);
-
-  const durationSec = useMemo(() => {
-    if (!sessionStartTime) return 0;
-    if (isScrubbing && scrubTime != null) {
-      return Math.max(0, (scrubTime - sessionStartTime) / 1000);
-    }
-    const cs = compSessions.find(s => s.id === liveSessionId);
-    const endTime = cs?.end_time ?? Date.now();
-    return Math.max(0, (endTime - sessionStartTime) / 1000);
-  }, [sessionStartTime, liveSessionId, compSessions, laps, isScrubbing, scrubTime]);
-
-  const mappedLiveEntries = useMemo(() => {
-    return liveEntries.map((e: any) => ({
-      position: e.position ?? 0,
-      pilot: e.pilot,
-      kart: e.kart ?? 0,
-      lastLap: e.lastLap ?? null,
-      s1: e.s1 ?? null,
-      s2: e.s2 ?? null,
-      bestLap: e.bestLap ?? null,
-      lapNumber: e.lapNumber ?? 0,
-      bestS1: e.bestS1 ?? null,
-      bestS2: e.bestS2 ?? null,
-      progress: e.progress ?? null,
-      currentLapSec: null,
-      previousLapSec: null,
-    }));
-  }, [liveEntries]);
-
-  const { raceGroup, isRace: isRacePhase } = useMemo(() => extractCompetitionReplayProps(currentPhase), [currentPhase]);
-
-  const isCL = competition.format === 'champions_league';
-  const isSprint = competition.format === 'sprint';
-  const excludedPilots = new Set<string>(competition.results?.excludedPilots || []);
-
-  const { startPositions, totalPilots } = useMemo(() => {
-    if (!isRace) return { startPositions: undefined, totalPilots: 0 };
-
-    // Gonzales rounds are time attacks — no start positions
-    if (currentPhase?.startsWith('round_')) return { startPositions: undefined, totalPilots: 0 };
-
-    const raceMatch = currentPhase!.match(/^race_(\d+)_group_(\d+)$/);
-    const finalMatch = !raceMatch ? currentPhase!.match(/^final_group_(\d+)$/) : null;
-    const raceNum = raceMatch ? parseInt(raceMatch[1]) : (finalMatch ? 3 : 1);
-    const groupNum = raceMatch ? parseInt(raceMatch[2]) : (finalMatch ? parseInt(finalMatch[1]) : 1);
-
-    const isSprint = competition.format === 'sprint';
-
-    const qualiPhasePrefix = isSprint ? `qualifying_${raceNum}_` : 'qualifying';
-    const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith(qualiPhasePrefix));
-    const qualiData = new Map<string, { bestTime: number; pilot: string }>();
-    for (const qs of qualiSessions) {
-      for (const l of (effectiveLaps.get(qs.sessionId) || [])) {
-        const sec = parseLapSec(l.lap_time);
-        if (sec === null || sec < 38) continue;
-        const ex = qualiData.get(l.pilot);
-        if (!ex || sec < ex.bestTime) qualiData.set(l.pilot, { bestTime: sec, pilot: l.pilot });
-      }
-    }
-    const qualiSorted = [...qualiData.entries()]
-      .filter(([p]) => !excludedPilots.has(p))
-      .sort((a, b) => a[1].bestTime - b[1].bestTime);
-    const maxQualified = competition.results?.racePilotCount ?? (isCL ? 24 : 36);
-    const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
-
-    if (isSprint) {
-      if (finalMatch) {
-        const qualiSessions1 = competition.sessions.filter(s => s.phase?.startsWith('qualifying_1_'));
-        const qualiSessions2 = competition.sessions.filter(s => s.phase?.startsWith('qualifying_2_'));
-        const raceSessions1 = competition.sessions.filter(s => s.phase?.startsWith('race_1_'));
-        const raceSessions2 = competition.sessions.filter(s => s.phase?.startsWith('race_2_'));
-
-        const bestTimeMap = (sessions: typeof qualiSessions1) => {
-          const map = new Map<string, number>();
-          for (const qs of sessions) {
-            for (const l of (effectiveLaps.get(qs.sessionId) || [])) {
-              const sec = parseLapSec(l.lap_time);
-              if (sec === null || sec < 38) continue;
-              const ex = map.get(l.pilot);
-              if (!ex || sec < ex) map.set(l.pilot, sec);
-            }
-          }
-          return map;
-        };
-
-        const q1Times = bestTimeMap(qualiSessions1);
-        const q2Times = bestTimeMap(qualiSessions2);
-        const allPilots = new Set([...q1Times.keys(), ...q2Times.keys()]);
-
-        const raceFinishOrder = (sessions: typeof raceSessions1) => {
-          const byGroup = new Map<number, { pilot: string; lapCount: number; lastPos: number; lastTs: number; bestTime: number }[]>();
-          for (const rs of sessions) {
-            const gMatch = rs.phase?.match(/group_(\d+)/);
-            const gNum = gMatch ? parseInt(gMatch[1]) : 0;
-            for (const l of (effectiveLaps.get(rs.sessionId) || [])) {
-              if (excludedPilots.has(l.pilot)) continue;
-              const sec = parseLapSec(l.lap_time);
-              if (sec === null || sec < 38) continue;
-              let arr = byGroup.get(gNum);
-              if (!arr) { arr = []; byGroup.set(gNum, arr); }
-              const ex = arr.find(p => p.pilot === l.pilot);
-              if (!ex) {
-                arr.push({ pilot: l.pilot, lapCount: 1, lastPos: l.position ?? 99, lastTs: l.ts, bestTime: sec });
-              } else {
-                ex.lapCount++;
-                if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPos = l.position ?? 99; }
-                if (sec < ex.bestTime) ex.bestTime = sec;
-              }
-            }
-          }
-          const finishMap = new Map<string, { finishPos: number; group: number; bestTime: number }>();
-          for (const [group, pilots] of byGroup) {
-            pilots.sort((a, b) => {
-              if (a.lapCount !== b.lapCount) return b.lapCount - a.lapCount;
-              if (a.lastPos !== b.lastPos) return a.lastPos - b.lastPos;
-              return a.lastTs - b.lastTs;
-            });
-            pilots.forEach((p, i) => finishMap.set(p.pilot, { finishPos: i + 1, group, bestTime: p.bestTime }));
-          }
-          return finishMap;
-        };
-
-        const r1Finish = raceFinishOrder(raceSessions1);
-        const r2Finish = raceFinishOrder(raceSessions2);
-
-        const speedPerGroup = (finishData: Map<string, { finishPos: number; group: number; bestTime: number }>) => {
-          const groups = new Map<number, { pilot: string; time: number }[]>();
-          for (const [pilot, d] of finishData) {
-            let arr = groups.get(d.group);
-            if (!arr) { arr = []; groups.set(d.group, arr); }
-            arr.push({ pilot, time: d.bestTime });
-          }
-          const speedMap = new Map<string, number>();
-          for (const [, pilots] of groups) {
-            pilots.sort((a, b) => a.time - b.time);
-            if (pilots.length > 0) speedMap.set(pilots[0].pilot, 1);
-          }
-          return speedMap;
-        };
-
-        const r1Speed = speedPerGroup(r1Finish);
-        const r2Speed = speedPerGroup(r2Finish);
-
-        const q1Sorted = [...q1Times.entries()].filter(([p]) => !excludedPilots.has(p)).sort((a, b) => a[1] - b[1]);
-        const q1Fastest = q1Sorted.length > 0 ? q1Sorted[0][0] : null;
-        const q2Sorted = [...q2Times.entries()].filter(([p]) => !excludedPilots.has(p)).sort((a, b) => a[1] - b[1]);
-        const q2Fastest = q2Sorted.length > 0 ? q2Sorted[0][0] : null;
-
-        const pointsMap = new Map<string, number>();
-        for (const pilot of allPilots) {
-          if (excludedPilots.has(pilot)) continue;
-          let pts = 0;
-          if (pilot === q1Fastest) pts += 1;
-          if (pilot === q2Fastest) pts += 1;
-          const r1 = r1Finish.get(pilot);
-          if (r1) pts += getSprintPositionPoints(r1.finishPos) + (r1Speed.get(pilot) || 0);
-          const r2 = r2Finish.get(pilot);
-          if (r2) pts += getSprintPositionPoints(r2.finishPos) + (r2Speed.get(pilot) || 0);
-          pointsMap.set(pilot, pts);
-        }
-
-        const sorted = [...pointsMap.entries()]
-          .sort((a, b) => {
-            if (b[1] !== a[1]) return b[1] - a[1];
-            const q1a = q1Times.get(a[0]) ?? Infinity;
-            const q1b = q1Times.get(b[0]) ?? Infinity;
-            return q1a - q1b;
-          });
-
-        const n = sorted.length;
-        const maxGrps = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? (n <= 14 ? 1 : n <= 29 ? 2 : 3);
-        const buckets: string[][] = Array.from({ length: maxGrps }, () => []);
-        const baseSize = Math.floor(n / maxGrps);
-        let rem = n % maxGrps;
-        let bIdx = 0;
-        for (let g = 0; g < maxGrps; g++) {
-          const size = baseSize + (rem > 0 ? 1 : 0);
-          if (rem > 0) rem--;
-          buckets[g] = sorted.slice(bIdx, bIdx + size).map(([p]) => p);
-          bIdx += size;
-        }
-
-        const sp = new Map<string, number>();
-        if (groupNum <= buckets.length) {
-          buckets[groupNum - 1].forEach((p, pi) => { sp.set(p, pi + 1); });
-        }
-
-        const totalPilotsOverride = competition.results?.totalPilotsOverride ?? null;
-        const pilotsLocked = competition.results?.totalPilotsLocked ?? false;
-        const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : n;
-        return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
-      }
-
-      const groups = splitIntoGroupsSprint(qualifiedPilots);
-      const sp = new Map<string, number>();
-      if (groupNum <= groups.length) {
-        const g = groups[groupNum - 1];
-        g.pilots.forEach((p, pi) => { sp.set(p, pi + 1); });
-      }
-      const totalPilotsOverride = competition.results?.totalPilotsOverride ?? null;
-      const pilotsLocked = competition.results?.totalPilotsLocked ?? false;
-      const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
-      return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
-    }
-
-    const maxGroups = competition.results?.groupCountOverride ?? competition.results?.autoDetectedGroups ?? (qualifiedPilots.length <= 13 ? 1 : qualifiedPilots.length <= 26 ? 2 : 3);
-
-    let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
-    for (let r = 1; r < raceNum; r++) {
-      const rSessions = competition.sessions.filter(s => s.phase?.startsWith(`race_${r}_`));
-      const raceTimes: { pilot: string; time: number }[] = [];
-      for (const rs of rSessions) {
-        for (const l of (effectiveLaps.get(rs.sessionId) || [])) {
-          const sec = parseLapSec(l.lap_time);
-          if (sec === null || sec < 38) continue;
-          const ex = raceTimes.find(rt => rt.pilot === l.pilot);
-          if (!ex) raceTimes.push({ pilot: l.pilot, time: sec });
-          else if (sec < ex.time) ex.time = sec;
-        }
-      }
-      if (raceTimes.length > 0) prevRaceTimes = raceTimes.filter(r => !excludedPilots.has(r.pilot));
-    }
-
-    const prevSorted = [...prevRaceTimes]
-      .filter(p => !excludedPilots.has(p.pilot))
-      .sort((a, b) => a.time - b.time)
-      .slice(0, maxQualified);
-    const groups = splitIntoGroups(prevSorted.map(p => p.pilot), maxGroups);
-    const sp = new Map<string, number>();
-    if (groupNum <= groups.length) {
-      const g = groups[groupNum - 1];
-      g.pilots.forEach((p, pi) => { sp.set(p, g.pilots.length - pi); });
-    }
-
-    const totalPilotsOverride = competition.results?.totalPilotsOverride ?? null;
-    const pilotsLocked = competition.results?.totalPilotsLocked ?? false;
-    const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
-
-    return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
-  }, [competition, effectiveLaps, currentPhase, excludedPilots, isCL]);
-
-  const gonzalesPilotSuffix = useMemo<Map<string, string>>(() => {
-    if (competition.format !== 'gonzales' || !currentPhase?.startsWith('round_')) return new Map();
-    const cfg = competition.results?.gonzalesConfig;
-    const pilotStartSlots: Record<string, number> = cfg?.pilotStartSlots || {};
-    const kartListCfg: number[] = cfg?.kartList || [];
-
-    const roundMatch = currentPhase.match(/^round_(\d+)/);
-    if (!roundMatch) return new Map();
-    const roundNum = parseInt(roundMatch[1]) - 1;
-
-    const allPilots = Object.keys(pilotStartSlots);
-    if (allPilots.length === 0 || kartListCfg.length === 0) return new Map();
-
-    const slots = buildGonzalesRotation(kartListCfg, allPilots.length, cfg?.slotOrder ?? undefined);
-    const kartToPilot = new Map<number, string>();
-    for (const pilot of allPilots) {
-      const startSlot = pilotStartSlots[pilot];
-      if (startSlot == null || startSlot < 0) continue;
-      const slot = getGonzalesKartForRound(slots, startSlot, roundNum);
-      if (slot.kart !== null) kartToPilot.set(slot.kart, pilot);
-    }
-
-    const suffix = new Map<string, string>();
-    const seen = new Set<number>();
-    for (const entry of laps) {
-      if (!entry.kart || seen.has(entry.kart)) continue;
-      seen.add(entry.kart);
-      const gonzPilot = kartToPilot.get(entry.kart);
-      const parts = gonzPilot?.trim().split(' ').filter(Boolean);
-      const surname = parts?.[0];
-      if (entry.pilot.startsWith('Карт ') && surname) {
-        suffix.set(entry.pilot, `(${surname})`);
-      } else if (gonzPilot && entry.pilot !== gonzPilot && surname) {
-        suffix.set(entry.pilot, `(${surname})`);
-      }
-    }
-    return suffix;
-  }, [competition, currentPhase, laps]);
-
-  const noActiveSession = !liveSessionId || (!isQualifying && !isRace) || !hasData || sessionEnded;
-  useEffect(() => {
-    if (noActiveSession) onEntriesUpdate?.([]);
-  }, [noActiveSession]);
-
-  if (noActiveSession) {
-    return (
-      <div className="card p-0 overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-dark-800">
-          <h3 className="text-dark-500 font-semibold text-sm">Немає активного заїзду</h3>
-        </div>
-      </div>
-    );
-  }
-
-  const phaseLabel = currentPhase ? getPhaseLabel(competition.format, currentPhase, groupCount) : '';
-
-  return (
-    <div>
-      <div className="px-1 py-1.5">
-        <h3 className="text-white font-semibold text-sm">{phaseLabel}</h3>
-      </div>
-      <SessionReplay
-        laps={replayLaps}
-        durationSec={durationSec}
-        sessionStartTime={sessionStartTime}
-        isLive={!sessionEnded}
-        autoPlay
-        liveEntries={isScrubbing ? undefined : mappedLiveEntries}
-        s1Events={s1Events}
-        snapshots={snapshots}
-        startPositions={startPositions}
-        raceGroup={raceGroup}
-        totalQualifiedPilots={totalPilots}
-        competitionFormat={competition.format}
-        hidePoints={isSprint}
-        defaultSortMode={isRace && !currentPhase?.startsWith('round_') ? 'race' : 'qualifying'}
-        showScrubber={false}
-        pilotSuffix={gonzalesPilotSuffix.size > 0 ? gonzalesPilotSuffix : undefined}
-        onEntriesUpdate={onEntriesUpdate}
-      />
-    </div>
-  );
-}
-
-
-function getCompetitionDisplayName(c: Competition): string {
-  let name = c.name.replace(/Тр\.\s*/g, 'Траса ');
-  if (c.sessions.length > 0) {
-    const firstSid = c.sessions[0].sessionId;
-    const m = firstSid.match(/session-(\d+)/);
-    if (m) {
-      const d = new Date(parseInt(m[1]));
-      const realDate = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getFullYear()).slice(2)}`;
-      name = name.replace(/\d{2}\.\d{2}\.\d{2}/, realDate);
-    }
-  }
-  const resultsTrackId = (typeof c.results === 'string' ? JSON.parse(c.results) : c.results)?.trackId;
-  if (resultsTrackId != null) {
-    name = name.replace(/Траса\s*\d+R?/, `Траса ${trackDisplayId(resultsTrackId)}`);
-  }
-  return name;
-}
-
-const COMP_LIST_NAMES: Record<string, string> = {
-  gonzales: 'Гонзалес',
-  light_league: 'Лайт ліга',
-  champions_league: 'Ліга Чемп',
-  sprint: 'Спринт',
-  marathon: 'Марафон',
-};
-
-function CompetitionListItem({ competition: c, type, onDelete }: { competition: Competition; type: string; onDelete?: (id: string) => void }) {
-  const { isOwner } = useAuth();
-  const [confirming, setConfirming] = useState(false);
-
-  const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
-  const isGonzales = c.format === 'gonzales';
-  let top3: { pilot: string; value: number }[] = [];
-  try {
-    const pilots = results?.standings?.pilots;
-    if (Array.isArray(pilots)) {
-      if (isGonzales) {
-        top3 = pilots
-          .filter((p: any) => p.averageTime != null)
-          .sort((a: any, b: any) => a.averageTime - b.averageTime)
-          .slice(0, 3)
-          .map((p: any) => ({ pilot: p.pilot, value: p.averageTime }));
-      } else {
-        top3 = pilots.slice(0, 3).map((p: any) => ({ pilot: p.pilot, value: p.totalPoints }));
-      }
-    }
-  } catch {}
-
-  const compDate = (() => {
-    if (c.sessions.length > 0) {
-      const m = c.sessions[0].sessionId.match(/session-(\d+)/);
-      if (m) {
-        const d = new Date(parseInt(m[1]));
-        return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
-      }
-    }
-    return c.date || '';
-  })();
-
-  const trackId = results?.trackId;
-  const compLabel = (COMP_LIST_NAMES[c.format] || c.format) + (trackId != null ? `, ${trackDisplayId(trackId)}` : '');
-
-  const handleDelete = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!confirming) { setConfirming(true); return; }
-    try {
-      await fetch(`${COLLECTOR_URL}/competitions/${encodeURIComponent(c.id)}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${ADMIN_TOKEN}` },
-      });
-      onDelete?.(c.id);
-    } catch {}
-    setConfirming(false);
-  };
-
-  return (
-    <Link to={`/results/${type}/${c.id}`}
-      className="card px-4 py-2.5 block hover:bg-dark-700/50 transition-colors">
-      <div className="flex items-center gap-3">
-        <span className="text-white font-semibold text-sm w-[11em] shrink-0">{compDate}, {compLabel}</span>
-        {c.status === 'live' && (
-          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-500/15 text-green-400 shrink-0">
-            Live
-          </span>
-        )}
-        {top3.length > 0 && (
-          <div className="flex flex-col text-xs font-mono min-w-0">
-            {top3.map((p, i) => (
-              <span key={p.pilot} className="flex items-center gap-1 whitespace-nowrap leading-tight">
-                <span className={i === 0 ? 'text-yellow-400' : i === 1 ? 'text-dark-400' : 'text-amber-700'}>{i + 1}.</span>
-                <span className="text-white inline-block w-[12ch] truncate">{shortName(p.pilot)}</span>
-                <span className="text-green-400 tabular-nums">{isGonzales ? `${p.value.toFixed(2)}с` : p.value}</span>
-              </span>
-            ))}
-          </div>
-        )}
-        {isOwner && (
-          <button
-            onClick={handleDelete}
-            onBlur={() => setConfirming(false)}
-            className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors shrink-0 ${
-              confirming ? 'bg-red-600 text-white' : 'text-dark-600 hover:text-red-400'
-            }`}
-            title="Видалити змагання">
-            {confirming ? 'Точно?' : '✕'}
-          </button>
-        )}
-      </div>
-    </Link>
-  );
-}

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../services/auth';
 import { Navigate, Link } from 'react-router-dom';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import { fmtBytes } from '../../utils/timing';
+import { LoadingState } from '../../components/States';
 
 export default function DatabaseStats() {
   const { isOwner } = useAuth();
@@ -14,8 +15,8 @@ export default function DatabaseStats() {
     let active = true;
     (async () => {
       try {
-        const res = await fetch(`${COLLECTOR_URL}/status`);
-        if (res.ok && active) setStatus(await res.json());
+        const data = await api.status();
+        if (active) setStatus(data);
       } catch { /* ignore */ }
       if (active) setLoading(false);
     })();
@@ -41,7 +42,7 @@ export default function DatabaseStats() {
       </div>
 
       {loading ? (
-        <div className="card text-center py-12 text-dark-500">Завантаження...</div>
+        <LoadingState />
       ) : !db ? (
         <div className="card text-center py-12 text-dark-500">Collector недоступний</div>
       ) : (

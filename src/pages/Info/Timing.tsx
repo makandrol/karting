@@ -6,9 +6,10 @@ import { useTimingPoller } from '../../services/timingPoller';
 import { useTrack } from '../../services/trackContext';
 import { trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
 import { useAuth } from '../../services/auth';
-import { COLLECTOR_URL } from '../../services/config';
+import { COLLECTOR_URL, api } from '../../services/api';
 import { Link, useNavigate } from 'react-router-dom';
 import { shortName, fetchRaceStartPositions, isValidSession } from '../../utils/timing';
+import { fmtDateISO } from '../../utils/datetime';
 import type { TimingEntry } from '../../types';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
@@ -35,15 +36,10 @@ export default function Timing() {
   const currentSessionId = (collectorStatus as any)?.sessionId || null;
   const currentRaceNumber = (collectorStatus as any)?.raceNumber ?? null;
 
-  const competition = (collectorStatus as any)?.competition ?? null;
-  const isCompetition = competition?.state && !['none', 'finished'].includes(competition.state);
-  const sessionType = isCompetition ? (competition.competition?.name || 'Змагання') : 'Прокат';
-
   const [liveSessionComp, setLiveSessionComp] = useState<{ competitionId: string | null; format: string | null; phase: string | null }>({ competitionId: null, format: null, phase: null });
   useEffect(() => {
     if (!currentSessionId) { setLiveSessionComp({ competitionId: null, format: null, phase: null }); return; }
-    fetch(`${COLLECTOR_URL}/db/session-competition?session=${currentSessionId}`)
-      .then(r => r.json())
+    api.sessions.competitionInfo(currentSessionId)
       .then(data => setLiveSessionComp({ competitionId: data.competitionId || null, format: data.format || null, phase: data.phase || null }))
       .catch(() => {});
   }, [currentSessionId]);
@@ -76,11 +72,10 @@ export default function Timing() {
 
   useEffect(() => {
     const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    fetch(`${COLLECTOR_URL}/db/sessions?date=${todayStr}`)
-      .then(r => r.json())
-      .then((data: RecentSession[]) => {
-        setRecentSessions(data.filter(s => s.end_time && isValidSession(s)).slice(-5).reverse());
+    const todayStr = fmtDateISO(now);
+    api.sessions.byDate(todayStr)
+      .then((data) => {
+        setRecentSessions((data as unknown as RecentSession[]).filter(s => s.end_time && isValidSession(s)).slice(-5).reverse());
       })
       .catch(() => {});
   }, []);
@@ -89,8 +84,8 @@ export default function Timing() {
     if (!currentSessionId) { setReplayLaps([]); setS1Events([]); setReplaySnapshots([]); return; }
     try {
       const [lapsRes, eventsRes] = await Promise.all([
-        fetch(`${COLLECTOR_URL}/db/laps?session=${currentSessionId}`).then(r => r.json()),
-        fetch(`${COLLECTOR_URL}/db/events?session=${currentSessionId}`).then(r => r.json()).catch(() => []),
+        api.laps.bySession(currentSessionId),
+        api.events.bySessionSafe(currentSessionId),
       ]);
       setReplayLaps(lapsRes);
       const parsed = parseSessionEvents(eventsRes);
@@ -189,8 +184,7 @@ export default function Timing() {
             currentCompetitionId={liveSessionComp.competitionId}
             onChanged={() => {
               if (currentSessionId) {
-                fetch(`${COLLECTOR_URL}/db/session-competition?session=${currentSessionId}`)
-                  .then(r => r.json())
+                api.sessions.competitionInfo(currentSessionId)
                   .then(data => setLiveSessionComp({ competitionId: data.competitionId || null, format: data.format || null, phase: data.phase || null }))
                   .catch(() => {});
               }

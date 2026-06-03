@@ -1,5 +1,6 @@
 import { splitIntoGroups, splitIntoGroupsSprint, buildGonzalesRotation } from '../data/competitions';
 import { mergePilotNames } from './timing';
+import { FORMAT_DEFAULT_RACE_PILOTS } from './competitionLinking';
 
 export interface SessionLap {
   pilot: string;
@@ -110,7 +111,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
   const qualiSorted = [...qualiData.entries()]
     .filter(([p]) => !excludedPilots.has(p))
     .sort((a, b) => a[1].bestTime - b[1].bestTime);
-  const defaultMaxQualified = format === 'champions_league' ? 24 : 36;
+  const defaultMaxQualified = FORMAT_DEFAULT_RACE_PILOTS[format] ?? 36;
   const maxQualified = racePilotCount ?? defaultMaxQualified;
   const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
   const disqualifiedPilots = new Set(qualiSorted.slice(maxQualified).map(([p]) => p));

@@ -11,6 +11,22 @@ import Database from 'better-sqlite3';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdirSync } from 'node:fs';
+import {
+  buildFullPhases,
+  filterPhases as filterPhasesUtil,
+  findNextPhase,
+  allPhasesFilled,
+  isGonzalesQualifying,
+  detectGroupCountFromOverlap,
+  capGroupCount,
+  getScheduledFormat,
+  isCompetitionTime,
+  buildAutoCompetitionId,
+  buildAutoCompetitionName,
+  getKyivIsoDate,
+  COMPETITION_SCHEDULE,
+} from './competition-link-utils.js';
+import { parseCompetitionRow, mergeSessions, parseLapTimeSec, buildKartStats, MERGE_GAP_MS, remapKartNamesToPilots } from './storage-utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_DIR = join(__dirname, '..', 'data');
@@ -176,7 +192,7 @@ const stmts = {
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
   getSessionCountsByDateRange: db.prepare('SELECT date, COUNT(*) as count FROM sessions WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date'),
   getKartStats: db.prepare(`
-    SELECT l.kart, l.pilot, l.lap_time, l.ts,
+    SELECT l.session_id, l.kart, l.pilot, l.lap_time, l.ts,
       (${LAP_SEC_EXPR_L}) as lap_sec
     FROM laps l
     JOIN sessions s ON s.id = l.session_id
@@ -184,7 +200,7 @@ const stmts = {
     ORDER BY l.kart, lap_sec
   `),
   getKartStatsBySessions: db.prepare(`
-    SELECT kart, pilot, lap_time, ts,
+    SELECT session_id, kart, pilot, lap_time, ts,
       (${LAP_SEC_EXPR}) as lap_sec
     FROM laps
     WHERE ${VALID_LAP}
@@ -235,114 +251,6 @@ const stmts = {
 // Helpers
 // ============================================================
 
-function parseCompetitionRow(row) {
-  let sessions = row.sessions ? JSON.parse(row.sessions) : [];
-  // Migrate old format: ["session-123"] → [{sessionId: "session-123", phase: null}]
-  if (sessions.length > 0 && typeof sessions[0] === 'string') {
-    sessions = sessions.map(id => ({ sessionId: id, phase: null }));
-  }
-  return {
-    ...row,
-    sessions,
-    results: row.results ? JSON.parse(row.results) : null,
-    uploaded_results: row.uploaded_results ? JSON.parse(row.uploaded_results) : null,
-    status: row.status || 'live',
-  };
-}
-
-const MERGE_GAP_MS = 5 * 60 * 1000; // 5 minutes
-
-function mergeSessions(sessions) {
-  if (sessions.length <= 1) return sessions;
-  
-  // Group sessions by race_number, merging those within MERGE_GAP_MS
-  const result = [];
-  const used = new Set();
-  
-  for (let i = 0; i < sessions.length; i++) {
-    if (used.has(i)) continue;
-    const current = { ...sessions[i], _merged_ids: [sessions[i].id] };
-    used.add(i);
-    
-    if (current.race_number !== null) {
-      // Find all subsequent sessions with same race_number within gap
-      for (let j = i + 1; j < sessions.length; j++) {
-        if (used.has(j)) continue;
-        const s = sessions[j];
-        if (s.race_number !== current.race_number) continue;
-        const currentEnd = current.end_time || s.start_time; // if no end, assume it ended when next started
-        const gap = s.start_time - currentEnd;
-        if (gap < 0 || gap >= MERGE_GAP_MS) continue;
-        
-        // Merge
-        current.end_time = s.end_time || current.end_time;
-        current.pilot_count = Math.max(current.pilot_count || 0, s.pilot_count || 0);
-        if (s.real_pilot_count) {
-          current.real_pilot_count = Math.max(current.real_pilot_count || 0, s.real_pilot_count);
-          current.pilot_count = current.real_pilot_count;
-        }
-        if (s.best_lap_time && s.best_lap_pilot) {
-          const curSec = parseLapTimeSec(current.best_lap_time);
-          const newSec = parseLapTimeSec(s.best_lap_time);
-          if (newSec !== null && (curSec === null || newSec < curSec)) {
-            current.best_lap_time = s.best_lap_time;
-            current.best_lap_pilot = s.best_lap_pilot;
-            current.best_lap_kart = s.best_lap_kart;
-          }
-        }
-        current._merged_ids.push(s.id);
-        used.add(j);
-      }
-    }
-    
-    // Fix stuck live: if no end_time but there's a next session after, close it
-    if (!current.end_time) {
-      const nextIdx = sessions.findIndex((s, idx) => idx > i && !used.has(idx));
-      if (nextIdx >= 0) {
-        current.end_time = current.start_time;
-      }
-    }
-    
-    result.push(current);
-  }
-  
-  // Sort by start_time (merging may have changed order)
-  result.sort((a, b) => a.start_time - b.start_time);
-
-  return result.map(s => {
-    const merged = s._merged_ids;
-    delete s._merged_ids;
-    if (merged.length > 1) s.merged_session_ids = merged;
-    return s;
-  });
-}
-
-function parseLapTimeSec(t) {
-  if (!t) return null;
-  const m = t.match(/^(\d+):(\d+\.\d+)$/);
-  if (m) return parseInt(m[1]) * 60 + parseFloat(m[2]);
-  const s = t.match(/^\d+\.\d+$/);
-  if (s) return parseFloat(t);
-  return null;
-}
-
-function buildKartStats(rows) {
-  const byKart = new Map();
-  for (const r of rows) {
-    if (!byKart.has(r.kart)) byKart.set(r.kart, new Map());
-    const pilots = byKart.get(r.kart);
-    if (!pilots.has(r.pilot) || r.lap_sec < pilots.get(r.pilot).lap_sec) {
-      pilots.set(r.pilot, { pilot: r.pilot, lap_time: r.lap_time, lap_sec: r.lap_sec, ts: r.ts || null });
-    }
-  }
-  const result = [];
-  for (const [kart, pilots] of byKart) {
-    const top5 = [...pilots.values()].sort((a, b) => a.lap_sec - b.lap_sec).slice(0, 5);
-    result.push({ kart, top5 });
-  }
-  return result.sort((a, b) => a.kart - b.kart);
-}
-
 // ============================================================
 // Public API
 // ============================================================
@@ -390,8 +298,11 @@ export const storage = {
       let best_lap_pilot = null;
       let best_lap_kart = null;
       if (r.best_lap_time) {
-        const pilotRow = stmts.getBestLapPilot.get(r.id, r.best_lap_time);
-        if (pilotRow) { best_lap_pilot = pilotRow.pilot; best_lap_kart = pilotRow.kart; }
+        // Шукаємо власника найкращого кола серед remap-лених лапів,
+        // щоб "Карт N" правильно перепризначилися на real name.
+        const remappedLaps = remapKartNamesToPilots(stmts.getLaps.all(r.id));
+        const bestLapRow = remappedLaps.find(l => l.lap_time === r.best_lap_time);
+        if (bestLapRow) { best_lap_pilot = bestLapRow.pilot; best_lap_kart = bestLapRow.kart; }
       }
       const comp = compMap.get(r.id) || null;
       return {
@@ -420,20 +331,20 @@ export const storage = {
 
   getKartStats(fromDate, toDate) {
     const rows = stmts.getKartStats.all(fromDate, toDate);
-    return buildKartStats(rows);
+    return buildKartStats(remapKartNamesToPilots(rows));
   },
 
   getKartStatsBySessions(sessionIds) {
     if (!sessionIds || sessionIds.length === 0) return [];
     const placeholders = sessionIds.map(() => '?').join(',');
     const rows = db.prepare(`
-      SELECT kart, pilot, lap_time, ts,
+      SELECT session_id, kart, pilot, lap_time, ts,
         (${LAP_SEC_EXPR}) as lap_sec
       FROM laps
       WHERE session_id IN (${placeholders}) AND ${VALID_LAP}
       ORDER BY kart, lap_sec
     `).all(...sessionIds);
-    return buildKartStats(rows);
+    return buildKartStats(remapKartNamesToPilots(rows));
   },
 
   /** Отримати події (враховує merged sessions) */
@@ -457,17 +368,17 @@ export const storage = {
     }));
   },
 
-  /** Отримати кола за сесію (враховує merged sessions) */
+  /** Отримати кола за сесію (враховує merged sessions, ремапить "Карт N" → real names) */
   getLaps(sessionId) {
     const ids = this._getMergedIds(sessionId);
-    if (!ids) return stmts.getLaps.all(sessionId);
+    if (!ids) return remapKartNamesToPilots(stmts.getLaps.all(sessionId));
 
     const allLaps = [];
     for (const subId of ids) {
       allLaps.push(...stmts.getLaps.all(subId));
     }
     allLaps.sort((a, b) => a.ts - b.ts);
-    return allLaps;
+    return remapKartNamesToPilots(allLaps);
   },
 
   /** Знайти merged_session_ids для батьківської сесії (лёгкий SQL-запит) */
@@ -500,7 +411,7 @@ export const storage = {
   },
 
   getLapsByKart(kartNumber, fromDate, toDate) {
-    return stmts.getLapsByKart.all(kartNumber, fromDate, toDate);
+    return remapKartNamesToPilots(stmts.getLapsByKart.all(kartNumber, fromDate, toDate));
   },
 
   getKartSessionCounts(kartNumber) {
@@ -669,42 +580,58 @@ export const storage = {
     return map;
   },
 
+  /**
+   * If `now` falls inside a scheduled competition window for the day and
+   * no live competition exists yet, create a new live competition.
+   *
+   * Idempotent: if a live (or finished) competition of the scheduled format
+   * already exists for the day, returns it untouched.
+   *
+   * @param {number} now unix-ms
+   * @returns {object|null} created/existing competition row, or null
+   */
+  autoStartCompetitionIfTime(now) {
+    const format = getScheduledFormat(now);
+    if (!format) return null;
+    if (!isCompetitionTime(now)) return null;
+
+    const date = getKyivIsoDate(now);
+    const sameDay = stmts.getCompetitionsByFormat.all(format)
+      .map(parseCompetitionRow)
+      .find(c => c.date === date);
+    if (sameDay) return sameDay;
+
+    const id = buildAutoCompetitionId(format, now);
+    const trackId = _currentTrackId;
+    const name = buildAutoCompetitionName(format, now, trackId);
+
+    this.createCompetition({
+      id, name, format, date,
+      sessions: [],
+      results: null,
+      uploaded_results: null,
+      status: 'live',
+    });
+    console.log(`🆕 Auto-started competition: ${name}`);
+    return this.getCompetition(id);
+  },
+
   autoLinkSessionToActiveCompetition(sessionId) {
-    const FORMAT_MAX_GROUPS = { gonzales: 2, light_league: 3, champions_league: 2, sprint: 3, marathon: 1 };
-
-    const buildGonzalesPhases = (roundCount, groupCount) => {
-      const phases = ['qualifying_1', 'qualifying_2'];
-      for (let r = 1; r <= roundCount; r++) {
-        if (groupCount >= 2) phases.push(`round_${r}_group_2`);
-        phases.push(`round_${r}_group_1`);
-      }
-      return phases;
-    };
-
-    const FULL_PHASES = {
-      gonzales: null,
-      light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
-      champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
-      sprint: [
-        'qualifying_1_group_1', 'qualifying_1_group_2', 'qualifying_1_group_3',
-        'race_1_group_3', 'race_1_group_2', 'race_1_group_1',
-        'qualifying_2_group_1', 'qualifying_2_group_2', 'qualifying_2_group_3',
-        'race_2_group_3', 'race_2_group_2', 'race_2_group_1',
-        'final_group_3', 'final_group_2', 'final_group_1',
-      ],
-      marathon: ['race'],
-    };
-
     const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
-    const liveComp = comps.find(c => c.status === 'live');
+    let liveComp = comps.find(c => c.status === 'live');
+
+    // No live comp yet — try auto-start (Mon=Гонз, Tue=ЛЛ, Wed=ЛЧ, ≥19:30 Kyiv)
+    if (!liveComp) {
+      const sessionTs = parseInt(sessionId.replace('session-', '')) || Date.now();
+      const created = this.autoStartCompetitionIfTime(sessionTs);
+      if (!created) return null;
+      liveComp = parseCompetitionRow(stmts.getCompetition.get(created.id));
+    }
     if (!liveComp) return null;
 
     const results = liveComp.results || {};
+    const gonzalesRoundCount = results.gonzalesRoundCount ?? 12;
 
-    if (liveComp.format === 'gonzales') {
-      const rc = results.gonzalesRoundCount ?? 12;
-      FULL_PHASES.gonzales = buildGonzalesPhases(rc, 2);
-    }
     let groupCount = results.groupCountOverride || results.autoDetectedGroups || null;
 
     // Auto-detect groups by pilot overlap if not manually set
@@ -713,94 +640,57 @@ export const storage = {
       if (linkedSessions.length > 0) {
         const cumulativePilots = new Set();
         for (const ls of linkedSessions) {
-          const laps = stmts.getLaps.all(ls.sessionId);
+          const laps = this.getLaps(ls.sessionId);
           for (const l of laps) cumulativePilots.add(l.pilot);
         }
-        const newLaps = stmts.getLaps.all(sessionId);
+        const newLaps = this.getLaps(sessionId);
         const newPilots = new Set(newLaps.map(l => l.pilot));
-        if (newPilots.size > 0 && cumulativePilots.size > 0) {
-          if (liveComp.format === 'gonzales') {
-            const isKartName = (name) => /^Карт\s+\d+$/i.test(name.trim());
-            const realNames = [...newPilots].filter(p => !isKartName(p)).length;
-            const isRealNames = realNames / newPilots.size > 0.5;
 
-            let isHighLapCount = false;
-            const sessionRow = stmts.getSessionsByDate.all(new Date(parseInt(sessionId.replace('session-', ''))).toISOString().slice(0, 10))
-              .find(s => s.id === sessionId);
-            if (sessionRow?.end_time) {
-              const lapCounts = new Map();
-              for (const l of newLaps) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
-              if (lapCounts.size > 0) {
-                const maxLaps = Math.max(...lapCounts.values());
-                isHighLapCount = maxLaps >= 5;
-              }
-            }
+        if (liveComp.format === 'gonzales') {
+          // Gonzales — check pilot names + lap counts (mirrors prior behaviour)
+          const sessionRow = stmts.getSessionsByDate.all(new Date(parseInt(sessionId.replace('session-', ''))).toISOString().slice(0, 10))
+            .find(s => s.id === sessionId);
+          const isFinished = !!sessionRow?.end_time;
+          const lapCounts = new Map();
+          for (const l of newLaps) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
 
-            if (isRealNames || isHighLapCount) {
-              groupCount = linkedSessions.length + 1;
-              const maxGroups = FORMAT_MAX_GROUPS[liveComp.format] || 2;
-              groupCount = Math.min(groupCount, maxGroups);
-              this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
-              console.log(`🔍 Gonzales: detected qualifying (realNames=${realNames}/${newPilots.size}, highLaps=${isHighLapCount}), groups=${groupCount}`);
-            } else {
-              groupCount = linkedSessions.length;
-              this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
-              console.log(`🔍 Gonzales: detected round (realNames=${realNames}/${newPilots.size}, highLaps=${isHighLapCount}), groups=${groupCount}`);
-            }
+          const treatAsQualifying = isGonzalesQualifying([...newPilots], lapCounts, isFinished);
+          if (treatAsQualifying) {
+            groupCount = capGroupCount(linkedSessions.length + 1, liveComp.format);
+            this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
+            console.log(`🔍 Gonzales: detected qualifying, groups=${groupCount}`);
           } else {
-            let overlap = 0;
-            for (const p of newPilots) { if (cumulativePilots.has(p)) overlap++; }
-            const overlapRatio = overlap / newPilots.size;
-            if (overlapRatio >= 0.5) {
-              groupCount = linkedSessions.length;
-              const maxGroups = FORMAT_MAX_GROUPS[liveComp.format] || 3;
-              groupCount = Math.min(Math.max(groupCount, 1), maxGroups);
-              this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
-              console.log(`🔍 Detected ${groupCount} groups (${Math.round(overlapRatio * 100)}% overlap)`);
-            }
+            groupCount = linkedSessions.length;
+            this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
+            console.log(`🔍 Gonzales: detected round, groups=${groupCount}`);
+          }
+        } else {
+          const detection = detectGroupCountFromOverlap({
+            cumulativeQualifyingPilots: cumulativePilots,
+            newPilots,
+            qualifyingCount: linkedSessions.length,
+            format: liveComp.format,
+          });
+          if (detection.action === 'race' && detection.groupCount != null) {
+            groupCount = detection.groupCount;
+            this.updateCompetition(liveComp.id, { results: { ...results, autoDetectedGroups: groupCount } });
+            console.log(`🔍 Detected ${groupCount} groups (overlap → race)`);
           }
         }
       }
     }
 
-    const filterPhases = (phases, gc, format, results) => {
-      if (!gc && format !== 'gonzales') return phases;
-      const gonzalesRoundCount = results?.gonzalesRoundCount ?? 12;
-      return phases.filter(p => {
-        if (format === 'gonzales') {
-          if (p.startsWith('qualifying_')) {
-            if (!gc) return true;
-            return parseInt(p.split('_')[1]) <= gc;
-          }
-          const rm = p.match(/^round_(\d+)/);
-          if (rm) {
-            const roundNum = parseInt(rm[1]);
-            if (roundNum > gonzalesRoundCount) return false;
-          }
-        }
-        if (format !== 'sprint' && format !== 'gonzales' && p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= (gc || 99);
-        const gm = p.match(/group_(\d+)/);
-        if (gm) return parseInt(gm[1]) <= (gc || 99);
-        return true;
-      });
-    };
-
-    const allPhases = FULL_PHASES[liveComp.format] || [];
-    const phases = filterPhases(allPhases, groupCount, liveComp.format, results);
+    const allPhases = buildFullPhases(liveComp.format, { gonzalesRoundCount });
+    const phases = filterPhasesUtil(allPhases, groupCount, liveComp.format, { gonzalesRoundCount });
     const usedPhases = new Set(liveComp.sessions.map(s => s.phase));
 
     // All expected phases already filled — competition is effectively complete
-    if (phases.length > 0 && phases.every(p => usedPhases.has(p))) {
+    if (allPhasesFilled(phases, usedPhases)) {
       console.log(`⏭️ All ${phases.length} phases filled for ${liveComp.name}, skipping auto-link`);
       return null;
     }
 
-    let lastUsedIdx = -1;
-    for (const p of usedPhases) {
-      const idx = phases.indexOf(p);
-      if (idx > lastUsedIdx) lastUsedIdx = idx;
-    }
-    const nextPhase = lastUsedIdx < phases.length - 1 ? phases[lastUsedIdx + 1] : null;
+    const nextPhase = findNextPhase(phases, usedPhases);
     if (!nextPhase) return null;
     const sessions = [...liveComp.sessions, { sessionId, phase: nextPhase }];
     this.updateCompetition(liveComp.id, { sessions });
@@ -815,6 +705,7 @@ export const storage = {
     if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint' && comp.format !== 'gonzales') return;
 
     const results = comp.results || {};
+    const gonzalesRoundCount = results.gonzalesRoundCount ?? 12;
 
     const entry = comp.sessions.find(s => s.sessionId === sessionId);
     if (!entry || !entry.phase?.startsWith('qualifying_')) return;
@@ -822,99 +713,101 @@ export const storage = {
     const qualiSessions = comp.sessions.filter(s => s.phase?.startsWith('qualifying_') && s.sessionId !== sessionId);
     if (qualiSessions.length === 0) return;
 
-    const newLaps = stmts.getLaps.all(sessionId);
+    const newLaps = this.getLaps(sessionId);
     const newPilots = new Set(newLaps.map(l => l.pilot));
     if (newPilots.size < 3) return;
 
     if (comp.format === 'gonzales') {
-      const isKartName = (name) => /^Карт\s+\d+$/i.test(name.trim());
-      const realNames = [...newPilots].filter(p => !isKartName(p)).length;
-      const isRealNames = realNames / newPilots.size > 0.5;
-
-      let isHighLapCount = false;
       const sessionRow = stmts.getSessionsByDate.all(new Date(parseInt(sessionId.replace('session-', ''))).toISOString().slice(0, 10))
         .find(s => s.id === sessionId);
-      if (sessionRow?.end_time) {
-        const lapCounts = new Map();
-        for (const l of newLaps) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
-        if (lapCounts.size > 0) {
-          const maxLaps = Math.max(...lapCounts.values());
-          isHighLapCount = maxLaps >= 5;
-        }
-      }
-
-      if (isRealNames || isHighLapCount) return; // still a qualifying — keep as is
+      const isFinished = !!sessionRow?.end_time;
+      const lapCounts = new Map();
+      for (const l of newLaps) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
+      // Treat as qualifying → no reassignment needed
+      if (isGonzalesQualifying([...newPilots], lapCounts, isFinished)) return;
     } else {
       const cumulativePilots = new Set();
       for (const qs of qualiSessions) {
-        const laps = stmts.getLaps.all(qs.sessionId);
+        const laps = this.getLaps(qs.sessionId);
         for (const l of laps) cumulativePilots.add(l.pilot);
       }
-      if (cumulativePilots.size === 0) return;
-
-      let overlap = 0;
-      for (const p of newPilots) { if (cumulativePilots.has(p)) overlap++; }
-      const overlapRatio = overlap / newPilots.size;
-
-      if (overlapRatio < 0.5) return;
+      const detection = detectGroupCountFromOverlap({
+        cumulativeQualifyingPilots: cumulativePilots,
+        newPilots,
+        qualifyingCount: qualiSessions.length,
+        format: comp.format,
+      });
+      if (detection.action !== 'race') return;
     }
 
-    const maxGroups = { light_league: 3, champions_league: 2, sprint: 3, gonzales: 2 }[comp.format] || 3;
     const manualOrAuto = results.groupCountOverride || results.autoDetectedGroups;
     const groupCount = manualOrAuto
-      ? Math.min(manualOrAuto, maxGroups)
-      : Math.min(qualiSessions.length, maxGroups);
+      ? capGroupCount(manualOrAuto, comp.format)
+      : capGroupCount(qualiSessions.length, comp.format);
     console.log(`🔍 Session ${sessionId}: recheck → detected ${groupCount} groups, reassigning phase`);
 
-    const gonzalesRoundCount = results?.gonzalesRoundCount ?? 12;
-    const filterPhases = (phases, gc, fmt) => phases.filter(p => {
-      if (fmt === 'gonzales') {
-        if (p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
-        const rm = p.match(/^round_(\d+)/);
-        if (rm && parseInt(rm[1]) > gonzalesRoundCount) return false;
-      }
-      if (fmt !== 'sprint' && fmt !== 'gonzales' && p.startsWith('qualifying_')) return parseInt(p.split('_')[1]) <= gc;
-      const gm = p.match(/group_(\d+)/);
-      if (gm) return parseInt(gm[1]) <= gc;
-      return true;
-    });
-
-    const buildGonzalesPhases = (rc, gc) => {
-      const phases = ['qualifying_1', 'qualifying_2'];
-      for (let r = 1; r <= rc; r++) {
-        if (gc >= 2) phases.push(`round_${r}_group_2`);
-        phases.push(`round_${r}_group_1`);
-      }
-      return phases;
-    };
-
-    const FULL_PHASES = {
-      gonzales: buildGonzalesPhases(gonzalesRoundCount, 2),
-      light_league: ['qualifying_1', 'qualifying_2', 'qualifying_3', 'qualifying_4', 'race_1_group_3', 'race_1_group_2', 'race_1_group_1', 'race_2_group_3', 'race_2_group_2', 'race_2_group_1'],
-      champions_league: ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2', 'race_2_group_1', 'race_3_group_2', 'race_3_group_1'],
-      sprint: [
-        'qualifying_1_group_1', 'qualifying_1_group_2', 'qualifying_1_group_3',
-        'race_1_group_3', 'race_1_group_2', 'race_1_group_1',
-        'qualifying_2_group_1', 'qualifying_2_group_2', 'qualifying_2_group_3',
-        'race_2_group_3', 'race_2_group_2', 'race_2_group_1',
-        'final_group_3', 'final_group_2', 'final_group_1',
-      ],
-    };
-    const phases = filterPhases(FULL_PHASES[comp.format] || [], groupCount, comp.format);
+    const allPhases = buildFullPhases(comp.format, { gonzalesRoundCount });
+    const phases = filterPhasesUtil(allPhases, groupCount, comp.format, { gonzalesRoundCount });
 
     const usedPhases = comp.sessions.filter(s => s.sessionId !== sessionId).map(s => s.phase);
-    let lastUsedIdx = -1;
-    for (const p of usedPhases) {
-      const idx = phases.indexOf(p);
-      if (idx > lastUsedIdx) lastUsedIdx = idx;
-    }
-    const correctPhase = lastUsedIdx < phases.length - 1 ? phases[lastUsedIdx + 1] : null;
+    const correctPhase = findNextPhase(phases, usedPhases);
 
     if (correctPhase && correctPhase !== entry.phase) {
       const newSessions = comp.sessions.map(s => s.sessionId === sessionId ? { ...s, phase: correctPhase } : s);
       this.updateCompetition(comp.id, { sessions: newSessions, results: { ...results, autoDetectedGroups: groupCount } });
       console.log(`🔄 Reassigned ${sessionId}: ${entry.phase} → ${correctPhase}`);
     }
+  },
+
+  /**
+   * Auto-finish live competitions where all sessions ended AND either:
+   *  - all expected phases are linked (LL/CL/Sprint), OR
+   *  - the last session ended >FINISH_TIMEOUT_MS ago (timeout fallback,
+   *    used as the only signal for Gonzales since its phase count is fuzzy).
+   *
+   * Idempotent — calling twice has no extra effect (already finished comps skipped).
+   *
+   * @param {number} now unix-ms (defaults to Date.now())
+   * @returns {string[]} ids of competitions that were finished by this call
+   */
+  autoFinishCompletedCompetitions(now = Date.now()) {
+    const FINISH_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour after last session
+    const finishedIds = [];
+
+    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const live = comps.filter(c => c.status === 'live');
+
+    for (const comp of live) {
+      if (comp.sessions.length === 0) continue;
+
+      const sessionMeta = comp.sessions
+        .map(s => db.prepare('SELECT end_time FROM sessions WHERE id = ?').get(s.sessionId))
+        .filter(Boolean);
+      if (sessionMeta.length === 0) continue;
+
+      const allEnded = sessionMeta.every(s => s.end_time != null);
+      if (!allEnded) continue;
+
+      const lastEndTime = Math.max(...sessionMeta.map(s => s.end_time));
+      const timedOut = (now - lastEndTime) > FINISH_TIMEOUT_MS;
+
+      // Phase-based check: skipped for Gonzales (phase count fuzzy)
+      let phasesComplete = false;
+      if (comp.format !== 'gonzales') {
+        const groupCount = comp.results?.groupCountOverride ?? comp.results?.autoDetectedGroups;
+        const allPhases = buildFullPhases(comp.format);
+        const phases = filterPhasesUtil(allPhases, groupCount, comp.format);
+        phasesComplete = phases.length > 0 && comp.sessions.length >= phases.length;
+      }
+
+      if (phasesComplete || timedOut) {
+        this.updateCompetition(comp.id, { status: 'finished' });
+        finishedIds.push(comp.id);
+        console.log(`🏁 Auto-finished competition: ${comp.name} (${phasesComplete ? 'all phases linked' : 'timeout'})`);
+      }
+    }
+
+    return finishedIds;
   },
 
   autoUnlinkSession(sessionId) {

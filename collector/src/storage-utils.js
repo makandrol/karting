@@ -1,0 +1,176 @@
+/**
+ * Storage utilities — pure helper functions used by storage.js.
+ * Extracted from storage.js to keep main file focused on DB operations.
+ */
+
+/** Matches "Карт 1", "Карт 12", "карт 88" (case-insensitive). */
+const KART_NAME_RE = /^Карт\s+\d+$/i;
+
+/**
+ * Remap "Карт N" pilots to real pilot names within the same (sessionId, kart).
+ *
+ * Картодром на табло на старті заїзду показує карти як "Карт N" поки оператор
+ * не вписав ім'я. Перші 3-10 кіл записуються з pilot="Карт N", далі — реальне
+ * ім'я. Це створює два "пілоти" в одній сесії на одному карті.
+ *
+ * Стратегія: групуємо лапи по (session_id, kart). Якщо у групі знайдено
+ * РІВНО ОДНЕ реальне ім'я + хоча б один "Карт N" — замінюємо "Карт N" на
+ * це реальне ім'я. Усе інше (тільки "Карт N", або 2+ реальних імен на
+ * одному карті) — залишаємо без змін, щоб не ризикувати помилковим merge.
+ *
+ * @param {Array<{session_id?: string, kart: number, pilot: string}>} laps
+ * @returns {Array} new array (input not mutated)
+ */
+export function remapKartNamesToPilots(laps) {
+  if (!laps || laps.length === 0) return laps;
+
+  // Build map (session_id, kart) -> set of pilots
+  const groups = new Map();
+  for (const lap of laps) {
+    const key = `${lap.session_id ?? ''}|${lap.kart}`;
+    let entry = groups.get(key);
+    if (!entry) {
+      entry = { real: new Set(), kartNames: new Set() };
+      groups.set(key, entry);
+    }
+    if (KART_NAME_RE.test((lap.pilot || '').trim())) {
+      entry.kartNames.add(lap.pilot);
+    } else {
+      entry.real.add(lap.pilot);
+    }
+  }
+
+  // Build remap table: (session_id, kart, kartName) -> realName
+  const remap = new Map();
+  for (const [key, entry] of groups) {
+    if (entry.real.size === 1 && entry.kartNames.size > 0) {
+      const realName = [...entry.real][0];
+      for (const kartName of entry.kartNames) {
+        remap.set(`${key}|${kartName}`, realName);
+      }
+    }
+  }
+
+  if (remap.size === 0) return laps;
+
+  return laps.map(lap => {
+    const key = `${lap.session_id ?? ''}|${lap.kart}|${lap.pilot}`;
+    const realName = remap.get(key);
+    return realName ? { ...lap, pilot: realName } : lap;
+  });
+}
+
+export const MERGE_GAP_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Parse a row from competitions table — JSON-decode sessions/results. */
+export function parseCompetitionRow(row) {
+  let sessions = row.sessions ? JSON.parse(row.sessions) : [];
+  // Migrate old format: ["session-123"] → [{sessionId: "session-123", phase: null}]
+  if (sessions.length > 0 && typeof sessions[0] === 'string') {
+    sessions = sessions.map(id => ({ sessionId: id, phase: null }));
+  }
+  return {
+    ...row,
+    sessions,
+    results: row.results ? JSON.parse(row.results) : null,
+    uploaded_results: row.uploaded_results ? JSON.parse(row.uploaded_results) : null,
+    status: row.status || 'live',
+  };
+}
+
+/** Parse lap time string like "42.574" or "1:02.222" → seconds. */
+export function parseLapTimeSec(t) {
+  if (!t) return null;
+  const m = t.match(/^(\d+):(\d+\.\d+)$/);
+  if (m) return parseInt(m[1]) * 60 + parseFloat(m[2]);
+  const s = t.match(/^\d+\.\d+$/);
+  if (s) return parseFloat(t);
+  return null;
+}
+
+/**
+ * Merge sessions with the same race_number within a 5-minute gap.
+ * Timing API sometimes briefly drops, creating multiple DB sessions for one race.
+ */
+export function mergeSessions(sessions) {
+  if (sessions.length <= 1) return sessions;
+
+  const result = [];
+  const used = new Set();
+
+  for (let i = 0; i < sessions.length; i++) {
+    if (used.has(i)) continue;
+    const current = { ...sessions[i], _merged_ids: [sessions[i].id] };
+    used.add(i);
+
+    if (current.race_number !== null) {
+      for (let j = i + 1; j < sessions.length; j++) {
+        if (used.has(j)) continue;
+        const s = sessions[j];
+        if (s.race_number !== current.race_number) continue;
+        const currentEnd = current.end_time || s.start_time;
+        const gap = s.start_time - currentEnd;
+        if (gap < 0 || gap >= MERGE_GAP_MS) continue;
+
+        current.end_time = s.end_time || current.end_time;
+        current.pilot_count = Math.max(current.pilot_count || 0, s.pilot_count || 0);
+        if (s.real_pilot_count) {
+          current.real_pilot_count = Math.max(current.real_pilot_count || 0, s.real_pilot_count);
+          current.pilot_count = current.real_pilot_count;
+        }
+        if (s.best_lap_time && s.best_lap_pilot) {
+          const curSec = parseLapTimeSec(current.best_lap_time);
+          const newSec = parseLapTimeSec(s.best_lap_time);
+          if (newSec !== null && (curSec === null || newSec < curSec)) {
+            current.best_lap_time = s.best_lap_time;
+            current.best_lap_pilot = s.best_lap_pilot;
+            current.best_lap_kart = s.best_lap_kart;
+          }
+        }
+        current._merged_ids.push(s.id);
+        used.add(j);
+      }
+    }
+
+    // Fix stuck live: if no end_time but there's a next session after, close it
+    if (!current.end_time) {
+      const nextIdx = sessions.findIndex((s, idx) => idx > i && !used.has(idx));
+      if (nextIdx >= 0) {
+        current.end_time = current.start_time;
+      }
+    }
+
+    result.push(current);
+  }
+
+  result.sort((a, b) => a.start_time - b.start_time);
+
+  return result.map(s => {
+    const merged = s._merged_ids;
+    delete s._merged_ids;
+    if (merged.length > 1) s.merged_session_ids = merged;
+    return s;
+  });
+}
+
+/**
+ * Build kart statistics — top-5 fastest laps per pilot per kart.
+ * Input: rows with { kart, pilot, lap_time, lap_sec, ts }.
+ * Output: [{ kart, top5: [{pilot, lap_time, lap_sec, ts}, ...] }]
+ */
+export function buildKartStats(rows) {
+  const byKart = new Map();
+  for (const r of rows) {
+    if (!byKart.has(r.kart)) byKart.set(r.kart, new Map());
+    const pilots = byKart.get(r.kart);
+    if (!pilots.has(r.pilot) || r.lap_sec < pilots.get(r.pilot).lap_sec) {
+      pilots.set(r.pilot, { pilot: r.pilot, lap_time: r.lap_time, lap_sec: r.lap_sec, ts: r.ts || null });
+    }
+  }
+  const result = [];
+  for (const [kart, pilots] of byKart) {
+    const top5 = [...pilots.values()].sort((a, b) => a.lap_sec - b.lap_sec).slice(0, 5);
+    result.push({ kart, top5 });
+  }
+  return result.sort((a, b) => a.kart - b.kart);
+}

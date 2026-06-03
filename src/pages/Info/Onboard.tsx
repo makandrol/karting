@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTimingPoller } from '../../services/timingPoller';
-import { COLLECTOR_URL } from '../../services/config';
+import { api } from '../../services/api';
 import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES, shortName } from '../../utils/timing';
 import { COMPETITION_CONFIGS, getPhaseShortLabel, getPhasesForFormat, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
+import { capGroupCount } from '../../utils/competitionLinking';
 import {
   type SessionLap, type CompSession, type ScoringData, type ManualEdits,
   type GonzalesStandingsData, type ComputeGonzalesParams,
@@ -317,17 +318,16 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
 
   useEffect(() => {
     if (!sessionId) { setCompInfo({ competitionId: null, format: null, phase: null }); setRaceNumber(null); return; }
-    fetch(`${COLLECTOR_URL}/db/session-competition?session=${sessionId}`)
-      .then(r => r.json())
+    api.sessions.competitionInfo(sessionId)
       .then(d => setCompInfo({ competitionId: d.competitionId || null, format: d.format || null, phase: d.phase || null }))
       .catch(() => setCompInfo({ competitionId: null, format: null, phase: null }));
     const ts = parseInt(sessionId.replace('session-', ''));
     if (!isNaN(ts)) {
       const date = new Date(ts).toISOString().slice(0, 10);
-      fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`)
-        .then(r => r.json())
-        .then((sessions: any[]) => {
-          const s = sessions.find((s: any) => s.id === sessionId || s.merged_session_ids?.includes(sessionId));
+      api.sessions.byDate(date)
+        .then((sessions) => {
+          const arr = sessions as unknown as any[];
+          const s = arr.find(s => s.id === sessionId || s.merged_session_ids?.includes(sessionId));
           setRaceNumber(s?.race_number ?? null);
         })
         .catch(() => setRaceNumber(null));
@@ -386,24 +386,22 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
 
     const fetchFull = async () => {
       try {
-        const [compRes, scoringRes] = await Promise.all([
-          fetch(`${COLLECTOR_URL}/competitions/${compInfo.competitionId}`),
-          fetch(`${COLLECTOR_URL}/scoring`).then(r => r.ok ? r.json() : fetch('/data/scoring.json').then(r2 => r2.json())),
+        const [comp, scoringRes] = await Promise.all([
+          api.competitions.getNormalized(compInfo.competitionId!),
+          api.scoring.get().catch(async () => fetch('/data/scoring.json').then(r2 => r2.json())),
         ]);
-        const comp = await compRes.json();
-        const sessions: CompSession[] = typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : (comp.sessions || []);
-        const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
+        const sessions: CompSession[] = comp.sessions as unknown as CompSession[];
+        const results = comp.results;
 
         const sessionLaps = new Map<string, SessionLap[]>();
         const sessionStartTimes = new Map<string, number>();
         for (const s of sessions) {
-          const laps = await fetch(`${COLLECTOR_URL}/db/laps?session=${s.sessionId}`).then(r => r.json()).catch(() => []);
-          sessionLaps.set(s.sessionId, laps);
+          const laps = await api.laps.bySession(s.sessionId).catch(() => [] as any[]);
+          sessionLaps.set(s.sessionId, laps as unknown as SessionLap[]);
           const tsMatch = s.sessionId.match(/session-(\d+)/);
           if (tsMatch) sessionStartTimes.set(s.sessionId, parseInt(tsMatch[1]));
         }
 
-        const formatMaxGroups = compInfo.format === 'champions_league' ? 2 : 3;
         const isSprint = compInfo.format === 'sprint';
         const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
         const qualiWithData = qualiSessions.filter(s => (sessionLaps.get(s.sessionId) || []).length > 0);
@@ -413,9 +411,9 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
             .filter(s => s.phase?.startsWith('qualifying_1_group_'))
             .map(s => s.phase?.match(/group_(\d+)/)?.[1])
             .filter(Boolean));
-          autoGroups = Math.min(Math.max(q1Groups.size, 1), formatMaxGroups);
+          autoGroups = capGroupCount(Math.max(q1Groups.size, 1), compInfo.format!);
         } else {
-          autoGroups = Math.min(Math.max(qualiWithData.length, 1), formatMaxGroups);
+          autoGroups = capGroupCount(Math.max(qualiWithData.length, 1), compInfo.format!);
         }
 
         if (!active) return;
@@ -960,13 +958,13 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
       try {
         const today = new Date().toISOString().slice(0, 10);
         const [sessRes, lapsRes] = await Promise.all([
-          fetch(`${COLLECTOR_URL}/db/sessions?date=${today}`).then(r => r.ok ? r.json() : []),
-          fetch(`${COLLECTOR_URL}/db/laps?kart=${kart}&from=${today}&to=${today}`).then(r => r.ok ? r.json() : []),
+          api.sessions.byDate(today).catch(() => [] as any[]),
+          api.laps.byKart(kart, today, today).catch(() => [] as any[]),
         ]);
         if (cancelled) return;
 
-        const laps: { session_id: string; pilot: string; kart: number; lap_time: string | null; s1: string | null; s2: string | null }[] = lapsRes;
-        const sessions: { id: string; track_id: number; is_race: number; competition_phase?: string | null; competition_format?: string | null; start_time: number }[] = sessRes;
+        const laps: { session_id: string; pilot: string; kart: number; lap_time: string | null; s1: string | null; s2: string | null }[] = lapsRes as any;
+        const sessions: { id: string; track_id: number; is_race: number; competition_phase?: string | null; competition_format?: string | null; start_time: number }[] = sessRes as any;
 
         const sessionMap = new Map(sessions.map(s => [s.id, s]));
         const lapsBySession = new Map<string, typeof laps>();

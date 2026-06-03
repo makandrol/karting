@@ -1,7 +1,9 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { COLLECTOR_URL } from '../../services/config';
-import { parseTime, toSeconds, mergePilotNames, isValidSession } from '../../utils/timing';
+import { api, type DbSession } from '../../services/api';
+import { parseTime, toSeconds, mergePilotNames, isValidSession, shortPilot } from '../../utils/timing';
+import { fmtTimeShort as fmtTime, fmtDateDM as fmtDate, fmtDateISO } from '../../utils/datetime';
+import { LoadingState } from '../../components/States';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 
@@ -21,30 +23,6 @@ interface KartLap {
   session_start: number;
 }
 
-interface DbSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  pilot_count: number;
-  real_pilot_count: number | null;
-  race_number: number | null;
-  date: string;
-  best_lap_time: string | null;
-  best_lap_pilot: string | null;
-  merged_session_ids?: string[];
-}
-
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-}
-function fmtDate(ms: number): string {
-  const d = new Date(ms);
-  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-function shortPilot(name: string): string {
-  const p = name.trim().split(' ').filter(Boolean);
-  return p.length < 2 ? p[0] || name : `${p[0]} ${p[1][0]}.`;
-}
 
 const LS_KART_DETAIL_DATES = 'karting_kart_detail_dates';
 function loadSelectedDates(): Set<string> {
@@ -55,7 +33,7 @@ export default function KartDetail() {
   const { kartId } = useParams<{ kartId: string }>();
   const kartNumber = parseInt(kartId || '0');
   const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayStr = fmtDateISO(now);
 
   // Selected dates (multi-select, persisted)
   const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
@@ -90,8 +68,7 @@ export default function KartDetail() {
   // Fetch all-time session counts for this kart
   const [kartDateCounts, setKartDateCounts] = useState<Record<string, number> | undefined>(undefined);
   useEffect(() => {
-    fetch(`${COLLECTOR_URL}/db/kart-session-counts?kart=${kartNumber}`)
-      .then(r => r.json())
+    api.karts.sessionCounts(kartNumber)
       .then((data: { date: string; count: number }[]) => {
         const counts: Record<string, number> = {};
         for (const d of data) counts[d.date] = d.count;
@@ -121,11 +98,8 @@ export default function KartDetail() {
       const allSessions: DbSession[] = [];
       for (const date of selectedDates) {
         try {
-          const res = await fetch(`${COLLECTOR_URL}/db/sessions?date=${date}`);
-          if (res.ok) {
-            const data: DbSession[] = await res.json();
-            allSessions.push(...data.filter(s => s.end_time && isValidSession(s)));
-          }
+          const data = await api.sessions.byDate(date);
+          allSessions.push(...(data as unknown as DbSession[]).filter(s => s.end_time && isValidSession(s)));
         } catch {}
       }
       if (cancelled) return;
@@ -136,8 +110,7 @@ export default function KartDetail() {
       const to = sortedDates[sortedDates.length - 1];
       let kartLaps: KartLap[] = [];
       try {
-        const res = await fetch(`${COLLECTOR_URL}/db/laps?kart=${kartNumber}&from=${from}&to=${to}`);
-        if (res.ok) kartLaps = await res.json();
+        kartLaps = await api.laps.byKart(kartNumber, from, to) as unknown as KartLap[];
       } catch {}
       if (cancelled) return;
 
@@ -277,7 +250,7 @@ export default function KartDetail() {
       </div>
 
       {loading ? (
-        <div className="card text-center py-12 text-dark-500">Завантаження...</div>
+        <LoadingState />
       ) : laps.length === 0 ? (
         <div className="card text-center py-12 text-dark-500">Немає даних. Оберіть дні в календарі.</div>
       ) : (
