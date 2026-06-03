@@ -78,11 +78,11 @@ export default function CompetitionPage() {
     manuallyReopened.current = false;
     autoClosedRef.current = false;
     if (eventId) {
-      api.competitions.getSafe(eventId)
+      api.competitions.getSafeNormalized(eventId)
         .then(data => {
           if (cancelled) return;
           setCompetition(data as unknown as Competition);
-          if ((data as any)?.sessions?.length > 0) fetchCompSessions((data as any).sessions, () => cancelled);
+          if (data?.sessions?.length) fetchCompSessions(data.sessions, () => cancelled);
           setLoading(false);
         })
         .catch(() => { if (!cancelled) setLoading(false); });
@@ -207,8 +207,8 @@ export default function CompetitionPage() {
                 onSave={async (partial) => {
                   try {
                     let comp: any = null;
-                    try { comp = await api.competitions.get(competition.id); } catch { return; }
-                    const currentResults = comp.results || {};
+                    try { comp = await api.competitions.getNormalized(competition.id); } catch { return; }
+                    const currentResults = comp.results;
                     const newResults = { ...currentResults, ...partial };
 
                     const groupChanged = 'groupCountOverride' in partial;
@@ -350,10 +350,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     saveLockRef.current = saveLockRef.current.then(async () => {
       try {
         let fresh: any = null;
-        try { fresh = await api.competitions.get(competition.id); } catch {}
-        const currentResults = fresh?.results
-          ? (typeof fresh.results === 'string' ? JSON.parse(fresh.results) : fresh.results)
-          : (competition.results || {});
+        try { fresh = await api.competitions.getSafeNormalized(competition.id); } catch {}
+        const currentResults = fresh?.results ?? competition.results ?? {};
         const merged = { ...currentResults, ...partial };
         await api.competitions.update(competition.id, { results: merged });
         resultsRef.current = merged;
@@ -453,11 +451,9 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       if (!liveEnabled) return;
       try {
         let fresh: Competition;
-        try { fresh = await api.competitions.get(initialCompetition.id) as unknown as Competition; }
+        try { fresh = await api.competitions.getNormalized(initialCompetition.id) as unknown as Competition; }
         catch { return; }
         if (cancelled) return;
-        if (typeof fresh.sessions === 'string') fresh.sessions = JSON.parse(fresh.sessions);
-        if (typeof fresh.results === 'string') fresh.results = JSON.parse(fresh.results);
         setCompetition(fresh);
         if (fresh.sessions.length !== knownSessionCountRef.current) {
           knownSessionCountRef.current = fresh.sessions.length;

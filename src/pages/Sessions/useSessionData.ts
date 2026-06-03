@@ -99,8 +99,8 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
 
         if (compId) {
           try {
-            const comp = await api.competitions.get(compId);
-            const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
+            const comp = await api.competitions.getNormalized(compId);
+            const results = comp.results;
             if (active && results.excludedLaps) setExcludedLaps(new Set(results.excludedLaps));
           } catch { /* ignore */ }
         }

@@ -4,6 +4,7 @@
  */
 
 import { trackDisplayId } from '../../data/tracks';
+import { normalizeCompetition } from '../../services/api';
 import type { Competition } from './competition-types';
 
 export const FORMAT_FILTERS: { key: string; label: string }[] = [
@@ -91,7 +92,7 @@ export function getCompetitionDisplayName(c: Competition): string {
       name = name.replace(/\d{2}\.\d{2}\.\d{2}/, realDate);
     }
   }
-  const resultsTrackId = (typeof c.results === 'string' ? JSON.parse(c.results) : c.results)?.trackId;
+  const resultsTrackId = normalizeCompetition(c as any)?.results?.trackId;
   if (resultsTrackId != null) {
     name = name.replace(/Траса\s*\d+R?/, `Траса ${trackDisplayId(resultsTrackId)}`);
   }

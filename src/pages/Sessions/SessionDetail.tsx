@@ -73,8 +73,8 @@ export default function SessionDetail() {
     next.has(lapKey) ? next.delete(lapKey) : next.add(lapKey);
     setExcludedLaps(next);
     try {
-      const comp = await api.competitions.get(compId);
-      const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
+      const comp = await api.competitions.getNormalized(compId);
+      const results = comp.results;
       await api.competitions.update(compId, { results: { ...results, excludedLaps: [...next] } });
     } catch {}
   };

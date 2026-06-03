@@ -4,6 +4,7 @@
  */
 
 import { computeReverseStartPositions, computeSprintSnakeStartPositions } from '../data/competitions';
+import { normalizeCompetition } from '../services/api';
 
 /** Parse lap time strings to seconds: "39.800" → 39.8, "1:02.222" → 62.222, "00:42.123" → 42.123 */
 export function parseTime(t: string | null): number | null {
@@ -120,10 +121,11 @@ export async function fetchRaceStartPositions(
   const isSprint = format === 'sprint';
 
   try {
-    const comp = await fetch(`${collectorUrl}/competitions/${encodeURIComponent(competitionId)}`).then(r => r.json());
-    const sessions: { sessionId: string; phase: string }[] =
-      typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : comp.sessions;
-    const rawResults = typeof comp.results === 'string' ? JSON.parse(comp.results) : comp.results;
+    const compRaw = await fetch(`${collectorUrl}/competitions/${encodeURIComponent(competitionId)}`).then(r => r.json());
+    const comp = normalizeCompetition(compRaw);
+    if (!comp) return { positions: result, totalQualified: 0 };
+    const sessions = comp.sessions as { sessionId: string; phase: string }[];
+    const rawResults = comp.results;
     const excluded = new Set<string>(rawResults?.excludedPilots || []);
     const excludedLapKeys = new Set<string>(rawResults?.excludedLaps || []);
 

@@ -109,8 +109,8 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       await apiPost(`/competitions/${encodeURIComponent(selectedComp.id)}/link-session`, { sessionId, phase: phaseId });
       
       let comp: any = null;
-      try { comp = await api.competitions.get(selectedComp.id); } catch {}
-      const results = comp ? (typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {})) : {};
+      try { comp = await api.competitions.getSafeNormalized(selectedComp.id); } catch {}
+      const results = comp?.results ?? {};
       const groupCount = results?.groupCountOverride ?? results?.autoDetectedGroups ?? null;
       const phases = getPhasesForFormat(selectedComp.format, groupCount);
       const phaseIdx = phases.findIndex(p => p.id === phaseId);
@@ -229,9 +229,9 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     setLoading(true);
     try {
       let comp: Competition;
-      try { comp = await api.competitions.get(currentCompetitionId) as unknown as Competition; }
+      try { comp = await api.competitions.getNormalized(currentCompetitionId) as unknown as Competition; }
       catch { return; }
-      const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
+      const results = comp.results ?? {};
       const groupCount = results?.groupCountOverride ?? results?.autoDetectedGroups ?? null;
 
       const sessionTs = sessionId.match(/session-(\d+)/);

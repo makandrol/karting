@@ -65,6 +65,71 @@ export interface CompetitionDto {
   uploaded_results?: any;
 }
 
+/**
+ * Normalised competition shape — `sessions` and `results` always parsed
+ * (no `string` variants).
+ *
+ * Колектор іноді повертає JSON-рядки в полях `sessions`/`results` (артефакт
+ * прямого DB-pass-through). Цей тип і `normalizeCompetition()` гарантують,
+ * що всі споживачі працюють з прогнозованими структурами.
+ */
+export interface Competition {
+  id: string;
+  name: string;
+  format: string;
+  date: string;
+  status: string;
+  sessions: { sessionId: string; phase: string | null }[];
+  results: Record<string, any>;
+  uploaded_results: any;
+}
+
+/**
+ * Normalise a `CompetitionDto` (raw collector response) into a `Competition`:
+ * - `sessions` always parsed array (handles legacy `["sessionId"]` migration too)
+ * - `results` always object (never null/undefined/string)
+ * - `uploaded_results` parsed if string
+ *
+ * Idempotent — safe to call on already-normalised data.
+ */
+export function normalizeCompetition(dto: CompetitionDto | Competition | null | undefined): Competition | null {
+  if (!dto) return null;
+  let sessions = dto.sessions;
+  if (typeof sessions === 'string') {
+    try { sessions = JSON.parse(sessions); }
+    catch { sessions = []; }
+  }
+  if (!Array.isArray(sessions)) sessions = [];
+  // Migrate legacy ["sessionId", ...] → [{sessionId, phase: null}]
+  sessions = sessions.map((s: any) =>
+    typeof s === 'string' ? { sessionId: s, phase: null } : s
+  );
+
+  let results = dto.results;
+  if (typeof results === 'string') {
+    try { results = JSON.parse(results); }
+    catch { results = {}; }
+  }
+  if (results == null || typeof results !== 'object') results = {};
+
+  let uploaded = dto.uploaded_results;
+  if (typeof uploaded === 'string') {
+    try { uploaded = JSON.parse(uploaded); }
+    catch { uploaded = null; }
+  }
+
+  return {
+    id: dto.id,
+    name: dto.name,
+    format: dto.format,
+    date: dto.date,
+    status: dto.status,
+    sessions,
+    results,
+    uploaded_results: uploaded ?? null,
+  };
+}
+
 export interface CollectorStatus {
   isOnline?: boolean;
   online?: boolean;
@@ -150,9 +215,27 @@ export const api = {
   // ---- Competitions ----
   competitions: {
     list: () => apiGet<CompetitionDto[]>('/competitions'),
+    /** List, with `sessions`/`results` already parsed. */
+    listNormalized: async (): Promise<Competition[]> =>
+      (await apiGet<CompetitionDto[]>('/competitions'))
+        .map(normalizeCompetition)
+        .filter((c): c is Competition => c !== null),
     byFormat: (format: string) => apiGet<CompetitionDto[]>('/competitions', { format }),
+    byFormatNormalized: async (format: string): Promise<Competition[]> =>
+      (await apiGet<CompetitionDto[]>('/competitions', { format }))
+        .map(normalizeCompetition)
+        .filter((c): c is Competition => c !== null),
     get: (id: string) => apiGet<CompetitionDto>(`/competitions/${encodeURIComponent(id)}`),
+    /** Get one, with `sessions`/`results` already parsed. */
+    getNormalized: async (id: string): Promise<Competition> => {
+      const dto = await apiGet<CompetitionDto>(`/competitions/${encodeURIComponent(id)}`);
+      return normalizeCompetition(dto)!;
+    },
     getSafe: (id: string) => apiGetSafe<CompetitionDto>(`/competitions/${encodeURIComponent(id)}`),
+    getSafeNormalized: async (id: string): Promise<Competition | null> => {
+      const dto = await apiGetSafe<CompetitionDto>(`/competitions/${encodeURIComponent(id)}`);
+      return normalizeCompetition(dto);
+    },
     create: (data: Partial<CompetitionDto>) => apiPost<CompetitionDto>('/competitions', data),
     update: (id: string, fields: Partial<CompetitionDto>) =>
       apiPatch(`/competitions/${encodeURIComponent(id)}`, fields),

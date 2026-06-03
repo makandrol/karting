@@ -1357,10 +1357,9 @@ function EditLog({ competitionId }: { competitionId: string }) {
   const [log, setLog] = useState<{ pilot: string; action: string; detail: string; user: string; ts: number }[]>([]);
 
   useEffect(() => {
-    api.competitions.get(competitionId)
+    api.competitions.getNormalized(competitionId)
       .then(c => {
-        const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
-        setLog((results.editLog || []).slice().reverse());
+        setLog((c.results.editLog || []).slice().reverse());
       })
       .catch(() => {});
   }, [competitionId]);

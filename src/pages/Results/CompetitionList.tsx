@@ -6,7 +6,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../services/auth';
-import { api } from '../../services/api';
+import { api, normalizeCompetition } from '../../services/api';
 import { trackDisplayId } from '../../data/tracks';
 import { COMPETITION_CONFIGS } from '../../data/competitions';
 import { loadWithExpiry, saveWithExpiry, shortName } from '../../utils/timing';
@@ -283,7 +283,7 @@ function CompetitionListItem({ competition: c, type, onDelete }: {
   const { isOwner } = useAuth();
   const [confirming, setConfirming] = useState(false);
 
-  const results = typeof c.results === 'string' ? JSON.parse(c.results) : (c.results || {});
+  const results = normalizeCompetition(c as any)?.results ?? {};
   const isGonzales = c.format === 'gonzales';
   let top3: { pilot: string; value: number }[] = [];
   try {

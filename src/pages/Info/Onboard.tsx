@@ -387,11 +387,11 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
     const fetchFull = async () => {
       try {
         const [comp, scoringRes] = await Promise.all([
-          api.competitions.get(compInfo.competitionId!),
+          api.competitions.getNormalized(compInfo.competitionId!),
           api.scoring.get().catch(async () => fetch('/data/scoring.json').then(r2 => r2.json())),
         ]);
-        const sessions: CompSession[] = typeof comp.sessions === 'string' ? JSON.parse(comp.sessions) : (comp.sessions || []);
-        const results = typeof comp.results === 'string' ? JSON.parse(comp.results) : (comp.results || {});
+        const sessions: CompSession[] = comp.sessions as unknown as CompSession[];
+        const results = comp.results;
 
         const sessionLaps = new Map<string, SessionLap[]>();
         const sessionStartTimes = new Map<string, number>();
