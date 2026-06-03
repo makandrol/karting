@@ -11,6 +11,7 @@ import LeagueResults from '../../components/Results/LeagueResults';
 import GonzalesResults from '../../components/Results/GonzalesResults';
 import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
 import { parseLapSec, getSprintPositionPoints } from '../../utils/scoring';
+import { FORMAT_MAX_GROUPS, FORMAT_DEFAULT_RACE_PILOTS } from '../../utils/competitionLinking';
 import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import SessionReplay, { parseSessionEvents } from '../../components/Timing/SessionReplay';
@@ -200,7 +201,7 @@ export default function CompetitionPage() {
                 pilotLocked={competition.results?.totalPilotsLocked ?? false}
                 groupOverride={competition.results?.groupCountOverride ?? null}
                 autoGroups={autoGroups}
-                maxGroups={competition.format === 'champions_league' ? 2 : competition.format === 'gonzales' ? 2 : 3}
+                maxGroups={FORMAT_MAX_GROUPS[competition.format] ?? 3}
                 canManage={canManage}
                 format={competition.format}
                 racePilotCount={competition.results?.racePilotCount ?? null}
@@ -798,7 +799,7 @@ function CompetitionParams({ pilotCount, pilotOverride, pilotLocked, groupOverri
   const pilotsAuto = pilotOverride === null;
   const groupsAuto = groupOverride === null;
 
-  const defaultRacePilots = format === 'champions_league' ? 24 : 36;
+  const defaultRacePilots = FORMAT_DEFAULT_RACE_PILOTS[format ?? ''] ?? 36;
   const autoRacePilots = Math.min(defaultRacePilots, effectivePilots);
   const effectiveRacePilots = racePilotCount ?? autoRacePilots;
   const racePilotsAuto = racePilotCount == null;

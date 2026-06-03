@@ -10,6 +10,7 @@ import {
   computeStandings, computeSprintStandings, rowsToStandings, sprintAwareSort,
 } from '../../utils/scoring';
 import { getCsvExportUrl, parseSheetData, buildComparisonTable, debugParseColumns, type ComparisonRow, type MatchDebugEntry } from '../../utils/sheetsCompare';
+import { FORMAT_MAX_GROUPS } from '../../utils/competitionLinking';
 
 interface LeagueResultsProps {
   format: string;
@@ -80,7 +81,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     }
     return filtered;
   }, [sessionLaps, excludedLapSet]);
-  const formatMaxGroups = format === 'champions_league' ? 2 : 3;
+  const formatMaxGroups = FORMAT_MAX_GROUPS[format] ?? 3;
   const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
   const qualiSessionsWithData = qualiSessions.filter(s => (effectiveLaps.get(s.sessionId) || []).length > 0);
   const autoGroupsByQuali = useMemo(() => {

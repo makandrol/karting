@@ -450,7 +450,8 @@ export function getGroupCountForFormat(format: string, pilotCount: number): numb
   }
   // gonzales — max 2
   if (format === 'gonzales') return getGonzalesGroupCount(pilotCount);
-  const maxGroups = format === 'champions_league' ? 2 : 3; // LL
+  // LL = max 3, CL = max 2 (single source of truth: FORMAT_MAX_GROUPS у competitionLinking.ts)
+  const maxGroups = format === 'champions_league' ? 2 : 3;
   if (maxGroups >= 3) {
     if (pilotCount <= 13) return 1;
     if (pilotCount <= 26) return 2;

@@ -5,6 +5,7 @@
 
 import { computeReverseStartPositions, computeSprintSnakeStartPositions } from '../data/competitions';
 import { normalizeCompetition } from '../services/api';
+import { FORMAT_DEFAULT_RACE_PILOTS } from './competitionLinking';
 
 /** Parse lap time strings to seconds: "39.800" → 39.8, "1:02.222" → 62.222, "00:42.123" → 42.123 */
 export function parseTime(t: string | null): number | null {
@@ -154,7 +155,7 @@ export async function fetchRaceStartPositions(
     }
 
     const sorted = [...pilotBest.entries()].sort((a, b) => a[1] - b[1]);
-    const maxQualified = rawResults?.racePilotCount ?? (format === 'champions_league' ? 24 : 36);
+    const maxQualified = rawResults?.racePilotCount ?? (FORMAT_DEFAULT_RACE_PILOTS[format] ?? 36);
     const qualified = sorted.slice(0, maxQualified).map(([p]) => p);
     const n = qualified.length;
 
