@@ -26,7 +26,7 @@ import {
   getKyivIsoDate,
   COMPETITION_SCHEDULE,
 } from './competition-link-utils.js';
-import { parseCompetitionRow, mergeSessions, parseLapTimeSec, buildKartStats, MERGE_GAP_MS } from './storage-utils.js';
+import { parseCompetitionRow, mergeSessions, parseLapTimeSec, buildKartStats, MERGE_GAP_MS, remapKartNamesToPilots } from './storage-utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_DIR = join(__dirname, '..', 'data');
@@ -192,7 +192,7 @@ const stmts = {
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
   getSessionCountsByDateRange: db.prepare('SELECT date, COUNT(*) as count FROM sessions WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date'),
   getKartStats: db.prepare(`
-    SELECT l.kart, l.pilot, l.lap_time, l.ts,
+    SELECT l.session_id, l.kart, l.pilot, l.lap_time, l.ts,
       (${LAP_SEC_EXPR_L}) as lap_sec
     FROM laps l
     JOIN sessions s ON s.id = l.session_id
@@ -200,7 +200,7 @@ const stmts = {
     ORDER BY l.kart, lap_sec
   `),
   getKartStatsBySessions: db.prepare(`
-    SELECT kart, pilot, lap_time, ts,
+    SELECT session_id, kart, pilot, lap_time, ts,
       (${LAP_SEC_EXPR}) as lap_sec
     FROM laps
     WHERE ${VALID_LAP}
@@ -298,8 +298,11 @@ export const storage = {
       let best_lap_pilot = null;
       let best_lap_kart = null;
       if (r.best_lap_time) {
-        const pilotRow = stmts.getBestLapPilot.get(r.id, r.best_lap_time);
-        if (pilotRow) { best_lap_pilot = pilotRow.pilot; best_lap_kart = pilotRow.kart; }
+        // Шукаємо власника найкращого кола серед remap-лених лапів,
+        // щоб "Карт N" правильно перепризначилися на real name.
+        const remappedLaps = remapKartNamesToPilots(stmts.getLaps.all(r.id));
+        const bestLapRow = remappedLaps.find(l => l.lap_time === r.best_lap_time);
+        if (bestLapRow) { best_lap_pilot = bestLapRow.pilot; best_lap_kart = bestLapRow.kart; }
       }
       const comp = compMap.get(r.id) || null;
       return {
@@ -328,20 +331,20 @@ export const storage = {
 
   getKartStats(fromDate, toDate) {
     const rows = stmts.getKartStats.all(fromDate, toDate);
-    return buildKartStats(rows);
+    return buildKartStats(remapKartNamesToPilots(rows));
   },
 
   getKartStatsBySessions(sessionIds) {
     if (!sessionIds || sessionIds.length === 0) return [];
     const placeholders = sessionIds.map(() => '?').join(',');
     const rows = db.prepare(`
-      SELECT kart, pilot, lap_time, ts,
+      SELECT session_id, kart, pilot, lap_time, ts,
         (${LAP_SEC_EXPR}) as lap_sec
       FROM laps
       WHERE session_id IN (${placeholders}) AND ${VALID_LAP}
       ORDER BY kart, lap_sec
     `).all(...sessionIds);
-    return buildKartStats(rows);
+    return buildKartStats(remapKartNamesToPilots(rows));
   },
 
   /** Отримати події (враховує merged sessions) */
@@ -365,17 +368,17 @@ export const storage = {
     }));
   },
 
-  /** Отримати кола за сесію (враховує merged sessions) */
+  /** Отримати кола за сесію (враховує merged sessions, ремапить "Карт N" → real names) */
   getLaps(sessionId) {
     const ids = this._getMergedIds(sessionId);
-    if (!ids) return stmts.getLaps.all(sessionId);
+    if (!ids) return remapKartNamesToPilots(stmts.getLaps.all(sessionId));
 
     const allLaps = [];
     for (const subId of ids) {
       allLaps.push(...stmts.getLaps.all(subId));
     }
     allLaps.sort((a, b) => a.ts - b.ts);
-    return allLaps;
+    return remapKartNamesToPilots(allLaps);
   },
 
   /** Знайти merged_session_ids для батьківської сесії (лёгкий SQL-запит) */
@@ -408,7 +411,7 @@ export const storage = {
   },
 
   getLapsByKart(kartNumber, fromDate, toDate) {
-    return stmts.getLapsByKart.all(kartNumber, fromDate, toDate);
+    return remapKartNamesToPilots(stmts.getLapsByKart.all(kartNumber, fromDate, toDate));
   },
 
   getKartSessionCounts(kartNumber) {
@@ -637,10 +640,10 @@ export const storage = {
       if (linkedSessions.length > 0) {
         const cumulativePilots = new Set();
         for (const ls of linkedSessions) {
-          const laps = stmts.getLaps.all(ls.sessionId);
+          const laps = this.getLaps(ls.sessionId);
           for (const l of laps) cumulativePilots.add(l.pilot);
         }
-        const newLaps = stmts.getLaps.all(sessionId);
+        const newLaps = this.getLaps(sessionId);
         const newPilots = new Set(newLaps.map(l => l.pilot));
 
         if (liveComp.format === 'gonzales') {
@@ -710,7 +713,7 @@ export const storage = {
     const qualiSessions = comp.sessions.filter(s => s.phase?.startsWith('qualifying_') && s.sessionId !== sessionId);
     if (qualiSessions.length === 0) return;
 
-    const newLaps = stmts.getLaps.all(sessionId);
+    const newLaps = this.getLaps(sessionId);
     const newPilots = new Set(newLaps.map(l => l.pilot));
     if (newPilots.size < 3) return;
 
@@ -725,7 +728,7 @@ export const storage = {
     } else {
       const cumulativePilots = new Set();
       for (const qs of qualiSessions) {
-        const laps = stmts.getLaps.all(qs.sessionId);
+        const laps = this.getLaps(qs.sessionId);
         for (const l of laps) cumulativePilots.add(l.pilot);
       }
       const detection = detectGroupCountFromOverlap({

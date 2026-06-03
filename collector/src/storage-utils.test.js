@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCompetitionRow, mergeSessions, parseLapTimeSec, buildKartStats } from './storage-utils.js';
+import { parseCompetitionRow, mergeSessions, parseLapTimeSec, buildKartStats, remapKartNamesToPilots } from './storage-utils.js';
 
 describe('parseLapTimeSec', () => {
   it('parses simple seconds', () => {
@@ -134,5 +134,124 @@ describe('buildKartStats', () => {
     ];
     const result = buildKartStats(rows);
     expect(result.map(r => r.kart)).toEqual([1, 3, 5]);
+  });
+});
+
+describe('remapKartNamesToPilots', () => {
+  it('повертає вхід без змін якщо пусто', () => {
+    expect(remapKartNamesToPilots([])).toEqual([]);
+    expect(remapKartNamesToPilots(null)).toBe(null);
+  });
+
+  it('замінює "Карт N" на real name коли в групі рівно 1 real', () => {
+    const laps = [
+      { session_id: 's1', kart: 3, pilot: 'Карт 3', lap_time: '42.0' },
+      { session_id: 's1', kart: 3, pilot: 'Карт 3', lap_time: '42.5' },
+      { session_id: 's1', kart: 3, pilot: 'Шевченко Владислав', lap_time: '41.8' },
+    ];
+    const result = remapKartNamesToPilots(laps);
+    expect(result.map(l => l.pilot)).toEqual([
+      'Шевченко Владислав',
+      'Шевченко Владислав',
+      'Шевченко Владислав',
+    ]);
+  });
+
+  it('не мутує input', () => {
+    const laps = [
+      { session_id: 's1', kart: 3, pilot: 'Карт 3' },
+      { session_id: 's1', kart: 3, pilot: 'Іван' },
+    ];
+    const original = JSON.parse(JSON.stringify(laps));
+    remapKartNamesToPilots(laps);
+    expect(laps).toEqual(original);
+  });
+
+  it('case-insensitive для "Карт"', () => {
+    const laps = [
+      { session_id: 's1', kart: 5, pilot: 'карт 5' },
+      { session_id: 's1', kart: 5, pilot: 'КАРТ 5' },
+      { session_id: 's1', kart: 5, pilot: 'Іван' },
+    ];
+    const result = remapKartNamesToPilots(laps);
+    expect(result.every(l => l.pilot === 'Іван')).toBe(true);
+  });
+
+  it('лишає "Карт N" якщо нема real name на цьому карті', () => {
+    const laps = [
+      { session_id: 's1', kart: 5, pilot: 'Карт 5' },
+      { session_id: 's1', kart: 5, pilot: 'Карт 5' },
+    ];
+    const result = remapKartNamesToPilots(laps);
+    expect(result.every(l => l.pilot === 'Карт 5')).toBe(true);
+  });
+
+  it('лишає "Карт N" якщо є 2+ real names на одному карті (edge case 2 пілоти)', () => {
+    const laps = [
+      { session_id: 's1', kart: 3, pilot: 'Карт 3' },
+      { session_id: 's1', kart: 3, pilot: 'Іван' },
+      { session_id: 's1', kart: 3, pilot: 'Петро' },
+    ];
+    const result = remapKartNamesToPilots(laps);
+    expect(result[0].pilot).toBe('Карт 3');
+    expect(result[1].pilot).toBe('Іван');
+    expect(result[2].pilot).toBe('Петро');
+  });
+
+  it('кожен карт ремапиться окремо в одній сесії', () => {
+    const laps = [
+      { session_id: 's1', kart: 3, pilot: 'Карт 3' },
+      { session_id: 's1', kart: 3, pilot: 'Іван' },
+      { session_id: 's1', kart: 5, pilot: 'Карт 5' },
+      { session_id: 's1', kart: 5, pilot: 'Петро' },
+    ];
+    const result = remapKartNamesToPilots(laps);
+    expect(result.map(l => l.pilot)).toEqual(['Іван', 'Іван', 'Петро', 'Петро']);
+  });
+
+  it('різні session_id з тим же kart — ізольовані', () => {
+    const laps = [
+      { session_id: 's1', kart: 3, pilot: 'Карт 3' },
+      { session_id: 's1', kart: 3, pilot: 'Іван' },
+      { session_id: 's2', kart: 3, pilot: 'Карт 3' },
+      { session_id: 's2', kart: 3, pilot: 'Петро' },
+    ];
+    const result = remapKartNamesToPilots(laps);
+    expect(result.map(l => `${l.session_id}|${l.pilot}`)).toEqual([
+      's1|Іван', 's1|Іван', 's2|Петро', 's2|Петро',
+    ]);
+  });
+
+  it('різні session_id ізольовані навіть якщо в одного є real, в іншого ні', () => {
+    const laps = [
+      { session_id: 's1', kart: 3, pilot: 'Карт 3' },
+      { session_id: 's2', kart: 3, pilot: 'Карт 3' },
+      { session_id: 's2', kart: 3, pilot: 'Іван' },
+    ];
+    const result = remapKartNamesToPilots(laps);
+    // s1 → лишається "Карт 3" (нема real name); s2 → "Іван"
+    expect(result[0].pilot).toBe('Карт 3');
+    expect(result[1].pilot).toBe('Іван');
+    expect(result[2].pilot).toBe('Іван');
+  });
+
+  it('зберігає інші поля лапу', () => {
+    const laps = [
+      { session_id: 's1', kart: 3, pilot: 'Карт 3', lap_time: '42.0', ts: 1000, lap_number: 1 },
+      { session_id: 's1', kart: 3, pilot: 'Іван', lap_time: '41.5', ts: 1500, lap_number: 2 },
+    ];
+    const result = remapKartNamesToPilots(laps);
+    expect(result[0]).toEqual({
+      session_id: 's1', kart: 3, pilot: 'Іван', lap_time: '42.0', ts: 1000, lap_number: 1,
+    });
+  });
+
+  it('працює без session_id (для laps з єдиної сесії)', () => {
+    const laps = [
+      { kart: 3, pilot: 'Карт 3' },
+      { kart: 3, pilot: 'Іван' },
+    ];
+    const result = remapKartNamesToPilots(laps);
+    expect(result.every(l => l.pilot === 'Іван')).toBe(true);
   });
 });

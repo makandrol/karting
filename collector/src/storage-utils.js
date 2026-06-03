@@ -3,6 +3,63 @@
  * Extracted from storage.js to keep main file focused on DB operations.
  */
 
+/** Matches "Карт 1", "Карт 12", "карт 88" (case-insensitive). */
+const KART_NAME_RE = /^Карт\s+\d+$/i;
+
+/**
+ * Remap "Карт N" pilots to real pilot names within the same (sessionId, kart).
+ *
+ * Картодром на табло на старті заїзду показує карти як "Карт N" поки оператор
+ * не вписав ім'я. Перші 3-10 кіл записуються з pilot="Карт N", далі — реальне
+ * ім'я. Це створює два "пілоти" в одній сесії на одному карті.
+ *
+ * Стратегія: групуємо лапи по (session_id, kart). Якщо у групі знайдено
+ * РІВНО ОДНЕ реальне ім'я + хоча б один "Карт N" — замінюємо "Карт N" на
+ * це реальне ім'я. Усе інше (тільки "Карт N", або 2+ реальних імен на
+ * одному карті) — залишаємо без змін, щоб не ризикувати помилковим merge.
+ *
+ * @param {Array<{session_id?: string, kart: number, pilot: string}>} laps
+ * @returns {Array} new array (input not mutated)
+ */
+export function remapKartNamesToPilots(laps) {
+  if (!laps || laps.length === 0) return laps;
+
+  // Build map (session_id, kart) -> set of pilots
+  const groups = new Map();
+  for (const lap of laps) {
+    const key = `${lap.session_id ?? ''}|${lap.kart}`;
+    let entry = groups.get(key);
+    if (!entry) {
+      entry = { real: new Set(), kartNames: new Set() };
+      groups.set(key, entry);
+    }
+    if (KART_NAME_RE.test((lap.pilot || '').trim())) {
+      entry.kartNames.add(lap.pilot);
+    } else {
+      entry.real.add(lap.pilot);
+    }
+  }
+
+  // Build remap table: (session_id, kart, kartName) -> realName
+  const remap = new Map();
+  for (const [key, entry] of groups) {
+    if (entry.real.size === 1 && entry.kartNames.size > 0) {
+      const realName = [...entry.real][0];
+      for (const kartName of entry.kartNames) {
+        remap.set(`${key}|${kartName}`, realName);
+      }
+    }
+  }
+
+  if (remap.size === 0) return laps;
+
+  return laps.map(lap => {
+    const key = `${lap.session_id ?? ''}|${lap.kart}|${lap.pilot}`;
+    const realName = remap.get(key);
+    return realName ? { ...lap, pilot: realName } : lap;
+  });
+}
+
 export const MERGE_GAP_MS = 5 * 60 * 1000; // 5 minutes
 
 /** Parse a row from competitions table — JSON-decode sessions/results. */

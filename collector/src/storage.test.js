@@ -517,3 +517,61 @@ describe('storage.autoFinishCompletedCompetitions', () => {
     expect(storage.getCompetition('empty').status).toBe('live');
   });
 });
+
+// ============================================================
+// remapKartNamesToPilots integration через storage.getLaps
+// ============================================================
+
+describe('storage.getLaps з ремапом "Карт N" → real names', () => {
+  function insertRawLap(sessionId, pilot, kart, lapNumber, lapTime, ts) {
+    storage.addLap(sessionId, {
+      pilot, kart, lapNumber,
+      lastLap: lapTime, s1: '20', s2: '22', bestLap: lapTime,
+      position: 1, ts,
+    });
+  }
+
+  it('перейменовує "Карт N" коли є real name на тому ж карті', () => {
+    insertSession('session-1000');
+    insertRawLap('session-1000', 'Карт 3', 3, 1, '42.0', 1000);
+    insertRawLap('session-1000', 'Карт 3', 3, 2, '42.5', 2000);
+    insertRawLap('session-1000', 'Шевченко', 3, 3, '41.8', 3000);
+
+    const laps = storage.getLaps('session-1000');
+    expect(laps).toHaveLength(3);
+    expect(laps.every(l => l.pilot === 'Шевченко')).toBe(true);
+  });
+
+  it('лишає "Карт N" якщо нема real name', () => {
+    insertSession('session-1000');
+    insertRawLap('session-1000', 'Карт 5', 5, 1, '42.0', 1000);
+    insertRawLap('session-1000', 'Карт 5', 5, 2, '42.5', 2000);
+
+    const laps = storage.getLaps('session-1000');
+    expect(laps.every(l => l.pilot === 'Карт 5')).toBe(true);
+  });
+
+  it('autoLink overlap-аналіз бачить правильні імена після ремапу', () => {
+    insertSession('session-1000');
+    insertSession('session-2000');
+
+    // Перша квала: пілот починав як "Карт 3", далі — Іван
+    insertRawLap('session-1000', 'Карт 3', 3, 1, '42.0', 1000);
+    insertRawLap('session-1000', 'Іван', 3, 2, '41.5', 2000);
+
+    // Друга сесія — той самий Іван (ім'я з самого початку)
+    insertRawLap('session-2000', 'Іван', 3, 1, '41.0', 3000);
+    insertRawLap('session-2000', 'Петро', 5, 1, '42.0', 3500);
+    insertRawLap('session-2000', 'Сидор', 7, 1, '42.5', 4000);
+
+    makeCompetition({
+      id: 'c1', format: 'light_league',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+    });
+
+    // Перевіряю, що cumulative pilots в overlap-аналізі — це {Іван} (а не {Карт 3, Іван})
+    // Тоді overlap для session-2000 буде 1/3 = 33%, action='qualifying' → лінкується як qualifying_2
+    const result = storage.autoLinkSessionToActiveCompetition('session-2000');
+    expect(result?.phase).toBe('qualifying_2');
+  });
+});
