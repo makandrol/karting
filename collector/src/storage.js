@@ -26,7 +26,7 @@ import {
   getKyivIsoDate,
   COMPETITION_SCHEDULE,
 } from './competition-link-utils.js';
-import { parseCompetitionRow, mergeSessions, parseLapTimeSec, buildKartStats } from './storage-utils.js';
+import { parseCompetitionRow, mergeSessions, parseLapTimeSec, buildKartStats, MERGE_GAP_MS } from './storage-utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_DIR = join(__dirname, '..', 'data');
