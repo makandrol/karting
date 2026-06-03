@@ -1,0 +1,423 @@
+import { describe, it, expect } from 'vitest';
+import {
+  FORMAT_MAX_GROUPS,
+  FORMAT_DEFAULT_RACE_PILOTS,
+  buildFullPhases,
+  filterPhases,
+  findNextPhase,
+  allPhasesFilled,
+  isKartName,
+  isGonzalesQualifying,
+  detectGroupCountFromOverlap,
+  capGroupCount,
+} from './competition-link-utils.js';
+
+// ============================================================
+// FORMAT_MAX_GROUPS / FORMAT_DEFAULT_RACE_PILOTS
+// ============================================================
+
+describe('FORMAT_MAX_GROUPS', () => {
+  it('каже champions_league = 2', () => {
+    expect(FORMAT_MAX_GROUPS.champions_league).toBe(2);
+  });
+  it('каже sprint = 3', () => {
+    expect(FORMAT_MAX_GROUPS.sprint).toBe(3);
+  });
+  it('каже gonzales = 2', () => {
+    expect(FORMAT_MAX_GROUPS.gonzales).toBe(2);
+  });
+  it('каже light_league = 3', () => {
+    expect(FORMAT_MAX_GROUPS.light_league).toBe(3);
+  });
+});
+
+describe('FORMAT_DEFAULT_RACE_PILOTS', () => {
+  it('CL = 24, LL/Sprint = 36', () => {
+    expect(FORMAT_DEFAULT_RACE_PILOTS.champions_league).toBe(24);
+    expect(FORMAT_DEFAULT_RACE_PILOTS.light_league).toBe(36);
+    expect(FORMAT_DEFAULT_RACE_PILOTS.sprint).toBe(36);
+  });
+});
+
+// ============================================================
+// buildFullPhases
+// ============================================================
+
+describe('buildFullPhases', () => {
+  it('LL: 4 quali + 2 races × 3 groups = 10 фаз', () => {
+    const phases = buildFullPhases('light_league');
+    expect(phases).toHaveLength(10);
+    expect(phases[0]).toBe('qualifying_1');
+    expect(phases.filter(p => p.startsWith('qualifying_'))).toHaveLength(4);
+    expect(phases.filter(p => p.startsWith('race_1_'))).toHaveLength(3);
+    expect(phases.filter(p => p.startsWith('race_2_'))).toHaveLength(3);
+  });
+
+  it('CL: 2 quali + 3 races × 2 groups = 8 фаз', () => {
+    const phases = buildFullPhases('champions_league');
+    expect(phases).toHaveLength(8);
+    expect(phases.filter(p => p.startsWith('race_3_'))).toHaveLength(2);
+  });
+
+  it('Sprint: q1×3 + r1×3 + q2×3 + r2×3 + final×3 = 15 фаз', () => {
+    const phases = buildFullPhases('sprint');
+    expect(phases).toHaveLength(15);
+    expect(phases.filter(p => p.startsWith('qualifying_1_'))).toHaveLength(3);
+    expect(phases.filter(p => p.startsWith('final_'))).toHaveLength(3);
+  });
+
+  it('Sprint: всередині раунду race_*_group_3 → race_*_group_1 (зворотний порядок)', () => {
+    const phases = buildFullPhases('sprint');
+    const r1 = phases.filter(p => p.startsWith('race_1_'));
+    expect(r1).toEqual(['race_1_group_3', 'race_1_group_2', 'race_1_group_1']);
+  });
+
+  it('Gonzales: 2 quali + 12 раундів × 2 групи (default) = 26', () => {
+    const phases = buildFullPhases('gonzales');
+    expect(phases).toHaveLength(2 + 12 * 2);
+    expect(phases[2]).toBe('round_1_group_2');
+    expect(phases[3]).toBe('round_1_group_1');
+  });
+
+  it('Gonzales: кастомний roundCount', () => {
+    const phases = buildFullPhases('gonzales', { gonzalesRoundCount: 5 });
+    expect(phases).toHaveLength(2 + 5 * 2);
+  });
+
+  it('Marathon: 1 фаза', () => {
+    expect(buildFullPhases('marathon')).toEqual(['race']);
+  });
+
+  it('Невідомий формат: пустий масив', () => {
+    expect(buildFullPhases('unknown')).toEqual([]);
+  });
+});
+
+// ============================================================
+// filterPhases
+// ============================================================
+
+describe('filterPhases', () => {
+  it('LL з 1 групою: тільки qualifying_1, без race_*_group_2/3', () => {
+    const filtered = filterPhases(buildFullPhases('light_league'), 1, 'light_league');
+    expect(filtered).toContain('qualifying_1');
+    expect(filtered).not.toContain('qualifying_2');
+    expect(filtered).not.toContain('race_1_group_2');
+    expect(filtered).not.toContain('race_1_group_3');
+    expect(filtered).toContain('race_1_group_1');
+    expect(filtered).toContain('race_2_group_1');
+  });
+
+  it('LL з 2 групами: дропає group_3 і qualifying_3/4', () => {
+    const filtered = filterPhases(buildFullPhases('light_league'), 2, 'light_league');
+    expect(filtered).toContain('qualifying_1');
+    expect(filtered).toContain('qualifying_2');
+    expect(filtered).not.toContain('qualifying_3');
+    expect(filtered).not.toContain('race_1_group_3');
+    expect(filtered).toContain('race_1_group_2');
+  });
+
+  it('LL з 3 групами: 4-та квала фільтрується (parseInt(4)>3), решта залишається', () => {
+    const filtered = filterPhases(buildFullPhases('light_league'), 3, 'light_league');
+    // qualifying_1, _2, _3 + race_1×3 + race_2×3 = 9
+    expect(filtered).toHaveLength(9);
+    expect(filtered).toContain('qualifying_3');
+    expect(filtered).not.toContain('qualifying_4');
+    expect(filtered).toContain('race_1_group_3');
+    expect(filtered).toContain('race_2_group_3');
+  });
+
+  it('CL з 2 групами: 8 фаз (нічого не фільтрується)', () => {
+    const filtered = filterPhases(buildFullPhases('champions_league'), 2, 'champions_league');
+    expect(filtered).toHaveLength(8);
+  });
+
+  it('CL з 1 групою: тільки qualifying_1 + 3 race_*_group_1', () => {
+    const filtered = filterPhases(buildFullPhases('champions_league'), 1, 'champions_league');
+    expect(filtered).toEqual([
+      'qualifying_1',
+      'race_1_group_1',
+      'race_2_group_1',
+      'race_3_group_1',
+    ]);
+  });
+
+  it('Sprint з 2 групами: дропає qualifying_*_group_3, race_*_group_3, final_group_3', () => {
+    const filtered = filterPhases(buildFullPhases('sprint'), 2, 'sprint');
+    expect(filtered).not.toContain('qualifying_1_group_3');
+    expect(filtered).not.toContain('race_1_group_3');
+    expect(filtered).not.toContain('final_group_3');
+    expect(filtered).toContain('qualifying_1_group_2');
+    expect(filtered).toContain('final_group_1');
+  });
+
+  it('Gonzales: обмежує round_N по gonzalesRoundCount', () => {
+    const filtered = filterPhases(
+      buildFullPhases('gonzales', { gonzalesRoundCount: 12 }),
+      2,
+      'gonzales',
+      { gonzalesRoundCount: 5 }
+    );
+    const rounds = filtered.filter(p => p.startsWith('round_'));
+    const rounds6plus = rounds.filter(p => parseInt(p.match(/round_(\d+)/)[1]) > 5);
+    expect(rounds6plus).toHaveLength(0);
+  });
+
+  it('Gonzales з 1 групою: дропає qualifying_2 і round_*_group_2', () => {
+    const filtered = filterPhases(buildFullPhases('gonzales'), 1, 'gonzales');
+    expect(filtered).toContain('qualifying_1');
+    expect(filtered).not.toContain('qualifying_2');
+    expect(filtered.filter(p => p.endsWith('_group_2'))).toHaveLength(0);
+  });
+
+  it('groupCount=null для не-gonzales: повертає всі фази без змін', () => {
+    const phases = buildFullPhases('light_league');
+    expect(filterPhases(phases, null, 'light_league')).toEqual(phases);
+    expect(filterPhases(phases, undefined, 'light_league')).toEqual(phases);
+  });
+});
+
+// ============================================================
+// findNextPhase
+// ============================================================
+
+describe('findNextPhase', () => {
+  it('повертає першу фазу коли usedPhases пусте', () => {
+    const phases = ['a', 'b', 'c'];
+    expect(findNextPhase(phases, [])).toBe('a');
+  });
+
+  it('повертає наступну фазу після останньої використаної', () => {
+    const phases = ['a', 'b', 'c', 'd'];
+    expect(findNextPhase(phases, ['a', 'b'])).toBe('c');
+  });
+
+  it('повертає null коли всі фази використані', () => {
+    const phases = ['a', 'b'];
+    expect(findNextPhase(phases, ['a', 'b'])).toBe(null);
+  });
+
+  it('ігнорує usedPhases поза phases (custom phase id)', () => {
+    const phases = ['a', 'b', 'c'];
+    expect(findNextPhase(phases, ['x', 'y'])).toBe('a');
+  });
+
+  it('після непослідовно використаних фаз бере наступну після макс індексу', () => {
+    const phases = ['a', 'b', 'c', 'd', 'e'];
+    // Якщо used = ['a', 'c'] — це означає "пропустили b", беремо наступну після c
+    expect(findNextPhase(phases, ['a', 'c'])).toBe('d');
+  });
+});
+
+// ============================================================
+// allPhasesFilled
+// ============================================================
+
+describe('allPhasesFilled', () => {
+  it('true коли всі фази серед usedPhases', () => {
+    expect(allPhasesFilled(['a', 'b', 'c'], ['a', 'b', 'c'])).toBe(true);
+    expect(allPhasesFilled(['a', 'b'], new Set(['b', 'a']))).toBe(true);
+  });
+
+  it('false коли хоча б одна не used', () => {
+    expect(allPhasesFilled(['a', 'b', 'c'], ['a', 'b'])).toBe(false);
+  });
+
+  it('false коли phases пусте', () => {
+    expect(allPhasesFilled([], [])).toBe(false);
+  });
+});
+
+// ============================================================
+// isKartName / isGonzalesQualifying
+// ============================================================
+
+describe('isKartName', () => {
+  it('matches "Карт N"', () => {
+    expect(isKartName('Карт 1')).toBe(true);
+    expect(isKartName('Карт 12')).toBe(true);
+    expect(isKartName('  Карт 5  ')).toBe(true);
+  });
+
+  it('case-insensitive', () => {
+    expect(isKartName('карт 5')).toBe(true);
+    expect(isKartName('КАРТ 5')).toBe(true);
+  });
+
+  it('rejects real names', () => {
+    expect(isKartName('Іванов')).toBe(false);
+    expect(isKartName('Карт')).toBe(false); // без числа
+    expect(isKartName('Karting Pro')).toBe(false);
+  });
+
+  it('handles null/undefined/empty', () => {
+    expect(isKartName(null)).toBe(false);
+    expect(isKartName(undefined)).toBe(false);
+    expect(isKartName('')).toBe(false);
+  });
+});
+
+describe('isGonzalesQualifying (mirrors storage.js: isRealNames || isHighLapCount)', () => {
+  it('реальні імена → треба інкрементити (qualifying branch)', () => {
+    expect(isGonzalesQualifying(['Іванов', 'Петров', 'Сидоров'], new Map(), false)).toBe(true);
+  });
+
+  it('"Карт N" імена + не finished + без високих кіл → round branch', () => {
+    expect(isGonzalesQualifying(['Карт 1', 'Карт 2', 'Карт 3'], new Map(), false)).toBe(false);
+  });
+
+  it('mixed: 60% реальних → qualifying branch', () => {
+    expect(isGonzalesQualifying(['Іванов', 'Петров', 'Сидоров', 'Карт 1', 'Карт 2'], new Map(), false)).toBe(true);
+  });
+
+  it('mixed: 40% реальних, без високих кіл → round branch', () => {
+    expect(isGonzalesQualifying(['Іванов', 'Петров', 'Карт 1', 'Карт 2', 'Карт 3'], new Map(), false)).toBe(false);
+  });
+
+  it('"Карт N" + isFinished + maxLaps>=5 → qualifying branch (за поточним кодом)', () => {
+    const counts = new Map([['Карт 1', 5], ['Карт 2', 6]]);
+    expect(isGonzalesQualifying(['Карт 1', 'Карт 2'], counts, true)).toBe(true);
+  });
+
+  it('"Карт N" + НЕ finished + 10 кіл (але finished=false) → round branch', () => {
+    expect(isGonzalesQualifying(['Карт 1', 'Карт 2'], new Map([['Карт 1', 10]]), false)).toBe(false);
+  });
+
+  it('"Карт N" + isFinished + maxLaps<5 → round branch', () => {
+    expect(isGonzalesQualifying(['Карт 1'], new Map([['Карт 1', 4]]), true)).toBe(false);
+  });
+
+  it('Реальні імена + високі lapCounts → qualifying', () => {
+    expect(isGonzalesQualifying(['Іванов'], new Map([['Іванов', 10]]), true)).toBe(true);
+  });
+
+  it('plain object lapCounts: "Карт 1" + 6 кіл + finished → qualifying branch', () => {
+    expect(isGonzalesQualifying(['Карт 1'], { 'Карт 1': 6 }, true)).toBe(true);
+  });
+
+  it('пустий список пілотів', () => {
+    expect(isGonzalesQualifying([], new Map(), false)).toBe(false);
+  });
+});
+
+// ============================================================
+// detectGroupCountFromOverlap
+// ============================================================
+
+describe('detectGroupCountFromOverlap', () => {
+  it('overlap ≥50% → це гонка, groupCount = qualiCount', () => {
+    const result = detectGroupCountFromOverlap({
+      cumulativeQualifyingPilots: new Set(['A', 'B', 'C', 'D']),
+      newPilots: new Set(['A', 'B', 'C']),
+      qualifyingCount: 2,
+      format: 'light_league',
+    });
+    expect(result).toEqual({ groupCount: 2, action: 'race' });
+  });
+
+  it('overlap <50% → це нова квала, action=qualifying', () => {
+    const result = detectGroupCountFromOverlap({
+      cumulativeQualifyingPilots: new Set(['A', 'B', 'C']),
+      newPilots: new Set(['X', 'Y', 'Z']),
+      qualifyingCount: 1,
+      format: 'light_league',
+    });
+    expect(result).toEqual({ groupCount: null, action: 'qualifying' });
+  });
+
+  it('overlap=50% boundary → це гонка (>= 0.5)', () => {
+    const result = detectGroupCountFromOverlap({
+      cumulativeQualifyingPilots: new Set(['A', 'B']),
+      newPilots: new Set(['A', 'X']),
+      qualifyingCount: 1,
+      format: 'light_league',
+    });
+    expect(result.action).toBe('race');
+    expect(result.groupCount).toBe(1);
+  });
+
+  it('LL з 4 квалями → groupCount обмежується 3 (FORMAT_MAX)', () => {
+    const result = detectGroupCountFromOverlap({
+      cumulativeQualifyingPilots: new Set(['A', 'B']),
+      newPilots: new Set(['A', 'B']),
+      qualifyingCount: 4,
+      format: 'light_league',
+    });
+    expect(result.groupCount).toBe(3);
+  });
+
+  it('CL з 3 квалями → groupCount обмежується 2', () => {
+    const result = detectGroupCountFromOverlap({
+      cumulativeQualifyingPilots: new Set(['A', 'B']),
+      newPilots: new Set(['A', 'B']),
+      qualifyingCount: 3,
+      format: 'champions_league',
+    });
+    expect(result.groupCount).toBe(2);
+  });
+
+  it('повертає unknown коли cumulative пусте', () => {
+    const result = detectGroupCountFromOverlap({
+      cumulativeQualifyingPilots: new Set(),
+      newPilots: new Set(['A']),
+      qualifyingCount: 0,
+      format: 'light_league',
+    });
+    expect(result.action).toBe('unknown');
+  });
+
+  it('повертає unknown коли newPilots пусте', () => {
+    const result = detectGroupCountFromOverlap({
+      cumulativeQualifyingPilots: new Set(['A']),
+      newPilots: new Set(),
+      qualifyingCount: 1,
+      format: 'light_league',
+    });
+    expect(result.action).toBe('unknown');
+  });
+
+  it('approves array input замість Set', () => {
+    const result = detectGroupCountFromOverlap({
+      cumulativeQualifyingPilots: ['A', 'B'],
+      newPilots: ['A', 'B'],
+      qualifyingCount: 2,
+      format: 'light_league',
+    });
+    expect(result.action).toBe('race');
+  });
+
+  it('кастомний threshold', () => {
+    const args = {
+      cumulativeQualifyingPilots: new Set(['A', 'B', 'C']),
+      newPilots: new Set(['A', 'X', 'Y']), // overlap = 1/3 ≈ 0.33
+      qualifyingCount: 1,
+      format: 'light_league',
+    };
+    expect(detectGroupCountFromOverlap({ ...args, threshold: 0.5 }).action).toBe('qualifying');
+    expect(detectGroupCountFromOverlap({ ...args, threshold: 0.3 }).action).toBe('race');
+  });
+});
+
+// ============================================================
+// capGroupCount
+// ============================================================
+
+describe('capGroupCount', () => {
+  it('обмежує LL до 3', () => {
+    expect(capGroupCount(5, 'light_league')).toBe(3);
+    expect(capGroupCount(2, 'light_league')).toBe(2);
+  });
+
+  it('обмежує CL до 2', () => {
+    expect(capGroupCount(5, 'champions_league')).toBe(2);
+  });
+
+  it('мінімум 1', () => {
+    expect(capGroupCount(0, 'light_league')).toBe(1);
+    expect(capGroupCount(-5, 'light_league')).toBe(1);
+  });
+
+  it('default max 3 для невідомого формату', () => {
+    expect(capGroupCount(10, 'unknown')).toBe(3);
+  });
+});
