@@ -7,36 +7,30 @@
 2. Розбити пілотів на групи
 3. Прив'язати кожний заїзд до відповідної фази змагання (кваліфікація, гонка, фінал)
 
-Ці процеси відбуваються як автоматично (через колектор), так і вручну (через адмін-панель).
+Ці процеси відбуваються як автоматично (через колектор при створенні нової сесії), так і вручну (через адмін-панель або через `SessionTypeChanger` на сторінці заїзду).
 
 ---
 
 ## 1. Створення змагання
 
-### Автоматичне (через розклад)
-
-Колектор перевіряє розклад (`collector/src/schedule.js`):
-
-| День      | Формат             | Вікно детекції |
-|-----------|--------------------|----------------|
-| Понеділок | Гонзалес           | 19:30–20:30    |
-| Вівторок  | Лайт Ліга          | визначено      |
-| Середа    | Ліга Чемпіонів     | визначено      |
-
-`CompetitionDetector` (`collector/src/detector.js`) переходить через стани:
-```
-NONE → WARMUP → QUALIFYING/RACE → FINISHED
-```
-
-Перехід `WARMUP → QUALIFYING` відбувається коли між заїздами виникає пауза ≥3 хвилин (зміна траси для змагань).
-
-### Ручне (через адмін-панель)
+### Через адмін-панель (`/admin/competitions`)
 
 Адмін створює змагання через `CompetitionManager` — POST `/competitions` з полями:
 - `id`: `{формат}-{дата}-{timestamp}`
 - `name`, `format`, `date`
 - `sessions: []` (порожній масив, заповнюється потім)
 - `status: 'live'`
+
+### Зі сторінки заїзду (`SessionTypeChanger`)
+
+Власник/модератор може створити змагання прямо з timing-сторінки або зі сторінки конкретного заїзду:
+
+1. Натиснути "Прокат ▾" → меню "Тип заїзду" → вибрати формат
+2. Натиснути "+ Створити нове змагання"
+3. Frontend POST-ить `/competitions` зі стандартним name (`"ЛЛ, 03.06.26, Тр. 7"`)
+4. Користувач обирає фазу → POST `/competitions/:id/link-session` + `autoLinkSurroundingSessions` лінкує наступні сесії дня
+
+Pure utils для overlap-аналізу — `src/utils/competitionLinking.ts` (frontend) і `collector/src/competition-link-utils.js` (collector). Спільна логіка покрита тестами в обох.
 
 ---
 
@@ -276,9 +270,10 @@ groupCountOverride (ручний від адміна)
 
 | Файл | Роль |
 |------|------|
-| `collector/src/schedule.js` | Розклад змагань по днях тижня |
-| `collector/src/detector.js` | Автодетекція змагань за часом і паузами |
 | `collector/src/storage.js` | БД, CRUD, авто-прив'язка, перевірка фаз |
-| `collector/src/poller.js` | Полінг таймінгу, тригери авто-прив'язки |
+| `collector/src/competition-link-utils.js` | Pure functions: phases, overlap detection, group capping |
+| `collector/src/poller.js` | Полінг таймінгу, тригери `autoLinkSessionToActiveCompetition` + `recheckSessionPhase` |
+| `src/utils/competitionLinking.ts` | Frontend pure utils (mirror collector + sequence/plan) |
 | `src/data/competitions.ts` | Конфіги форматів, фази, функції розбиття на групи |
 | `src/utils/scoring.ts` | Обчислення результатів і рейтингів |
+| `src/components/Timing/SessionTypeChanger.tsx` | UI: створення/прив'язка зі сторінки заїзду |

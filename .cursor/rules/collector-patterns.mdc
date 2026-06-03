@@ -20,12 +20,11 @@ Plain Node.js HTTP server. **НЕ Express. НЕ TypeScript.** Без фрейм�
 
 ```
 collector/src/
-  index.js     ← HTTP server, всі endpoints, CORS, ADMIN_TOKEN
-  poller.js    ← TimingPoller — полінг + #diff() → events
-  parser.js    ← парсер JSON з timing API + volatile fields
-  storage.js   ← SQLite, prepared statements, CRUD, session merging, auto-link
-  detector.js  ← CompetitionDetector — авто-детекція по schedule.js
-  schedule.js  ← weekly schedule (Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ)
+  index.js                   ← HTTP server, всі endpoints, CORS, ADMIN_TOKEN
+  poller.js                  ← TimingPoller — полінг + #diff() → events
+  parser.js                  ← парсер JSON з timing API + volatile fields
+  storage.js                 ← SQLite, prepared statements, CRUD, session merging, auto-link
+  competition-link-utils.js  ← pure helpers: phases, overlap detection, group capping
 ```
 
 ## Боди / парсинг

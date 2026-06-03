@@ -37,10 +37,9 @@ collector/src/
   index.js               ← HTTP server + усі endpoints
   poller.js              ← TimingPoller — полінг + diff → events
   storage.js             ← SQLite schema + CRUD + auto-link
-  storage-utils.js       ← pure helpers: parseCompetitionRow, mergeSessions (+ test)
-  detector.js            ← CompetitionDetector — авто-детекція по розкладу
-  parser.js              ← парсер JSON з timing API
-  schedule.js            ← розклад змагань (Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ)
+  storage-utils.js           ← pure helpers: parseCompetitionRow, mergeSessions (+ test)
+  competition-link-utils.js  ← pure helpers: phases, overlap detection, group capping (+ test)
+  parser.js                  ← парсер JSON з timing API
 docs/                    ← довідкова, читай за потребою (architecture, collector-api, ...)
 ```
 

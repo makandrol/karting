@@ -152,7 +152,6 @@ export interface CollectorTimingResponse {
   trackId: number;
   lastUpdate: number | null;
   sessionId: string | null;
-  competition: any;
 }
 
 export interface SessionCompetitionInfo {
@@ -278,14 +277,4 @@ export const api = {
   system: () => apiGet<any>('/system'),
   collectorLog: (limit = 200) => apiGet<any>('/db/collector-log', { limit }),
   analytics: (days = 7) => apiGet<any>('/analytics', { days }),
-
-  // ---- Detector ----
-  detector: {
-    state: () => apiGet<any>('/competition'),
-    start: (format: string, name: string) => apiPost('/competition/start', { format, name }),
-    stop: () => apiPost('/competition/stop'),
-    phase: (sessionId: string, type: string, name: string) =>
-      apiPost('/competition/phase', { sessionId, type, name }),
-    reset: () => apiPost('/competition/reset'),
-  },
 };

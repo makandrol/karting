@@ -36,10 +36,6 @@ export default function Timing() {
   const currentSessionId = (collectorStatus as any)?.sessionId || null;
   const currentRaceNumber = (collectorStatus as any)?.raceNumber ?? null;
 
-  const competition = (collectorStatus as any)?.competition ?? null;
-  const isCompetition = competition?.state && !['none', 'finished'].includes(competition.state);
-  const sessionType = isCompetition ? (competition.competition?.name || 'Змагання') : 'Прокат';
-
   const [liveSessionComp, setLiveSessionComp] = useState<{ competitionId: string | null; format: string | null; phase: string | null }>({ competitionId: null, format: null, phase: null });
   useEffect(() => {
     if (!currentSessionId) { setLiveSessionComp({ competitionId: null, format: null, phase: null }); return; }

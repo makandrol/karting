@@ -78,7 +78,7 @@ await api.competitions.update(id, { results: newResults });
 await api.sessions.renamePilot(sessionId, oldName, newName);
 ```
 
-Доступні групи: `api.competitions`, `api.sessions`, `api.laps`, `api.events`, `api.karts`, `api.scoring`, `api.track`, `api.pageVisibility`, `api.viewDefaults`, `api.moderators`, `api.detector`, `api.status()`, `api.timing()`, `api.system()`, `api.analytics()`.
+Доступні групи: `api.competitions`, `api.sessions`, `api.laps`, `api.events`, `api.karts`, `api.scoring`, `api.track`, `api.pageVisibility`, `api.viewDefaults`, `api.moderators`, `api.status()`, `api.timing()`, `api.system()`, `api.analytics()`.
 
 Для кастомних шляхів — `apiGet`/`apiPost`/`apiPatch`/`apiDelete` з `services/api/http.ts`.
 

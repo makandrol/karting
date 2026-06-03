@@ -124,7 +124,7 @@ AuthProvider
 ### API client (services/api/)
 Усі HTTP-виклики до колектора — через типізований клієнт `services/api/`:
 - `services/api/http.ts` — `apiGet`, `apiPost`, `apiPatch`, `apiDelete` з timeout, auth header, error handling, `CollectorApiError`
-- `services/api/index.ts` — typed endpoints groups: `api.competitions`, `api.sessions`, `api.laps`, `api.events`, `api.scoring`, `api.track`, `api.pageVisibility`, `api.moderators`, `api.viewDefaults`, `api.detector`, etc.
+- `services/api/index.ts` — typed endpoints groups: `api.competitions`, `api.sessions`, `api.laps`, `api.events`, `api.scoring`, `api.track`, `api.pageVisibility`, `api.moderators`, `api.viewDefaults`, etc.
 
 Виняток: `services/analytics.ts` робить fire-and-forget heartbeat через bare `fetch` (без auth).
 
