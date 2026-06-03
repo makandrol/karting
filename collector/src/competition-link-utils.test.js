@@ -10,6 +10,15 @@ import {
   isGonzalesQualifying,
   detectGroupCountFromOverlap,
   capGroupCount,
+  COMPETITION_SCHEDULE,
+  COMPETITION_AUTO_START_HOUR_KYIV,
+  COMPETITION_AUTO_START_MIN_KYIV,
+  getKyivLocalParts,
+  getScheduledFormat,
+  isCompetitionTime,
+  buildAutoCompetitionId,
+  buildAutoCompetitionName,
+  getKyivIsoDate,
 } from './competition-link-utils.js';
 
 // ============================================================
@@ -419,5 +428,170 @@ describe('capGroupCount', () => {
 
   it('default max 3 для невідомого формату', () => {
     expect(capGroupCount(10, 'unknown')).toBe(3);
+  });
+});
+
+// ============================================================
+// Schedule + time-window helpers
+// ============================================================
+
+// Helpers to build timestamps in Kyiv time (UTC+3) for tests
+// `Date.UTC(year, month-1, day, hour, minute) - offset_ms` gives unix-ms that,
+// when shifted by +3h, lands exactly at the requested Kyiv time.
+function kyivTs(year, month, day, hour = 0, minute = 0) {
+  return Date.UTC(year, month - 1, day, hour - 3, minute);
+}
+
+describe('COMPETITION_SCHEDULE constants', () => {
+  it('Пн → gonzales, Вт → light_league, Ср → champions_league', () => {
+    expect(COMPETITION_SCHEDULE[1].format).toBe('gonzales');
+    expect(COMPETITION_SCHEDULE[2].format).toBe('light_league');
+    expect(COMPETITION_SCHEDULE[3].format).toBe('champions_league');
+  });
+
+  it('у subота/неділя/чт/пт нічого не заплановано', () => {
+    expect(COMPETITION_SCHEDULE[0]).toBeUndefined();
+    expect(COMPETITION_SCHEDULE[4]).toBeUndefined();
+    expect(COMPETITION_SCHEDULE[5]).toBeUndefined();
+    expect(COMPETITION_SCHEDULE[6]).toBeUndefined();
+  });
+
+  it('старт о 19:30 Kyiv', () => {
+    expect(COMPETITION_AUTO_START_HOUR_KYIV).toBe(19);
+    expect(COMPETITION_AUTO_START_MIN_KYIV).toBe(30);
+  });
+});
+
+describe('getKyivLocalParts', () => {
+  it('правильно конвертує UTC timestamp у Kyiv tz', () => {
+    // 2026-06-03 12:00 UTC = 2026-06-03 15:00 Kyiv (середа)
+    const ts = Date.UTC(2026, 5, 3, 12, 0);
+    expect(getKyivLocalParts(ts)).toEqual({
+      year: 2026, month: 6, day: 3, hour: 15, minute: 0, dayOfWeek: 3,
+    });
+  });
+
+  it('перехід через північ Kyiv (23:30 UTC = 02:30 Kyiv наступного дня)', () => {
+    const ts = Date.UTC(2026, 5, 3, 23, 30); // 23:30 UTC Wed
+    const parts = getKyivLocalParts(ts);
+    expect(parts.day).toBe(4);     // Thursday
+    expect(parts.hour).toBe(2);
+    expect(parts.minute).toBe(30);
+    expect(parts.dayOfWeek).toBe(4);
+  });
+});
+
+describe('getScheduledFormat', () => {
+  it('Понеділок 19:00 Kyiv → gonzales', () => {
+    expect(getScheduledFormat(kyivTs(2026, 6, 1, 19, 0))).toBe('gonzales');
+  });
+
+  it('Вівторок 20:30 Kyiv → light_league', () => {
+    expect(getScheduledFormat(kyivTs(2026, 6, 2, 20, 30))).toBe('light_league');
+  });
+
+  it('Середа 19:55 Kyiv → champions_league', () => {
+    expect(getScheduledFormat(kyivTs(2026, 6, 3, 19, 55))).toBe('champions_league');
+  });
+
+  it('П\'ятниця → null', () => {
+    expect(getScheduledFormat(kyivTs(2026, 6, 5, 20, 0))).toBe(null);
+  });
+
+  it('Субота → null (Sprint manual only)', () => {
+    expect(getScheduledFormat(kyivTs(2026, 6, 6, 10, 0))).toBe(null);
+  });
+
+  it('Неділя → null', () => {
+    expect(getScheduledFormat(kyivTs(2026, 6, 7, 14, 0))).toBe(null);
+  });
+});
+
+describe('isCompetitionTime', () => {
+  it('Понеділок 19:30 Kyiv → true', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 30))).toBe(true);
+  });
+
+  it('Понеділок 19:29 → false', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 29))).toBe(false);
+  });
+
+  it('Понеділок 18:00 → false (зарано)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 18, 0))).toBe(false);
+  });
+
+  it('Понеділок 23:59 → true (вечір змагання)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 23, 59))).toBe(true);
+  });
+
+  it('Вівторок 21:05 → true (outlier від 24.03 — перевіряємо що покривається)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 2, 21, 5))).toBe(true);
+  });
+
+  it('Четвер 20:00 → false (нема в розкладі)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 4, 20, 0))).toBe(false);
+  });
+
+  it('Понеділок 00:30 → false (наступного дня вже не Пн)', () => {
+    // 00:30 Kyiv = 21:30 UTC попереднього дня — але dayOfWeek рахується по Kyiv
+    // 2026-06-02 00:30 Kyiv = Tuesday — питаємо: Вт 00:30 → has schedule (LL),
+    // але hour=0 < 19 → false
+    expect(isCompetitionTime(kyivTs(2026, 6, 2, 0, 30))).toBe(false);
+  });
+});
+
+describe('buildAutoCompetitionId', () => {
+  it('використовує Kyiv-дату', () => {
+    const ts = kyivTs(2026, 6, 1, 19, 30);
+    const id = buildAutoCompetitionId('gonzales', ts);
+    expect(id).toMatch(/^gonzales-2026-06-01-[0-9a-z]+$/);
+  });
+
+  it('розрізняє різні timestamps', () => {
+    const a = buildAutoCompetitionId('light_league', kyivTs(2026, 6, 2, 19, 30));
+    const b = buildAutoCompetitionId('light_league', kyivTs(2026, 6, 2, 19, 31));
+    expect(a).not.toBe(b);
+  });
+
+  it('пізно ввечері Kyiv — date уже наступного дня UTC', () => {
+    // 2026-06-01 23:00 Kyiv = 2026-06-01 20:00 UTC, але дата лишається 06-01
+    const ts = kyivTs(2026, 6, 1, 23, 0);
+    expect(buildAutoCompetitionId('gonzales', ts)).toMatch(/^gonzales-2026-06-01-/);
+  });
+});
+
+describe('buildAutoCompetitionName', () => {
+  it('Гонзалес з shortName', () => {
+    const ts = kyivTs(2026, 6, 1, 20, 15);
+    expect(buildAutoCompetitionName('gonzales', ts, 7)).toBe('Гонз, 01.06.26, Тр. 7');
+  });
+
+  it('Лайт Ліга', () => {
+    const ts = kyivTs(2026, 6, 2, 19, 50);
+    expect(buildAutoCompetitionName('light_league', ts, '5R')).toBe('ЛЛ, 02.06.26, Тр. 5R');
+  });
+
+  it('Ліга Чемпіонів', () => {
+    const ts = kyivTs(2026, 6, 3, 20, 5);
+    expect(buildAutoCompetitionName('champions_league', ts, 1)).toBe('ЛЧ, 03.06.26, Тр. 1');
+  });
+
+  it('formatfallback для дня поза розкладом → format (не shortName)', () => {
+    // Subota — нема в розкладі, нехай використовує format в fallback
+    const ts = kyivTs(2026, 6, 6, 10, 0);
+    expect(buildAutoCompetitionName('sprint', ts, 1)).toBe('sprint, 06.06.26, Тр. 1');
+  });
+});
+
+describe('getKyivIsoDate', () => {
+  it('повертає Kyiv-локальну дату', () => {
+    expect(getKyivIsoDate(kyivTs(2026, 6, 1, 20, 0))).toBe('2026-06-01');
+    expect(getKyivIsoDate(kyivTs(2026, 12, 31, 23, 59))).toBe('2026-12-31');
+  });
+
+  it('пізно UTC але рано Kyiv — використовує Kyiv-дату', () => {
+    // 21:00 UTC Wed = 00:00 Kyiv Thu
+    const ts = Date.UTC(2026, 5, 3, 21, 0);
+    expect(getKyivIsoDate(ts)).toBe('2026-06-04');
   });
 });

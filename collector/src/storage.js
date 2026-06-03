@@ -19,6 +19,12 @@ import {
   isGonzalesQualifying,
   detectGroupCountFromOverlap,
   capGroupCount,
+  getScheduledFormat,
+  isCompetitionTime,
+  buildAutoCompetitionId,
+  buildAutoCompetitionName,
+  getKyivIsoDate,
+  COMPETITION_SCHEDULE,
 } from './competition-link-utils.js';
 import { parseCompetitionRow, mergeSessions, parseLapTimeSec, buildKartStats } from './storage-utils.js';
 
@@ -571,9 +577,53 @@ export const storage = {
     return map;
   },
 
+  /**
+   * If `now` falls inside a scheduled competition window for the day and
+   * no live competition exists yet, create a new live competition.
+   *
+   * Idempotent: if a live (or finished) competition of the scheduled format
+   * already exists for the day, returns it untouched.
+   *
+   * @param {number} now unix-ms
+   * @returns {object|null} created/existing competition row, or null
+   */
+  autoStartCompetitionIfTime(now) {
+    const format = getScheduledFormat(now);
+    if (!format) return null;
+    if (!isCompetitionTime(now)) return null;
+
+    const date = getKyivIsoDate(now);
+    const sameDay = stmts.getCompetitionsByFormat.all(format)
+      .map(parseCompetitionRow)
+      .find(c => c.date === date);
+    if (sameDay) return sameDay;
+
+    const id = buildAutoCompetitionId(format, now);
+    const trackId = _currentTrackId;
+    const name = buildAutoCompetitionName(format, now, trackId);
+
+    this.createCompetition({
+      id, name, format, date,
+      sessions: [],
+      results: null,
+      uploaded_results: null,
+      status: 'live',
+    });
+    console.log(`🆕 Auto-started competition: ${name}`);
+    return this.getCompetition(id);
+  },
+
   autoLinkSessionToActiveCompetition(sessionId) {
     const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
-    const liveComp = comps.find(c => c.status === 'live');
+    let liveComp = comps.find(c => c.status === 'live');
+
+    // No live comp yet — try auto-start (Mon=Гонз, Tue=ЛЛ, Wed=ЛЧ, ≥19:30 Kyiv)
+    if (!liveComp) {
+      const sessionTs = parseInt(sessionId.replace('session-', '')) || Date.now();
+      const created = this.autoStartCompetitionIfTime(sessionTs);
+      if (!created) return null;
+      liveComp = parseCompetitionRow(stmts.getCompetition.get(created.id));
+    }
     if (!liveComp) return null;
 
     const results = liveComp.results || {};
@@ -704,6 +754,57 @@ export const storage = {
       this.updateCompetition(comp.id, { sessions: newSessions, results: { ...results, autoDetectedGroups: groupCount } });
       console.log(`🔄 Reassigned ${sessionId}: ${entry.phase} → ${correctPhase}`);
     }
+  },
+
+  /**
+   * Auto-finish live competitions where all sessions ended AND either:
+   *  - all expected phases are linked (LL/CL/Sprint), OR
+   *  - the last session ended >FINISH_TIMEOUT_MS ago (timeout fallback,
+   *    used as the only signal for Gonzales since its phase count is fuzzy).
+   *
+   * Idempotent — calling twice has no extra effect (already finished comps skipped).
+   *
+   * @param {number} now unix-ms (defaults to Date.now())
+   * @returns {string[]} ids of competitions that were finished by this call
+   */
+  autoFinishCompletedCompetitions(now = Date.now()) {
+    const FINISH_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour after last session
+    const finishedIds = [];
+
+    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const live = comps.filter(c => c.status === 'live');
+
+    for (const comp of live) {
+      if (comp.sessions.length === 0) continue;
+
+      const sessionMeta = comp.sessions
+        .map(s => db.prepare('SELECT end_time FROM sessions WHERE id = ?').get(s.sessionId))
+        .filter(Boolean);
+      if (sessionMeta.length === 0) continue;
+
+      const allEnded = sessionMeta.every(s => s.end_time != null);
+      if (!allEnded) continue;
+
+      const lastEndTime = Math.max(...sessionMeta.map(s => s.end_time));
+      const timedOut = (now - lastEndTime) > FINISH_TIMEOUT_MS;
+
+      // Phase-based check: skipped for Gonzales (phase count fuzzy)
+      let phasesComplete = false;
+      if (comp.format !== 'gonzales') {
+        const groupCount = comp.results?.groupCountOverride ?? comp.results?.autoDetectedGroups;
+        const allPhases = buildFullPhases(comp.format);
+        const phases = filterPhasesUtil(allPhases, groupCount, comp.format);
+        phasesComplete = phases.length > 0 && comp.sessions.length >= phases.length;
+      }
+
+      if (phasesComplete || timedOut) {
+        this.updateCompetition(comp.id, { status: 'finished' });
+        finishedIds.push(comp.id);
+        console.log(`🏁 Auto-finished competition: ${comp.name} (${phasesComplete ? 'all phases linked' : 'timeout'})`);
+      }
+    }
+
+    return finishedIds;
   },
 
   autoUnlinkSession(sessionId) {

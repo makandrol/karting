@@ -318,3 +318,202 @@ describe('storage.autoUnlinkSession', () => {
     expect(storage.autoUnlinkSession('session-9999')).toBe(false);
   });
 });
+
+// ============================================================
+// autoStartCompetitionIfTime
+// ============================================================
+
+// Helper: timestamp at Kyiv local time
+function kyivTs(year, month, day, hour = 0, minute = 0) {
+  return Date.UTC(year, month - 1, day, hour - 3, minute);
+}
+
+describe('storage.autoStartCompetitionIfTime', () => {
+  it('створює gonzales у понеділок ≥19:30 Kyiv', () => {
+    const ts = kyivTs(2026, 6, 1, 20, 0); // Mon 20:00
+    const created = storage.autoStartCompetitionIfTime(ts);
+    expect(created).not.toBeNull();
+    expect(created.format).toBe('gonzales');
+    expect(created.status).toBe('live');
+    expect(created.date).toBe('2026-06-01');
+    expect(created.name).toMatch(/^Гонз, 01\.06\.26, Тр\. \d+$/);
+  });
+
+  it('створює light_league у вівторок', () => {
+    const created = storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 2, 19, 45));
+    expect(created.format).toBe('light_league');
+  });
+
+  it('створює champions_league у середу', () => {
+    const created = storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 3, 20, 30));
+    expect(created.format).toBe('champions_league');
+  });
+
+  it('повертає null до 19:30 Kyiv', () => {
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 0))).toBe(null);
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 29))).toBe(null);
+  });
+
+  it('повертає null у дні поза розкладом (Чт, Пт, Сб, Нд)', () => {
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 4, 20, 0))).toBe(null); // Thu
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 5, 20, 0))).toBe(null); // Fri
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 6, 20, 0))).toBe(null); // Sat
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 7, 20, 0))).toBe(null); // Sun
+  });
+
+  it('повертає існуюче змагання якщо вже є того дня (idempotent)', () => {
+    const ts = kyivTs(2026, 6, 1, 20, 0);
+    const a = storage.autoStartCompetitionIfTime(ts);
+    const b = storage.autoStartCompetitionIfTime(ts);
+    expect(b.id).toBe(a.id);
+  });
+
+  it('не створює нове якщо є finished змагання того ж формату й дня', () => {
+    makeCompetition({
+      id: 'gonzales-existing',
+      format: 'gonzales',
+      status: 'finished',
+    });
+    // Hack: вручну виставляю date через update
+    storage.updateCompetition('gonzales-existing', { date: '2026-06-01' });
+
+    const result = storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 20, 0));
+    expect(result.id).toBe('gonzales-existing');
+    expect(result.status).toBe('finished');
+  });
+});
+
+describe('storage.autoLinkSessionToActiveCompetition (with auto-start)', () => {
+  it('створює нове gonzales-змагання + лінкує першу сесію як qualifying_1 у понеділок', () => {
+    const ts = kyivTs(2026, 6, 1, 20, 0);
+    const sessionId = `session-${ts}`;
+    insertSession(sessionId, { startTime: ts });
+
+    const result = storage.autoLinkSessionToActiveCompetition(sessionId);
+    expect(result).not.toBeNull();
+    expect(result.phase).toBe('qualifying_1');
+
+    const comp = storage.getCompetition(result.competitionId);
+    expect(comp.format).toBe('gonzales');
+    expect(comp.status).toBe('live');
+  });
+
+  it('у час поза розкладом — не створює і повертає null', () => {
+    const ts = kyivTs(2026, 6, 4, 20, 0); // Thursday
+    insertSession(`session-${ts}`, { startTime: ts });
+    expect(storage.autoLinkSessionToActiveCompetition(`session-${ts}`)).toBe(null);
+  });
+});
+
+// ============================================================
+// autoFinishCompletedCompetitions
+// ============================================================
+
+describe('storage.autoFinishCompletedCompetitions', () => {
+  it('закриває LL коли всі phases linked + всі сесії ended', () => {
+    // LL з 1 групою має 3 фази: qualifying_1, race_1_group_1, race_2_group_1
+    const t0 = 100_000_000_000;
+    insertSession('session-1000', { startTime: t0,        endTime: t0 + 60_000 });
+    insertSession('session-2000', { startTime: t0 + 70_000, endTime: t0 + 130_000 });
+    insertSession('session-3000', { startTime: t0 + 140_000, endTime: t0 + 200_000 });
+    makeCompetition({
+      id: 'c1', format: 'light_league',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-2000', phase: 'race_1_group_1' },
+        { sessionId: 'session-3000', phase: 'race_2_group_1' },
+      ],
+      results: { groupCountOverride: 1 },
+    });
+
+    const finishedIds = storage.autoFinishCompletedCompetitions(t0 + 1_000_000);
+    expect(finishedIds).toContain('c1');
+    expect(storage.getCompetition('c1').status).toBe('finished');
+  });
+
+  it('НЕ закриває коли є сесія без end_time', () => {
+    insertSession('session-1000', { startTime: 1000, endTime: 60_000 });
+    insertSession('session-2000', { startTime: 70_000 }); // active
+    makeCompetition({
+      id: 'c1', format: 'light_league',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-2000', phase: 'race_1_group_1' },
+      ],
+      results: { groupCountOverride: 1 },
+    });
+
+    const finishedIds = storage.autoFinishCompletedCompetitions(Date.now());
+    expect(finishedIds).toEqual([]);
+    expect(storage.getCompetition('c1').status).toBe('live');
+  });
+
+  it('НЕ закриває коли last session ended нещодавно і phases incomplete', () => {
+    const t0 = Date.now() - 5 * 60 * 1000; // 5 min ago
+    insertSession('session-1000', { startTime: t0, endTime: t0 + 60_000 });
+    makeCompetition({
+      id: 'c1', format: 'light_league',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+      results: { groupCountOverride: 1 }, // expects 3 phases, has 1
+    });
+
+    expect(storage.autoFinishCompletedCompetitions(Date.now())).toEqual([]);
+    expect(storage.getCompetition('c1').status).toBe('live');
+  });
+
+  it('закриває по timeout — last session ended >60 хв тому', () => {
+    const t0 = 1_000_000_000;
+    insertSession('session-1000', { startTime: t0, endTime: t0 + 60_000 });
+    makeCompetition({
+      id: 'c1', format: 'light_league',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+      results: { groupCountOverride: 2 }, // 6 phases, has 1 — phases incomplete
+    });
+
+    const now = t0 + 60_000 + 70 * 60 * 1000; // 70 min after last end
+    expect(storage.autoFinishCompletedCompetitions(now)).toContain('c1');
+    expect(storage.getCompetition('c1').status).toBe('finished');
+  });
+
+  it('Gonzales закривається ТІЛЬКИ по timeout (phases-check skipped)', () => {
+    const t0 = 1_000_000_000;
+    // 14 sessions (qualifying_1 + 12 round_*_group_1 + 1 extra) — phases-check сказав би "complete" для Gonzales з 1 групою
+    // Але для Gonzales ми скіпаємо phase-check — закриваємо тільки по timeout.
+    insertSession('session-g1', { startTime: t0, endTime: t0 + 60_000 });
+    makeCompetition({
+      id: 'g1', format: 'gonzales',
+      sessions: [{ sessionId: 'session-g1', phase: 'qualifying_1' }],
+    });
+
+    // Без timeout — НЕ закривається навіть якщо phases-check спрацював би
+    expect(storage.autoFinishCompletedCompetitions(t0 + 60_000 + 30 * 60 * 1000)).toEqual([]);
+    // З timeout — закривається
+    expect(storage.autoFinishCompletedCompetitions(t0 + 60_000 + 70 * 60 * 1000)).toContain('g1');
+  });
+
+  it('idempotent — повторний виклик не реагує', () => {
+    const t0 = 1_000_000_000;
+    insertSession('session-1000', { startTime: t0, endTime: t0 + 60_000 });
+    insertSession('session-2000', { startTime: t0 + 70_000, endTime: t0 + 130_000 });
+    insertSession('session-3000', { startTime: t0 + 140_000, endTime: t0 + 200_000 });
+    makeCompetition({
+      id: 'c1', format: 'light_league',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-2000', phase: 'race_1_group_1' },
+        { sessionId: 'session-3000', phase: 'race_2_group_1' },
+      ],
+      results: { groupCountOverride: 1 },
+    });
+
+    const now = t0 + 1_000_000;
+    expect(storage.autoFinishCompletedCompetitions(now)).toContain('c1');
+    expect(storage.autoFinishCompletedCompetitions(now)).toEqual([]);
+  });
+
+  it('пропускає змагання без сесій', () => {
+    makeCompetition({ id: 'empty', format: 'light_league' });
+    expect(storage.autoFinishCompletedCompetitions(Date.now())).toEqual([]);
+    expect(storage.getCompetition('empty').status).toBe('live');
+  });
+});

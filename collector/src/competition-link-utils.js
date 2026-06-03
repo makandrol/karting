@@ -272,3 +272,120 @@ export function capGroupCount(desired, format) {
   const max = FORMAT_MAX_GROUPS[format] ?? 3;
   return Math.min(Math.max(desired, 1), max);
 }
+
+// ============================================================
+// Auto-start competition: schedule, time windows, name builders
+// ============================================================
+
+/**
+ * Weekly competition schedule. Day index: 0=Sunday, 1=Monday, ..., 6=Saturday.
+ *
+ * Reflects the karting club's actual operating pattern (analysed from real
+ * sessions Apr-May 2026): Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ. All start ≥19:30 Kyiv.
+ *
+ * Sprint/Marathon — manual only (rare special events, not regular).
+ */
+export const COMPETITION_SCHEDULE = {
+  1: { format: 'gonzales',         shortName: 'Гонз' },  // Понеділок
+  2: { format: 'light_league',     shortName: 'ЛЛ' },    // Вівторок
+  3: { format: 'champions_league', shortName: 'ЛЧ' },    // Середа
+};
+
+/** Hour (Kyiv local time) at which competition window opens. */
+export const COMPETITION_AUTO_START_HOUR_KYIV = 19;
+
+/** Minute past the hour at which window opens. */
+export const COMPETITION_AUTO_START_MIN_KYIV = 30;
+
+/**
+ * Kyiv UTC offset in hours.
+ *
+ * NOTE: this is currently hardcoded. Kyiv is UTC+3 in summer (EEST, last Sun
+ * of March → last Sun of October) and UTC+2 in winter (EET). Adjust manually
+ * on DST transitions, or replace with `Intl.DateTimeFormat` lookup.
+ */
+export const KYIV_UTC_OFFSET_HOURS = 3;
+
+/**
+ * Convert UTC unix-ms to Kyiv local Date components.
+ *
+ * @param {number} timestampMs
+ * @returns {{ year: number, month: number, day: number, hour: number, minute: number, dayOfWeek: number }}
+ *   month is 1-12 (NOT 0-indexed); dayOfWeek is 0=Sunday..6=Saturday
+ */
+export function getKyivLocalParts(timestampMs) {
+  const shifted = new Date(timestampMs + KYIV_UTC_OFFSET_HOURS * 3600 * 1000);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+    dayOfWeek: shifted.getUTCDay(),
+  };
+}
+
+/**
+ * Returns the format scheduled for the day of `timestampMs`, or null.
+ *
+ * @param {number} timestampMs
+ * @returns {string|null}
+ */
+export function getScheduledFormat(timestampMs) {
+  const { dayOfWeek } = getKyivLocalParts(timestampMs);
+  return COMPETITION_SCHEDULE[dayOfWeek]?.format ?? null;
+}
+
+/**
+ * Is `timestampMs` inside the competition window (>=19:30 Kyiv on a scheduled day)?
+ *
+ * @param {number} timestampMs
+ * @returns {boolean}
+ */
+export function isCompetitionTime(timestampMs) {
+  const parts = getKyivLocalParts(timestampMs);
+  if (!COMPETITION_SCHEDULE[parts.dayOfWeek]) return false;
+  if (parts.hour < COMPETITION_AUTO_START_HOUR_KYIV) return false;
+  if (parts.hour === COMPETITION_AUTO_START_HOUR_KYIV && parts.minute < COMPETITION_AUTO_START_MIN_KYIV) return false;
+  return true;
+}
+
+/**
+ * Build a competition id mirroring `SessionTypeChanger.handleCreateCompetition`:
+ * `${format}-${YYYY-MM-DD}-${base36 of unix-ms}`.
+ *
+ * @param {string} format
+ * @param {number} timestampMs
+ * @returns {string}
+ */
+export function buildAutoCompetitionId(format, timestampMs) {
+  const { year, month, day } = getKyivLocalParts(timestampMs);
+  const isoDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return `${format}-${isoDate}-${timestampMs.toString(36)}`;
+}
+
+/**
+ * Build a human name like `"ЛЛ, 03.06.26, Тр. 7"`.
+ *
+ * @param {string} format
+ * @param {number} timestampMs
+ * @param {string|number} trackLabel — printable track id (e.g. "7" or "5R")
+ * @returns {string}
+ */
+export function buildAutoCompetitionName(format, timestampMs, trackLabel) {
+  const { year, month, day, dayOfWeek } = getKyivLocalParts(timestampMs);
+  const shortName = COMPETITION_SCHEDULE[dayOfWeek]?.shortName ?? format;
+  const dateStr = `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}.${String(year).slice(2)}`;
+  return `${shortName}, ${dateStr}, Тр. ${trackLabel}`;
+}
+
+/**
+ * Build the local-date string `"YYYY-MM-DD"` for `timestampMs` in Kyiv tz.
+ *
+ * @param {number} timestampMs
+ * @returns {string}
+ */
+export function getKyivIsoDate(timestampMs) {
+  const { year, month, day } = getKyivLocalParts(timestampMs);
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
