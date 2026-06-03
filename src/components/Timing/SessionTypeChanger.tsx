@@ -7,6 +7,7 @@ import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhasesForFormat, type Competitio
 import { useTrack } from '../../services/trackContext';
 import { trackDisplayId } from '../../data/tracks';
 import { isValidSession } from '../../utils/timing';
+import { fmtDateISO } from '../../utils/datetime';
 import {
   detectGroupsFromSessionSequence,
   planAutoLink,
@@ -88,9 +89,10 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     const dateStr = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getFullYear()).slice(2)}`;
     const config = COMPETITION_CONFIGS[selectedFormat];
     const name = `${config.shortName}, ${dateStr}, Тр. ${trackDisplayId(currentTrack.id)}`;
-    const id = `${selectedFormat}-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${Date.now().toString(36)}`;
+    const isoDate = fmtDateISO(now);
+    const id = `${selectedFormat}-${isoDate}-${Date.now().toString(36)}`;
     try {
-      const comp = await api.competitions.create({ id, name, format: selectedFormat, date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` });
+      const comp = await api.competitions.create({ id, name, format: selectedFormat, date: isoDate });
       setSelectedComp(comp as unknown as Competition);
       setStep('phase');
     } catch {}
@@ -128,7 +130,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     if (!sessionTs) return;
     const currentTime = parseInt(sessionTs[1]);
     const currentDate = new Date(currentTime);
-    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+    const dateStr = fmtDateISO(currentDate);
 
     try {
       let allSessions: { id: string; start_time: number; end_time: number | null; competition_id?: string | null; merged_session_ids?: string[]; best_lap_time?: string | null }[];

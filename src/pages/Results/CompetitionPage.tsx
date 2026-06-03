@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, type
 import { api } from '../../services/api';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
 import { toSeconds, isValidSession, KART_COLOR, shortName, loadWithExpiry, saveWithExpiry } from '../../utils/timing';
+import { fmtDateISO } from '../../utils/datetime';
 import { LoadingState } from '../../components/States';
 import { useAuth } from '../../services/auth';
 import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../../data/tracks';
@@ -50,7 +51,7 @@ export default function CompetitionPage() {
     const dates = new Set<string>();
     for (const s of sessions) {
       const m = s.sessionId.match(/session-(\d+)/);
-      if (m) { const d = new Date(parseInt(m[1])); dates.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }
+      if (m) { const d = new Date(parseInt(m[1])); dates.add(fmtDateISO(d)); }
     }
     const sessionIds = new Set(sessions.map(s => s.sessionId));
     const all: SessionTableRow[] = [];
@@ -265,7 +266,7 @@ export default function CompetitionPage() {
                           return m ? parseInt(m[1]) : 0;
                         }));
                         const dateObj = new Date(lastTs);
-                        const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+                        const dateStr = fmtDateISO(dateObj);
                         try {
                           const daySessions = await api.sessions.byDate(dateStr) as any as { id: string; start_time: number; end_time: number | null; competition_id?: string | null; best_lap_time?: string | null }[];
                           const linkedIds = new Set(reassigned.map(s => s.sessionId));

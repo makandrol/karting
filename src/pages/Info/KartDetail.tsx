@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { api, type DbSession } from '../../services/api';
 import { parseTime, toSeconds, mergePilotNames, isValidSession, shortPilot } from '../../utils/timing';
-import { fmtTimeShort as fmtTime, fmtDateDM as fmtDate } from '../../utils/datetime';
+import { fmtTimeShort as fmtTime, fmtDateDM as fmtDate, fmtDateISO } from '../../utils/datetime';
 import { LoadingState } from '../../components/States';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
@@ -33,7 +33,7 @@ export default function KartDetail() {
   const { kartId } = useParams<{ kartId: string }>();
   const kartNumber = parseInt(kartId || '0');
   const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayStr = fmtDateISO(now);
 
   // Selected dates (multi-select, persisted)
   const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {

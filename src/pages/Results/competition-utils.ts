@@ -5,6 +5,7 @@
 
 import { trackDisplayId } from '../../data/tracks';
 import { normalizeCompetition } from '../../services/api';
+import { fmtDateISO } from '../../utils/datetime';
 import type { Competition } from './competition-types';
 
 export const FORMAT_FILTERS: { key: string; label: string }[] = [
@@ -29,9 +30,8 @@ export const MONTH_NAMES = [
   'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень',
 ];
 
-export function localDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+/** @deprecated використовуйте fmtDateISO з utils/datetime. Re-export для backward-compat. */
+export const localDateStr = fmtDateISO;
 
 /** Get real competition date from first session's timestamp (more accurate than stored date). */
 export function getCompRealDate(c: Competition): string {

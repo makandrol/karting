@@ -1,12 +1,9 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../services/api';
+import { fmtDateISO as localDateStr } from '../../utils/datetime';
 
 const DAY_NAMES = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 const MONTH_NAMES = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
-
-function localDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 function getMonday(d: Date): Date {
   const day = d.getDay();

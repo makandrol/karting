@@ -9,6 +9,7 @@ import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL, api } from '../../services/api';
 import { Link, useNavigate } from 'react-router-dom';
 import { shortName, fetchRaceStartPositions, isValidSession } from '../../utils/timing';
+import { fmtDateISO } from '../../utils/datetime';
 import type { TimingEntry } from '../../types';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
@@ -75,7 +76,7 @@ export default function Timing() {
 
   useEffect(() => {
     const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayStr = fmtDateISO(now);
     api.sessions.byDate(todayStr)
       .then((data) => {
         setRecentSessions((data as unknown as RecentSession[]).filter(s => s.end_time && isValidSession(s)).slice(-5).reverse());
