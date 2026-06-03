@@ -7,6 +7,11 @@ import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhasesForFormat, type Competitio
 import { useTrack } from '../../services/trackContext';
 import { trackDisplayId } from '../../data/tracks';
 import { isValidSession } from '../../utils/timing';
+import {
+  detectGroupsFromSessionSequence,
+  planAutoLink,
+  type SequentialSession,
+} from '../../utils/competitionLinking';
 
 interface Competition {
   id: string;
@@ -141,71 +146,33 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
 
       const after = allForDetection.filter(s => s.start_time > currentTime).sort((a, b) => a.start_time - b.start_time);
 
-      const detectOrder = [{ id: currentSessionId, start_time: currentTime, end_time: null, merged_session_ids: undefined as string[] | undefined }, ...after];
+      // Build SequentialSession entries (current + after) for detectGroupsFromSessionSequence
+      const detectOrder = [
+        { id: currentSessionId, start_time: currentTime, end_time: null as number | null, merged_session_ids: undefined as string[] | undefined },
+        ...after,
+      ];
 
-      const sessionPilots = new Map<string, Set<string>>();
-      const sessionLapCounts = new Map<string, Map<string, number>>();
+      const seqSessions: SequentialSession[] = [];
       for (const s of detectOrder) {
         const sid = s.merged_session_ids?.[0] || s.id;
         try {
           const laps = await api.laps.bySession(sid);
-          sessionPilots.set(sid, new Set((laps as any[]).map(l => l.pilot)));
-          const counts = new Map<string, number>();
-          for (const l of laps as any[]) counts.set(l.pilot, (counts.get(l.pilot) || 0) + 1);
-          sessionLapCounts.set(sid, counts);
-        } catch {}
+          const pilots = new Set((laps as any[]).map(l => l.pilot));
+          const lapCounts = new Map<string, number>();
+          for (const l of laps as any[]) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
+          seqSessions.push({
+            id: sid,
+            pilots,
+            lapCounts,
+            isFinished: s.end_time != null,
+          });
+        } catch {
+          seqSessions.push({ id: sid, pilots: new Set(), lapCounts: new Map(), isFinished: false });
+        }
       }
 
       const format = selectedFormat || selectedComp?.format || '';
-      const formatMaxGroups = format === 'champions_league' ? 2 : format === 'gonzales' ? 2 : 3;
-      const isKartName = (name: string) => /^Карт\s+\d+$/i.test(name.trim());
-
-      let detectedGroups = 1;
-      const cumulativePilots = new Set<string>();
-      let qualiCount = 0;
-      for (const s of detectOrder) {
-        const sid = s.merged_session_ids?.[0] || s.id;
-        const pilots = sessionPilots.get(sid);
-        if (!pilots || pilots.size === 0) continue;
-
-        if (cumulativePilots.size === 0) {
-          qualiCount = 1;
-          for (const p of pilots) cumulativePilots.add(p);
-          continue;
-        }
-
-        if (format === 'gonzales') {
-          const realNames = [...pilots].filter(p => !isKartName(p)).length;
-          const isRealNames = realNames / pilots.size > 0.5;
-
-          const sessionInfo = detectOrder.find(ds => (ds.merged_session_ids?.[0] || ds.id) === sid);
-          const isFinished = sessionInfo?.end_time != null;
-          let isHighLapCount = false;
-          if (isFinished) {
-            const counts = sessionLapCounts.get(sid);
-            if (counts && counts.size > 0) {
-              const maxLaps = Math.max(...counts.values());
-              isHighLapCount = maxLaps >= 5;
-            }
-          }
-
-          if (isRealNames || isHighLapCount) {
-            qualiCount++;
-            for (const p of pilots) cumulativePilots.add(p);
-          }
-          break;
-        }
-
-        let overlap = 0;
-        for (const p of pilots) { if (cumulativePilots.has(p)) overlap++; }
-        const overlapRatio = overlap / pilots.size;
-
-        if (overlapRatio >= 0.5) break;
-
-        qualiCount++;
-        for (const p of pilots) cumulativePilots.add(p);
-      }
-      detectedGroups = Math.min(Math.max(qualiCount, 1), formatMaxGroups);
+      const { groupCount: detectedGroups } = detectGroupsFromSessionSequence(seqSessions, format);
       const phases = getPhasesForFormat(format, detectedGroups);
       const currentIdx = phases.findIndex(p => p.id === _phases[currentPhaseIdx]?.id);
       const effectiveIdx = currentIdx >= 0 ? currentIdx : Math.min(currentPhaseIdx, phases.length - 1);
@@ -216,15 +183,21 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
 
       const availableAfter = available
         .filter(s => s.start_time > currentTime)
-        .sort((a, b) => a.start_time - b.start_time);
+        .sort((a, b) => a.start_time - b.start_time)
+        .map(s => ({ id: s.merged_session_ids?.[0] || s.id }));
 
-      const remainingPhases = phases.length - effectiveIdx - 1;
-      for (let i = 0; i < remainingPhases && i < availableAfter.length; i++) {
-        const session = availableAfter[i];
-        const phaseId = phases[effectiveIdx + 1 + i]?.id;
-        if (!phaseId) continue;
-        const sid = session.merged_session_ids?.[0] || session.id;
-        await apiPost(`/competitions/${encodeURIComponent(compId)}/link-session`, { sessionId: sid, phase: phaseId });
+      const plan = planAutoLink({
+        format,
+        groupCount: detectedGroups,
+        currentPhaseIdx: effectiveIdx,
+        availableSessionsAfter: availableAfter,
+      });
+
+      for (const link of plan) {
+        await apiPost(`/competitions/${encodeURIComponent(compId)}/link-session`, {
+          sessionId: link.sessionId,
+          phase: link.phaseId,
+        });
       }
     } catch {}
   };

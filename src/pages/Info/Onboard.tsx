@@ -4,6 +4,7 @@ import { useTimingPoller } from '../../services/timingPoller';
 import { api } from '../../services/api';
 import { parseTime, toSeconds, getTimeColor, COLOR_CLASSES, shortName } from '../../utils/timing';
 import { COMPETITION_CONFIGS, getPhaseShortLabel, getPhasesForFormat, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
+import { capGroupCount } from '../../utils/competitionLinking';
 import {
   type SessionLap, type CompSession, type ScoringData, type ManualEdits,
   type GonzalesStandingsData, type ComputeGonzalesParams,
@@ -401,7 +402,6 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
           if (tsMatch) sessionStartTimes.set(s.sessionId, parseInt(tsMatch[1]));
         }
 
-        const formatMaxGroups = compInfo.format === 'champions_league' ? 2 : 3;
         const isSprint = compInfo.format === 'sprint';
         const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
         const qualiWithData = qualiSessions.filter(s => (sessionLaps.get(s.sessionId) || []).length > 0);
@@ -411,9 +411,9 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
             .filter(s => s.phase?.startsWith('qualifying_1_group_'))
             .map(s => s.phase?.match(/group_(\d+)/)?.[1])
             .filter(Boolean));
-          autoGroups = Math.min(Math.max(q1Groups.size, 1), formatMaxGroups);
+          autoGroups = capGroupCount(Math.max(q1Groups.size, 1), compInfo.format!);
         } else {
-          autoGroups = Math.min(Math.max(qualiWithData.length, 1), formatMaxGroups);
+          autoGroups = capGroupCount(Math.max(qualiWithData.length, 1), compInfo.format!);
         }
 
         if (!active) return;
