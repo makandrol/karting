@@ -42,7 +42,7 @@ async function apiPatch(path: string, body: object) {
   catch { return { ok: false } as Response; }
 }
 
-type Step = 'closed' | 'format' | 'competition' | 'phase' | 'change_phase_all' | 'change_phase_single';
+type Step = 'closed' | 'format' | 'change_phase_all' | 'change_phase_single';
 
 export default function SessionTypeChanger({ sessionId, currentFormat, currentPhase, currentCompetitionId, onChanged }: SessionTypeChangerProps) {
   const { hasPermission } = useAuth();
@@ -50,10 +50,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
   const canManage = hasPermission('manage_results');
 
   const [step, setStep] = useState<Step>('closed');
-  const [selectedFormat, setSelectedFormat] = useState<CompetitionFormat | null>(null);
-  const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [selectedComp, setSelectedComp] = useState<Competition | null>(null);
-  const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,50 +61,24 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const fetchCompetitions = async (format: CompetitionFormat) => {
-    setLoading(true);
-    try {
-      const all = await api.competitions.byFormat(format);
-      setCompetitions((all as unknown as Competition[]).filter(c => c.status === 'live'));
-    } catch {}
-    setLoading(false);
-  };
-
-  const handleFormatSelect = (format: CompetitionFormat) => {
-    setSelectedFormat(format);
-    fetchCompetitions(format);
-    setStep('competition');
-  };
-
-  const handleCreateCompetition = async () => {
-    if (!selectedFormat || !sessionId) return;
-    setLoading(true);
+  // Вибір формату → одразу нове змагання, перший заїзд стає першим етапом
+  // (Кваліфікація 1). Без проміжних кроків вибору змагання чи етапу.
+  const handleFormatSelect = async (format: CompetitionFormat) => {
+    if (!sessionId) return;
     const now = new Date();
     const dateStr = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getFullYear()).slice(2)}`;
-    const config = COMPETITION_CONFIGS[selectedFormat];
+    const config = COMPETITION_CONFIGS[format];
     const name = `${config.shortName}, ${dateStr}, Тр. ${trackDisplayId(currentTrack.id)}`;
     const isoDate = fmtDateISO(now);
-    const id = `${selectedFormat}-${isoDate}-${Date.now().toString(36)}`;
+    const id = `${format}-${isoDate}-${Date.now().toString(36)}`;
     try {
-      const comp = await api.competitions.create({ id, name, format: selectedFormat, date: isoDate }) as unknown as Competition;
+      const comp = await api.competitions.create({ id, name, format, date: isoDate }) as unknown as Competition;
       setSelectedComp(comp);
-      // New competition → перший заїзд завжди стає першим етапом (Кваліфікація 1).
-      // Пропускаємо крок вибору етапу.
-      const firstPhase = getPhasesForFormat(selectedFormat, null)[0];
-      if (firstPhase) {
-        await linkSessionToPhase(comp, firstPhase.id);
-        setStep('closed');
-        onChanged?.();
-      } else {
-        setStep('phase');
-      }
+      const firstPhase = getPhasesForFormat(format, null)[0];
+      if (firstPhase) await linkSessionToPhase(comp, firstPhase.id);
     } catch {}
-    setLoading(false);
-  };
-
-  const handleCompetitionSelect = (comp: Competition) => {
-    setSelectedComp(comp);
-    setStep('phase');
+    setStep('closed');
+    onChanged?.();
   };
 
   const linkSessionToPhase = async (comp: Competition, phaseId: string) => {
@@ -122,21 +93,12 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       const phases = getPhasesForFormat(comp.format, groupCount);
       const phaseIdx = phases.findIndex(p => p.id === phaseId);
       if (phaseIdx >= 0) {
-        await autoLinkSurroundingSessions(comp.id, sessionId, phases, phaseIdx);
+        await autoLinkSurroundingSessions(comp.id, comp.format, sessionId, phases, phaseIdx);
       }
     } catch {}
   };
 
-  const handlePhaseSelect = async (phaseId: string) => {
-    if (!selectedComp || !sessionId) return;
-    setLoading(true);
-    await linkSessionToPhase(selectedComp, phaseId);
-    setLoading(false);
-    setStep('closed');
-    onChanged?.();
-  };
-
-  const autoLinkSurroundingSessions = async (compId: string, currentSessionId: string, _phases: { id: string }[], currentPhaseIdx: number) => {
+  const autoLinkSurroundingSessions = async (compId: string, compFormat: string, currentSessionId: string, _phases: { id: string }[], currentPhaseIdx: number) => {
     const sessionTs = currentSessionId.match(/session-(\d+)/);
     if (!sessionTs) return;
     const currentTime = parseInt(sessionTs[1]);
@@ -184,9 +146,8 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         }
       }
 
-      const format = selectedFormat || selectedComp?.format || '';
-      const { groupCount: detectedGroups } = detectGroupsFromSessionSequence(seqSessions, format);
-      const phases = getPhasesForFormat(format, detectedGroups);
+      const { groupCount: detectedGroups } = detectGroupsFromSessionSequence(seqSessions, compFormat);
+      const phases = getPhasesForFormat(compFormat, detectedGroups);
       const currentIdx = phases.findIndex(p => p.id === _phases[currentPhaseIdx]?.id);
       const effectiveIdx = currentIdx >= 0 ? currentIdx : Math.min(currentPhaseIdx, phases.length - 1);
 
@@ -200,7 +161,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         .map(s => ({ id: s.merged_session_ids?.[0] || s.id }));
 
       const plan = planAutoLink({
-        format,
+        format: compFormat,
         groupCount: detectedGroups,
         currentPhaseIdx: effectiveIdx,
         availableSessionsAfter: availableAfter,
@@ -217,29 +178,24 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
 
   const handleUnlink = async () => {
     if (!currentCompetitionId || !sessionId) return;
-    setLoading(true);
     try {
       await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/unlink-session`, { sessionId });
     } catch {}
-    setLoading(false);
     setStep('closed');
     onChanged?.();
   };
 
   const handleDeleteCompetition = async () => {
     if (!currentCompetitionId) return;
-    setLoading(true);
     try {
       await api.competitions.remove(currentCompetitionId);
     } catch {}
-    setLoading(false);
     setStep('closed');
     onChanged?.();
   };
 
   const handleChangePhaseAll = async (phaseId: string) => {
     if (!currentCompetitionId || !sessionId || !currentFormat) return;
-    setLoading(true);
     try {
       let comp: Competition;
       try { comp = await api.competitions.getNormalized(currentCompetitionId) as unknown as Competition; }
@@ -280,14 +236,12 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         } catch {}
       }
     } catch {}
-    setLoading(false);
     setStep('closed');
     onChanged?.();
   };
 
   const handleChangePhaseSingle = async (phaseId: string) => {
     if (!currentCompetitionId || !sessionId) return;
-    setLoading(true);
     try {
       // If phase is already taken by another session, unlink that session
       try {
@@ -299,7 +253,6 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       } catch {}
       await apiPost(`/competitions/${encodeURIComponent(currentCompetitionId)}/link-session`, { sessionId, phase: phaseId });
     } catch {}
-    setLoading(false);
     setStep('closed');
     onChanged?.();
   };
@@ -402,47 +355,6 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
             ))}
           </>
         )}
-        {step === 'competition' && selectedFormat && (
-          <>
-            <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">
-              {COMPETITION_CONFIGS[selectedFormat].name} — змагання
-            </div>
-            {loading ? (
-              <div className="px-3 py-2 text-dark-500 text-sm">Завантаження...</div>
-            ) : (
-              <>
-                {competitions.map(comp => (
-                  <button key={comp.id} onClick={() => handleCompetitionSelect(comp)}
-                    className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
-                    {comp.name}
-                    <span className="text-dark-600 text-[10px] ml-1">({comp.sessions.length} заїздів)</span>
-                  </button>
-                ))}
-                <button onClick={handleCreateCompetition}
-                  className="w-full text-left px-3 py-2 text-sm text-primary-400 hover:text-primary-300 hover:bg-dark-800 transition-colors">
-                  + Створити нове змагання
-                </button>
-              </>
-            )}
-            <button onClick={() => setStep('format')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">← Назад</button>
-          </>
-        )}
-        {step === 'phase' && selectedComp && (
-          <>
-            <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">{selectedComp.name} — етап</div>
-            {(PHASE_CONFIGS[selectedComp.format]?.phases || []).map(phase => {
-              const alreadyUsed = selectedComp.sessions.some(s => s.phase === phase.id);
-              return (
-                <button key={phase.id} onClick={() => !alreadyUsed && handlePhaseSelect(phase.id)} disabled={alreadyUsed}
-                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${alreadyUsed ? 'text-dark-600 cursor-default' : 'text-dark-300 hover:text-white hover:bg-dark-800'}`}>
-                  {phase.label}{alreadyUsed && <span className="text-dark-700 text-[10px] ml-1">(зайнято)</span>}
-                </button>
-              );
-            })}
-            <button onClick={() => setStep('competition')} className="w-full text-left px-3 py-1.5 text-[10px] text-dark-600 hover:text-dark-400 transition-colors">← Назад</button>
-          </>
-        )}
-        {renderPhaseSteps()}
       </>
     );
   }
