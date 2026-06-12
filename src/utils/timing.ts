@@ -81,6 +81,17 @@ export function toHundredths(t: string | null): string {
 }
 
 /**
+ * True if the name is an unresolved placeholder like "Карт 1", "Карт 12" (case-insensitive).
+ * Mirrors the collector's KART_NAME_RE. Used to auto-exclude pilots whose real name never
+ * resolved. NOTE: the collector already remaps "Карт X" → real name per (session, kart) before
+ * laps reach the frontend (storage.getLaps → remapKartNamesToPilots), so a name still matching
+ * this pattern means the kart was genuinely never identified — safe to treat as excluded.
+ */
+export function isKartName(name: string): boolean {
+  return /^Карт\s+\d+$/i.test((name || '').trim());
+}
+
+/**
  * Merge laps where pilot name is "Карт X" with subsequent laps from a named pilot on the same kart.
  * The timing system sometimes shows "Карт X" for the first few laps before the real name appears.
  */

@@ -7,6 +7,7 @@ import {
   shortName,
   fmtBytes,
   mergePilotNames,
+  isKartName,
   isValidSession,
   loadWithExpiry,
   saveWithExpiry,
@@ -156,6 +157,27 @@ describe('mergePilotNames', () => {
 
   it('handles empty input', () => {
     expect(mergePilotNames([])).toEqual([]);
+  });
+});
+
+// ============================================================
+// isKartName
+// ============================================================
+
+describe('isKartName', () => {
+  it('matches "Карт N" placeholders', () => {
+    expect(isKartName('Карт 1')).toBe(true);
+    expect(isKartName('Карт 12')).toBe(true);
+    expect(isKartName('  Карт 5  ')).toBe(true);
+    expect(isKartName('карт 7')).toBe(true);
+  });
+
+  it('does not match real pilot names', () => {
+    expect(isKartName('Іванов І.')).toBe(false);
+    expect(isKartName('Апанасенко Олексій')).toBe(false);
+    expect(isKartName('Карт')).toBe(false);
+    expect(isKartName('Карт 5 Іванов')).toBe(false);
+    expect(isKartName('')).toBe(false);
   });
 });
 
