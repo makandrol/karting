@@ -114,7 +114,7 @@ describe('storage.autoLinkSessionToActiveCompetition', () => {
     expect(result?.phase).toBe('qualifying_2');
   });
 
-  it('CL: 3-й заїзд з тими ж пілотами (overlap >50%) → лінкується як race_1_group_2', () => {
+  it('CL: 3-й заїзд лінкується як race_1_group_2 (із повного списку, без overlap)', () => {
     insertSession('session-1000');
     insertSession('session-2000');
     insertSession('session-3000');
@@ -125,15 +125,11 @@ describe('storage.autoLinkSessionToActiveCompetition', () => {
         { sessionId: 'session-2000', phase: 'qualifying_2' },
       ],
     });
-    insertLaps('session-1000', { A: 3, B: 3, C: 3 });
-    insertLaps('session-2000', { A: 3, B: 3, D: 3 });
-    insertLaps('session-3000', { A: 3, B: 3, C: 3 }); // overlap 100%
-
+    // Laps не потрібні — autoLink тепер не робить overlap-аналіз.
     const result = storage.autoLinkSessionToActiveCompetition('session-3000');
+    // 3-а сесія → phases[2] у повному списку CL → race_1_group_2
     expect(result?.phase).toBe('race_1_group_2');
-
-    const comp = storage.getCompetition('c1');
-    expect(comp.results.autoDetectedGroups).toBe(2);
+    // autoDetectedGroups не виставляється в autoLink — це робить finalizeSessionPhaseOnFirstLap
   });
 
   it('Sprint: 4-й заїзд лінкується як qualifying_1_group_3 (без overlap-detection)', () => {
@@ -172,20 +168,17 @@ describe('storage.autoLinkSessionToActiveCompetition', () => {
     expect(storage.autoLinkSessionToActiveCompetition('session-1000')).toBe(null);
   });
 
-  it('Gonzales: real names → інкрементує groupCount', () => {
+  it('Gonzales: 2-й заїзд лінкується як qualifying_2 (з повного списку, без overlap)', () => {
     insertSession('session-1000');
     insertSession('session-2000', { endTime: 2000 + 70_000 });
     makeCompetition({
       id: 'c1', format: 'gonzales',
       sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
     });
-    insertLaps('session-1000', { Іванов: 2, Петров: 2 });
-    insertLaps('session-2000', { Сидоров: 2, Шевченко: 2 });
-
+    // autoLink не дивиться на laps — просто бере наступну фазу
     const result = storage.autoLinkSessionToActiveCompetition('session-2000');
     expect(result?.phase).toBe('qualifying_2');
-    const comp = storage.getCompetition('c1');
-    expect(comp.results.autoDetectedGroups).toBe(2);
+    // autoDetectedGroups встановлюється в finalize, не в autoLink
   });
 });
 

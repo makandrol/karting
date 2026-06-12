@@ -439,9 +439,6 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   };
 
   const knownSessionCountRef = useRef(initialCompetition.sessions.length);
-  const autoLinkedRef = useRef<Set<string>>(new Set());
-  const competitionRef = useRef(competition);
-  competitionRef.current = competition;
 
   useEffect(() => {
     let cancelled = false;
@@ -479,31 +476,11 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         const currentLiveId = statusRes.sessionId || null;
         setLiveSessionId(currentLiveId);
 
-        // Auto-link live session to the next free phase if not already linked.
-        // КРИТИЧНО: коли autoDetectedGroups ще не визначений, не фільтруємо
-        // фази по groupCount — інакше перепишемо потенційний `*_group_2` як
-        // `*_group_1`, поки колектор ще не встиг встановити autoDetectedGroups.
-        // Узгоджено з колектором — обидва беруть наступну вільну фазу з
-        // повного списку формату.
-        if (currentLiveId && !autoLinkedRef.current.has(currentLiveId)) {
-          const comp = competitionRef.current;
-          const alreadyLinked = comp.sessions.some(s => s.sessionId === currentLiveId);
-          if (!alreadyLinked && comp.sessions.length > 0) {
-            const results = comp.results || {};
-            const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? null;
-            const gonzRoundCount = comp.format === 'gonzales' ? (results.gonzalesRoundCount ?? null) : null;
-            // Якщо groupCount є — фільтруємо. Якщо null — повний список (як колектор).
-            const allPhases = getPhasesForFormat(comp.format, groupCount, gonzRoundCount);
-            const linkedPhaseIds = new Set(comp.sessions.map(s => s.phase));
-            const nextFreePhase = allPhases.find(p => !linkedPhaseIds.has(p.id));
-            if (nextFreePhase) {
-              autoLinkedRef.current.add(currentLiveId);
-              try {
-                await api.competitions.linkSession(comp.id, currentLiveId, nextFreePhase.id);
-              } catch {}
-            }
-          }
-        }
+        // ВАЖЛИВО: frontend більше не лінкує live-сесії. Усе лінкування
+        // виконує колектор (storage.autoLinkSessionToActiveCompetition +
+        // finalizeSessionPhaseOnFirstLap). Це уникає race condition між
+        // двома мозками. Якщо колектор пропустить — admin може лінкнути
+        // вручну через SessionTypeChanger на сторінці заїзду.
         if (timingRes.entries?.length > 0) {
           setLivePositions(timingRes.entries.map((e: any) => ({
             pilot: e.pilot,

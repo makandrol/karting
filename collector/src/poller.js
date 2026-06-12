@@ -353,7 +353,7 @@ export class TimingPoller {
         storage.addLap(this.#sessionId, { ...data, ts });
         if (!this.#groupChecked) {
           this.#groupChecked = true;
-          storage.recheckSessionPhase(this.#sessionId);
+          storage.finalizeSessionPhaseOnFirstLap(this.#sessionId);
         }
       }
     }
