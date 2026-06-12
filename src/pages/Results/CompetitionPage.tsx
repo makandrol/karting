@@ -479,14 +479,20 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         const currentLiveId = statusRes.sessionId || null;
         setLiveSessionId(currentLiveId);
 
-        // Auto-link live session to the next free phase if not already linked
+        // Auto-link live session to the next free phase if not already linked.
+        // КРИТИЧНО: коли autoDetectedGroups ще не визначений, не фільтруємо
+        // фази по groupCount — інакше перепишемо потенційний `*_group_2` як
+        // `*_group_1`, поки колектор ще не встиг встановити autoDetectedGroups.
+        // Узгоджено з колектором — обидва беруть наступну вільну фазу з
+        // повного списку формату.
         if (currentLiveId && !autoLinkedRef.current.has(currentLiveId)) {
           const comp = competitionRef.current;
           const alreadyLinked = comp.sessions.some(s => s.sessionId === currentLiveId);
           if (!alreadyLinked && comp.sessions.length > 0) {
             const results = comp.results || {};
-            const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? 1;
+            const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? null;
             const gonzRoundCount = comp.format === 'gonzales' ? (results.gonzalesRoundCount ?? null) : null;
+            // Якщо groupCount є — фільтруємо. Якщо null — повний список (як колектор).
             const allPhases = getPhasesForFormat(comp.format, groupCount, gonzRoundCount);
             const linkedPhaseIds = new Set(comp.sessions.map(s => s.phase));
             const nextFreePhase = allPhases.find(p => !linkedPhaseIds.has(p.id));

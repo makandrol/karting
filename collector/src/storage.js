@@ -698,24 +698,44 @@ export const storage = {
     return { competitionId: liveComp.id, phase: nextPhase };
   },
 
-  recheckSessionPhase(sessionId) {
+  /**
+   * Detect groupCount via overlap of pilots in the given session against
+   * cumulative pilots from all qualifying sessions of the competition.
+   * Saves to `results.autoDetectedGroups` if successful.
+   *
+   * Викликається на першому колі будь-якої сесії змагання — щоб правильно
+   * виставити groupCount як можна раніше. На відміну від попередньої логіки
+   * (overlap викликався тільки при autoLink, де laps ще нема), цей метод
+   * працює тоді коли laps уже записані.
+   *
+   * @param {string} sessionId
+   * @returns {number|null} groupCount that was detected and stored, or null
+   */
+  detectGroupCountIfNeeded(sessionId) {
     const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
     const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
-    if (!comp || comp.status !== 'live') return;
-    if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint' && comp.format !== 'gonzales') return;
+    if (!comp || comp.status !== 'live') return null;
 
     const results = comp.results || {};
-    const gonzalesRoundCount = results.gonzalesRoundCount ?? 12;
+    // Already has groupCount — nothing to do
+    if (results.groupCountOverride != null || results.autoDetectedGroups != null) return null;
 
-    const entry = comp.sessions.find(s => s.sessionId === sessionId);
-    if (!entry || !entry.phase?.startsWith('qualifying_')) return;
+    if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint' && comp.format !== 'gonzales') return null;
 
-    const qualiSessions = comp.sessions.filter(s => s.phase?.startsWith('qualifying_') && s.sessionId !== sessionId);
-    if (qualiSessions.length === 0) return;
+    const qualiSessions = comp.sessions.filter(s => s.phase?.startsWith('qualifying') && s.sessionId !== sessionId);
+    if (qualiSessions.length === 0) return null;
+
+    const cumulativePilots = new Set();
+    for (const qs of qualiSessions) {
+      const laps = this.getLaps(qs.sessionId);
+      for (const l of laps) cumulativePilots.add(l.pilot);
+    }
 
     const newLaps = this.getLaps(sessionId);
     const newPilots = new Set(newLaps.map(l => l.pilot));
-    if (newPilots.size < 3) return;
+    if (newPilots.size === 0 || cumulativePilots.size === 0) return null;
+
+    let detectedGroupCount = null;
 
     if (comp.format === 'gonzales') {
       const sessionRow = stmts.getSessionsByDate.all(new Date(parseInt(sessionId.replace('session-', ''))).toISOString().slice(0, 10))
@@ -723,39 +743,136 @@ export const storage = {
       const isFinished = !!sessionRow?.end_time;
       const lapCounts = new Map();
       for (const l of newLaps) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
-      // Treat as qualifying → no reassignment needed
-      if (isGonzalesQualifying([...newPilots], lapCounts, isFinished)) return;
+
+      const treatAsQualifying = isGonzalesQualifying([...newPilots], lapCounts, isFinished);
+      detectedGroupCount = treatAsQualifying
+        ? capGroupCount(qualiSessions.length + 1, comp.format)
+        : qualiSessions.length;
     } else {
-      const cumulativePilots = new Set();
-      for (const qs of qualiSessions) {
-        const laps = this.getLaps(qs.sessionId);
-        for (const l of laps) cumulativePilots.add(l.pilot);
-      }
       const detection = detectGroupCountFromOverlap({
         cumulativeQualifyingPilots: cumulativePilots,
         newPilots,
         qualifyingCount: qualiSessions.length,
         format: comp.format,
       });
-      if (detection.action !== 'race') return;
+      // Action='race' → це гонка (overlap ≥50%), groupCount = qualiCount.
+      // Action='qualifying' → це нова квала, але оскільки сесія залінкована
+      // як quali_(N+1) або race_*, ми не змінюємо тут — recheckSessionPhase
+      // обробляє переназначення; ми лише зберігаємо знайдений groupCount
+      // як підказку для autoLink наступних сесій.
+      if (detection.action === 'race' && detection.groupCount != null) {
+        detectedGroupCount = detection.groupCount;
+      }
     }
 
-    const manualOrAuto = results.groupCountOverride || results.autoDetectedGroups;
-    const groupCount = manualOrAuto
-      ? capGroupCount(manualOrAuto, comp.format)
-      : capGroupCount(qualiSessions.length, comp.format);
-    console.log(`🔍 Session ${sessionId}: recheck → detected ${groupCount} groups, reassigning phase`);
+    if (detectedGroupCount != null) {
+      this.updateCompetition(comp.id, { results: { ...results, autoDetectedGroups: detectedGroupCount } });
+      console.log(`🔍 detectGroupCountIfNeeded: comp ${comp.id} → ${detectedGroupCount} groups (from session ${sessionId})`);
+      return detectedGroupCount;
+    }
+    return null;
+  },
+
+  /**
+   * Recheck the phase of a session after first lap. Two scenarios:
+   *
+   * 1. Quali-фаза, але overlap-аналіз показує що це насправді гонка
+   *    → переназначити на наступну race-фазу.
+   * 2. Race-фаза, але `autoDetectedGroups` ще не визначений (бо колектор
+   *    лінкував з повного списку без фільтру) → встановити groupCount,
+   *    і якщо поточна phase не правильна для цього groupCount —
+   *    переназначити.
+   *
+   * Без зайвої агресії: якщо recheck нічого не змінює — return.
+   */
+  recheckSessionPhase(sessionId) {
+    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
+    if (!comp || comp.status !== 'live') return;
+    if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint' && comp.format !== 'gonzales') return;
+
+    const entry = comp.sessions.find(s => s.sessionId === sessionId);
+    if (!entry || !entry.phase) return;
+
+    // 1. Спочатку запам'ятовуємо групи (якщо ще не визначено) —
+    //    це може допомогти і qualifying-, і race-сценарію.
+    this.detectGroupCountIfNeeded(sessionId);
+
+    // Перечитуємо comp після можливого update
+    const freshComp = parseCompetitionRow(stmts.getCompetition.get(comp.id));
+    const results = freshComp.results || {};
+    const gonzalesRoundCount = results.gonzalesRoundCount ?? 12;
+    const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? null;
+
+    const isQualiPhase = entry.phase.startsWith('qualifying_');
+
+    if (isQualiPhase) {
+      // ── Quali-сценарій: можливо це гонка, не квала ──
+      const qualiSessions = freshComp.sessions.filter(s => s.phase?.startsWith('qualifying_') && s.sessionId !== sessionId);
+      if (qualiSessions.length === 0) return;
+
+      const newLaps = this.getLaps(sessionId);
+      const newPilots = new Set(newLaps.map(l => l.pilot));
+      if (newPilots.size < 3) return;
+
+      if (comp.format === 'gonzales') {
+        const sessionRow = stmts.getSessionsByDate.all(new Date(parseInt(sessionId.replace('session-', ''))).toISOString().slice(0, 10))
+          .find(s => s.id === sessionId);
+        const isFinished = !!sessionRow?.end_time;
+        const lapCounts = new Map();
+        for (const l of newLaps) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
+        if (isGonzalesQualifying([...newPilots], lapCounts, isFinished)) return;
+      } else {
+        const cumulativePilots = new Set();
+        for (const qs of qualiSessions) {
+          const laps = this.getLaps(qs.sessionId);
+          for (const l of laps) cumulativePilots.add(l.pilot);
+        }
+        const detection = detectGroupCountFromOverlap({
+          cumulativeQualifyingPilots: cumulativePilots,
+          newPilots,
+          qualifyingCount: qualiSessions.length,
+          format: comp.format,
+        });
+        if (detection.action !== 'race') return;
+      }
+
+      // Це гонка, не квала — переназначити
+      const finalGroupCount = groupCount ?? capGroupCount(qualiSessions.length, comp.format);
+      const allPhases = buildFullPhases(comp.format, { gonzalesRoundCount });
+      const phases = filterPhasesUtil(allPhases, finalGroupCount, comp.format, { gonzalesRoundCount });
+      const usedPhases = freshComp.sessions.filter(s => s.sessionId !== sessionId).map(s => s.phase);
+      const correctPhase = findNextPhase(phases, usedPhases);
+
+      if (correctPhase && correctPhase !== entry.phase) {
+        const newSessions = freshComp.sessions.map(s => s.sessionId === sessionId ? { ...s, phase: correctPhase } : s);
+        this.updateCompetition(comp.id, { sessions: newSessions, results: { ...results, autoDetectedGroups: finalGroupCount } });
+        console.log(`🔄 Reassigned ${sessionId}: ${entry.phase} → ${correctPhase} (quali → race)`);
+      }
+      return;
+    }
+
+    // ── Race-сценарій: перевіряємо чи фаза правильна для groupCount ──
+    if (groupCount == null) return;  // groupCount не зміг визначитись → не чіпаємо
 
     const allPhases = buildFullPhases(comp.format, { gonzalesRoundCount });
     const phases = filterPhasesUtil(allPhases, groupCount, comp.format, { gonzalesRoundCount });
 
-    const usedPhases = comp.sessions.filter(s => s.sessionId !== sessionId).map(s => s.phase);
-    const correctPhase = findNextPhase(phases, usedPhases);
+    // Знайти яка фаза має бути за порядковим положенням сесії в комп серед
+    // race-фаз. Якщо порядок не співпадає — реасайнити.
+    const sessionsSorted = [...freshComp.sessions].sort((a, b) => {
+      const ta = parseInt(a.sessionId.replace('session-', '')) || 0;
+      const tb = parseInt(b.sessionId.replace('session-', '')) || 0;
+      return ta - tb;
+    });
+    const indexInComp = sessionsSorted.findIndex(s => s.sessionId === sessionId);
+    if (indexInComp < 0 || indexInComp >= phases.length) return;
+    const expectedPhase = phases[indexInComp];
 
-    if (correctPhase && correctPhase !== entry.phase) {
-      const newSessions = comp.sessions.map(s => s.sessionId === sessionId ? { ...s, phase: correctPhase } : s);
-      this.updateCompetition(comp.id, { sessions: newSessions, results: { ...results, autoDetectedGroups: groupCount } });
-      console.log(`🔄 Reassigned ${sessionId}: ${entry.phase} → ${correctPhase}`);
+    if (expectedPhase && expectedPhase !== entry.phase) {
+      const newSessions = freshComp.sessions.map(s => s.sessionId === sessionId ? { ...s, phase: expectedPhase } : s);
+      this.updateCompetition(comp.id, { sessions: newSessions });
+      console.log(`🔄 Reassigned ${sessionId}: ${entry.phase} → ${expectedPhase} (race phase mismatch)`);
     }
   },
 

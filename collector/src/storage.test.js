@@ -575,3 +575,192 @@ describe('storage.getLaps з ремапом "Карт N" → real names', () => 
     expect(result?.phase).toBe('qualifying_2');
   });
 });
+
+// ============================================================
+// detectGroupCountIfNeeded — окремий метод для детекції груп
+// ============================================================
+
+describe('storage.detectGroupCountIfNeeded', () => {
+  function insertRawLap(sessionId, pilot, kart, lapNumber, lapTime, ts) {
+    storage.addLap(sessionId, {
+      pilot, kart, lapNumber,
+      lastLap: lapTime, s1: '20', s2: '22', bestLap: lapTime,
+      position: 1, ts,
+    });
+  }
+
+  it('CL: 2 квалі + race з overlap 100% → встановлює autoDetectedGroups=2', () => {
+    insertSession('session-q1', { startTime: 1000 });
+    insertSession('session-q2', { startTime: 2000 });
+    insertSession('session-r1', { startTime: 3000 });
+    insertRawLap('session-q1', 'A', 1, 1, '42.0', 1000);
+    insertRawLap('session-q1', 'B', 2, 1, '42.5', 2000);
+    insertRawLap('session-q1', 'C', 3, 1, '42.5', 3000);
+    insertRawLap('session-q2', 'X', 4, 1, '41.5', 4000);
+    insertRawLap('session-q2', 'Y', 5, 1, '41.0', 5000);
+    insertRawLap('session-q2', 'Z', 6, 1, '41.5', 6000);
+    insertRawLap('session-r1', 'A', 1, 1, '42.0', 7000);
+    insertRawLap('session-r1', 'B', 2, 1, '42.5', 8000);
+    insertRawLap('session-r1', 'C', 3, 1, '42.5', 9000);
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-q1', phase: 'qualifying_1' },
+        { sessionId: 'session-q2', phase: 'qualifying_2' },
+        { sessionId: 'session-r1', phase: 'race_1_group_2' },
+      ],
+    });
+
+    const result = storage.detectGroupCountIfNeeded('session-r1');
+    expect(result).toBe(2);
+    const comp = storage.getCompetition('c1');
+    expect(comp.results?.autoDetectedGroups).toBe(2);
+  });
+
+  it('повертає null коли autoDetectedGroups вже встановлений', () => {
+    insertSession('session-q1', { startTime: 1000 });
+    insertSession('session-r1', { startTime: 2000 });
+    insertRawLap('session-q1', 'A', 1, 1, '42.0', 1000);
+    insertRawLap('session-r1', 'A', 1, 1, '42.0', 2000);
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-q1', phase: 'qualifying_1' },
+        { sessionId: 'session-r1', phase: 'race_1_group_2' },
+      ],
+      results: { autoDetectedGroups: 1 },
+    });
+
+    expect(storage.detectGroupCountIfNeeded('session-r1')).toBe(null);
+    expect(storage.getCompetition('c1').results.autoDetectedGroups).toBe(1);
+  });
+
+  it('повертає null коли немає quali-сесій', () => {
+    insertSession('session-r1', { startTime: 1000 });
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [{ sessionId: 'session-r1', phase: 'race_1_group_1' }],
+    });
+    expect(storage.detectGroupCountIfNeeded('session-r1')).toBe(null);
+  });
+
+  it('повертає null коли overlap <50% (це нова квала, не гонка)', () => {
+    insertSession('session-q1', { startTime: 1000 });
+    insertSession('session-q2', { startTime: 2000 });
+    insertRawLap('session-q1', 'A', 1, 1, '42.0', 1000);
+    insertRawLap('session-q1', 'B', 2, 1, '42.5', 2000);
+    insertRawLap('session-q2', 'X', 3, 1, '41.5', 3000);
+    insertRawLap('session-q2', 'Y', 4, 1, '41.0', 4000);
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-q1', phase: 'qualifying_1' },
+        { sessionId: 'session-q2', phase: 'qualifying_2' },
+      ],
+    });
+    expect(storage.detectGroupCountIfNeeded('session-q2')).toBe(null);
+    expect(storage.getCompetition('c1').results?.autoDetectedGroups).toBeUndefined();
+  });
+
+  it('Gonzales: реальні імена + якісь laps → інкрементує groupCount', () => {
+    insertSession('session-100000', { startTime: 100000, endTime: 170000 });
+    insertSession('session-200000', { startTime: 200000, endTime: 270000 });
+    insertRawLap('session-100000', 'Іванов', 1, 1, '42.0', 100000);
+    insertRawLap('session-200000', 'Петров', 2, 1, '42.5', 200000);
+    makeCompetition({
+      id: 'c1', format: 'gonzales',
+      sessions: [
+        { sessionId: 'session-100000', phase: 'qualifying_1' },
+        { sessionId: 'session-200000', phase: 'qualifying_2' },
+      ],
+    });
+    const result = storage.detectGroupCountIfNeeded('session-200000');
+    // 1 quali existing + 1 new = 2 (capped)
+    expect(result).toBe(2);
+  });
+});
+
+// ============================================================
+// recheckSessionPhase для race-фаз (новий сценарій)
+// ============================================================
+
+describe('storage.recheckSessionPhase для race-фаз', () => {
+  function insertRawLap(sessionId, pilot, kart, lapNumber, lapTime, ts) {
+    storage.addLap(sessionId, {
+      pilot, kart, lapNumber,
+      lastLap: lapTime, s1: '20', s2: '22', bestLap: lapTime,
+      position: 1, ts,
+    });
+  }
+
+  it('CL race_1_group_1 з overlap → реасайнить на race_1_group_2 (бо це перша race-сесія для groupCount=2)', () => {
+    insertSession('session-q1', { startTime: 1000 });
+    insertSession('session-q2', { startTime: 2000 });
+    insertSession('session-r1', { startTime: 3000 });
+    insertRawLap('session-q1', 'A', 1, 1, '42.0', 1000);
+    insertRawLap('session-q1', 'B', 2, 1, '42.5', 2000);
+    insertRawLap('session-q1', 'C', 3, 1, '42.5', 3000);
+    insertRawLap('session-q2', 'X', 4, 1, '41.5', 4000);
+    insertRawLap('session-q2', 'Y', 5, 1, '41.0', 5000);
+    insertRawLap('session-q2', 'Z', 6, 1, '41.5', 6000);
+    insertRawLap('session-r1', 'A', 1, 1, '42.0', 7000);
+    insertRawLap('session-r1', 'B', 2, 1, '42.5', 8000);
+    insertRawLap('session-r1', 'C', 3, 1, '42.5', 9000);
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-q1', phase: 'qualifying_1' },
+        { sessionId: 'session-q2', phase: 'qualifying_2' },
+        { sessionId: 'session-r1', phase: 'race_1_group_1' },
+      ],
+    });
+
+    storage.recheckSessionPhase('session-r1');
+
+    const comp = storage.getCompetition('c1');
+    const r1 = comp.sessions.find(s => s.sessionId === 'session-r1');
+    expect(r1.phase).toBe('race_1_group_2');
+    expect(comp.results?.autoDetectedGroups).toBe(2);
+  });
+
+  it('race-фаза що відповідає groupCount → не чіпає', () => {
+    insertSession('session-q1', { startTime: 1000 });
+    insertSession('session-r1', { startTime: 2000 });
+    insertRawLap('session-q1', 'A', 1, 1, '42.0', 1000);
+    insertRawLap('session-r1', 'A', 1, 1, '42.0', 2000);
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-q1', phase: 'qualifying_1' },
+        { sessionId: 'session-r1', phase: 'race_1_group_1' },
+      ],
+      results: { groupCountOverride: 1 },
+    });
+
+    storage.recheckSessionPhase('session-r1');
+
+    const comp = storage.getCompetition('c1');
+    expect(comp.sessions.find(s => s.sessionId === 'session-r1').phase).toBe('race_1_group_1');
+  });
+
+  it('race без quali-overlap → не чіпає (groupCount залишається null)', () => {
+    insertSession('session-r1', { startTime: 1000 });
+    insertRawLap('session-r1', 'A', 1, 1, '42.0', 1000);
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-r1', phase: 'race_1_group_2' },
+      ],
+    });
+
+    storage.recheckSessionPhase('session-r1');
+
+    const comp = storage.getCompetition('c1');
+    expect(comp.sessions.find(s => s.sessionId === 'session-r1').phase).toBe('race_1_group_2');
+    expect(comp.results?.autoDetectedGroups).toBeUndefined();
+  });
+});
