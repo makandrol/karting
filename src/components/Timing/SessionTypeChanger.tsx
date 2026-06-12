@@ -32,9 +32,6 @@ interface SessionTypeChangerProps {
   onChanged?: () => void;
 }
 
-const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
-void ADMIN_TOKEN; // legacy — kept temporarily for safety; remove in next pass
-
 async function apiPost(path: string, body: object) {
   try { await httpPost(path, body); return { ok: true } as Response; }
   catch { return { ok: false } as Response; }
@@ -92,9 +89,18 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     const isoDate = fmtDateISO(now);
     const id = `${selectedFormat}-${isoDate}-${Date.now().toString(36)}`;
     try {
-      const comp = await api.competitions.create({ id, name, format: selectedFormat, date: isoDate });
-      setSelectedComp(comp as unknown as Competition);
-      setStep('phase');
+      const comp = await api.competitions.create({ id, name, format: selectedFormat, date: isoDate }) as unknown as Competition;
+      setSelectedComp(comp);
+      // New competition → перший заїзд завжди стає першим етапом (Кваліфікація 1).
+      // Пропускаємо крок вибору етапу.
+      const firstPhase = getPhasesForFormat(selectedFormat, null)[0];
+      if (firstPhase) {
+        await linkSessionToPhase(comp, firstPhase.id);
+        setStep('closed');
+        onChanged?.();
+      } else {
+        setStep('phase');
+      }
     } catch {}
     setLoading(false);
   };
@@ -104,22 +110,27 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
     setStep('phase');
   };
 
+  const linkSessionToPhase = async (comp: Competition, phaseId: string) => {
+    if (!sessionId) return;
+    try {
+      await apiPost(`/competitions/${encodeURIComponent(comp.id)}/link-session`, { sessionId, phase: phaseId });
+
+      let fresh: any = null;
+      try { fresh = await api.competitions.getSafeNormalized(comp.id); } catch {}
+      const results = fresh?.results ?? {};
+      const groupCount = results?.groupCountOverride ?? results?.autoDetectedGroups ?? null;
+      const phases = getPhasesForFormat(comp.format, groupCount);
+      const phaseIdx = phases.findIndex(p => p.id === phaseId);
+      if (phaseIdx >= 0) {
+        await autoLinkSurroundingSessions(comp.id, sessionId, phases, phaseIdx);
+      }
+    } catch {}
+  };
+
   const handlePhaseSelect = async (phaseId: string) => {
     if (!selectedComp || !sessionId) return;
     setLoading(true);
-    try {
-      await apiPost(`/competitions/${encodeURIComponent(selectedComp.id)}/link-session`, { sessionId, phase: phaseId });
-      
-      let comp: any = null;
-      try { comp = await api.competitions.getSafeNormalized(selectedComp.id); } catch {}
-      const results = comp?.results ?? {};
-      const groupCount = results?.groupCountOverride ?? results?.autoDetectedGroups ?? null;
-      const phases = getPhasesForFormat(selectedComp.format, groupCount);
-      const phaseIdx = phases.findIndex(p => p.id === phaseId);
-      if (phaseIdx >= 0) {
-        await autoLinkSurroundingSessions(selectedComp.id, sessionId, phases, phaseIdx);
-      }
-    } catch {}
+    await linkSessionToPhase(selectedComp, phaseId);
     setLoading(false);
     setStep('closed');
     onChanged?.();
@@ -340,11 +351,6 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       )}
     </div>
   );
-
-  function getCompPhases(format: string, comp?: Competition | null): { id: string; label: string }[] {
-    if (!comp) return PHASE_CONFIGS[format]?.phases || [];
-    return getPhasesForFormat(format, null);
-  }
 
   function renderLinkedMenu() {
     return (
