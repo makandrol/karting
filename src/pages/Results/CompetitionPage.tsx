@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, type ReactNode } from 'react';
 import { api } from '../../services/api';
 import { COMPETITION_CONFIGS, PHASE_CONFIGS, getPhaseLabel, getPhasesForFormat, splitIntoGroups, splitIntoGroupsSprint, getGonzalesGroupCount, getGonzalesRoundCount, buildGonzalesRotation, getGonzalesKartForRound } from '../../data/competitions';
@@ -33,6 +33,7 @@ const Onboard = lazy(() => import('../Info/Onboard'));
 
 export default function CompetitionPage() {
   const { type, eventId } = useParams<{ type: string; eventId?: string }>();
+  const navigate = useNavigate();
   const { hasPermission, user, isOwner } = useAuth();
   const canManage = hasPermission('manage_results');
   const { isSectionVisible } = useLayoutPrefs();
@@ -132,6 +133,15 @@ export default function CompetitionPage() {
     try {
       await api.competitions.update(competition.id, { status: newStatus });
       setCompetition(prev => prev ? { ...prev, status: newStatus } : prev);
+    } catch {}
+  };
+
+  const handleDelete = async () => {
+    if (!competition) return;
+    if (!window.confirm(`Видалити змагання "${getCompetitionDisplayName(competition)}"? Цю дію не можна скасувати.`)) return;
+    try {
+      await api.competitions.remove(competition.id);
+      navigate('/results');
     } catch {}
   };
 
@@ -306,6 +316,12 @@ export default function CompetitionPage() {
                   Завершити
                 </button>
               )}
+              {canManage && (
+                <button onClick={handleDelete}
+                  className="px-2 py-0.5 rounded text-[10px] bg-dark-800 text-dark-400 hover:text-red-400 transition-colors">
+                  Видалити
+                </button>
+              )}
             </>
           ) : (
             <div className="flex items-center gap-2">
@@ -318,6 +334,12 @@ export default function CompetitionPage() {
                 <button onClick={toggleStatus}
                   className="px-2 py-0.5 rounded text-[10px] bg-dark-800 text-dark-400 hover:text-white transition-colors">
                   {competition.status === 'finished' ? 'Відкрити' : 'Завершити'}
+                </button>
+              )}
+              {canManage && (
+                <button onClick={handleDelete}
+                  className="px-2 py-0.5 rounded text-[10px] bg-dark-800 text-dark-400 hover:text-red-400 transition-colors">
+                  Видалити
                 </button>
               )}
             </div>
@@ -439,9 +461,6 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   };
 
   const knownSessionCountRef = useRef(initialCompetition.sessions.length);
-  const autoLinkedRef = useRef<Set<string>>(new Set());
-  const competitionRef = useRef(competition);
-  competitionRef.current = competition;
 
   useEffect(() => {
     let cancelled = false;
@@ -479,25 +498,11 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         const currentLiveId = statusRes.sessionId || null;
         setLiveSessionId(currentLiveId);
 
-        // Auto-link live session to the next free phase if not already linked
-        if (currentLiveId && !autoLinkedRef.current.has(currentLiveId)) {
-          const comp = competitionRef.current;
-          const alreadyLinked = comp.sessions.some(s => s.sessionId === currentLiveId);
-          if (!alreadyLinked && comp.sessions.length > 0) {
-            const results = comp.results || {};
-            const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? 1;
-            const gonzRoundCount = comp.format === 'gonzales' ? (results.gonzalesRoundCount ?? null) : null;
-            const allPhases = getPhasesForFormat(comp.format, groupCount, gonzRoundCount);
-            const linkedPhaseIds = new Set(comp.sessions.map(s => s.phase));
-            const nextFreePhase = allPhases.find(p => !linkedPhaseIds.has(p.id));
-            if (nextFreePhase) {
-              autoLinkedRef.current.add(currentLiveId);
-              try {
-                await api.competitions.linkSession(comp.id, currentLiveId, nextFreePhase.id);
-              } catch {}
-            }
-          }
-        }
+        // ВАЖЛИВО: frontend більше не лінкує live-сесії. Усе лінкування
+        // виконує колектор (storage.autoLinkSessionToActiveCompetition +
+        // finalizeSessionPhaseOnFirstLap). Це уникає race condition між
+        // двома мозками. Якщо колектор пропустить — admin може лінкнути
+        // вручну через SessionTypeChanger на сторінці заїзду.
         if (timingRes.entries?.length > 0) {
           setLivePositions(timingRes.entries.map((e: any) => ({
             pilot: e.pilot,

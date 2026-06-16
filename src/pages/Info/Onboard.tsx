@@ -237,19 +237,22 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
     }));
   }, [entries, gonzalesPilotList]);
 
-  // Kart list for dropdown: in gonzales mode, shows karts with their assigned pilot for this round
+  // Kart list for dropdown: завжди всі карти. Pilot береться з gonzales-rotation (для round/quali)
+  // або з live entries. Якщо нема — null (карт відображається сірим, без пілота).
   const kartList = useMemo((): { kart: number; pilot: string | null }[] => {
+    const gonzalesPilotByKart = new Map<number, string>();
     if (gonzalesPilotList) {
-      return gonzalesPilotList
-        .filter(p => p.kart !== null)
-        .map(p => ({ kart: p.kart!, pilot: p.pilot }))
-        .sort((a, b) => a.kart - b.kart);
+      for (const p of gonzalesPilotList) {
+        if (p.kart != null) gonzalesPilotByKart.set(p.kart, p.pilot);
+      }
     }
-    return ALL_KARTS.filter(k => liveKarts.has(k)).map(k => ({
+    return ALL_KARTS.map(k => ({
       kart: k,
-      pilot: entries.find(e => e.kart === k)?.pilot ?? null,
+      pilot: gonzalesPilotByKart.get(k)
+        ?? entries.find(e => e.kart === k)?.pilot
+        ?? null,
     }));
-  }, [entries, gonzalesPilotList, liveKarts]);
+  }, [entries, gonzalesPilotList]);
 
   const goToKart = useCallback((k: number) => {
     setLockMode('kart');
@@ -1152,8 +1155,46 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
 
         <div className="flex-1" />
 
-        {/* Right: pilot, kart, lap */}
+        {/* Right: kart, pilot, lap */}
         <div className="flex items-center gap-2 shrink-0">
+          {/* Kart selector */}
+          <div ref={selectorRef} className="relative">
+            <button
+              onClick={() => setSelectorOpen(o => !o)}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-bold transition-colors ${
+                lockMode === 'kart'
+                  ? 'bg-primary-600/20 border border-primary-500/50 text-white'
+                  : 'bg-dark-800 border border-dark-700 text-dark-300 hover:text-white hover:border-primary-500'
+              }`}
+            >
+              <span className="text-xl text-center inline-block w-7">{kart ?? '—'}</span>
+              <svg className={`w-3.5 h-3.5 shrink-0 transition-transform ${selectorOpen ? 'rotate-180' : ''} ${lockMode === 'kart' ? 'text-primary-400' : 'text-dark-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {selectorOpen && (
+              <div className="absolute top-full right-0 mt-1 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1 z-50 min-w-[170px] max-h-64 overflow-y-auto">
+                {kartList.map(({ kart: k, pilot: p }) => {
+                  const isLiveKart = liveKarts.has(k);
+                  const isSelected = k === kart && lockMode === 'kart';
+                  return (
+                    <button key={k} onClick={() => goToKart(k)}
+                      className={`block w-full text-left px-3 py-1.5 text-sm transition-colors ${
+                        isSelected
+                          ? 'text-primary-400 bg-primary-500/10'
+                          : isLiveKart
+                            ? 'text-white hover:bg-dark-800'
+                            : 'text-dark-500 hover:text-white hover:bg-dark-800'
+                      }`}>
+                      <span className={`font-bold inline-block w-7 ${isSelected ? '' : isLiveKart ? 'text-white' : 'text-dark-500'}`}>{k}</span>
+                      {p && <span className={`ml-2 ${isSelected ? 'text-primary-300' : isLiveKart ? 'text-white' : 'text-dark-600'}`}>{shortName(p)}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Pilot selector */}
           <div ref={pilotSelectorRef} className="relative">
             <button
@@ -1178,36 +1219,6 @@ export default function Onboard({ replayEntries, replaySessionId, scrubberSlot, 
                     }`}>
                     <span className="font-medium">{shortName(p)}</span>
                     {k != null ? <span className="text-dark-500 ml-2">К{k}</span> : <span className="text-dark-700 ml-2">—</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Kart selector */}
-          <div ref={selectorRef} className="relative">
-            <button
-              onClick={() => setSelectorOpen(o => !o)}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-bold transition-colors ${
-                lockMode === 'kart'
-                  ? 'bg-primary-600/20 border border-primary-500/50 text-white'
-                  : 'bg-dark-800 border border-dark-700 text-dark-300 hover:text-white hover:border-primary-500'
-              }`}
-            >
-              <span className="text-xl">{kart ?? '—'}</span>
-              <svg className={`w-3.5 h-3.5 shrink-0 transition-transform ${selectorOpen ? 'rotate-180' : ''} ${lockMode === 'kart' ? 'text-primary-400' : 'text-dark-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {selectorOpen && (
-              <div className="absolute top-full right-0 mt-1 bg-dark-900 border border-dark-700 rounded-xl shadow-2xl py-1 z-50 min-w-[170px] max-h-64 overflow-y-auto">
-                {kartList.map(({ kart: k, pilot: p }) => (
-                  <button key={k} onClick={() => goToKart(k)}
-                    className={`block w-full text-left px-3 py-1.5 text-sm transition-colors ${
-                      k === kart && lockMode === 'kart' ? 'text-primary-400 bg-primary-500/10' : 'text-dark-300 hover:text-white hover:bg-dark-800'
-                    }`}>
-                    <span className="font-bold">{k}</span>
-                    {p && <span className="text-dark-500 ml-2">{shortName(p)}</span>}
                   </button>
                 ))}
               </div>

@@ -114,7 +114,7 @@ describe('storage.autoLinkSessionToActiveCompetition', () => {
     expect(result?.phase).toBe('qualifying_2');
   });
 
-  it('CL: 3-й заїзд з тими ж пілотами (overlap >50%) → лінкується як race_1_group_2', () => {
+  it('CL: 3-й заїзд лінкується як race_1_group_2 (із повного списку, без overlap)', () => {
     insertSession('session-1000');
     insertSession('session-2000');
     insertSession('session-3000');
@@ -125,15 +125,11 @@ describe('storage.autoLinkSessionToActiveCompetition', () => {
         { sessionId: 'session-2000', phase: 'qualifying_2' },
       ],
     });
-    insertLaps('session-1000', { A: 3, B: 3, C: 3 });
-    insertLaps('session-2000', { A: 3, B: 3, D: 3 });
-    insertLaps('session-3000', { A: 3, B: 3, C: 3 }); // overlap 100%
-
+    // Laps не потрібні — autoLink тепер не робить overlap-аналіз.
     const result = storage.autoLinkSessionToActiveCompetition('session-3000');
+    // 3-а сесія → phases[2] у повному списку CL → race_1_group_2
     expect(result?.phase).toBe('race_1_group_2');
-
-    const comp = storage.getCompetition('c1');
-    expect(comp.results.autoDetectedGroups).toBe(2);
+    // autoDetectedGroups не виставляється в autoLink — це робить finalizeSessionPhaseOnFirstLap
   });
 
   it('Sprint: 4-й заїзд лінкується як qualifying_1_group_3 (без overlap-detection)', () => {
@@ -172,20 +168,17 @@ describe('storage.autoLinkSessionToActiveCompetition', () => {
     expect(storage.autoLinkSessionToActiveCompetition('session-1000')).toBe(null);
   });
 
-  it('Gonzales: real names → інкрементує groupCount', () => {
+  it('Gonzales: 2-й заїзд лінкується як qualifying_2 (з повного списку, без overlap)', () => {
     insertSession('session-1000');
     insertSession('session-2000', { endTime: 2000 + 70_000 });
     makeCompetition({
       id: 'c1', format: 'gonzales',
       sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
     });
-    insertLaps('session-1000', { Іванов: 2, Петров: 2 });
-    insertLaps('session-2000', { Сидоров: 2, Шевченко: 2 });
-
+    // autoLink не дивиться на laps — просто бере наступну фазу
     const result = storage.autoLinkSessionToActiveCompetition('session-2000');
     expect(result?.phase).toBe('qualifying_2');
-    const comp = storage.getCompetition('c1');
-    expect(comp.results.autoDetectedGroups).toBe(2);
+    // autoDetectedGroups встановлюється в finalize, не в autoLink
   });
 });
 
@@ -573,5 +566,194 @@ describe('storage.getLaps з ремапом "Карт N" → real names', () => 
     // Тоді overlap для session-2000 буде 1/3 = 33%, action='qualifying' → лінкується як qualifying_2
     const result = storage.autoLinkSessionToActiveCompetition('session-2000');
     expect(result?.phase).toBe('qualifying_2');
+  });
+});
+
+// ============================================================
+// detectGroupCountIfNeeded — окремий метод для детекції груп
+// ============================================================
+
+describe('storage.detectGroupCountIfNeeded', () => {
+  function insertRawLap(sessionId, pilot, kart, lapNumber, lapTime, ts) {
+    storage.addLap(sessionId, {
+      pilot, kart, lapNumber,
+      lastLap: lapTime, s1: '20', s2: '22', bestLap: lapTime,
+      position: 1, ts,
+    });
+  }
+
+  it('CL: 2 квалі + race з overlap 100% → встановлює autoDetectedGroups=2', () => {
+    insertSession('session-q1', { startTime: 1000 });
+    insertSession('session-q2', { startTime: 2000 });
+    insertSession('session-r1', { startTime: 3000 });
+    insertRawLap('session-q1', 'A', 1, 1, '42.0', 1000);
+    insertRawLap('session-q1', 'B', 2, 1, '42.5', 2000);
+    insertRawLap('session-q1', 'C', 3, 1, '42.5', 3000);
+    insertRawLap('session-q2', 'X', 4, 1, '41.5', 4000);
+    insertRawLap('session-q2', 'Y', 5, 1, '41.0', 5000);
+    insertRawLap('session-q2', 'Z', 6, 1, '41.5', 6000);
+    insertRawLap('session-r1', 'A', 1, 1, '42.0', 7000);
+    insertRawLap('session-r1', 'B', 2, 1, '42.5', 8000);
+    insertRawLap('session-r1', 'C', 3, 1, '42.5', 9000);
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-q1', phase: 'qualifying_1' },
+        { sessionId: 'session-q2', phase: 'qualifying_2' },
+        { sessionId: 'session-r1', phase: 'race_1_group_2' },
+      ],
+    });
+
+    const result = storage.detectGroupCountIfNeeded('session-r1');
+    expect(result).toBe(2);
+    const comp = storage.getCompetition('c1');
+    expect(comp.results?.autoDetectedGroups).toBe(2);
+  });
+
+  it('повертає null коли autoDetectedGroups вже встановлений', () => {
+    insertSession('session-q1', { startTime: 1000 });
+    insertSession('session-r1', { startTime: 2000 });
+    insertRawLap('session-q1', 'A', 1, 1, '42.0', 1000);
+    insertRawLap('session-r1', 'A', 1, 1, '42.0', 2000);
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-q1', phase: 'qualifying_1' },
+        { sessionId: 'session-r1', phase: 'race_1_group_2' },
+      ],
+      results: { autoDetectedGroups: 1 },
+    });
+
+    expect(storage.detectGroupCountIfNeeded('session-r1')).toBe(null);
+    expect(storage.getCompetition('c1').results.autoDetectedGroups).toBe(1);
+  });
+
+  it('повертає null коли немає quali-сесій', () => {
+    insertSession('session-r1', { startTime: 1000 });
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [{ sessionId: 'session-r1', phase: 'race_1_group_1' }],
+    });
+    expect(storage.detectGroupCountIfNeeded('session-r1')).toBe(null);
+  });
+
+  it('повертає null коли overlap <50% (це нова квала, не гонка)', () => {
+    insertSession('session-q1', { startTime: 1000 });
+    insertSession('session-q2', { startTime: 2000 });
+    insertRawLap('session-q1', 'A', 1, 1, '42.0', 1000);
+    insertRawLap('session-q1', 'B', 2, 1, '42.5', 2000);
+    insertRawLap('session-q2', 'X', 3, 1, '41.5', 3000);
+    insertRawLap('session-q2', 'Y', 4, 1, '41.0', 4000);
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-q1', phase: 'qualifying_1' },
+        { sessionId: 'session-q2', phase: 'qualifying_2' },
+      ],
+    });
+    expect(storage.detectGroupCountIfNeeded('session-q2')).toBe(null);
+    expect(storage.getCompetition('c1').results?.autoDetectedGroups).toBeUndefined();
+  });
+
+  it('Gonzales: реальні імена + якісь laps → інкрементує groupCount', () => {
+    insertSession('session-100000', { startTime: 100000, endTime: 170000 });
+    insertSession('session-200000', { startTime: 200000, endTime: 270000 });
+    insertRawLap('session-100000', 'Іванов', 1, 1, '42.0', 100000);
+    insertRawLap('session-200000', 'Петров', 2, 1, '42.5', 200000);
+    makeCompetition({
+      id: 'c1', format: 'gonzales',
+      sessions: [
+        { sessionId: 'session-100000', phase: 'qualifying_1' },
+        { sessionId: 'session-200000', phase: 'qualifying_2' },
+      ],
+    });
+    const result = storage.detectGroupCountIfNeeded('session-200000');
+    // 1 quali existing + 1 new = 2 (capped)
+    expect(result).toBe(2);
+  });
+});
+
+// ============================================================
+// recheckSessionPhase для race-фаз (новий сценарій)
+// ============================================================
+
+describe('storage.recheckSessionPhase для race-фаз', () => {
+  function insertRawLap(sessionId, pilot, kart, lapNumber, lapTime, ts) {
+    storage.addLap(sessionId, {
+      pilot, kart, lapNumber,
+      lastLap: lapTime, s1: '20', s2: '22', bestLap: lapTime,
+      position: 1, ts,
+    });
+  }
+
+  it('CL race_1_group_1 з overlap → реасайнить на race_1_group_2 (бо це перша race-сесія для groupCount=2)', () => {
+    insertSession('session-q1', { startTime: 1000 });
+    insertSession('session-q2', { startTime: 2000 });
+    insertSession('session-r1', { startTime: 3000 });
+    insertRawLap('session-q1', 'A', 1, 1, '42.0', 1000);
+    insertRawLap('session-q1', 'B', 2, 1, '42.5', 2000);
+    insertRawLap('session-q1', 'C', 3, 1, '42.5', 3000);
+    insertRawLap('session-q2', 'X', 4, 1, '41.5', 4000);
+    insertRawLap('session-q2', 'Y', 5, 1, '41.0', 5000);
+    insertRawLap('session-q2', 'Z', 6, 1, '41.5', 6000);
+    insertRawLap('session-r1', 'A', 1, 1, '42.0', 7000);
+    insertRawLap('session-r1', 'B', 2, 1, '42.5', 8000);
+    insertRawLap('session-r1', 'C', 3, 1, '42.5', 9000);
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-q1', phase: 'qualifying_1' },
+        { sessionId: 'session-q2', phase: 'qualifying_2' },
+        { sessionId: 'session-r1', phase: 'race_1_group_1' },
+      ],
+    });
+
+    storage.recheckSessionPhase('session-r1');
+
+    const comp = storage.getCompetition('c1');
+    const r1 = comp.sessions.find(s => s.sessionId === 'session-r1');
+    expect(r1.phase).toBe('race_1_group_2');
+    expect(comp.results?.autoDetectedGroups).toBe(2);
+  });
+
+  it('race-фаза що відповідає groupCount → не чіпає', () => {
+    insertSession('session-q1', { startTime: 1000 });
+    insertSession('session-r1', { startTime: 2000 });
+    insertRawLap('session-q1', 'A', 1, 1, '42.0', 1000);
+    insertRawLap('session-r1', 'A', 1, 1, '42.0', 2000);
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-q1', phase: 'qualifying_1' },
+        { sessionId: 'session-r1', phase: 'race_1_group_1' },
+      ],
+      results: { groupCountOverride: 1 },
+    });
+
+    storage.recheckSessionPhase('session-r1');
+
+    const comp = storage.getCompetition('c1');
+    expect(comp.sessions.find(s => s.sessionId === 'session-r1').phase).toBe('race_1_group_1');
+  });
+
+  it('race без quali-overlap → не чіпає (groupCount залишається null)', () => {
+    insertSession('session-r1', { startTime: 1000 });
+    insertRawLap('session-r1', 'A', 1, 1, '42.0', 1000);
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-r1', phase: 'race_1_group_2' },
+      ],
+    });
+
+    storage.recheckSessionPhase('session-r1');
+
+    const comp = storage.getCompetition('c1');
+    expect(comp.sessions.find(s => s.sessionId === 'session-r1').phase).toBe('race_1_group_2');
+    expect(comp.results?.autoDetectedGroups).toBeUndefined();
   });
 });

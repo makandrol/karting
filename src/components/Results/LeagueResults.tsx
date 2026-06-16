@@ -1,5 +1,5 @@
 import { useMemo, Fragment, useState, useEffect, useCallback, useRef } from 'react';
-import { toSeconds, KART_COLOR } from '../../utils/timing';
+import { toSeconds, KART_COLOR, isKartName } from '../../utils/timing';
 import { useLayoutPrefs } from '../../services/layoutPrefs';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL, api } from '../../services/api';
@@ -197,21 +197,36 @@ export default function LeagueResults({ format, competitionId, sessions, session
   };
 
 
+  const autoExcludedKartPilots = useMemo(() => {
+    const set = new Set<string>();
+    for (const laps of effectiveLaps.values()) {
+      for (const l of laps) if (isKartName(l.pilot)) set.add(l.pilot);
+    }
+    return set;
+  }, [effectiveLaps]);
+
+  const effectiveExcludedPilots = useMemo(() => {
+    if (autoExcludedKartPilots.size === 0) return excludedPilots;
+    const set = new Set(excludedPilots);
+    for (const p of autoExcludedKartPilots) set.add(p);
+    return set;
+  }, [excludedPilots, autoExcludedKartPilots]);
+
   const data = useMemo(() => {
     if (!scoring) return [];
     const computeFn = isSprint ? computeSprintStandings : computeStandings;
     return computeFn({
       format, sessions, sessionLaps: effectiveLaps, scoring, edits,
-      excludedPilots, maxGroups, pilotsOverride, pilotsLocked, racePilotCount,
+      excludedPilots: effectiveExcludedPilots, maxGroups, pilotsOverride, pilotsLocked, racePilotCount,
       liveSessionId, livePhase, livePositions,
     });
-  }, [sessions, effectiveLaps, scoring, edits, raceCount, maxGroups, excludedPilots, liveSessionId, livePhase, livePositions, pilotsOverride, pilotsLocked, racePilotCount]);
+  }, [sessions, effectiveLaps, scoring, edits, raceCount, maxGroups, effectiveExcludedPilots, liveSessionId, livePhase, livePositions, pilotsOverride, pilotsLocked, racePilotCount]);
 
   const sortedDataRef = useRef<PilotRow[]>([]);
   const sortedData = useMemo(() => {
     if (editingRef.current) return sortedDataRef.current;
-    const included = data.filter(r => !excludedPilots.has(r.pilot));
-    const excluded = data.filter(r => excludedPilots.has(r.pilot));
+    const included = data.filter(r => !effectiveExcludedPilots.has(r.pilot));
+    const excluded = data.filter(r => effectiveExcludedPilots.has(r.pilot));
     const getValue = (row: PilotRow): number => {
       if (sortKey === 'total') return row.totalPoints;
       if (sortKey === 'quali_time') return row.quali?.bestTime ?? Infinity;
@@ -234,7 +249,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
     const result = [...included, ...excluded];
     sortedDataRef.current = result;
     return result;
-  }, [data, sortKey, sortDir, excludedPilots]);
+  }, [data, sortKey, sortDir, effectiveExcludedPilots]);
 
   const QUALI_COLS_H = ['q_kart', 'q_time', 'q_speed'] as const;
   const RACE_COLS_H = isSprint
@@ -417,13 +432,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
   };
   const sortableCursor = (colId: string) => colSortInfo(colId) ? ' cursor-pointer hover:text-white' : '';
 
-  const autoTotalPilots = sortedData.filter(r => !excludedPilots.has(r.pilot) && (r.quali || r.qualis?.some(q => q))).length;
+  const autoTotalPilots = sortedData.filter(r => !effectiveExcludedPilots.has(r.pilot) && (r.quali || r.qualis?.some(q => q))).length;
   useEffect(() => {
     onPilotCount?.(autoTotalPilots);
     onAutoGroups?.(autoGroupsByQuali);
 
     if (data.length > 0 && onSaveResults) {
-      const standings = rowsToStandings(data, excludedPilots, format);
+      const standings = rowsToStandings(data, effectiveExcludedPilots, format);
       const json = JSON.stringify(standings.pilots);
       const now = Date.now();
       if (json !== lastStandingsJsonRef.current && now - lastStandingsPushTsRef.current > 10_000) {
@@ -432,7 +447,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
         onSaveResults({ standings });
       }
     }
-  }, [autoTotalPilots, autoGroupsByQuali, data, excludedPilots]);
+  }, [autoTotalPilots, autoGroupsByQuali, data, effectiveExcludedPilots]);
 
   if (!scoring) return <LoadingState text="Завантаження балів..." size="md" />;
   if (sortedData.length === 0) return <div className="card text-center py-12 text-dark-500">Немає даних</div>;
@@ -599,7 +614,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
 
       const sheetPilots = parseSheetData(csv, raceCount);
       if (sheetPilots.length === 0) throw new Error('Не вдалося розпарсити таблицю');
-      const included = data.filter(r => !excludedPilots.has(r.pilot));
+      const included = data.filter(r => !effectiveExcludedPilots.has(r.pilot));
       const { rows, matchDebug } = buildComparisonTable(included, sheetPilots, raceCount);
       setComparisonRows(rows);
       setMatchDebugEntries(matchDebug);
@@ -831,7 +846,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                   </thead>
                   <tbody>
                     {(() => {
-                      const includedCount = sortedData.filter(r => !excludedPilots.has(r.pilot)).length;
+                      const includedCount = sortedData.filter(r => !effectiveExcludedPilots.has(r.pilot)).length;
                       const groupSeparators = new Set<number>();
                       if (maxGroups > 1 && includedCount > 1) {
                         const base = Math.floor(includedCount / maxGroups);
@@ -845,7 +860,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                       }
                       let includedIdx = 0;
                       return sortedData.map((row, i) => {
-                        const isExcluded = excludedPilots.has(row.pilot);
+                        const isExcluded = effectiveExcludedPilots.has(row.pilot);
                         const isOnTrack = livePilots?.includes(row.pilot);
                         const currentIncIdx = isExcluded ? -1 : includedIdx++;
                         const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
@@ -1073,7 +1088,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
               </thead>
               <tbody>
                   {(() => {
-                    const includedCount = sortedData.filter(r => !excludedPilots.has(r.pilot)).length;
+                    const includedCount = sortedData.filter(r => !effectiveExcludedPilots.has(r.pilot)).length;
                     const groupSeparators = new Set<number>();
                     if (maxGroups > 1 && includedCount > 1) {
                       const base = Math.floor(includedCount / maxGroups);
@@ -1087,7 +1102,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     }
                     let includedIdx = 0;
                     return sortedData.map((row, i) => {
-                    const isExcluded = excludedPilots.has(row.pilot);
+                    const isExcluded = effectiveExcludedPilots.has(row.pilot);
                     const isOnTrack = livePilots?.includes(row.pilot);
                     const currentIncIdx = isExcluded ? -1 : includedIdx++;
                     const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
