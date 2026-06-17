@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api } from '../../services/api';
 import { fmtDateISO as localDateStr } from '../../utils/datetime';
 
@@ -45,9 +45,11 @@ interface DateNavigatorProps {
   onToggleDate?: (date: string) => void;
   onSelectDates?: (dates: string[]) => void;
   overrideCounts?: Record<string, number>;
+  /** Якщо задано — лічильники рахуються лише по цих трасах (track_id). null/undefined = всі. */
+  trackFilter?: Set<number> | null;
 }
 
-export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates, overrideCounts }: DateNavigatorProps) {
+export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates, overrideCounts, trackFilter }: DateNavigatorProps) {
   const multiSelect = !!(selectedDates && onToggleDate);
   const todayStr = localDateStr(new Date());
   const thisMonday = getMonday(new Date());
@@ -55,6 +57,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
   prevMonday.setDate(prevMonday.getDate() - 7);
 
   const [dateCounts, setDateCounts] = useState<Record<string, number>>({});
+  const [dateTrackCounts, setDateTrackCounts] = useState<Record<string, Record<number, number>>>({});
   const prevWeekDaysSet = new Set(getWeekDays(prevMonday));
   const [prevWeekOpen, setPrevWeekOpen] = useState(() =>
     multiSelect && selectedDates ? [...selectedDates].some(d => prevWeekDaysSet.has(d)) : false
@@ -67,13 +70,32 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       .then((data: any) => {
         const arr = Array.isArray(data) ? data : [];
         const map: Record<string, number> = {};
-        for (const d of arr) map[d.date] = d.count;
+        const trackMap: Record<string, Record<number, number>> = {};
+        for (const d of arr) {
+          map[d.date] = d.count;
+          if (d.tracks) trackMap[d.date] = d.tracks;
+        }
         setDateCounts(map);
+        setDateTrackCounts(trackMap);
       })
       .catch(() => {});
   }, []);
 
-  const displayCounts = overrideCounts ?? dateCounts;
+  // Лічильники з урахуванням фільтра трас (якщо заданий).
+  const filteredCounts = useMemo(() => {
+    if (!trackFilter) return dateCounts;
+    const map: Record<string, number> = {};
+    for (const [date, tracks] of Object.entries(dateTrackCounts)) {
+      let sum = 0;
+      for (const [tid, c] of Object.entries(tracks)) {
+        if (trackFilter.has(Number(tid))) sum += c as number;
+      }
+      map[date] = sum;
+    }
+    return map;
+  }, [dateCounts, dateTrackCounts, trackFilter]);
+
+  const displayCounts = overrideCounts ?? filteredCounts;
 
   const toggleYear = (y: string) => {
     const next = new Set(expandedYears);

@@ -176,7 +176,7 @@ export const api = {
     competitionInfo: (sessionId: string) =>
       apiGet<SessionCompetitionInfo>('/db/session-competition', { session: sessionId }),
     counts: (from: string, to: string) =>
-      apiGet<Record<string, number>>('/db/session-counts', { from, to }),
+      apiGet<{ date: string; count: number; tracks?: Record<number, number> }[]>('/db/session-counts', { from, to }),
     updateTrack: (sessionIds: string[], trackId: number) =>
       apiPost('/db/update-sessions-track', { sessionIds, trackId }),
     propagateTrack: (sessionId: string, trackId: number) =>

@@ -325,7 +325,13 @@ export const storage = {
       const raw = stmts.getSessionsByDate.all(date);
       const merged = mergeSessions(raw);
       const filtered = merged.filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000);
-      return { date, count: filtered.length };
+      // Розбивка по трасах — для фронтового фільтра по трасах.
+      const tracks = {};
+      for (const s of filtered) {
+        const tid = s.track_id || 1;
+        tracks[tid] = (tracks[tid] || 0) + 1;
+      }
+      return { date, count: filtered.length, tracks };
     });
   },
 

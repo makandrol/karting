@@ -26,10 +26,14 @@ interface SessionsTableProps {
   sessions: SessionTableRow[];
   maxHeight?: string;
   showDate?: boolean;
+  /** Якщо задано — показує кнопку виключення заїзду зі статистики. */
+  excludedIds?: Set<string>;
+  onToggleExclude?: (id: string) => void;
 }
 
-export default function SessionsTable({ sessions, maxHeight, showDate }: SessionsTableProps) {
+export default function SessionsTable({ sessions, maxHeight, showDate, excludedIds, onToggleExclude }: SessionsTableProps) {
   const navigate = useNavigate();
+  const showExclude = !!onToggleExclude;
 
   return (
     <div className={`overflow-x-auto ${maxHeight ? `max-h-[${maxHeight}] overflow-y-auto` : ''}`}>
@@ -44,12 +48,13 @@ export default function SessionsTable({ sessions, maxHeight, showDate }: Session
               ? COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.shortName || s.competition_format
               : `Прокат${s.race_number != null ? ` ${s.race_number}` : ''}`;
             const isCompetition = !!s.competition_id;
+            const isExcluded = !!excludedIds?.has(s.id);
             return (
               <tr key={s.id}
                 onClick={() => navigate(isActive ? '/' : `/sessions/${s.id}`)}
-                className="border-b border-dark-800/50 last:border-0 hover:bg-dark-700/50 transition-colors cursor-pointer">
+                className={`border-b border-dark-800/50 last:border-0 hover:bg-dark-700/50 transition-colors cursor-pointer ${isExcluded ? 'opacity-40' : ''}`}>
                 <td className="py-1.5 pl-3 pr-1 text-dark-500 font-mono whitespace-nowrap">{s.day_order ?? '—'}</td>
-                <td className="py-1.5 font-mono text-white whitespace-nowrap">{showDate ? fmtDateTime(s.start_time) : fmtTime(s.start_time)}</td>
+                <td className={`py-1.5 font-mono whitespace-nowrap ${isExcluded ? 'text-dark-500 line-through' : 'text-white'}`}>{showDate ? fmtDateTime(s.start_time) : fmtTime(s.start_time)}</td>
                 <td className="py-1.5 font-mono whitespace-nowrap">
                   {isActive
                     ? <span className="text-green-400">LIVE</span>
@@ -70,6 +75,15 @@ export default function SessionsTable({ sessions, maxHeight, showDate }: Session
                     </>
                   ) : ''}
                 </td>
+                {showExclude && (
+                  <td className="py-1.5 pr-2 text-right whitespace-nowrap">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onToggleExclude!(s.id); }}
+                      title={isExcluded ? 'Повернути в статистику' : 'Прибрати зі статистики'}
+                      className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${isExcluded ? 'text-green-400/50 hover:text-green-400' : 'text-dark-700 hover:text-red-400'}`}
+                    >{isExcluded ? '✓' : '✕'}</button>
+                  </td>
+                )}
               </tr>
             );
           })}

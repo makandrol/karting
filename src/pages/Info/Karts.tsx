@@ -6,6 +6,7 @@ import { fmtTimeShort as fmtTime, fmtDateTimeShort as fmtDate, fmtDateISO } from
 import { useLocalStorage } from '../../services/useLocalStorage';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
+import TrackFilter, { ALL_TRACK_IDS } from '../../components/Sessions/TrackFilter';
 
 interface KartStat {
   kart: number;
@@ -68,13 +69,45 @@ export default function Karts() {
     setSelectedDatesArr([]);
   }, [setSelectedDatesArr]);
 
-  // Fetch session IDs for all selected dates
-  const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
+  // Track filter — default = всі траси вибрані. Persist назавжди.
+  const [selectedTracksArr, setSelectedTracksArr] = useLocalStorage<number[]>(
+    'karting_karts_selected_tracks',
+    [...ALL_TRACK_IDS],
+  );
+  const selectedTracks = useMemo(() => new Set(selectedTracksArr), [selectedTracksArr]);
+  const allTracksSelected = selectedTracks.size === ALL_TRACK_IDS.length;
+  const trackFilter = allTracksSelected ? null : selectedTracks;
+
+  const toggleTrack = useCallback((id: number) => {
+    setSelectedTracksArr(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return [...next];
+    });
+  }, [setSelectedTracksArr]);
+  const selectAllTracks = useCallback(() => setSelectedTracksArr([...ALL_TRACK_IDS]), [setSelectedTracksArr]);
+  const clearAllTracks = useCallback(() => setSelectedTracksArr([]), [setSelectedTracksArr]);
+
+  // Заїзди, виключені зі статистики вручну (✕). Expiry в кінці дня.
+  const [excludedSessionsArr, setExcludedSessionsArr] = useLocalStorage<string[]>(
+    'karting_karts_excluded_sessions',
+    [],
+    { endOfDayExpiry: true },
+  );
+  const excludedSessions = useMemo(() => new Set(excludedSessionsArr), [excludedSessionsArr]);
+  const toggleExcludeSession = useCallback((id: string) => {
+    setExcludedSessionsArr(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return [...next];
+    });
+  }, [setExcludedSessionsArr]);
+
+  // Fetch session details for all selected dates (raw, без фільтра трас)
   const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
 
   useEffect(() => {
     if (selectedDates.size === 0) {
-      setStatSessionIds(new Set());
       setStatSessionDetails([]);
       return;
     }
@@ -88,24 +121,48 @@ export default function Karts() {
         } catch {}
       }
       if (cancelled) return;
-      setStatSessionIds(new Set(allSessions.map(s => s.id)));
       setStatSessionDetails(allSessions);
     })();
     return () => { cancelled = true; };
   }, [selectedDates]);
+
+  // Заїзди вибраних днів на вибраних трасах (для таблиці).
+  const visibleSessions = useMemo(
+    () => statSessionDetails.filter(s => selectedTracks.has(s.track_id || 1)),
+    [statSessionDetails, selectedTracks],
+  );
+
+  // Лічильники заїздів по трасах серед вибраних днів (для підказки у фільтрі трас).
+  const trackCounts = useMemo(() => {
+    const map: Record<number, number> = {};
+    for (const s of statSessionDetails) {
+      const tid = s.track_id || 1;
+      map[tid] = (map[tid] || 0) + 1;
+    }
+    return map;
+  }, [statSessionDetails]);
+
+  // ID заїздів для статистики: на вибраних трасах та не виключені вручну.
+  const statSessionIds = useMemo(
+    () => new Set(visibleSessions.filter(s => !excludedSessions.has(s.id)).map(s => s.id)),
+    [visibleSessions, excludedSessions],
+  );
+  // Стабільний ключ для повторних запитів статистики (sorted ids).
+  const statSessionsKey = useMemo(() => [...statSessionIds].sort().join(','), [statSessionIds]);
 
   // Kart stats from selected sessions
   const [kartStats, setKartStats] = useState<KartStat[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (statSessionIds.size === 0) { setKartStats([]); return; }
+    const ids = statSessionsKey ? statSessionsKey.split(',') : [];
+    if (ids.length === 0) { setKartStats([]); return; }
     setLoading(true);
-    api.karts.statsBySessions([...statSessionIds])
+    api.karts.statsBySessions(ids)
       .then(setKartStats)
       .catch(() => setKartStats([]))
       .finally(() => setLoading(false));
-  }, [statSessionIds]);
+  }, [statSessionsKey]);
 
   const [disabledKartsArr, setDisabledKartsArr] = useLocalStorage<number[]>('karting_disabled_karts', []);
   const disabledKarts = useMemo(() => new Set(disabledKartsArr), [disabledKartsArr]);
@@ -143,6 +200,16 @@ export default function Karts() {
         selectedDates={selectedDates}
         onToggleDate={handleToggleDate}
         onSelectDates={handleSelectDates}
+        trackFilter={trackFilter}
+      />
+
+      {/* Track filter */}
+      <TrackFilter
+        selected={selectedTracks}
+        onToggle={toggleTrack}
+        onSelectAll={selectAllTracks}
+        onClearAll={clearAllTracks}
+        counts={trackCounts}
       />
 
       {/* Stat summary */}
@@ -150,6 +217,9 @@ export default function Karts() {
         <div className="flex items-center justify-between">
           <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">
             Статистика: {selectedDates.size} {selectedDates.size === 1 ? 'день' : selectedDates.size < 5 ? 'дні' : 'днів'}, {statSessionIds.size} заїздів
+            {excludedSessions.size > 0 && visibleSessions.length > 0 && (
+              <span className="text-dark-600 ml-1 normal-case">({excludedSessions.size} прибрано)</span>
+            )}
             {loading && <span className="text-dark-600 ml-2">завантаження...</span>}
           </div>
           {selectedDates.size > 0 && (
@@ -157,9 +227,14 @@ export default function Karts() {
               className="text-red-400/60 text-[10px] hover:text-red-400 transition-colors">очистити</button>
           )}
         </div>
-        {statSessionDetails.length > 0 && (
+        {visibleSessions.length > 0 && (
           <div className="max-h-48 overflow-y-auto">
-            <SessionsTable sessions={statSessionDetails} showDate />
+            <SessionsTable
+              sessions={visibleSessions}
+              showDate
+              excludedIds={excludedSessions}
+              onToggleExclude={toggleExcludeSession}
+            />
           </div>
         )}
       </div>
