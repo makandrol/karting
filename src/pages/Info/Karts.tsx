@@ -186,23 +186,22 @@ export default function Karts() {
           </div>
           <div className="flex items-center gap-2">
             <label className="text-dark-400 text-[10px] flex items-center gap-1">
-              Рейтинг по
-              <input type="text" inputMode="numeric" value={topNInput}
-                onChange={e => setTopNInput(e.target.value.replace(/\D/g, ''))}
-                onFocus={() => setTopNPrev(topNInput)}
-                onBlur={() => { const v = parseInt(topNInput); if (!v || v < 1) { setTopNInput(topNPrev); return; } setTopN(v); }}
-                className="w-8 bg-dark-800 border border-dark-700 text-white rounded px-1 py-0.5 outline-none focus:border-primary-500 text-[10px] text-center" />
-              кіл
-            </label>
-            <span className="text-dark-700">|</span>
-            <label className="text-dark-400 text-[10px] flex items-center gap-1">
               Показувати
               <input type="text" inputMode="numeric" value={displayLapsInput}
                 onChange={e => setDisplayLapsInput(e.target.value.replace(/\D/g, ''))}
                 onFocus={() => setDisplayLapsPrev(displayLapsInput)}
                 onBlur={() => { const v = parseInt(displayLapsInput); if (!v || v < 1) { setDisplayLapsInput(displayLapsPrev); return; } setDisplayLaps(v); }}
                 className="w-8 bg-dark-800 border border-dark-700 text-white rounded px-1 py-0.5 outline-none focus:border-primary-500 text-[10px] text-center" />
-              кіл/карт
+              пілотів
+            </label>
+            <span className="text-dark-700">|</span>
+            <label className="text-dark-400 text-[10px] flex items-center gap-1">
+              <input type="text" inputMode="numeric" value={topNInput}
+                onChange={e => setTopNInput(e.target.value.replace(/\D/g, ''))}
+                onFocus={() => setTopNPrev(topNInput)}
+                onBlur={() => { const v = parseInt(topNInput); if (!v || v < 1) { setTopNInput(topNPrev); return; } setTopN(v); }}
+                className="w-8 bg-dark-800 border border-dark-700 text-white rounded px-1 py-0.5 outline-none focus:border-primary-500 text-[10px] text-center" />
+              best laps
             </label>
             <span className="text-dark-700">|</span>
             <div className="flex bg-dark-800 rounded-md p-0.5">
@@ -214,12 +213,6 @@ export default function Karts() {
               <button onClick={() => setViewMode('list')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'list' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>☰ список</button>
               <button onClick={() => setViewMode('grid')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'grid' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>▦ таблиця</button>
             </div>
-            <span className="text-dark-700">|</span>
-            <button onClick={() => setDisabledKarts(new Set())} className="text-dark-400 text-[10px] hover:text-white transition-colors">показати всі</button>
-            <span className="text-dark-700">|</span>
-            <button onClick={() => setShowDisabled((v: boolean) => !v)} className="text-dark-400 text-[10px] hover:text-white transition-colors">
-              {showDisabled ? 'сховати неактивні' : 'показати неактивні'}
-            </button>
           </div>
         </div>
 
@@ -260,6 +253,15 @@ export default function Karts() {
             )}
           </>
         )}
+
+        {/* Controls under the list */}
+        <div className="flex items-center justify-end gap-2 mt-3">
+          <button onClick={() => setDisabledKarts(new Set())} className="text-dark-400 text-[10px] hover:text-white transition-colors">показати всі</button>
+          <span className="text-dark-700">|</span>
+          <button onClick={() => setShowDisabled((v: boolean) => !v)} className="text-dark-400 text-[10px] hover:text-white transition-colors">
+            {showDisabled ? 'сховати неактивні' : 'показати неактивні'}
+          </button>
+        </div>
       </div>
     </div>
   );
