@@ -32,7 +32,9 @@ const DEFAULT_FILTERS: KartsFilters = {
 
 export default function Karts() {
   const [filters, setFilters] = useLocalStorage<KartsFilters>('karting_karts_filters', DEFAULT_FILTERS);
-  const { viewMode, sortByRank, topN, displayLaps, showDisabled } = filters;
+  const { viewMode, sortByRank, topN, showDisabled } = filters;
+  // Fallback на дефолт для користувачів зі старим збереженим стейтом без цього поля.
+  const displayLaps = filters.displayLaps ?? DEFAULT_FILTERS.displayLaps;
   const setViewMode = (v: 'list' | 'grid') => setFilters(f => ({ ...f, viewMode: v }));
   const setSortByRank = (v: boolean | ((p: boolean) => boolean)) =>
     setFilters(f => ({ ...f, sortByRank: typeof v === 'function' ? v(f.sortByRank) : v }));
@@ -43,8 +45,8 @@ export default function Karts() {
 
   const [topNInput, setTopNInput] = useState(() => String(filters.topN));
   const [topNPrev, setTopNPrev] = useState(() => String(filters.topN));
-  const [displayLapsInput, setDisplayLapsInput] = useState(() => String(filters.displayLaps));
-  const [displayLapsPrev, setDisplayLapsPrev] = useState(() => String(filters.displayLaps));
+  const [displayLapsInput, setDisplayLapsInput] = useState(() => String(filters.displayLaps ?? DEFAULT_FILTERS.displayLaps));
+  const [displayLapsPrev, setDisplayLapsPrev] = useState(() => String(filters.displayLaps ?? DEFAULT_FILTERS.displayLaps));
 
   const {
     todayStr,
@@ -186,7 +188,6 @@ export default function Karts() {
           </div>
           <div className="flex items-center gap-2">
             <label className="text-dark-400 text-[10px] flex items-center gap-1">
-              Показувати
               <input type="text" inputMode="numeric" value={displayLapsInput}
                 onChange={e => setDisplayLapsInput(e.target.value.replace(/\D/g, ''))}
                 onFocus={() => setDisplayLapsPrev(displayLapsInput)}
