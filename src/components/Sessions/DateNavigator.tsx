@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api } from '../../services/api';
 import { fmtDateISO as localDateStr } from '../../utils/datetime';
 
@@ -45,9 +45,11 @@ interface DateNavigatorProps {
   onToggleDate?: (date: string) => void;
   onSelectDates?: (dates: string[]) => void;
   overrideCounts?: Record<string, number>;
+  /** Якщо задано — лічильники рахуються лише по цих трасах (track_id). null/undefined = всі. */
+  trackFilter?: Set<number> | null;
 }
 
-export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates, overrideCounts }: DateNavigatorProps) {
+export default function DateNavigator({ selectedDate, onSelectDate, selectedDates, onToggleDate, onSelectDates, overrideCounts, trackFilter }: DateNavigatorProps) {
   const multiSelect = !!(selectedDates && onToggleDate);
   const todayStr = localDateStr(new Date());
   const thisMonday = getMonday(new Date());
@@ -55,6 +57,8 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
   prevMonday.setDate(prevMonday.getDate() - 7);
 
   const [dateCounts, setDateCounts] = useState<Record<string, number>>({});
+  const [dateTrackCounts, setDateTrackCounts] = useState<Record<string, Record<number, number>>>({});
+  const [datesWithData, setDatesWithData] = useState<string[]>([]);
   const prevWeekDaysSet = new Set(getWeekDays(prevMonday));
   const [prevWeekOpen, setPrevWeekOpen] = useState(() =>
     multiSelect && selectedDates ? [...selectedDates].some(d => prevWeekDaysSet.has(d)) : false
@@ -63,17 +67,46 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    api.sessions.counts('2020-01-01', todayStr)
+    // Детальні лічильники (count + tracks) — лише за останні 2 тижні (важкий merge).
+    const countsFrom = localDateStr(prevMonday);
+    api.sessions.counts(countsFrom, todayStr)
       .then((data: any) => {
         const arr = Array.isArray(data) ? data : [];
         const map: Record<string, number> = {};
-        for (const d of arr) map[d.date] = d.count;
+        const trackMap: Record<string, Record<number, number>> = {};
+        for (const d of arr) {
+          map[d.date] = d.count;
+          if (d.tracks) trackMap[d.date] = d.tracks;
+        }
         setDateCounts(map);
+        setDateTrackCounts(trackMap);
+      })
+      .catch(() => {});
+
+    // Легкий список усіх дат з даними — для дерева років/місяців (без merge/чисел).
+    api.sessions.counts('2020-01-01', todayStr, true)
+      .then((data: any) => {
+        const arr = Array.isArray(data) ? data : [];
+        setDatesWithData(arr.map((d: any) => d.date));
       })
       .catch(() => {});
   }, []);
 
-  const displayCounts = overrideCounts ?? dateCounts;
+  // Лічильники з урахуванням фільтра трас (якщо заданий). Тільки за 2 тижні.
+  const filteredCounts = useMemo(() => {
+    if (!trackFilter) return dateCounts;
+    const map: Record<string, number> = {};
+    for (const [date, tracks] of Object.entries(dateTrackCounts)) {
+      let sum = 0;
+      for (const [tid, c] of Object.entries(tracks)) {
+        if (trackFilter.has(Number(tid))) sum += c as number;
+      }
+      map[date] = sum;
+    }
+    return map;
+  }, [dateCounts, dateTrackCounts, trackFilter]);
+
+  const displayCounts = overrideCounts ?? filteredCounts;
 
   const toggleYear = (y: string) => {
     const next = new Set(expandedYears);
@@ -87,7 +120,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
     setExpandedMonths(next);
   };
 
-  const allDatesWithData = Object.keys(dateCounts).sort().reverse();
+  const allDatesWithData = [...datesWithData].sort().reverse();
   const yearMonths = new Map<string, Set<number>>();
   for (const d of allDatesWithData) {
     const y = d.slice(0, 4);
@@ -109,12 +142,12 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       const isActive = selectedDates!.has(d);
       return (
         <button
-          onClick={() => hasData && count > 0 && onToggleDate!(d)}
+          onClick={() => onToggleDate!(d)}
           className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
             isActive ? 'bg-primary-600 text-white ring-1 ring-primary-400' :
             isToday ? 'bg-green-600/20 text-green-400' :
-            hasData && count > 0 ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
-            'bg-dark-900 text-dark-700 cursor-default'
+            count > 0 ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
+            'bg-dark-900 text-dark-600 hover:text-dark-300 hover:bg-dark-800'
           }`}
         >
           <span>{label}</span>

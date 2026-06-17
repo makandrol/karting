@@ -192,7 +192,7 @@ const stmts = {
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
   getSessionCountsByDateRange: db.prepare('SELECT date, COUNT(*) as count FROM sessions WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date'),
   getKartStats: db.prepare(`
-    SELECT l.session_id, l.kart, l.pilot, l.lap_time, l.ts,
+    SELECT l.session_id, l.kart, l.pilot, l.lap_time, l.s1, l.s2, l.ts,
       (${LAP_SEC_EXPR_L}) as lap_sec
     FROM laps l
     JOIN sessions s ON s.id = l.session_id
@@ -200,7 +200,7 @@ const stmts = {
     ORDER BY l.kart, lap_sec
   `),
   getKartStatsBySessions: db.prepare(`
-    SELECT session_id, kart, pilot, lap_time, ts,
+    SELECT session_id, kart, pilot, lap_time, s1, s2, ts,
       (${LAP_SEC_EXPR}) as lap_sec
     FROM laps
     WHERE ${VALID_LAP}
@@ -319,13 +319,23 @@ export const storage = {
     return merged.map((s, i) => ({ ...s, day_order: i + 1 }));
   },
 
-  getSessionCounts(fromDate, toDate) {
+  getSessionCounts(fromDate, toDate, opts = {}) {
     const rawCounts = stmts.getSessionCountsByDateRange.all(fromDate, toDate);
+    // light=true → лише сирий count без merge/tracks (швидко, для дерева дат).
+    if (opts.light) {
+      return rawCounts.map(({ date, count }) => ({ date, count }));
+    }
     return rawCounts.map(({ date }) => {
       const raw = stmts.getSessionsByDate.all(date);
       const merged = mergeSessions(raw);
       const filtered = merged.filter(s => !s.end_time || (s.end_time - s.start_time) >= 60000);
-      return { date, count: filtered.length };
+      // Розбивка по трасах — для фронтового фільтра по трасах.
+      const tracks = {};
+      for (const s of filtered) {
+        const tid = s.track_id || 1;
+        tracks[tid] = (tracks[tid] || 0) + 1;
+      }
+      return { date, count: filtered.length, tracks };
     });
   },
 
@@ -637,10 +647,16 @@ export const storage = {
     if (!liveComp) {
       const sessionTs = parseInt(sessionId.replace('session-', '')) || Date.now();
       const created = this.autoStartCompetitionIfTime(sessionTs);
-      if (!created) return null;
+      if (!created) {
+        console.log(`🔗 autoLink ${sessionId}: no live competition and not auto-start time → skip`);
+        return null;
+      }
       liveComp = parseCompetitionRow(stmts.getCompetition.get(created.id));
     }
-    if (!liveComp) return null;
+    if (!liveComp) {
+      console.log(`🔗 autoLink ${sessionId}: live competition lookup failed after auto-start → skip`);
+      return null;
+    }
 
     const results = liveComp.results || {};
     const gonzalesRoundCount = results.gonzalesRoundCount ?? 12;
@@ -652,15 +668,21 @@ export const storage = {
 
     // All expected phases already filled — competition is effectively complete
     if (allPhasesFilled(phases, usedPhases)) {
-      console.log(`⏭️ All ${phases.length} phases filled for ${liveComp.name}, skipping auto-link`);
+      console.log(`⏭️ All ${phases.length} phases filled for ${liveComp.name}, skipping auto-link ${sessionId} (used: [${[...usedPhases].join(', ')}])`);
       return null;
     }
 
     const nextPhase = findNextPhase(phases, usedPhases);
-    if (!nextPhase) return null;
+    if (!nextPhase) {
+      // findNextPhase повернув null, але allPhasesFilled === false → стейт
+      // невпорядкований (usedPhases містить фази поза/після очікуваного
+      // списку). Це симптом race-condition забруднення — логуємо детально.
+      console.warn(`⚠️ autoLink ${sessionId}: findNextPhase=null for ${liveComp.name} (format=${liveComp.format}, groupCount=${groupCount}) — used phases out of order. phases=[${phases.join(', ')}], used=[${[...usedPhases].join(', ')}]`);
+      return null;
+    }
     const sessions = [...liveComp.sessions, { sessionId, phase: nextPhase }];
     this.updateCompetition(liveComp.id, { sessions });
-    console.log(`🏁 Auto-linked session ${sessionId} → ${liveComp.name} · ${nextPhase} (tentative)`);
+    console.log(`🏁 Auto-linked session ${sessionId} → ${liveComp.name} · ${nextPhase} (tentative) [groupCount=${groupCount ?? 'unknown'}, ${usedPhases.size}/${phases.length} phases used]`);
     return { competitionId: liveComp.id, phase: nextPhase };
   },
 
@@ -699,7 +721,10 @@ export const storage = {
 
     const newLaps = this.getLaps(sessionId);
     const newPilots = new Set(newLaps.map(l => l.pilot));
-    if (newPilots.size === 0 || cumulativePilots.size === 0) return null;
+    if (newPilots.size === 0 || cumulativePilots.size === 0) {
+      console.log(`🔍 detectGroupCount ${sessionId}: not enough data (newPilots=${newPilots.size}, qualiPilots=${cumulativePilots.size}) → skip`);
+      return null;
+    }
 
     let detectedGroupCount = null;
 
@@ -812,13 +837,18 @@ export const storage = {
       if (correctPhase && correctPhase !== entry.phase) {
         const newSessions = freshComp.sessions.map(s => s.sessionId === sessionId ? { ...s, phase: correctPhase } : s);
         this.updateCompetition(comp.id, { sessions: newSessions, results: { ...results, autoDetectedGroups: finalGroupCount } });
-        console.log(`🔄 Finalized ${sessionId}: ${entry.phase} → ${correctPhase} (quali → race)`);
+        console.log(`🔄 Finalized ${sessionId}: ${entry.phase} → ${correctPhase} (quali → race) [groupCount=${finalGroupCount}]`);
+      } else {
+        console.log(`🔍 Finalize ${sessionId}: detected race but phase already correct (${entry.phase}), groupCount=${finalGroupCount} → no change`);
       }
       return;
     }
 
     // ── Race-сценарій: перевіряємо чи фаза правильна за позицією у comp ──
-    if (groupCount == null) return;  // groupCount не визначено → не чіпаємо
+    if (groupCount == null) {
+      console.log(`🔍 Finalize ${sessionId}: race phase ${entry.phase} but groupCount unknown → cannot verify, leaving as-is`);
+      return;  // groupCount не визначено → не чіпаємо
+    }
 
     const allPhases = buildFullPhases(comp.format, { gonzalesRoundCount });
     const phases = filterPhasesUtil(allPhases, groupCount, comp.format, { gonzalesRoundCount });
@@ -831,13 +861,18 @@ export const storage = {
       return ta - tb;
     });
     const indexInComp = sessionsSorted.findIndex(s => s.sessionId === sessionId);
-    if (indexInComp < 0 || indexInComp >= phases.length) return;
+    if (indexInComp < 0 || indexInComp >= phases.length) {
+      console.warn(`⚠️ Finalize ${sessionId}: position ${indexInComp} out of phases range (${phases.length} phases for groupCount=${groupCount}) → cannot map to phase`);
+      return;
+    }
     const expectedPhase = phases[indexInComp];
 
     if (expectedPhase && expectedPhase !== entry.phase) {
       const newSessions = freshComp.sessions.map(s => s.sessionId === sessionId ? { ...s, phase: expectedPhase } : s);
       this.updateCompetition(comp.id, { sessions: newSessions });
-      console.log(`🔄 Finalized ${sessionId}: ${entry.phase} → ${expectedPhase} (race phase mismatch)`);
+      console.log(`🔄 Finalized ${sessionId}: ${entry.phase} → ${expectedPhase} (race phase mismatch) [groupCount=${groupCount}, position ${indexInComp}]`);
+    } else {
+      console.log(`🔍 Finalize ${sessionId}: race phase ${entry.phase} correct for position ${indexInComp} (groupCount=${groupCount}) → no change`);
     }
   },
 

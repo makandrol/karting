@@ -154,22 +154,63 @@ export function mergeSessions(sessions) {
 }
 
 /**
- * Build kart statistics — top-5 fastest laps per pilot per kart.
- * Input: rows with { kart, pilot, lap_time, lap_sec, ts }.
- * Output: [{ kart, top5: [{pilot, lap_time, lap_sec, ts}, ...] }]
+ * Build kart statistics — найкраще коло кожного пілота на цьому карті,
+ * відсортовано за швидкістю, до 10 пілотів (поле `top5` — історична назва).
+ *
+ * Для кожного пілота:
+ *  - lap_time/lap_sec + s1/s2 — найшвидше реальне коло та його сектори
+ *  - tb_s1/tb_s2/tb_sec — theoretical best (найкращий S1 + найкращий S2 окремо)
+ *
+ * Input: rows with { kart, pilot, lap_time, s1, s2, lap_sec, ts }.
+ * Output: [{ kart, top5: [{pilot, lap_time, lap_sec, s1, s2, tb_s1, tb_s2, tb_sec, ts}, ...] }]
  */
 export function buildKartStats(rows) {
   const byKart = new Map();
   for (const r of rows) {
     if (!byKart.has(r.kart)) byKart.set(r.kart, new Map());
     const pilots = byKart.get(r.kart);
-    if (!pilots.has(r.pilot) || r.lap_sec < pilots.get(r.pilot).lap_sec) {
-      pilots.set(r.pilot, { pilot: r.pilot, lap_time: r.lap_time, lap_sec: r.lap_sec, ts: r.ts || null });
+    let agg = pilots.get(r.pilot);
+    if (!agg) {
+      agg = {
+        pilot: r.pilot,
+        lap_time: null, lap_sec: Infinity, s1: null, s2: null, ts: null,
+        bestS1: null, bestS1Sec: Infinity, bestS2: null, bestS2Sec: Infinity,
+      };
+      pilots.set(r.pilot, agg);
     }
+    // Найшвидше коло (+ його сектори)
+    if (r.lap_sec != null && r.lap_sec < agg.lap_sec) {
+      agg.lap_sec = r.lap_sec;
+      agg.lap_time = r.lap_time;
+      agg.s1 = r.s1 || null;
+      agg.s2 = r.s2 || null;
+      agg.ts = r.ts || null;
+    }
+    // Найкращі сектори окремо → theoretical best
+    const s1sec = parseLapTimeSec(r.s1);
+    if (s1sec !== null && s1sec < agg.bestS1Sec) { agg.bestS1Sec = s1sec; agg.bestS1 = r.s1; }
+    const s2sec = parseLapTimeSec(r.s2);
+    if (s2sec !== null && s2sec < agg.bestS2Sec) { agg.bestS2Sec = s2sec; agg.bestS2 = r.s2; }
   }
   const result = [];
   for (const [kart, pilots] of byKart) {
-    const top5 = [...pilots.values()].sort((a, b) => a.lap_sec - b.lap_sec).slice(0, 5);
+    const top5 = [...pilots.values()]
+      .map(a => {
+        const hasTB = a.bestS1Sec < Infinity && a.bestS2Sec < Infinity;
+        return {
+          pilot: a.pilot,
+          lap_time: a.lap_time,
+          lap_sec: a.lap_sec === Infinity ? null : a.lap_sec,
+          s1: a.s1,
+          s2: a.s2,
+          ts: a.ts,
+          tb_s1: a.bestS1,
+          tb_s2: a.bestS2,
+          tb_sec: hasTB ? a.bestS1Sec + a.bestS2Sec : null,
+        };
+      })
+      .sort((a, b) => (a.lap_sec ?? Infinity) - (b.lap_sec ?? Infinity))
+      .slice(0, 10);
     result.push({ kart, top5 });
   }
   return result.sort((a, b) => a.kart - b.kart);
