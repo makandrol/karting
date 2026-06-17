@@ -192,7 +192,7 @@ const stmts = {
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
   getSessionCountsByDateRange: db.prepare('SELECT date, COUNT(*) as count FROM sessions WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date'),
   getKartStats: db.prepare(`
-    SELECT l.session_id, l.kart, l.pilot, l.lap_time, l.ts,
+    SELECT l.session_id, l.kart, l.pilot, l.lap_time, l.s1, l.s2, l.ts,
       (${LAP_SEC_EXPR_L}) as lap_sec
     FROM laps l
     JOIN sessions s ON s.id = l.session_id
@@ -200,7 +200,7 @@ const stmts = {
     ORDER BY l.kart, lap_sec
   `),
   getKartStatsBySessions: db.prepare(`
-    SELECT session_id, kart, pilot, lap_time, ts,
+    SELECT session_id, kart, pilot, lap_time, s1, s2, ts,
       (${LAP_SEC_EXPR}) as lap_sec
     FROM laps
     WHERE ${VALID_LAP}

@@ -135,6 +135,31 @@ describe('buildKartStats', () => {
     const result = buildKartStats(rows);
     expect(result.map(r => r.kart)).toEqual([1, 3, 5]);
   });
+
+  it('computes theoretical best from best S1 + best S2 across laps', () => {
+    const rows = [
+      { kart: 1, pilot: 'A', lap_time: '42.0', lap_sec: 42.0, s1: '20.0', s2: '22.0', ts: 1 },
+      { kart: 1, pilot: 'A', lap_time: '43.0', lap_sec: 43.0, s1: '19.5', s2: '23.5', ts: 2 },
+    ];
+    const result = buildKartStats(rows);
+    const a = result[0].top5[0];
+    // best lap = 42.0 with its sectors 20.0/22.0
+    expect(a.lap_time).toBe('42.0');
+    expect(a.s1).toBe('20.0');
+    expect(a.s2).toBe('22.0');
+    // TB = best S1 (19.5) + best S2 (22.0) = 41.5
+    expect(a.tb_s1).toBe('19.5');
+    expect(a.tb_s2).toBe('22.0');
+    expect(a.tb_sec).toBeCloseTo(41.5, 3);
+  });
+
+  it('tb_sec is null when sectors missing', () => {
+    const rows = [
+      { kart: 1, pilot: 'A', lap_time: '42.0', lap_sec: 42.0, s1: null, s2: null, ts: 1 },
+    ];
+    const result = buildKartStats(rows);
+    expect(result[0].top5[0].tb_sec).toBeNull();
+  });
 });
 
 describe('remapKartNamesToPilots', () => {

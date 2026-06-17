@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type DbSession } from '../../services/api';
-import { toSeconds, isValidSession, shortPilot } from '../../utils/timing';
-import { fmtTimeShort as fmtTime, fmtDateTimeShort as fmtDate } from '../../utils/datetime';
+import { toSeconds, isValidSession } from '../../utils/timing';
+import { fmtDateTimeShort as fmtDate } from '../../utils/datetime';
 import { useLocalStorage } from '../../services/useLocalStorage';
 import { useKartFilters } from '../../services/useKartFilters';
 import DateNavigator from '../../components/Sessions/DateNavigator';
@@ -11,20 +11,30 @@ import TrackFilter from '../../components/Sessions/TrackFilter';
 
 interface KartStat {
   kart: number;
-  top5: { pilot: string; lap_time: string; lap_sec: number; ts: number | null }[];
+  top5: {
+    pilot: string;
+    lap_time: string | null;
+    lap_sec: number | null;
+    s1: string | null;
+    s2: string | null;
+    ts: number | null;
+    tb_s1: string | null;
+    tb_s2: string | null;
+    tb_sec: number | null;
+  }[];
 }
 
+type SortMode = 'best' | 'tb' | 'number';
+
 interface KartsFilters {
-  viewMode: 'list' | 'grid';
-  sortByRank: boolean;
+  sortMode: SortMode;
   topN: number;
   displayLaps: number;
   showDisabled: boolean;
 }
 
 const DEFAULT_FILTERS: KartsFilters = {
-  viewMode: 'list',
-  sortByRank: true,
+  sortMode: 'best',
   topN: 1,
   displayLaps: 3,
   showDisabled: false,
@@ -32,12 +42,11 @@ const DEFAULT_FILTERS: KartsFilters = {
 
 export default function Karts() {
   const [filters, setFilters] = useLocalStorage<KartsFilters>('karting_karts_filters', DEFAULT_FILTERS);
-  const { viewMode, sortByRank, topN, showDisabled } = filters;
-  // Fallback на дефолт для користувачів зі старим збереженим стейтом без цього поля.
+  const { topN, showDisabled } = filters;
+  // Fallback на дефолт для користувачів зі старим збереженим стейтом без цих полів.
   const displayLaps = filters.displayLaps ?? DEFAULT_FILTERS.displayLaps;
-  const setViewMode = (v: 'list' | 'grid') => setFilters(f => ({ ...f, viewMode: v }));
-  const setSortByRank = (v: boolean | ((p: boolean) => boolean)) =>
-    setFilters(f => ({ ...f, sortByRank: typeof v === 'function' ? v(f.sortByRank) : v }));
+  const sortMode: SortMode = filters.sortMode ?? DEFAULT_FILTERS.sortMode;
+  const setSortMode = (v: SortMode) => setFilters(f => ({ ...f, sortMode: v }));
   const setTopN = (v: number) => setFilters(f => ({ ...f, topN: v }));
   const setDisplayLaps = (v: number) => setFilters(f => ({ ...f, displayLaps: v }));
   const setShowDisabled = (v: boolean | ((p: boolean) => boolean)) =>
@@ -113,25 +122,37 @@ export default function Karts() {
     const next = new Set(disabledKarts); next.has(num) ? next.delete(num) : next.add(num); setDisabledKarts(next);
   };
 
+  // Метрика для рейтингу/сортування: lap_sec для 'best', tb_sec для 'tb'.
+  const metricOf = (l: KartStat['top5'][number]) =>
+    sortMode === 'tb' ? (l.tb_sec ?? Infinity) : (l.lap_sec ?? Infinity);
+
+  // top5 пілотів, відсортований за активною метрикою (для TB порядок інший).
+  const sortedTop = (k: KartStat) =>
+    [...k.top5].sort((a, b) => metricOf(a) - metricOf(b));
+
   const kartRanking = useMemo(() => {
+    const metric = (l: KartStat['top5'][number]) =>
+      sortMode === 'tb' ? (l.tb_sec ?? Infinity) : (l.lap_sec ?? Infinity);
     const ranked = kartStats
       .filter(k => !disabledKarts.has(k.kart) && k.top5.length > 0)
       .map(k => {
-        const topLaps = k.top5.slice(0, topN);
-        const avg = topLaps.length > 0 ? topLaps.reduce((s, l) => s + l.lap_sec, 0) / topLaps.length : Infinity;
+        const topLaps = [...k.top5].sort((a, b) => metric(a) - metric(b)).slice(0, topN);
+        const avg = topLaps.length > 0 ? topLaps.reduce((s, l) => s + metric(l), 0) / topLaps.length : Infinity;
         return { number: k.kart, avg };
       })
       .sort((a, b) => a.avg - b.avg);
     const map = new Map<number, number>();
     ranked.forEach((k, i) => map.set(k.number, i + 1));
     return map;
-  }, [kartStats, disabledKarts, topN]);
+  }, [kartStats, disabledKarts, topN, sortMode]);
 
   const activeKartsRaw = kartStats.filter(k => !disabledKarts.has(k.kart));
-  const activeKarts = sortByRank
-    ? [...activeKartsRaw].sort((a, b) => (kartRanking.get(a.kart) ?? 999) - (kartRanking.get(b.kart) ?? 999))
-    : activeKartsRaw;
+  const activeKarts = sortMode === 'number'
+    ? activeKartsRaw
+    : [...activeKartsRaw].sort((a, b) => (kartRanking.get(a.kart) ?? 999) - (kartRanking.get(b.kart) ?? 999));
   const inactiveKarts = kartStats.filter(k => disabledKarts.has(k.kart));
+  // У режимах рейтингу (best/tb) карти йдуть #1, #2... тож номер ранку зайвий.
+  const showRankBadge = sortMode === 'number';
 
   return (
     <div className="space-y-6">
@@ -191,6 +212,7 @@ export default function Karts() {
               <input type="text" inputMode="numeric" value={displayLapsInput}
                 onChange={e => setDisplayLapsInput(e.target.value.replace(/\D/g, ''))}
                 onFocus={() => setDisplayLapsPrev(displayLapsInput)}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                 onBlur={() => { const v = parseInt(displayLapsInput); if (!v || v < 1) { setDisplayLapsInput(displayLapsPrev); return; } setDisplayLaps(v); }}
                 className="w-8 bg-dark-800 border border-dark-700 text-white rounded px-1 py-0.5 outline-none focus:border-primary-500 text-[10px] text-center" />
               пілотів
@@ -200,59 +222,38 @@ export default function Karts() {
               <input type="text" inputMode="numeric" value={topNInput}
                 onChange={e => setTopNInput(e.target.value.replace(/\D/g, ''))}
                 onFocus={() => setTopNPrev(topNInput)}
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                 onBlur={() => { const v = parseInt(topNInput); if (!v || v < 1) { setTopNInput(topNPrev); return; } setTopN(v); }}
                 className="w-8 bg-dark-800 border border-dark-700 text-white rounded px-1 py-0.5 outline-none focus:border-primary-500 text-[10px] text-center" />
               best laps
             </label>
             <span className="text-dark-700">|</span>
             <div className="flex bg-dark-800 rounded-md p-0.5">
-              <button onClick={() => setSortByRank(true)} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortByRank ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по швидкості</button>
-              <button onClick={() => setSortByRank(false)} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${!sortByRank ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по номеру</button>
-            </div>
-            <span className="text-dark-700">|</span>
-            <div className="flex bg-dark-800 rounded-md p-0.5">
-              <button onClick={() => setViewMode('list')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'list' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>☰ список</button>
-              <button onClick={() => setViewMode('grid')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${viewMode === 'grid' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>▦ таблиця</button>
+              <button onClick={() => setSortMode('best')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortMode === 'best' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>Best lap</button>
+              <button onClick={() => setSortMode('tb')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortMode === 'tb' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>TB</button>
+              <button onClick={() => setSortMode('number')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortMode === 'number' ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по номеру</button>
             </div>
           </div>
         </div>
 
-        {viewMode === 'list' ? (
-          <>
+        <div className="divide-y divide-dark-800/50">
+          {activeKarts.map(kart => (
+            <KartRow key={kart.kart} kart={kart} rank={showRankBadge ? kartRanking.get(kart.kart) : undefined}
+              onDisable={() => toggleKartDisabled(kart.kart)} disabled={false} displayLaps={displayLaps}
+              sortMode={sortMode} laps={sortedTop(kart)} />
+          ))}
+        </div>
+        {showDisabled && inactiveKarts.length > 0 && (
+          <div className="mt-3 opacity-50">
+            <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-1">Неактивні</div>
             <div className="divide-y divide-dark-800/50">
-              {activeKarts.map(kart => (
-                <KartRow key={kart.kart} kart={kart} rank={kartRanking.get(kart.kart)} onDisable={() => toggleKartDisabled(kart.kart)} disabled={false} displayLaps={displayLaps} />
+              {inactiveKarts.map(kart => (
+                <KartRow key={kart.kart} kart={kart} rank={undefined}
+                  onDisable={() => toggleKartDisabled(kart.kart)} disabled displayLaps={displayLaps}
+                  sortMode={sortMode} laps={sortedTop(kart)} />
               ))}
             </div>
-            {showDisabled && inactiveKarts.length > 0 && (
-              <div className="mt-3 opacity-50">
-                <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-1">Неактивні</div>
-                <div className="divide-y divide-dark-800/50">
-                  {inactiveKarts.map(kart => (
-                    <KartRow key={kart.kart} kart={kart} rank={undefined} onDisable={() => toggleKartDisabled(kart.kart)} disabled displayLaps={displayLaps} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="grid grid-cols-3 gap-2">
-              {activeKarts.map(kart => (
-                <KartCard key={kart.kart} kart={kart} disabled={false} rank={kartRanking.get(kart.kart)} onDisable={() => toggleKartDisabled(kart.kart)} displayLaps={displayLaps} />
-              ))}
-            </div>
-            {showDisabled && inactiveKarts.length > 0 && (
-              <div className="mt-3 opacity-50">
-                <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-2">Неактивні</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {inactiveKarts.map(kart => (
-                    <KartCard key={kart.kart} kart={kart} disabled rank={undefined} onDisable={() => toggleKartDisabled(kart.kart)} displayLaps={displayLaps} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
+          </div>
         )}
 
         {/* Controls under the list */}
@@ -268,8 +269,12 @@ export default function Karts() {
   );
 }
 
-function KartRow({ kart, onDisable, disabled, rank, displayLaps }: { kart: KartStat; onDisable: () => void; disabled: boolean; rank?: number; displayLaps: number }) {
-  const top3 = kart.top5.slice(0, displayLaps);
+function KartRow({ kart, onDisable, disabled, rank, displayLaps, sortMode, laps }: {
+  kart: KartStat; onDisable: () => void; disabled: boolean; rank?: number; displayLaps: number;
+  sortMode: SortMode; laps: KartStat['top5'];
+}) {
+  const top = laps.slice(0, displayLaps);
+  const useTB = sortMode === 'tb';
   return (
     <div className="flex items-start group">
       <Link to={`/info/karts/${kart.kart}`} className="flex-1 flex items-start gap-4 px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors">
@@ -277,13 +282,21 @@ function KartRow({ kart, onDisable, disabled, rank, displayLaps }: { kart: KartS
           Карт {kart.kart}{rank ? <span className="text-dark-500">, #{rank}</span> : ''}
         </span>
         <div className="flex-1 space-y-0.5">
-          {top3.length > 0 ? top3.map((r, idx) => (
-            <div key={idx} className="text-xs">
-              <span className="font-mono text-green-400">{toSeconds(r.lap_time)}</span>
-              <span className="text-dark-500 ml-1.5">— {r.pilot}</span>
-              {r.ts && <span className="text-dark-600 ml-1">{fmtDate(r.ts)}</span>}
-            </div>
-          )) : <div className="text-dark-700 text-xs">—</div>}
+          {top.length > 0 ? top.map((r, idx) => {
+            const time = useTB ? (r.tb_sec != null ? r.tb_sec.toFixed(3) : null) : r.lap_time;
+            const s1 = useTB ? r.tb_s1 : r.s1;
+            const s2 = useTB ? r.tb_s2 : r.s2;
+            return (
+              <div key={idx} className="text-xs">
+                <span className="font-mono text-green-400">{time ? toSeconds(time) : '—'}</span>
+                {(s1 || s2) && (
+                  <span className="font-mono text-dark-500 ml-1">- {s1 ? toSeconds(s1) : '—'}, {s2 ? toSeconds(s2) : '—'}</span>
+                )}
+                <span className="text-dark-500 ml-1.5">— {r.pilot}</span>
+                {r.ts && <span className="text-dark-600 ml-1">{fmtDate(r.ts)}</span>}
+              </div>
+            );
+          }) : <div className="text-dark-700 text-xs">—</div>}
         </div>
       </Link>
       <button onClick={onDisable} title={disabled ? 'Активувати' : 'Деактивувати'}
@@ -291,31 +304,5 @@ function KartRow({ kart, onDisable, disabled, rank, displayLaps }: { kart: KartS
         {disabled ? '✓' : '✕'}
       </button>
     </div>
-  );
-}
-
-function KartCard({ kart, disabled, onDisable, rank, displayLaps }: { kart: KartStat; disabled: boolean; onDisable: () => void; rank?: number; displayLaps: number }) {
-  const top3 = kart.top5.slice(0, displayLaps);
-  return (
-    <Link to={`/info/karts/${kart.kart}`}
-      className={`relative block rounded-xl border p-3 transition-colors ${disabled ? 'border-dark-800 bg-dark-900/50' : 'border-dark-700 bg-dark-800/50 hover:border-dark-600 hover:bg-dark-700/50'}`}>
-      <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDisable(); }}
-        className={`absolute top-1 right-1 text-[10px] px-1 rounded transition-colors ${disabled ? 'text-green-400/50 hover:text-green-400' : 'text-dark-700 hover:text-red-400'}`}>
-        {disabled ? '✓' : '✕'}
-      </button>
-      <div className="text-center mb-2">
-        <span className={`font-mono font-bold text-2xl ${disabled ? 'text-dark-600' : 'text-white'}`}>{kart.kart}</span>
-        {rank && <span className="text-dark-500 text-sm ml-1">#{rank}</span>}
-      </div>
-      <div className="space-y-1">
-        {top3.length > 0 ? top3.map((r, idx) => (
-          <div key={idx} className="text-[10px] text-center leading-snug">
-            <span className="font-mono text-green-400">{toSeconds(r.lap_time)}</span>
-            <span className="text-dark-500"> — {r.pilot}</span>
-            {r.ts && <span className="text-dark-600"> {fmtDate(r.ts)}</span>}
-          </div>
-        )) : <div className="text-dark-700 text-[10px] text-center">—</div>}
-      </div>
-    </Link>
   );
 }
