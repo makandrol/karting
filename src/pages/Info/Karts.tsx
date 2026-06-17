@@ -132,16 +132,6 @@ export default function Karts() {
     [statSessionDetails, selectedTracks],
   );
 
-  // Лічильники заїздів по трасах серед вибраних днів (для підказки у фільтрі трас).
-  const trackCounts = useMemo(() => {
-    const map: Record<number, number> = {};
-    for (const s of statSessionDetails) {
-      const tid = s.track_id || 1;
-      map[tid] = (map[tid] || 0) + 1;
-    }
-    return map;
-  }, [statSessionDetails]);
-
   // ID заїздів для статистики: на вибраних трасах та не виключені вручну.
   const statSessionIds = useMemo(
     () => new Set(visibleSessions.filter(s => !excludedSessions.has(s.id)).map(s => s.id)),
@@ -193,6 +183,14 @@ export default function Karts() {
 
   return (
     <div className="space-y-6">
+      {/* Track filter */}
+      <TrackFilter
+        selected={selectedTracks}
+        onToggle={toggleTrack}
+        onSelectAll={selectAllTracks}
+        onClearAll={clearAllTracks}
+      />
+
       {/* Date multi-select */}
       <DateNavigator
         selectedDate={todayStr}
@@ -201,15 +199,6 @@ export default function Karts() {
         onToggleDate={handleToggleDate}
         onSelectDates={handleSelectDates}
         trackFilter={trackFilter}
-      />
-
-      {/* Track filter */}
-      <TrackFilter
-        selected={selectedTracks}
-        onToggle={toggleTrack}
-        onSelectAll={selectAllTracks}
-        onClearAll={clearAllTracks}
-        counts={trackCounts}
       />
 
       {/* Stat summary */}

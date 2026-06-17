@@ -131,12 +131,12 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       const isActive = selectedDates!.has(d);
       return (
         <button
-          onClick={() => hasData && count > 0 && onToggleDate!(d)}
+          onClick={() => onToggleDate!(d)}
           className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
             isActive ? 'bg-primary-600 text-white ring-1 ring-primary-400' :
             isToday ? 'bg-green-600/20 text-green-400' :
-            hasData && count > 0 ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
-            'bg-dark-900 text-dark-700 cursor-default'
+            count > 0 ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
+            'bg-dark-900 text-dark-600 hover:text-dark-300 hover:bg-dark-800'
           }`}
         >
           <span>{label}</span>

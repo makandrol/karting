@@ -9,33 +9,27 @@ interface TrackFilterProps {
   onToggle: (id: number) => void;
   onSelectAll: () => void;
   onClearAll: () => void;
-  /** Кількість заїздів на трасу серед вибраних днів — для підказки. */
-  counts?: Record<number, number>;
 }
 
-export default function TrackFilter({ selected, onToggle, onSelectAll, onClearAll, counts }: TrackFilterProps) {
+export default function TrackFilter({ selected, onToggle, onSelectAll, onClearAll }: TrackFilterProps) {
   const allSelected = ALL_TRACK_IDS.every(id => selected.has(id));
   const noneSelected = selected.size === 0;
 
   const Row = ({ ids }: { ids: number[] }) => (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1">
       {ids.map(id => {
         const isActive = selected.has(id);
-        const count = counts?.[id] ?? 0;
         return (
           <button
             key={id}
             onClick={() => onToggle(id)}
-            className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors min-w-[2.75rem] ${
+            className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
               isActive
                 ? 'bg-primary-600 text-white ring-1 ring-primary-400'
                 : 'bg-dark-800 text-dark-400 hover:text-white hover:bg-dark-700'
             }`}
           >
-            <span>{trackDisplayId(id)}</span>
-            {counts && (
-              <span className={`text-[9px] font-mono ${isActive ? 'text-white/70' : 'text-dark-600'}`}>{count}</span>
-            )}
+            {trackDisplayId(id)}
           </button>
         );
       })}
