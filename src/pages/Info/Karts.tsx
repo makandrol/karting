@@ -74,15 +74,15 @@ export default function Karts() {
     }
     let cancelled = false;
     (async () => {
-      const allSessions: DbSession[] = [];
-      for (const date of selectedDates) {
-        try {
-          const data = await api.sessions.byDate(date);
-          allSessions.push(...(data as unknown as DbSession[]).filter(s => s.end_time && isValidSession(s)));
-        } catch {}
-      }
+      const results = await Promise.all(
+        [...selectedDates].map(date =>
+          api.sessions.byDate(date)
+            .then(data => (data as unknown as DbSession[]).filter(s => s.end_time && isValidSession(s)))
+            .catch(() => [] as DbSession[]),
+        ),
+      );
       if (cancelled) return;
-      setStatSessionDetails(allSessions);
+      setStatSessionDetails(results.flat());
     })();
     return () => { cancelled = true; };
   }, [selectedDates]);

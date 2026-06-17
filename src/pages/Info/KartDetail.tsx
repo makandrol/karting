@@ -67,15 +67,16 @@ export default function KartDetail() {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      // 1. Fetch all sessions for selected dates (на вибраних трасах)
-      const allSessions: DbSession[] = [];
-      for (const date of selectedDates) {
-        try {
-          const data = await api.sessions.byDate(date);
-          allSessions.push(...(data as unknown as DbSession[])
-            .filter(s => s.end_time && isValidSession(s) && selectedTracks.has(s.track_id || 1)));
-        } catch {}
-      }
+      // 1. Fetch all sessions for selected dates (на вибраних трасах), паралельно
+      const perDate = await Promise.all(
+        [...selectedDates].map(date =>
+          api.sessions.byDate(date)
+            .then(data => (data as unknown as DbSession[])
+              .filter(s => s.end_time && isValidSession(s) && selectedTracks.has(s.track_id || 1)))
+            .catch(() => [] as DbSession[]),
+        ),
+      );
+      const allSessions: DbSession[] = perDate.flat();
       if (cancelled) return;
 
       // 2. Fetch laps for this kart
