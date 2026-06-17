@@ -16,14 +16,14 @@ export default function TrackFilter({ selected, onToggle, onSelectAll, onClearAl
   const noneSelected = selected.size === 0;
 
   const Row = ({ ids }: { ids: number[] }) => (
-    <div className="flex flex-wrap gap-1">
+    <div className="grid grid-cols-11 gap-1">
       {ids.map(id => {
         const isActive = selected.has(id);
         return (
           <button
             key={id}
             onClick={() => onToggle(id)}
-            className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+            className={`px-1 py-0.5 rounded text-[11px] font-medium transition-colors text-center ${
               isActive
                 ? 'bg-primary-600 text-white ring-1 ring-primary-400'
                 : 'bg-dark-800 text-dark-400 hover:text-white hover:bg-dark-700'

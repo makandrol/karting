@@ -118,12 +118,12 @@ describe('buildKartStats', () => {
     expect(kart1.top5[1].lap_time).toBe('41.0');
   });
 
-  it('limits to top 5 per kart', () => {
-    const rows = Array.from({ length: 10 }, (_, i) => ({
+  it('limits to top 10 per kart', () => {
+    const rows = Array.from({ length: 15 }, (_, i) => ({
       kart: 1, pilot: `P${i}`, lap_time: `${42 + i}.0`, lap_sec: 42 + i, ts: i,
     }));
     const result = buildKartStats(rows);
-    expect(result[0].top5).toHaveLength(5);
+    expect(result[0].top5).toHaveLength(10);
   });
 
   it('sorts result by kart number', () => {

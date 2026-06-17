@@ -1,12 +1,13 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type DbSession } from '../../services/api';
 import { toSeconds, isValidSession, shortPilot } from '../../utils/timing';
-import { fmtTimeShort as fmtTime, fmtDateTimeShort as fmtDate, fmtDateISO } from '../../utils/datetime';
+import { fmtTimeShort as fmtTime, fmtDateTimeShort as fmtDate } from '../../utils/datetime';
 import { useLocalStorage } from '../../services/useLocalStorage';
+import { useKartFilters } from '../../services/useKartFilters';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
-import TrackFilter, { ALL_TRACK_IDS } from '../../components/Sessions/TrackFilter';
+import TrackFilter from '../../components/Sessions/TrackFilter';
 
 interface KartStat {
   kart: number;
@@ -17,6 +18,7 @@ interface KartsFilters {
   viewMode: 'list' | 'grid';
   sortByRank: boolean;
   topN: number;
+  displayLaps: number;
   showDisabled: boolean;
 }
 
@@ -24,84 +26,32 @@ const DEFAULT_FILTERS: KartsFilters = {
   viewMode: 'list',
   sortByRank: true,
   topN: 1,
+  displayLaps: 3,
   showDisabled: false,
 };
 
 export default function Karts() {
   const [filters, setFilters] = useLocalStorage<KartsFilters>('karting_karts_filters', DEFAULT_FILTERS);
-  const { viewMode, sortByRank, topN, showDisabled } = filters;
+  const { viewMode, sortByRank, topN, displayLaps, showDisabled } = filters;
   const setViewMode = (v: 'list' | 'grid') => setFilters(f => ({ ...f, viewMode: v }));
   const setSortByRank = (v: boolean | ((p: boolean) => boolean)) =>
     setFilters(f => ({ ...f, sortByRank: typeof v === 'function' ? v(f.sortByRank) : v }));
   const setTopN = (v: number) => setFilters(f => ({ ...f, topN: v }));
+  const setDisplayLaps = (v: number) => setFilters(f => ({ ...f, displayLaps: v }));
   const setShowDisabled = (v: boolean | ((p: boolean) => boolean)) =>
     setFilters(f => ({ ...f, showDisabled: typeof v === 'function' ? v(f.showDisabled) : v }));
 
-  const todayStr = fmtDateISO(new Date());
   const [topNInput, setTopNInput] = useState(() => String(filters.topN));
   const [topNPrev, setTopNPrev] = useState(() => String(filters.topN));
+  const [displayLapsInput, setDisplayLapsInput] = useState(() => String(filters.displayLaps));
+  const [displayLapsPrev, setDisplayLapsPrev] = useState(() => String(filters.displayLaps));
 
-  // Selected dates for stats (multi-select), end-of-day expiry, default = today.
-  const [selectedDatesArr, setSelectedDatesArr] = useLocalStorage<string[]>(
-    'karting_karts_selected_dates',
-    [todayStr],
-    { endOfDayExpiry: true },
-  );
-  const selectedDates = useMemo(() => new Set(selectedDatesArr), [selectedDatesArr]);
-
-  const handleToggleDate = useCallback((date: string) => {
-    setSelectedDatesArr(prev => {
-      const next = new Set(prev);
-      next.has(date) ? next.delete(date) : next.add(date);
-      return [...next];
-    });
-  }, [setSelectedDatesArr]);
-
-  const handleSelectDates = useCallback((dates: string[]) => {
-    setSelectedDatesArr(prev => {
-      const next = new Set(prev);
-      for (const d of dates) next.add(d);
-      return [...next];
-    });
-  }, [setSelectedDatesArr]);
-
-  const clearAllDates = useCallback(() => {
-    setSelectedDatesArr([]);
-  }, [setSelectedDatesArr]);
-
-  // Track filter — default = всі траси вибрані. Persist назавжди.
-  const [selectedTracksArr, setSelectedTracksArr] = useLocalStorage<number[]>(
-    'karting_karts_selected_tracks',
-    [...ALL_TRACK_IDS],
-  );
-  const selectedTracks = useMemo(() => new Set(selectedTracksArr), [selectedTracksArr]);
-  const allTracksSelected = selectedTracks.size === ALL_TRACK_IDS.length;
-  const trackFilter = allTracksSelected ? null : selectedTracks;
-
-  const toggleTrack = useCallback((id: number) => {
-    setSelectedTracksArr(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return [...next];
-    });
-  }, [setSelectedTracksArr]);
-  const selectAllTracks = useCallback(() => setSelectedTracksArr([...ALL_TRACK_IDS]), [setSelectedTracksArr]);
-  const clearAllTracks = useCallback(() => setSelectedTracksArr([]), [setSelectedTracksArr]);
-
-  // Заїзди, виключені зі статистики вручну (✕). Expiry в кінці дня.
-  const [excludedSessionsArr, setExcludedSessionsArr] = useLocalStorage<string[]>(
-    'karting_karts_excluded_sessions',
-    [],
-    { endOfDayExpiry: true },
-  );
-  const excludedSessions = useMemo(() => new Set(excludedSessionsArr), [excludedSessionsArr]);
-  const toggleExcludeSession = useCallback((id: string) => {
-    setExcludedSessionsArr(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return [...next];
-    });
-  }, [setExcludedSessionsArr]);
+  const {
+    todayStr,
+    selectedDates, toggleDate: handleToggleDate, selectDates: handleSelectDates, clearDates: clearAllDates,
+    selectedTracks, trackFilter, toggleTrack, selectAllTracks, clearAllTracks,
+    excludedSessions, toggleExcludeSession,
+  } = useKartFilters();
 
   // Fetch session details for all selected dates (raw, без фільтра трас)
   const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
@@ -245,6 +195,16 @@ export default function Karts() {
               кіл
             </label>
             <span className="text-dark-700">|</span>
+            <label className="text-dark-400 text-[10px] flex items-center gap-1">
+              Показувати
+              <input type="text" inputMode="numeric" value={displayLapsInput}
+                onChange={e => setDisplayLapsInput(e.target.value.replace(/\D/g, ''))}
+                onFocus={() => setDisplayLapsPrev(displayLapsInput)}
+                onBlur={() => { const v = parseInt(displayLapsInput); if (!v || v < 1) { setDisplayLapsInput(displayLapsPrev); return; } setDisplayLaps(v); }}
+                className="w-8 bg-dark-800 border border-dark-700 text-white rounded px-1 py-0.5 outline-none focus:border-primary-500 text-[10px] text-center" />
+              кіл/карт
+            </label>
+            <span className="text-dark-700">|</span>
             <div className="flex bg-dark-800 rounded-md p-0.5">
               <button onClick={() => setSortByRank(true)} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${sortByRank ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по швидкості</button>
               <button onClick={() => setSortByRank(false)} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${!sortByRank ? 'bg-primary-600 text-white' : 'text-dark-400 hover:text-white'}`}>по номеру</button>
@@ -267,7 +227,7 @@ export default function Karts() {
           <>
             <div className="divide-y divide-dark-800/50">
               {activeKarts.map(kart => (
-                <KartRow key={kart.kart} kart={kart} rank={kartRanking.get(kart.kart)} onDisable={() => toggleKartDisabled(kart.kart)} disabled={false} />
+                <KartRow key={kart.kart} kart={kart} rank={kartRanking.get(kart.kart)} onDisable={() => toggleKartDisabled(kart.kart)} disabled={false} displayLaps={displayLaps} />
               ))}
             </div>
             {showDisabled && inactiveKarts.length > 0 && (
@@ -275,7 +235,7 @@ export default function Karts() {
                 <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-1">Неактивні</div>
                 <div className="divide-y divide-dark-800/50">
                   {inactiveKarts.map(kart => (
-                    <KartRow key={kart.kart} kart={kart} rank={undefined} onDisable={() => toggleKartDisabled(kart.kart)} disabled />
+                    <KartRow key={kart.kart} kart={kart} rank={undefined} onDisable={() => toggleKartDisabled(kart.kart)} disabled displayLaps={displayLaps} />
                   ))}
                 </div>
               </div>
@@ -285,7 +245,7 @@ export default function Karts() {
           <>
             <div className="grid grid-cols-3 gap-2">
               {activeKarts.map(kart => (
-                <KartCard key={kart.kart} kart={kart} disabled={false} rank={kartRanking.get(kart.kart)} onDisable={() => toggleKartDisabled(kart.kart)} />
+                <KartCard key={kart.kart} kart={kart} disabled={false} rank={kartRanking.get(kart.kart)} onDisable={() => toggleKartDisabled(kart.kart)} displayLaps={displayLaps} />
               ))}
             </div>
             {showDisabled && inactiveKarts.length > 0 && (
@@ -293,7 +253,7 @@ export default function Karts() {
                 <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-2">Неактивні</div>
                 <div className="grid grid-cols-3 gap-2">
                   {inactiveKarts.map(kart => (
-                    <KartCard key={kart.kart} kart={kart} disabled rank={undefined} onDisable={() => toggleKartDisabled(kart.kart)} />
+                    <KartCard key={kart.kart} kart={kart} disabled rank={undefined} onDisable={() => toggleKartDisabled(kart.kart)} displayLaps={displayLaps} />
                   ))}
                 </div>
               </div>
@@ -305,8 +265,8 @@ export default function Karts() {
   );
 }
 
-function KartRow({ kart, onDisable, disabled, rank }: { kart: KartStat; onDisable: () => void; disabled: boolean; rank?: number }) {
-  const top3 = kart.top5.slice(0, 3);
+function KartRow({ kart, onDisable, disabled, rank, displayLaps }: { kart: KartStat; onDisable: () => void; disabled: boolean; rank?: number; displayLaps: number }) {
+  const top3 = kart.top5.slice(0, displayLaps);
   return (
     <div className="flex items-start group">
       <Link to={`/info/karts/${kart.kart}`} className="flex-1 flex items-start gap-4 px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors">
@@ -331,8 +291,8 @@ function KartRow({ kart, onDisable, disabled, rank }: { kart: KartStat; onDisabl
   );
 }
 
-function KartCard({ kart, disabled, onDisable, rank }: { kart: KartStat; disabled: boolean; onDisable: () => void; rank?: number }) {
-  const top3 = kart.top5.slice(0, 3);
+function KartCard({ kart, disabled, onDisable, rank, displayLaps }: { kart: KartStat; disabled: boolean; onDisable: () => void; rank?: number; displayLaps: number }) {
+  const top3 = kart.top5.slice(0, displayLaps);
   return (
     <Link to={`/info/karts/${kart.kart}`}
       className={`relative block rounded-xl border p-3 transition-colors ${disabled ? 'border-dark-800 bg-dark-900/50' : 'border-dark-700 bg-dark-800/50 hover:border-dark-600 hover:bg-dark-700/50'}`}>

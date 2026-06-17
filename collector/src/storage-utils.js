@@ -154,7 +154,8 @@ export function mergeSessions(sessions) {
 }
 
 /**
- * Build kart statistics — top-5 fastest laps per pilot per kart.
+ * Build kart statistics — найкраще коло кожного пілота на цьому карті,
+ * відсортовано за швидкістю, до 10 пілотів (поле `top5` — історична назва).
  * Input: rows with { kart, pilot, lap_time, lap_sec, ts }.
  * Output: [{ kart, top5: [{pilot, lap_time, lap_sec, ts}, ...] }]
  */
@@ -169,7 +170,7 @@ export function buildKartStats(rows) {
   }
   const result = [];
   for (const [kart, pilots] of byKart) {
-    const top5 = [...pilots.values()].sort((a, b) => a.lap_sec - b.lap_sec).slice(0, 5);
+    const top5 = [...pilots.values()].sort((a, b) => a.lap_sec - b.lap_sec).slice(0, 10);
     result.push({ kart, top5 });
   }
   return result.sort((a, b) => a.kart - b.kart);

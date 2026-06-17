@@ -1,11 +1,13 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api, type DbSession } from '../../services/api';
 import { parseTime, toSeconds, mergePilotNames, isValidSession, shortPilot } from '../../utils/timing';
-import { fmtTimeShort as fmtTime, fmtDateDM as fmtDate, fmtDateISO } from '../../utils/datetime';
+import { fmtTimeShort as fmtTime, fmtDateDM as fmtDate } from '../../utils/datetime';
 import { LoadingState } from '../../components/States';
+import { useKartFilters } from '../../services/useKartFilters';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
+import TrackFilter from '../../components/Sessions/TrackFilter';
 
 interface KartLap {
   id: number;
@@ -24,46 +26,16 @@ interface KartLap {
 }
 
 
-const LS_KART_DETAIL_DATES = 'karting_kart_detail_dates';
-function loadSelectedDates(): Set<string> {
-  try { const s = localStorage.getItem(LS_KART_DETAIL_DATES); if (s) return new Set(JSON.parse(s)); } catch {} return new Set();
-}
-
 export default function KartDetail() {
   const { kartId } = useParams<{ kartId: string }>();
   const kartNumber = parseInt(kartId || '0');
-  const now = new Date();
-  const todayStr = fmtDateISO(now);
 
-  // Selected dates (multi-select, persisted)
-  const [selectedDates, setSelectedDates] = useState<Set<string>>(() => {
-    const saved = loadSelectedDates();
-    return saved.size > 0 ? saved : new Set([todayStr]);
-  });
-
-  useEffect(() => {
-    localStorage.setItem(LS_KART_DETAIL_DATES, JSON.stringify([...selectedDates]));
-  }, [selectedDates]);
-
-  const handleToggleDate = useCallback((date: string) => {
-    setSelectedDates(prev => {
-      const next = new Set(prev);
-      next.has(date) ? next.delete(date) : next.add(date);
-      return next;
-    });
-  }, []);
-
-  const handleSelectDates = useCallback((dates: string[]) => {
-    setSelectedDates(prev => {
-      const next = new Set(prev);
-      for (const d of dates) next.add(d);
-      return next;
-    });
-  }, []);
-
-  const clearAllDates = useCallback(() => {
-    setSelectedDates(new Set());
-  }, []);
+  const {
+    todayStr,
+    selectedDates, toggleDate: handleToggleDate, selectDates: handleSelectDates, clearDates: clearAllDates,
+    selectedTracks, trackFilter, toggleTrack, selectAllTracks, clearAllTracks,
+    excludedSessions, toggleExcludeSession,
+  } = useKartFilters();
 
   // Fetch all-time session counts for this kart
   const [kartDateCounts, setKartDateCounts] = useState<Record<string, number> | undefined>(undefined);
@@ -81,6 +53,7 @@ export default function KartDetail() {
   const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
   const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
   const [laps, setLaps] = useState<KartLap[]>([]);
+  const [subIdToMergedMap, setSubIdToMergedMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(false);
 
   // Fetch sessions + kart laps in one flow, filter to only sessions with this kart
@@ -94,12 +67,13 @@ export default function KartDetail() {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      // 1. Fetch all sessions for selected dates
+      // 1. Fetch all sessions for selected dates (на вибраних трасах)
       const allSessions: DbSession[] = [];
       for (const date of selectedDates) {
         try {
           const data = await api.sessions.byDate(date);
-          allSessions.push(...(data as unknown as DbSession[]).filter(s => s.end_time && isValidSession(s)));
+          allSessions.push(...(data as unknown as DbSession[])
+            .filter(s => s.end_time && isValidSession(s) && selectedTracks.has(s.track_id || 1)));
         } catch {}
       }
       if (cancelled) return;
@@ -144,6 +118,7 @@ export default function KartDetail() {
 
       setLaps(merged);
       setStatSessionIds(kartSessionIds);
+      setSubIdToMergedMap(subIdToMerged);
       // Override best lap with kart-specific best lap per session
       const kartBestBySession = new Map<string, { pilot: string; time: string; sec: number }>();
       for (const l of merged) {
@@ -161,7 +136,7 @@ export default function KartDetail() {
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [selectedDates, kartNumber]);
+  }, [selectedDates, kartNumber, selectedTracks]);
 
   const [sortBy, setSortBy] = useState<'best' | 'date'>('best');
 
@@ -169,6 +144,8 @@ export default function KartDetail() {
   const sessionStats = useMemo(() => {
     const bySession = new Map<string, KartLap[]>();
     for (const l of laps) {
+      const mergedId = subIdToMergedMap.get(l.session_id) || l.session_id;
+      if (excludedSessions.has(mergedId)) continue;
       if (!bySession.has(l.session_id)) bySession.set(l.session_id, []);
       bySession.get(l.session_id)!.push(l);
     }
@@ -197,7 +174,7 @@ export default function KartDetail() {
     return result.sort((a, b) =>
       sortBy === 'date' ? b.sessionStart - a.sessionStart : a.bestLapSec - b.bestLapSec
     );
-  }, [laps, statSessionDetails, sortBy]);
+  }, [laps, statSessionDetails, sortBy, excludedSessions, subIdToMergedMap]);
 
   const overallBestSec = sessionStats.length > 0 ? sessionStats[0].bestLapSec : null;
   const overallBestS1 = sessionStats.reduce((best, s) => { const v = parseTime(s.bestS1); return v !== null && v < best ? v : best; }, Infinity);
@@ -220,6 +197,14 @@ export default function KartDetail() {
         </div>
       </div>
 
+      {/* Track filter */}
+      <TrackFilter
+        selected={selectedTracks}
+        onToggle={toggleTrack}
+        onSelectAll={selectAllTracks}
+        onClearAll={clearAllTracks}
+      />
+
       {/* Date multi-select */}
       <DateNavigator
         selectedDate={todayStr}
@@ -228,6 +213,7 @@ export default function KartDetail() {
         onToggleDate={handleToggleDate}
         onSelectDates={handleSelectDates}
         overrideCounts={kartDateCounts}
+        trackFilter={trackFilter}
       />
 
       {/* Stat summary */}
@@ -235,6 +221,9 @@ export default function KartDetail() {
         <div className="flex items-center justify-between">
           <div className="text-dark-400 text-[10px] font-semibold uppercase tracking-wider">
             Статистика: {selectedDates.size} {selectedDates.size === 1 ? 'день' : selectedDates.size < 5 ? 'дні' : 'днів'}, {statSessionIds.size} заїздів
+            {excludedSessions.size > 0 && (
+              <span className="text-dark-600 ml-1 normal-case">({[...excludedSessions].filter(id => statSessionIds.has(id)).length} прибрано)</span>
+            )}
             {loading && <span className="text-dark-600 ml-2">завантаження...</span>}
           </div>
           {selectedDates.size > 0 && (
@@ -244,7 +233,12 @@ export default function KartDetail() {
         </div>
         {statSessionDetails.length > 0 && (
           <div className="max-h-48 overflow-y-auto">
-            <SessionsTable sessions={statSessionDetails} showDate />
+            <SessionsTable
+              sessions={statSessionDetails}
+              showDate
+              excludedIds={excludedSessions}
+              onToggleExclude={toggleExcludeSession}
+            />
           </div>
         )}
       </div>
