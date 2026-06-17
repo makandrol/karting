@@ -160,12 +160,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // GET /db/session-counts?from=2026-03-15&to=2026-03-21
+    // GET /db/session-counts?from=2026-03-15&to=2026-03-21&light=1
     if (url.pathname === '/db/session-counts') {
       const from = url.searchParams.get('from');
       const to = url.searchParams.get('to');
+      const light = url.searchParams.get('light') === '1';
       if (!from || !to) { sendJson(res, 400, { error: 'from and to required' }); return; }
-      sendJson(res, 200, storage.getSessionCounts(from, to));
+      sendJson(res, 200, storage.getSessionCounts(from, to, { light }));
       return;
     }
 

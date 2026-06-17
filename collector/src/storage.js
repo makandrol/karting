@@ -319,8 +319,12 @@ export const storage = {
     return merged.map((s, i) => ({ ...s, day_order: i + 1 }));
   },
 
-  getSessionCounts(fromDate, toDate) {
+  getSessionCounts(fromDate, toDate, opts = {}) {
     const rawCounts = stmts.getSessionCountsByDateRange.all(fromDate, toDate);
+    // light=true → лише сирий count без merge/tracks (швидко, для дерева дат).
+    if (opts.light) {
+      return rawCounts.map(({ date, count }) => ({ date, count }));
+    }
     return rawCounts.map(({ date }) => {
       const raw = stmts.getSessionsByDate.all(date);
       const merged = mergeSessions(raw);

@@ -58,6 +58,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
 
   const [dateCounts, setDateCounts] = useState<Record<string, number>>({});
   const [dateTrackCounts, setDateTrackCounts] = useState<Record<string, Record<number, number>>>({});
+  const [datesWithData, setDatesWithData] = useState<string[]>([]);
   const prevWeekDaysSet = new Set(getWeekDays(prevMonday));
   const [prevWeekOpen, setPrevWeekOpen] = useState(() =>
     multiSelect && selectedDates ? [...selectedDates].some(d => prevWeekDaysSet.has(d)) : false
@@ -66,7 +67,9 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    api.sessions.counts('2020-01-01', todayStr)
+    // Детальні лічильники (count + tracks) — лише за останні 2 тижні (важкий merge).
+    const countsFrom = localDateStr(prevMonday);
+    api.sessions.counts(countsFrom, todayStr)
       .then((data: any) => {
         const arr = Array.isArray(data) ? data : [];
         const map: Record<string, number> = {};
@@ -79,9 +82,17 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
         setDateTrackCounts(trackMap);
       })
       .catch(() => {});
+
+    // Легкий список усіх дат з даними — для дерева років/місяців (без merge/чисел).
+    api.sessions.counts('2020-01-01', todayStr, true)
+      .then((data: any) => {
+        const arr = Array.isArray(data) ? data : [];
+        setDatesWithData(arr.map((d: any) => d.date));
+      })
+      .catch(() => {});
   }, []);
 
-  // Лічильники з урахуванням фільтра трас (якщо заданий).
+  // Лічильники з урахуванням фільтра трас (якщо заданий). Тільки за 2 тижні.
   const filteredCounts = useMemo(() => {
     if (!trackFilter) return dateCounts;
     const map: Record<string, number> = {};
@@ -109,7 +120,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
     setExpandedMonths(next);
   };
 
-  const allDatesWithData = Object.keys(dateCounts).sort().reverse();
+  const allDatesWithData = [...datesWithData].sort().reverse();
   const yearMonths = new Map<string, Set<number>>();
   for (const d of allDatesWithData) {
     const y = d.slice(0, 4);
