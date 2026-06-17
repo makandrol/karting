@@ -637,10 +637,16 @@ export const storage = {
     if (!liveComp) {
       const sessionTs = parseInt(sessionId.replace('session-', '')) || Date.now();
       const created = this.autoStartCompetitionIfTime(sessionTs);
-      if (!created) return null;
+      if (!created) {
+        console.log(`🔗 autoLink ${sessionId}: no live competition and not auto-start time → skip`);
+        return null;
+      }
       liveComp = parseCompetitionRow(stmts.getCompetition.get(created.id));
     }
-    if (!liveComp) return null;
+    if (!liveComp) {
+      console.log(`🔗 autoLink ${sessionId}: live competition lookup failed after auto-start → skip`);
+      return null;
+    }
 
     const results = liveComp.results || {};
     const gonzalesRoundCount = results.gonzalesRoundCount ?? 12;
@@ -652,15 +658,21 @@ export const storage = {
 
     // All expected phases already filled — competition is effectively complete
     if (allPhasesFilled(phases, usedPhases)) {
-      console.log(`⏭️ All ${phases.length} phases filled for ${liveComp.name}, skipping auto-link`);
+      console.log(`⏭️ All ${phases.length} phases filled for ${liveComp.name}, skipping auto-link ${sessionId} (used: [${[...usedPhases].join(', ')}])`);
       return null;
     }
 
     const nextPhase = findNextPhase(phases, usedPhases);
-    if (!nextPhase) return null;
+    if (!nextPhase) {
+      // findNextPhase повернув null, але allPhasesFilled === false → стейт
+      // невпорядкований (usedPhases містить фази поза/після очікуваного
+      // списку). Це симптом race-condition забруднення — логуємо детально.
+      console.warn(`⚠️ autoLink ${sessionId}: findNextPhase=null for ${liveComp.name} (format=${liveComp.format}, groupCount=${groupCount}) — used phases out of order. phases=[${phases.join(', ')}], used=[${[...usedPhases].join(', ')}]`);
+      return null;
+    }
     const sessions = [...liveComp.sessions, { sessionId, phase: nextPhase }];
     this.updateCompetition(liveComp.id, { sessions });
-    console.log(`🏁 Auto-linked session ${sessionId} → ${liveComp.name} · ${nextPhase} (tentative)`);
+    console.log(`🏁 Auto-linked session ${sessionId} → ${liveComp.name} · ${nextPhase} (tentative) [groupCount=${groupCount ?? 'unknown'}, ${usedPhases.size}/${phases.length} phases used]`);
     return { competitionId: liveComp.id, phase: nextPhase };
   },
 
@@ -699,7 +711,10 @@ export const storage = {
 
     const newLaps = this.getLaps(sessionId);
     const newPilots = new Set(newLaps.map(l => l.pilot));
-    if (newPilots.size === 0 || cumulativePilots.size === 0) return null;
+    if (newPilots.size === 0 || cumulativePilots.size === 0) {
+      console.log(`🔍 detectGroupCount ${sessionId}: not enough data (newPilots=${newPilots.size}, qualiPilots=${cumulativePilots.size}) → skip`);
+      return null;
+    }
 
     let detectedGroupCount = null;
 
@@ -812,13 +827,18 @@ export const storage = {
       if (correctPhase && correctPhase !== entry.phase) {
         const newSessions = freshComp.sessions.map(s => s.sessionId === sessionId ? { ...s, phase: correctPhase } : s);
         this.updateCompetition(comp.id, { sessions: newSessions, results: { ...results, autoDetectedGroups: finalGroupCount } });
-        console.log(`🔄 Finalized ${sessionId}: ${entry.phase} → ${correctPhase} (quali → race)`);
+        console.log(`🔄 Finalized ${sessionId}: ${entry.phase} → ${correctPhase} (quali → race) [groupCount=${finalGroupCount}]`);
+      } else {
+        console.log(`🔍 Finalize ${sessionId}: detected race but phase already correct (${entry.phase}), groupCount=${finalGroupCount} → no change`);
       }
       return;
     }
 
     // ── Race-сценарій: перевіряємо чи фаза правильна за позицією у comp ──
-    if (groupCount == null) return;  // groupCount не визначено → не чіпаємо
+    if (groupCount == null) {
+      console.log(`🔍 Finalize ${sessionId}: race phase ${entry.phase} but groupCount unknown → cannot verify, leaving as-is`);
+      return;  // groupCount не визначено → не чіпаємо
+    }
 
     const allPhases = buildFullPhases(comp.format, { gonzalesRoundCount });
     const phases = filterPhasesUtil(allPhases, groupCount, comp.format, { gonzalesRoundCount });
@@ -831,13 +851,18 @@ export const storage = {
       return ta - tb;
     });
     const indexInComp = sessionsSorted.findIndex(s => s.sessionId === sessionId);
-    if (indexInComp < 0 || indexInComp >= phases.length) return;
+    if (indexInComp < 0 || indexInComp >= phases.length) {
+      console.warn(`⚠️ Finalize ${sessionId}: position ${indexInComp} out of phases range (${phases.length} phases for groupCount=${groupCount}) → cannot map to phase`);
+      return;
+    }
     const expectedPhase = phases[indexInComp];
 
     if (expectedPhase && expectedPhase !== entry.phase) {
       const newSessions = freshComp.sessions.map(s => s.sessionId === sessionId ? { ...s, phase: expectedPhase } : s);
       this.updateCompetition(comp.id, { sessions: newSessions });
-      console.log(`🔄 Finalized ${sessionId}: ${entry.phase} → ${expectedPhase} (race phase mismatch)`);
+      console.log(`🔄 Finalized ${sessionId}: ${entry.phase} → ${expectedPhase} (race phase mismatch) [groupCount=${groupCount}, position ${indexInComp}]`);
+    } else {
+      console.log(`🔍 Finalize ${sessionId}: race phase ${entry.phase} correct for position ${indexInComp} (groupCount=${groupCount}) → no change`);
     }
   },
 

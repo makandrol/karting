@@ -333,6 +333,17 @@ const server = http.createServer(async (req, res) => {
       try {
         const body = await readBody(req);
         const fields = JSON.parse(body);
+        // Лог тільки коли змінюються фази/статус — щоб бачити хто і коли
+        // перепрограмував лінкування (frontend, ручний скрипт тощо).
+        if (fields.sessions || fields.status) {
+          const prev = storage.getCompetition(id);
+          const prevPhases = (prev?.sessions || []).map(s => `${s.sessionId}=${s.phase}`).join(', ');
+          const nextPhases = (fields.sessions || prev?.sessions || []).map(s => `${s.sessionId}=${s.phase}`).join(', ');
+          const origin = req.headers.origin || req.headers.referer || 'unknown';
+          if (prevPhases !== nextPhases || (fields.status && fields.status !== prev?.status)) {
+            console.log(`✏️ PATCH ${id} from ${origin}: status ${prev?.status}→${fields.status ?? prev?.status} | phases [${prevPhases}] → [${nextPhases}]`);
+          }
+        }
         const ok = storage.updateCompetition(id, fields);
         if (!ok) { sendJson(res, 404, { error: 'Not found' }); return; }
         sendJson(res, 200, storage.getCompetition(id));
@@ -361,6 +372,9 @@ const server = http.createServer(async (req, res) => {
         if (!comp) { sendJson(res, 404, { error: 'Competition not found' }); return; }
         const sessions = comp.sessions.filter(s => s.sessionId !== sessionId);
         sessions.push({ sessionId, phase: phase || null });
+        const origin = req.headers.origin || req.headers.referer || 'unknown';
+        const existing = comp.sessions.find(s => s.sessionId === sessionId);
+        console.log(`🔗 link-session ${sessionId} → ${id} · ${phase || 'null'} from ${origin}${existing ? ` (was ${existing.phase})` : ' (new)'}`);
         storage.updateCompetition(id, { sessions });
         sendJson(res, 200, storage.getCompetition(id));
       } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
