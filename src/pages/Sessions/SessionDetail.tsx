@@ -18,6 +18,7 @@ import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import type { TimingEntry } from '../../types';
 import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
+import { parseMarathon, buildMarathonLapColumns } from '../../utils/marathon';
 import { lazy, Suspense } from 'react';
 import { useSessionData } from './useSessionData';
 
@@ -303,7 +304,13 @@ export default function SessionDetail() {
               : Math.max(...dbLaps.map(l => l.lap_number), 1) * (parseTime(dbLaps.find(l => l.lap_time)?.lap_time ?? null) || 42) + 30;
             const track = allTracks.find(t => t.id === dbSession.track_id) || allTracks[0];
 
-            const lapsByPilotsEl = (
+            const lapsByPilotsEl = isMarathon ? (
+              <LapsByPilots key="lapsByPilots"
+                pilots={buildMarathonLapColumns(parseMarathon(rawEvents)) as any}
+                currentEntries={trackEntries}
+                sessionId={sessionId}
+                marathon />
+            ) : (
               <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
                 excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
                 onToggleLap={isOwner ? handleToggleLap : undefined}
@@ -369,12 +376,20 @@ export default function SessionDetail() {
           })()}
 
           {!(dbSession.end_time && dbLaps.length > 0) && (
-            <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
-              excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
-              onToggleLap={isOwner ? handleToggleLap : undefined}
-              sessionId={sessionId}
-              pilotDisplayName={displayPilot}
-              startPositions={isRace ? startPositions : undefined} />
+            isMarathon ? (
+              <LapsByPilots key="lapsByPilots"
+                pilots={buildMarathonLapColumns(parseMarathon(rawEvents)) as any}
+                currentEntries={trackEntries}
+                sessionId={sessionId}
+                marathon />
+            ) : (
+              <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
+                excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
+                onToggleLap={isOwner ? handleToggleLap : undefined}
+                sessionId={sessionId}
+                pilotDisplayName={displayPilot}
+                startPositions={isRace ? startPositions : undefined} />
+            )
           )}
         </>
       )}

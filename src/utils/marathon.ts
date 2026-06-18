@@ -105,6 +105,58 @@ export interface MarathonModel {
   pitIntervals: MarathonPitInterval[];
 }
 
+export interface MarathonLapRow {
+  pilot: string;
+  kart: number;
+  lap_time: string;
+  ts: number;
+  driver: string;
+}
+
+export interface MarathonPilotColumn {
+  /** Stable key = "team-<startKart>" (used for rename keys / column identity). */
+  name: string;
+  /** Header label = team name. */
+  headerLabel: string;
+  startKart: number;
+  laps: MarathonLapRow[];
+  bestLap: number;
+  bestS1: number;
+  bestS2: number;
+}
+
+/**
+ * Build per-team columns for the laps-by-pilots grid: one column per team
+ * (start slot), laps in chronological order, each carrying the actual kart
+ * and driver of that lap so the table can mark pit-stop kart/driver changes.
+ */
+export function buildMarathonLapColumns(model: MarathonModel): MarathonPilotColumn[] {
+  return model.teams.map(team => {
+    const laps: MarathonLapRow[] = [];
+    for (const stint of team.stints) {
+      for (const l of stint.laps) {
+        laps.push({
+          pilot: `team-${team.startKart}`,
+          kart: l.kart,
+          lap_time: l.lapTime,
+          ts: l.ts,
+          driver: l.pilotName,
+        });
+      }
+    }
+    laps.sort((a, b) => a.ts - b.ts);
+    return {
+      name: `team-${team.startKart}`,
+      headerLabel: team.teamName,
+      startKart: team.startKart,
+      laps,
+      bestLap: team.bestLapSec ?? Infinity,
+      bestS1: Infinity,
+      bestS2: Infinity,
+    };
+  });
+}
+
 interface RawTeam {
   transponderId?: string;
   number?: string | number;

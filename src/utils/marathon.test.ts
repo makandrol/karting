@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMarathon, trimmedAverage } from './marathon';
+import { parseMarathon, trimmedAverage, buildMarathonLapColumns } from './marathon';
 
 /** Build a `lap` event mirroring the collector's stored shape. */
 function lapEvent(ts: number, team: Record<string, any>, lastLap: string, lapNumber: number) {
@@ -140,5 +140,31 @@ describe('parseMarathon — trimmed average per stint', () => {
     const m = parseMarathon(events, { trimBest: 1, trimWorst: 1 });
     // drop 38 and 100 → avg(40,42,44) = 42
     expect(m.teams[0].stints[0].avgLapSec).toBeCloseTo(42, 3);
+  });
+});
+
+describe('buildMarathonLapColumns', () => {
+  const base = { transponderId: 'T1', number: '18', teamName: 'Toretto Mafia', pitstops: '0', isOnPit: false, position: '1' };
+  const events = [
+    lapEvent(1000, { ...base, pilotName: 'Ковшар', kart: '5' }, '42.000', 1),
+    lapEvent(2000, { ...base, pilotName: 'Ковшар', kart: '5' }, '41.000', 2),
+    updateEvent(2500, { ...base, pilotName: 'Ковшар', kart: '0', isOnPit: true, pitstops: '1' }),
+    updateEvent(2600, { ...base, pilotName: 'Овчарук', kart: '21', isOnPit: false, pitstops: '1', lastPitMainTime: '01:30.000' }),
+    lapEvent(3600, { ...base, pilotName: 'Овчарук', kart: '21', pitstops: '1' }, '40.000', 3),
+  ];
+
+  it('one column per team with team name header', () => {
+    const cols = buildMarathonLapColumns(parseMarathon(events));
+    expect(cols).toHaveLength(1);
+    expect(cols[0].headerLabel).toBe('Toretto Mafia');
+    expect(cols[0].startKart).toBe(18);
+  });
+
+  it('laps carry actual kart and driver in chronological order', () => {
+    const cols = buildMarathonLapColumns(parseMarathon(events));
+    const laps = cols[0].laps;
+    expect(laps).toHaveLength(3);
+    expect(laps[0]).toMatchObject({ kart: 5, driver: 'Ковшар' });
+    expect(laps[2]).toMatchObject({ kart: 21, driver: 'Овчарук' });
   });
 });
