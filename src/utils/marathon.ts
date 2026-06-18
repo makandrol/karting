@@ -53,6 +53,9 @@ export interface MarathonStint {
   bestLapSec: number | null;
   /** Average lap (seconds) with X worst + Y best trimmed off, or null. */
   avgLapSec: number | null;
+  /** First / last lap number of the stint. */
+  startLap: number;
+  endLap: number;
   startTs: number;
   endTs: number;
 }
@@ -71,6 +74,10 @@ export interface MarathonTeam {
   /** Last known finishing position (from timing). */
   lastPosition: number | null;
   transponderId: string | null;
+  /** Timestamp of the last completed lap (finish moment). */
+  finishTs: number;
+  /** Gap to the team directly ahead — "+1 коло" or "+12.345" or "" (leader). */
+  gapLabel: string;
 }
 
 export interface MarathonKartUsage {
@@ -79,8 +86,16 @@ export interface MarathonKartUsage {
   startKart: number;
   lapCount: number;
   bestLapSec: number | null;
+  /** Average lap (seconds), trimmed per the global trim params. */
+  avgLapSec: number | null;
   /** Seconds spent driving this kart (sum of lap times in the stint(s)). */
   drivenSec: number;
+  /** First / last lap number of the stint on this kart. */
+  startLap: number;
+  endLap: number;
+  /** First / last lap timestamp of the stint on this kart. */
+  startTs: number;
+  endTs: number;
 }
 
 export interface MarathonKartStat {
@@ -368,6 +383,8 @@ export function parseMarathon(
       if (bestLapSec == null || l.lapSec < bestLapSec) { bestLapSec = l.lapSec; bestLap = l.lapTime; }
     }
 
+    const finishTs = t.laps.length > 0 ? t.laps[t.laps.length - 1].ts : 0;
+
     teams.push({
       startKart: t.startKart,
       teamName: t.teamName || `Карт ${t.startKart}`,
@@ -379,10 +396,25 @@ export function parseMarathon(
       bestLapSec,
       lastPosition: t.lastPosition,
       transponderId: t.transponderId,
+      finishTs,
+      gapLabel: '',
     });
   }
 
   teams.sort((a, b) => (a.lastPosition ?? 999) - (b.lastPosition ?? 999));
+
+  // Gap to the team directly ahead: laps-behind if fewer laps, else time gap.
+  for (let i = 1; i < teams.length; i++) {
+    const ahead = teams[i - 1];
+    const cur = teams[i];
+    const lapsBehind = ahead.totalLaps - cur.totalLaps;
+    if (lapsBehind > 0) {
+      cur.gapLabel = `+${lapsBehind} ${lapsBehind === 1 ? 'коло' : lapsBehind < 5 ? 'кола' : 'кіл'}`;
+    } else if (ahead.finishTs && cur.finishTs) {
+      const sec = (cur.finishTs - ahead.finishTs) / 1000;
+      cur.gapLabel = sec > 0 ? `+${sec.toFixed(1)}с` : '';
+    }
+  }
 
   const kartStats = buildKartStats(teams);
 
@@ -411,6 +443,8 @@ function buildStints(laps: MarathonLap[], trimBest: number, trimWorst: number): 
       bestLap,
       bestLapSec,
       avgLapSec: trimmedAverage(lapSecs, trimBest, trimWorst),
+      startLap: current[0].lapNumber,
+      endLap: current[current.length - 1].lapNumber,
       startTs: current[0].ts,
       endTs: current[current.length - 1].ts,
     });
@@ -443,7 +477,12 @@ function buildKartStats(teams: MarathonTeam[]): MarathonKartStat[] {
         startKart: team.startKart,
         lapCount: stint.lapCount,
         bestLapSec: stint.bestLapSec,
+        avgLapSec: stint.avgLapSec,
         drivenSec,
+        startLap: stint.startLap,
+        endLap: stint.endLap,
+        startTs: stint.startTs,
+        endTs: stint.endTs,
       });
       ks.totalLaps += stint.lapCount;
       ks.drivenSec += drivenSec;
@@ -453,5 +492,8 @@ function buildKartStats(teams: MarathonTeam[]): MarathonKartStat[] {
       }
     }
   }
-  return [...map.values()].sort((a, b) => a.kart - b.kart);
+  return [...map.values()].map(ks => ({
+    ...ks,
+    usages: [...ks.usages].sort((a, b) => a.startTs - b.startTs),
+  })).sort((a, b) => a.kart - b.kart);
 }

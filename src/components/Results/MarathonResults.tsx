@@ -17,9 +17,15 @@ function pitDurStr(sec: number | null): string {
   return m > 0 ? `${m}:${s.toFixed(1).padStart(4, '0')}` : `${s.toFixed(1)}с`;
 }
 
-/** seconds → "Xхв" driven time */
-function minutesStr(sec: number): string {
-  return `${Math.round(sec / 60)} хв`;
+/** race elapsed seconds → "M:SS" or "H:MM:SS" */
+function raceTimeStr(sec: number): string {
+  if (sec < 0) sec = 0;
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
 interface MarathonResultsProps {
@@ -82,6 +88,7 @@ export default function MarathonResults({ events, sessionStartTime, currentTimeS
               <TeamRow
                 key={team.startKart}
                 team={team}
+                sessionStartTime={sessionStartTime}
                 open={expanded.has(team.startKart)}
                 onToggle={() => toggle(team.startKart)}
               />
@@ -91,7 +98,7 @@ export default function MarathonResults({ events, sessionStartTime, currentTimeS
       )}
 
       {show('marathonKarts') && (
-        <KartStatsTable kartStats={model.kartStats} />
+        <KartStatsTable kartStats={model.kartStats} sessionStartTime={sessionStartTime} />
       )}
     </div>
   );
@@ -145,7 +152,7 @@ function PitField({ onPitNow }: { onPitNow: { startKart: number; teamName: strin
   );
 }
 
-function TeamRow({ team, open, onToggle }: { team: MarathonTeam; open: boolean; onToggle: () => void }) {
+function TeamRow({ team, sessionStartTime, open, onToggle }: { team: MarathonTeam; sessionStartTime: number; open: boolean; onToggle: () => void }) {
   return (
     <div>
       <button onClick={onToggle}
@@ -159,7 +166,7 @@ function TeamRow({ team, open, onToggle }: { team: MarathonTeam; open: boolean; 
         <span className="text-dark-400 text-xs hidden sm:inline">{team.pilots.map(shortPilot).join(', ')}</span>
         <span className="text-dark-300 text-xs font-mono">{team.totalLaps} кіл</span>
         <span className="text-dark-300 text-xs">{team.pitStops.length} піт</span>
-        <span className="text-green-400 text-xs font-mono font-semibold w-16 text-right">{lapStr(team.bestLapSec)}</span>
+        <span className="text-dark-400 text-xs font-mono w-20 text-right">{team.gapLabel || (team.lastPosition === 1 ? 'лідер' : '')}</span>
       </button>
 
       {open && (
@@ -177,7 +184,7 @@ function TeamRow({ team, open, onToggle }: { team: MarathonTeam; open: boolean; 
             </thead>
             <tbody>
               {team.stints.map((stint, i) => (
-                <StintRow key={i} stint={stint} pit={team.pitStops[i]} />
+                <StintRow key={i} stint={stint} pit={team.pitStops[i]} sessionStartTime={sessionStartTime} />
               ))}
             </tbody>
           </table>
@@ -187,7 +194,7 @@ function TeamRow({ team, open, onToggle }: { team: MarathonTeam; open: boolean; 
   );
 }
 
-function StintRow({ stint, pit }: { stint: MarathonStint; pit?: { lapNumber: number; durationSec: number | null } }) {
+function StintRow({ stint, pit, sessionStartTime }: { stint: MarathonStint; pit?: { lapNumber: number; durationSec: number | null; ts: number }; sessionStartTime: number }) {
   return (
     <tr className="border-t border-dark-800/60">
       <td className="text-left py-1.5 pr-3 text-white">
@@ -201,6 +208,8 @@ function StintRow({ stint, pit }: { stint: MarathonStint; pit?: { lapNumber: num
         {pit ? (
           <span title={`Піт-стоп після кола ${pit.lapNumber}`}>
             <span className="text-dark-500">К{pit.lapNumber} · </span>
+            <span className="text-primary-400">{raceTimeStr((pit.ts - sessionStartTime) / 1000)}</span>
+            <span className="text-dark-500"> · </span>
             {pitDurStr(pit.durationSec)}
           </span>
         ) : '—'}
@@ -209,8 +218,37 @@ function StintRow({ stint, pit }: { stint: MarathonStint; pit?: { lapNumber: num
   );
 }
 
-function KartStatsTable({ kartStats }: { kartStats: ReturnType<typeof parseMarathon>['kartStats'] }) {
+function KartStatsTable({ kartStats, sessionStartTime }: { kartStats: ReturnType<typeof parseMarathon>['kartStats']; sessionStartTime: number }) {
   if (kartStats.length === 0) return null;
+
+  type FlatRow = {
+    kart: number;
+    pilotName: string;
+    teamName: string;
+    bestLapSec: number | null;
+    avgLapSec: number | null;
+    startLap: number;
+    endLap: number;
+    startTs: number;
+    endTs: number;
+  };
+  const flatRows: FlatRow[] = [];
+  for (const ks of kartStats) {
+    for (const u of ks.usages) {
+      flatRows.push({
+        kart: ks.kart,
+        pilotName: u.pilotName,
+        teamName: u.teamName,
+        bestLapSec: u.bestLapSec,
+        avgLapSec: u.avgLapSec,
+        startLap: u.startLap,
+        endLap: u.endLap,
+        startTs: u.startTs,
+        endTs: u.endTs,
+      });
+    }
+  }
+
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-3 border-b border-dark-800">
@@ -220,33 +258,39 @@ function KartStatsTable({ kartStats }: { kartStats: ReturnType<typeof parseMarat
         <table className="w-full text-xs">
           <thead>
             <tr className="table-header">
-              <th className="table-cell text-center w-12">Карт</th>
-              <th className="table-cell text-left">Хто їхав</th>
-              <th className="table-cell text-center">Кіл</th>
-              <th className="table-cell text-right">Найкраще</th>
-              <th className="table-cell text-right">Час</th>
+              <th className="text-center w-12 px-1 py-1.5">Карт</th>
+              <th className="text-left pl-3 pr-1 py-1.5">Пілот</th>
+              <th className="text-right px-2 py-1.5">Найкраще</th>
+              <th className="text-right px-2 py-1.5">Середнє</th>
+              <th className="text-center px-2 py-1.5">Кола</th>
+              <th className="text-right px-2 py-1.5">Час</th>
             </tr>
           </thead>
           <tbody>
-            {kartStats.map(ks => (
-              <tr key={ks.kart} className="table-row">
-                <td className={`table-cell text-center font-mono font-bold ${KART_COLOR}`}>{ks.kart}</td>
-                <td className="table-cell text-left text-dark-200">
-                  {ks.usages.map((u, i) => (
-                    <span key={i}>
-                      {i > 0 && <span className="text-dark-600">, </span>}
-                      <span title={u.teamName}>
-                        {u.pilotName.startsWith('Карт') ? u.pilotName : shortPilot(u.pilotName)}
-                        <span className="text-dark-500"> ({u.lapCount})</span>
-                      </span>
-                    </span>
-                  ))}
-                </td>
-                <td className="table-cell text-center font-mono text-dark-300">{ks.totalLaps}</td>
-                <td className="table-cell text-right font-mono text-green-400 font-semibold">{lapStr(ks.bestLapSec)}</td>
-                <td className="table-cell text-right font-mono text-dark-300">{minutesStr(ks.drivenSec)}</td>
-              </tr>
-            ))}
+            {flatRows.map((r, i) => {
+              const isFirstOfKart = i === 0 || flatRows[i - 1].kart !== r.kart;
+              const groupSize = flatRows.filter(x => x.kart === r.kart).length;
+              return (
+                <tr key={`${r.kart}-${r.startTs}-${i}`}
+                  className={`${isFirstOfKart && i > 0 ? 'border-t-[6px] border-t-dark-950' : 'border-t border-dark-800/40'} hover:bg-dark-800/30`}>
+                  {isFirstOfKart ? (
+                    <td rowSpan={groupSize} className={`text-center align-middle border-r-2 border-dark-700 bg-dark-900/60 font-mono font-extrabold text-2xl ${KART_COLOR}`}>
+                      {r.kart}
+                    </td>
+                  ) : null}
+                  <td className="text-left pl-3 pr-1 py-1 text-white whitespace-nowrap">
+                    {r.pilotName.startsWith('Карт') ? r.pilotName : shortPilot(r.pilotName)}
+                    <span className="text-dark-500 text-[10px] ml-1.5">{r.teamName}</span>
+                  </td>
+                  <td className="text-right px-2 py-1 font-mono text-green-400 font-semibold">{lapStr(r.bestLapSec)}</td>
+                  <td className="text-right px-2 py-1 font-mono text-dark-200">{lapStr(r.avgLapSec)}</td>
+                  <td className="text-center px-2 py-1 font-mono text-dark-300 whitespace-nowrap">К{r.startLap}–К{r.endLap}</td>
+                  <td className="text-right px-2 py-1 font-mono text-primary-400 whitespace-nowrap">
+                    {raceTimeStr((r.startTs - sessionStartTime) / 1000)}–{raceTimeStr((r.endTs - sessionStartTime) / 1000)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

@@ -119,6 +119,45 @@ describe('parseMarathon — kart stats', () => {
     const kart5 = m.kartStats.find(k => k.kart === 5)!;
     expect(kart5.drivenSec).toBeCloseTo(42 + 41 + 43, 3);
   });
+
+  it('kart usage carries lap range and timestamps', () => {
+    const m = parseMarathon(events);
+    const kart5 = m.kartStats.find(k => k.kart === 5)!;
+    const p1 = kart5.usages.find(u => u.pilotName === 'P1')!;
+    expect(p1).toMatchObject({ startLap: 1, endLap: 2 });
+    expect(p1.startTs).toBe(1000);
+    expect(p1.endTs).toBe(2000);
+  });
+});
+
+describe('parseMarathon — finish order + gap', () => {
+  const mk = (num: string, pos: string, name: string) => ({ transponderId: 't' + num, number: num, teamName: name, pitstops: '0', isOnPit: false, position: pos });
+  // Team A (pos 1): 3 laps; Team B (pos 2): 3 laps slightly behind; Team C (pos 3): 2 laps (a lap down)
+  const a = mk('1', '1', 'A');
+  const b = mk('2', '2', 'B');
+  const c = mk('3', '3', 'C');
+  const events = [
+    lapEvent(1000, { ...a, pilotName: 'A', kart: '5' }, '42.000', 1),
+    lapEvent(1100, { ...b, pilotName: 'B', kart: '6' }, '42.500', 1),
+    lapEvent(1050, { ...c, pilotName: 'C', kart: '7' }, '43.000', 1),
+    lapEvent(2000, { ...a, pilotName: 'A', kart: '5' }, '42.000', 2),
+    lapEvent(2200, { ...b, pilotName: 'B', kart: '6' }, '42.500', 2),
+    lapEvent(2100, { ...c, pilotName: 'C', kart: '7' }, '43.000', 2),
+    lapEvent(3000, { ...a, pilotName: 'A', kart: '5' }, '42.000', 3),
+    lapEvent(3300, { ...b, pilotName: 'B', kart: '6' }, '42.500', 3),
+  ];
+
+  it('teams sorted by finish position', () => {
+    const m = parseMarathon(events);
+    expect(m.teams.map(t => t.teamName)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('leader has empty gap, time gap for same-lap, lap-down for fewer laps', () => {
+    const m = parseMarathon(events);
+    expect(m.teams[0].gapLabel).toBe(''); // A leader
+    expect(m.teams[1].gapLabel).toBe('+0.3с'); // B: (3300-3000)/1000
+    expect(m.teams[2].gapLabel).toBe('+1 коло'); // C: one lap down vs B
+  });
 });
 
 describe('parseMarathon — trimmed average per stint', () => {
