@@ -31,6 +31,8 @@ export interface SessionDataResult {
   s1Events: S1Event[];
   /** Position snapshots (parsed from all event types). */
   snapshots: SnapshotPosition[];
+  /** Raw events array (needed for marathon parsing). */
+  rawEvents: any[];
   /** Start positions for race/final phases. */
   startPositions: Map<string, number>;
   totalQualifiedPilots: number;
@@ -51,6 +53,7 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
   const [laps, setLaps] = useState<DbLap[]>([]);
   const [s1Events, setS1Events] = useState<S1Event[]>([]);
   const [snapshots, setSnapshots] = useState<SnapshotPosition[]>([]);
+  const [rawEvents, setRawEvents] = useState<any[]>([]);
   const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
   const [totalQualifiedPilots, setTotalQualifiedPilots] = useState(0);
   const [sessionFormat, setSessionFormat] = useState<string | null>(null);
@@ -90,6 +93,7 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
         setLaps(allLaps);
         setS1Events(parsed.s1Events);
         setSnapshots(parsed.snapshots);
+        setRawEvents(allEvents);
 
         // Excluded laps: глобальне сховище (для всіх заїздів) + legacy
         // comp.results.excludedLaps (стара схема для змагань) — об'єднуємо.
@@ -160,7 +164,7 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
   return {
     session, setSession,
     daySessions, laps, setLaps,
-    s1Events, snapshots,
+    s1Events, snapshots, rawEvents,
     startPositions, totalQualifiedPilots, setStartPositions,
     sessionFormat, liveEntries,
     excludedLaps, setExcludedLaps,

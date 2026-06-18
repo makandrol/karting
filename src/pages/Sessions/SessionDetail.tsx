@@ -9,6 +9,7 @@ import { LoadingState } from '../../components/States';
 import { useAuth } from '../../services/auth';
 import SessionReplay, { type ReplaySortMode } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
+import MarathonResults from '../../components/Results/MarathonResults';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
 import { useTrack } from '../../services/trackContext';
@@ -31,7 +32,7 @@ export default function SessionDetail() {
   const {
     session: dbSession, setSession: setDbSession,
     daySessions, laps: dbLaps,
-    s1Events, snapshots: replaySnapshots,
+    s1Events, snapshots: replaySnapshots, rawEvents,
     startPositions, totalQualifiedPilots,
     sessionFormat, liveEntries,
     excludedLaps, setExcludedLaps,
@@ -40,6 +41,7 @@ export default function SessionDetail() {
 
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
   const [onboardOpen, setOnboardOpen] = useState(false);
+  const [replayTimeSec, setReplayTimeSec] = useState<number | undefined>(undefined);
 
   // Гонзалес: мапа (kart) → реальне ім'я з ротації змагання, щоб показувати
   // "Карт 16 (Апанасенко)" — raw timing + наше відоме ім'я в дужках.
@@ -153,6 +155,7 @@ export default function SessionDetail() {
 
   const compPhaseStr = (dbSession as any).competition_phase as string | null;
   const { raceGroup, isRace } = extractCompetitionReplayProps(compPhaseStr);
+  const isMarathon = compFormat === 'marathon';
 
   return (
     <div className="space-y-6">
@@ -324,6 +327,7 @@ export default function SessionDetail() {
                 hidePoints={sessionFormat === 'sprint'}
                 defaultSortMode={isRace ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                 onEntriesUpdate={setTrackEntries}
+                onTimeUpdate={isMarathon ? setReplayTimeSec : undefined}
                 renderScrubber={(scrubber) => (
                   <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
                     {scrubber}
@@ -335,6 +339,21 @@ export default function SessionDetail() {
                     timingTable: table,
                     track: track?.svgPath ? <TrackMap track={track} entries={trackEntries} static /> : null,
                     lapsByPilots: lapsByPilotsEl,
+                    marathonTeams: isMarathon ? (
+                      <MarathonResults
+                        events={rawEvents}
+                        sessionStartTime={dbSession.start_time}
+                        currentTimeSec={replayTimeSec}
+                        sections={['marathonPit', 'marathonTeams']}
+                      />
+                    ) : null,
+                    marathonKarts: isMarathon ? (
+                      <MarathonResults
+                        events={rawEvents}
+                        sessionStartTime={dbSession.start_time}
+                        sections={['marathonKarts']}
+                      />
+                    ) : null,
                   };
                   return (
                     <>
