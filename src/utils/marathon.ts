@@ -255,6 +255,57 @@ export function buildMarathonReplayStartPositions(model: MarathonModel): Map<str
   return map;
 }
 
+export interface PitRowAssignment {
+  /** startKart + startTs identify the interval. */
+  startKart: number;
+  startTs: number;
+  /** Inferred row: 0 = left, 1 = right, null = unknown. */
+  row: number | null;
+}
+
+/**
+ * Infer the pit lane row (left/right) for each completed pit stop by simulating
+ * the lane: 4 karts in 2 FIFO rows. A car enters a row, parks its kart at the
+ * tail and leaves on the head. So `kartOut` is the row's head — we match it to
+ * a row to learn which one was used. Rows are learned lazily from the data
+ * (initial layout unknown).
+ *
+ * Only completed pits (known kartIn AND kartOut) are assigned; in-progress and
+ * unreadable ones return row=null.
+ */
+export function assignPitRows(intervals: MarathonPitInterval[]): Map<string, PitRowAssignment> {
+  const ordered = [...intervals].sort((a, b) => a.startTs - b.startTs);
+  const rows: number[][] = [[], []]; // each: FIFO queue of kart numbers (head = index 0)
+  const result = new Map<string, PitRowAssignment>();
+  const key = (iv: { startKart: number; startTs: number }) => `${iv.startKart}|${iv.startTs}`;
+
+  for (const iv of ordered) {
+    let row: number | null = null;
+    const out = iv.kartOut;
+    const inn = iv.kartIn;
+
+    if (out != null && out > 0) {
+      // Match the row whose head equals kartOut.
+      if (rows[0][0] === out) row = 0;
+      else if (rows[1][0] === out) row = 1;
+      else {
+        // Unknown head — assign to a row we haven't fully learned yet.
+        if (rows[0].length === 0) row = 0;
+        else if (rows[1].length === 0) row = 1;
+        else row = rows[0].length <= rows[1].length ? 0 : 1; // heuristic
+      }
+      // Apply: remove head (taken), park kartIn at tail.
+      if (rows[row][0] === out) rows[row].shift();
+      if (inn != null && inn > 0) rows[row].push(inn);
+      // keep at most 2 karts visible per row
+      while (rows[row].length > 2) rows[row].shift();
+    }
+
+    result.set(key(iv), { startKart: iv.startKart, startTs: iv.startTs, row });
+  }
+  return result;
+}
+
 interface RawTeam {
   transponderId?: string;
   number?: string | number;

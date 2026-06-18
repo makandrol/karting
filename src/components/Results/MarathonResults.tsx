@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { parseMarathon, type MarathonTeam, type MarathonStint } from '../../utils/marathon';
+import { computePitLane, pitKey, type PitRow, type PitRowOverrides, type PitLaneCar } from '../../utils/marathonPitLane';
 import { KART_COLOR, shortPilot } from '../../utils/timing';
 import { useLocalStorage } from '../../services/useLocalStorage';
 import { EmptyState } from '../States';
@@ -45,9 +46,13 @@ interface MarathonResultsProps {
   currentTimeSec?: number;
   /** Sub-section ids to render (for layout control). Defaults to all. */
   sections?: ('marathonPit' | 'marathonTeams' | 'marathonKarts')[];
+  /** Manual pit-row assignments (key `${startKart}|${startTs}` → 'L'|'R'). */
+  pitRowOverrides?: PitRowOverrides;
+  /** Persist a changed pit-row override map. If absent, editing is disabled. */
+  onPitRowOverridesChange?: (next: PitRowOverrides) => void;
 }
 
-export default function MarathonResults({ events, sessionStartTime, currentTimeSec, sections }: MarathonResultsProps) {
+export default function MarathonResults({ events, sessionStartTime, currentTimeSec, sections, pitRowOverrides, onPitRowOverridesChange }: MarathonResultsProps) {
   const [trimBest, setTrimBest] = useLocalStorage('karting_marathon_trim_best', 0);
   const [trimWorst, setTrimWorst] = useLocalStorage('karting_marathon_trim_worst', 0);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -60,22 +65,10 @@ export default function MarathonResults({ events, sessionStartTime, currentTimeS
   const show = (id: 'marathonPit' | 'marathonTeams' | 'marathonKarts') => !sections || sections.includes(id);
 
   const currentMs = currentTimeSec != null ? sessionStartTime + currentTimeSec * 1000 : null;
-  const onPitNow = useMemo(() => {
-    if (currentMs == null) return [];
-    return model.pitIntervals
-      .filter(p => currentMs >= p.startTs && currentMs <= p.endTs)
-      .sort((a, b) => a.startTs - b.startTs)
-      .map(p => ({
-        startKart: p.startKart,
-        teamName: p.teamName,
-        pilotName: p.pilotName,
-        kartIn: p.kartIn,
-        kartOut: p.kartOut,
-        segBestLapSec: p.segBestLapSec,
-        segDurationSec: p.segDurationSec,
-        pitElapsedSec: Math.max(0, (currentMs - p.startTs) / 1000),
-      }));
-  }, [model.pitIntervals, currentMs]);
+  const pitLane = useMemo(() => {
+    if (currentMs == null) return null;
+    return computePitLane(model.pitIntervals, pitRowOverrides ?? {}, currentMs);
+  }, [model.pitIntervals, pitRowOverrides, currentMs]);
 
   if (model.teams.length === 0) {
     return <EmptyState title="Немає даних марафону" />;
@@ -89,10 +82,19 @@ export default function MarathonResults({ events, sessionStartTime, currentTimeS
     });
   };
 
+  const setPitRow = (car: PitLaneCar, row: PitRow | null) => {
+    if (!onPitRowOverridesChange) return;
+    const key = pitKey(car);
+    const next = { ...(pitRowOverrides ?? {}) };
+    if (row == null) delete next[key];
+    else next[key] = row;
+    onPitRowOverridesChange(next);
+  };
+
   return (
     <div className="space-y-6">
-      {show('marathonPit') && currentTimeSec != null && (
-        <PitField onPitNow={onPitNow} />
+      {show('marathonPit') && pitLane != null && (
+        <PitField lane={pitLane} canEdit={!!onPitRowOverridesChange} onSetRow={setPitRow} />
       )}
 
       {show('marathonTeams') && (
@@ -147,91 +149,89 @@ function TrimControls({ trimBest, trimWorst, onBest, onWorst }: {
   );
 }
 
-interface PitEntry {
-  startKart: number;
-  teamName: string;
-  pilotName: string;
-  kartIn: number | null;
-  kartOut: number | null;
-  segBestLapSec: number | null;
-  segDurationSec: number | null;
-  pitElapsedSec: number;
-}
-
-function PitField({ onPitNow }: { onPitNow: PitEntry[] }) {
-  // Two rows of 2 slots each (4 pit karts). A team arriving parks its kart last
-  // in a row and takes the head — so the kart it LEAVES on (kartOut) tells us
-  // which row it used (that kart was the row head). Until kartOut is known the
-  // row is unknown → the entry waits as a placeholder, in arrival order.
+function PitField({ lane, canEdit, onSetRow }: {
+  lane: import('../../utils/marathonPitLane').PitLaneState;
+  canEdit: boolean;
+  onSetRow: (car: PitLaneCar, row: PitRow | null) => void;
+}) {
   const labelKart = (k: number | null) => (k && k > 0 ? `Карт ${k}` : 'Карт ?');
+  const total = lane.waiting.length + lane.left.length + lane.right.length;
+
+  const CarCard = ({ car }: { car: PitLaneCar }) => (
+    <div className="rounded-lg border bg-yellow-600/15 border-yellow-600/30 px-2.5 py-2">
+      <div className="flex items-center justify-between mb-0.5">
+        <span className="text-white text-xs font-medium truncate max-w-[130px]">{car.teamName}</span>
+        <span className="text-yellow-400 text-[11px] font-mono font-bold">{pitDurStr(car.pitElapsedSec)}</span>
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+        {car.pilotName && !car.pilotName.startsWith('Карт') && (
+          <span className="text-dark-300">{shortPilot(car.pilotName)}</span>
+        )}
+        <span className={`font-mono ${KART_COLOR}`}>заїхав на {labelKart(car.kartIn)}</span>
+        {car.segBestLapSec != null && <span className="text-green-400 font-mono">{lapStr(car.segBestLapSec)}</span>}
+        {car.segDurationSec != null && <span className="text-dark-400 font-mono">{durationStr(car.segDurationSec)}</span>}
+      </div>
+      {canEdit && (
+        <div className="flex items-center gap-1 mt-1">
+          <button onClick={() => onSetRow(car, 'L')}
+            className={`px-1.5 py-0.5 rounded text-[9px] ${car.row === 'L' ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'}`}>Лівий</button>
+          <button onClick={() => onSetRow(car, 'R')}
+            className={`px-1.5 py-0.5 rounded text-[9px] ${car.row === 'R' ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'}`}>Правий</button>
+          {car.row && (
+            <button onClick={() => onSetRow(car, null)}
+              className="px-1.5 py-0.5 rounded text-[9px] bg-dark-800 text-dark-500 hover:text-yellow-400">скинути</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const RowColumn = ({ title, cars, parked }: { title: string; cars: PitLaneCar[]; parked: number[] }) => (
+    <div className="rounded-lg border border-dark-700 bg-dark-800/30 p-2">
+      <div className="text-dark-400 text-[10px] uppercase tracking-wider font-semibold mb-1.5">{title} ряд</div>
+      <div className="space-y-1.5">
+        {cars.length === 0 && parked.length === 0 && (
+          <div className="text-dark-600 text-xs px-1 py-2">порожньо</div>
+        )}
+        {/* Driver(s) at the front (taking a head kart). */}
+        {cars.map(car => <CarCard key={pitKey(car)} car={car} />)}
+        {/* Karts parked at the back of this row. */}
+        {parked.length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-0.5">
+            {parked.map((k, i) => (
+              <span key={i} className={`font-mono text-[10px] px-1.5 py-0.5 rounded bg-dark-800 ${KART_COLOR}`} title="Карт припаркований у цьому ряду">{labelKart(k)}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="card p-3">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-dark-400 text-xs font-semibold uppercase tracking-wider">На піт-стопі зараз</span>
-        <span className="text-dark-600 text-xs">({onPitNow.length})</span>
+        <span className="text-dark-600 text-xs">({total})</span>
       </div>
 
-      {/* 4 pit slots, 2 columns. On-pit karts fill in arrival order. */}
-      <div className="grid grid-cols-2 gap-2 mb-3">
-        {[0, 1, 2, 3].map(slot => {
-          const e = onPitNow[slot];
-          const rowLabel = slot < 2 ? 'Лівий' : 'Правий';
-          return (
-            <div key={slot} className={`rounded-lg border px-2.5 py-2 min-h-[52px] ${e ? 'bg-yellow-600/15 border-yellow-600/30' : 'bg-dark-800/40 border-dark-700 border-dashed'}`}>
-              <div className="flex items-center justify-between mb-0.5">
-                <span className="text-dark-500 text-[9px] uppercase tracking-wider">{rowLabel} {slot % 2 + 1}</span>
-                {e && <span className="text-yellow-400 text-[11px] font-mono font-bold">{pitDurStr(e.pitElapsedSec)}</span>}
-              </div>
-              {e ? (
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className={`font-mono text-xs ${KART_COLOR}`}>{labelKart(e.kartIn)}</span>
-                  <span className="text-white text-xs truncate max-w-[120px]">{e.teamName}</span>
-                  {e.pilotName && !e.pilotName.startsWith('Карт') && (
-                    <span className="text-dark-400 text-[10px]">{shortPilot(e.pilotName)}</span>
-                  )}
-                </div>
-              ) : (
-                <span className="text-dark-600 text-xs">вільно</span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Overflow list (more than 4 on pit) in arrival order. */}
-      {onPitNow.length > 4 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-dark-500">
-                <th className="text-left font-medium py-1 pr-2">Пілот</th>
-                <th className="text-center font-medium py-1 px-2">Карт</th>
-                <th className="text-right font-medium py-1 px-2">Найкраще</th>
-                <th className="text-right font-medium py-1 px-2">Відрізок</th>
-                <th className="text-right font-medium py-1 pl-2">Час піту</th>
-              </tr>
-            </thead>
-            <tbody>
-              {onPitNow.slice(4).map((e, i) => (
-                <tr key={`${e.startKart}-${i}`} className="border-t border-dark-800/60">
-                  <td className="text-left py-1 pr-2 text-white">
-                    {e.pilotName.startsWith('Карт') ? e.teamName : shortPilot(e.pilotName)}
-                    <span className="text-dark-500 text-[10px] ml-1">{e.teamName}</span>
-                  </td>
-                  <td className={`text-center py-1 px-2 font-mono ${KART_COLOR}`}>{labelKart(e.kartIn)}</td>
-                  <td className="text-right py-1 px-2 font-mono text-green-400">{lapStr(e.segBestLapSec)}</td>
-                  <td className="text-right py-1 px-2 font-mono text-dark-300">{e.segDurationSec != null ? durationStr(e.segDurationSec) : '—'}</td>
-                  <td className="text-right py-1 pl-2 font-mono text-yellow-400">{pitDurStr(e.pitElapsedSec)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Waiting list — full width, arrival order, no row yet. */}
+      {lane.waiting.length > 0 && (
+        <div className="mb-3">
+          <div className="text-dark-500 text-[10px] uppercase tracking-wider mb-1">Очікують (ряд невідомий)</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {lane.waiting.map(car => <CarCard key={pitKey(car)} car={car} />)}
+          </div>
         </div>
       )}
 
-      {onPitNow.length === 0 && (
-        <div className="text-dark-500 text-sm">Зараз нікого на піту</div>
+      {/* Two rows: Left | Right. */}
+      <div className="grid grid-cols-2 gap-2">
+        <RowColumn title="Лівий" cars={lane.left} parked={lane.leftParked} />
+        <RowColumn title="Правий" cars={lane.right} parked={lane.rightParked} />
+      </div>
+
+      {total === 0 && lane.leftParked.length === 0 && lane.rightParked.length === 0 && (
+        <div className="text-dark-500 text-sm mt-2">Зараз нікого на піту</div>
       )}
     </div>
   );

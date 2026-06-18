@@ -577,6 +577,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     const session = competition.sessions[0];
     const sessionStart = session ? sessionTimes.find(s => s.sessionId === session.sessionId)?.startTime : undefined;
     const scrubSec = scrubTime !== null && sessionStart ? Math.max(0, (scrubTime - sessionStart) / 1000) : undefined;
+    const pitRowOverrides = (competition.results?.pitRowOverrides ?? {}) as Record<string, 'L' | 'R'>;
+    const onPitRowOverridesChange = isOwner ? (next: Record<string, 'L' | 'R'>) => saveResults({ pitRowOverrides: next }) : undefined;
 
     const marathonTeamsEl = (
       <MarathonResults
@@ -585,6 +587,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         sessionStartTime={sessionStart ?? 0}
         currentTimeSec={scrubSec}
         sections={['marathonPit', 'marathonTeams']}
+        pitRowOverrides={pitRowOverrides}
+        onPitRowOverridesChange={onPitRowOverridesChange}
       />
     );
     const marathonKartsEl = (

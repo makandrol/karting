@@ -43,6 +43,7 @@ export default function SessionDetail() {
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [replayTimeSec, setReplayTimeSec] = useState<number | undefined>(undefined);
+  const [pitRowOverrides, setPitRowOverrides] = useState<Record<string, 'L' | 'R'>>({});
 
   // Гонзалес: мапа (kart) → реальне ім'я з ротації змагання, щоб показувати
   // "Карт 16 (Апанасенко)" — raw timing + наше відоме ім'я в дужках.
@@ -285,7 +286,9 @@ export default function SessionDetail() {
                 events={rawEvents}
                 sessionStartTime={dbSession.start_time}
                 currentTimeSec={replayTimeSec}
-                sections={['marathonPit']} />
+                sections={['marathonPit']}
+                pitRowOverrides={pitRowOverrides}
+                onPitRowOverridesChange={isOwner ? setPitRowOverrides : undefined} />
             );
             const marathonTeamsEl = (
               <MarathonResults key="marathonTeams"
