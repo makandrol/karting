@@ -397,6 +397,12 @@ const server = http.createServer(async (req, res) => {
         if (!comp) { sendJson(res, 404, { error: 'Competition not found' }); return; }
         const sessionIds = comp.sessions.map(s => s.sessionId);
         const changes = storage.updateSessionsTrack(sessionIds, trackId);
+        // Для live-змагання також оновлюємо поточну трасу колектора, щоб нові
+        // заїзди (які ще пройдуть) лінкувались уже на правильній трасі.
+        if (comp.status === 'live') {
+          storage.setCurrentTrackId(trackId);
+          console.log(`🏁 Competition ${id} track → ${trackId}; current track updated (live)`);
+        }
         sendJson(res, 200, { ok: true, changes });
       } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
       return;
