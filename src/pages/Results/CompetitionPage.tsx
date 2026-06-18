@@ -563,6 +563,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         onAutoGroups={onAutoGroups}
         kartManagerPortal={kartManagerPortalEl}
         trackId={competition.results?.trackId ?? null}
+        pilotCountOverride={competition.results?.totalPilotsLocked ? (competition.results?.totalPilotsOverride ?? null) : null}
       />
     );
 

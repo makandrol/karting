@@ -26,6 +26,8 @@ interface Props {
   onAutoGroups?: (n: number) => void;
   kartManagerPortal?: HTMLDivElement | null;
   trackId?: number | null;
+  /** Manual pilot-count override (results.totalPilotsOverride) — authoritative for rotation size. */
+  pilotCountOverride?: number | null;
 }
 
 export interface GonzalesConfig {
@@ -44,7 +46,7 @@ type SortKey = 'average' | 'name' | `kart_${number}`;
 export default function GonzalesResults({
   competitionId, sessions, sessionLaps, liveSessionId, liveEnabled,
   onToggleLive, initialExcludedPilots, excludedLapKeys, onSaveResults, gonzalesConfig,
-  onPilotCount, onAutoGroups, kartManagerPortal, trackId,
+  onPilotCount, onAutoGroups, kartManagerPortal, trackId, pilotCountOverride,
 }: Props) {
   const { hasPermission, isOwner } = useAuth();
   const { isSectionVisible } = useLayoutPrefs();
@@ -246,13 +248,17 @@ export default function GonzalesResults({
     return [...qualifyingPilots].filter(p => !excludedPilots.has(p));
   }, [qualifyingPilots, excludedPilots, configLocked, lockedPilots]);
 
-  const pilotCount = activePilots.length > 0 ? activePilots.length : data.rows.length;
+  // pilotCount керує і кількістю раундів, і розміром ротації (карти + пропуски).
+  // Ручний override (results.totalPilotsOverride) має пріоритет над авто-підрахунком
+  // з квалі — інакше зміна "Кількість пілотів" не зменшує пропуски в таблиці слотів.
+  const autoPilotCount = activePilots.length > 0 ? activePilots.length : data.rows.length;
+  const pilotCount = pilotCountOverride != null && pilotCountOverride > 0 ? pilotCountOverride : autoPilotCount;
   const roundCount = Math.max(pilotCount, 12);
   const roundSessions = sessions.filter(s => s.phase && !s.phase.startsWith('qualifying'));
 
   useEffect(() => {
-    if (pilotCount > 0) onPilotCount?.(pilotCount);
-  }, [pilotCount, onPilotCount]);
+    if (autoPilotCount > 0) onPilotCount?.(autoPilotCount);
+  }, [autoPilotCount, onPilotCount]);
 
   useEffect(() => {
     if (roundCount > 0) onSaveResults({ gonzalesRoundCount: roundCount });
