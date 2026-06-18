@@ -157,55 +157,68 @@ function PitField({ lane, canEdit, onSetRow }: {
   const labelKart = (k: number | null) => (k && k > 0 ? `Карт ${k}` : 'Карт ?');
   const total = lane.waiting.length + lane.left.length + lane.right.length;
 
+  // Car card with edge arrows: left 15% = throw into left row, right 15% = right row.
   const CarCard = ({ car }: { car: PitLaneCar }) => (
-    <div className="rounded-lg border bg-yellow-600/15 border-yellow-600/30 px-2.5 py-2">
-      <div className="flex items-center justify-between mb-0.5">
-        <span className="text-white text-xs font-medium truncate max-w-[130px]">{car.teamName}</span>
-        <span className="text-yellow-400 text-[11px] font-mono font-bold">{pitDurStr(car.pitElapsedSec)}</span>
-      </div>
-      <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
-        {car.pilotName && !car.pilotName.startsWith('Карт') && (
-          <span className="text-dark-300">{shortPilot(car.pilotName)}</span>
-        )}
-        <span className={`font-mono ${KART_COLOR}`}>заїхав на {labelKart(car.kartIn)}</span>
-        {car.segBestLapSec != null && <span className="text-green-400 font-mono">{lapStr(car.segBestLapSec)}</span>}
-        {car.segDurationSec != null && <span className="text-dark-400 font-mono">{durationStr(car.segDurationSec)}</span>}
-      </div>
+    <div className="relative rounded-lg border bg-yellow-600/15 border-yellow-600/30 overflow-hidden">
       {canEdit && (
-        <div className="flex items-center gap-1 mt-1">
-          <button onClick={() => onSetRow(car, 'L')}
-            className={`px-1.5 py-0.5 rounded text-[9px] ${car.row === 'L' ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'}`}>Лівий</button>
-          <button onClick={() => onSetRow(car, 'R')}
-            className={`px-1.5 py-0.5 rounded text-[9px] ${car.row === 'R' ? 'bg-primary-600 text-white' : 'bg-dark-800 text-dark-400 hover:text-white'}`}>Правий</button>
-          {car.row && (
-            <button onClick={() => onSetRow(car, null)}
-              className="px-1.5 py-0.5 rounded text-[9px] bg-dark-800 text-dark-500 hover:text-yellow-400">скинути</button>
+        <button onClick={() => onSetRow(car, 'L')} title="У лівий ряд"
+          className={`absolute left-0 top-0 bottom-0 w-[15%] flex items-center justify-center transition-colors z-10 ${car.row === 'L' ? 'bg-primary-600/40 text-primary-300' : 'bg-dark-900/40 text-dark-500 hover:bg-primary-600/30 hover:text-primary-300'}`}>
+          <span className="text-sm leading-none">&#9664;</span>
+        </button>
+      )}
+      {canEdit && (
+        <button onClick={() => onSetRow(car, 'R')} title="У правий ряд"
+          className={`absolute right-0 top-0 bottom-0 w-[15%] flex items-center justify-center transition-colors z-10 ${car.row === 'R' ? 'bg-primary-600/40 text-primary-300' : 'bg-dark-900/40 text-dark-500 hover:bg-primary-600/30 hover:text-primary-300'}`}>
+          <span className="text-sm leading-none">&#9654;</span>
+        </button>
+      )}
+      <div className={`px-2 py-1.5 ${canEdit ? 'mx-[15%]' : ''}`}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-white text-xs font-medium truncate">{car.teamName}</span>
+          <span className="text-yellow-400 text-[11px] font-mono font-bold flex-shrink-0">{pitDurStr(car.pitElapsedSec)}</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px]">
+          {car.pilotName && !car.pilotName.startsWith('Карт') && (
+            <span className="text-dark-300 truncate">{shortPilot(car.pilotName)}</span>
+          )}
+          <span className={`font-mono ${KART_COLOR} flex-shrink-0`}>{labelKart(car.kartIn)}</span>
+          {car.segBestLapSec != null && <span className="text-green-400 font-mono flex-shrink-0">{lapStr(car.segBestLapSec)}</span>}
+          {car.row && canEdit && (
+            <button onClick={() => onSetRow(car, null)} className="text-dark-500 hover:text-yellow-400 ml-auto flex-shrink-0" title="Прибрати з ряду">&#10005;</button>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 
-  const RowColumn = ({ title, cars, parked }: { title: string; cars: PitLaneCar[]; parked: number[] }) => (
-    <div className="rounded-lg border border-dark-700 bg-dark-800/30 p-2">
-      <div className="text-dark-400 text-[10px] uppercase tracking-wider font-semibold mb-1.5">{title} ряд</div>
-      <div className="space-y-1.5">
-        {cars.length === 0 && parked.length === 0 && (
-          <div className="text-dark-600 text-xs px-1 py-2">порожньо</div>
-        )}
-        {/* Driver(s) at the front (taking a head kart). */}
-        {cars.map(car => <CarCard key={pitKey(car)} car={car} />)}
-        {/* Karts parked at the back of this row. */}
-        {parked.length > 0 && (
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            {parked.map((k, i) => (
-              <span key={i} className={`font-mono text-[10px] px-1.5 py-0.5 rounded bg-dark-800 ${KART_COLOR}`} title="Карт припаркований у цьому ряду">{labelKart(k)}</span>
-            ))}
-          </div>
-        )}
+  // A pit row = 2 stacked slots (front = head/next to leave, back = parked).
+  const RowColumn = ({ title, cars, parked }: { title: string; cars: PitLaneCar[]; parked: number[] }) => {
+    const front = cars[0] ?? null;
+    const extraFront = cars.slice(1);
+    const backKart = parked[0] ?? null;
+    const Slot = ({ label, children, filled }: { label: string; children: React.ReactNode; filled: boolean }) => (
+      <div className={`rounded-lg border px-2 py-1.5 min-h-[44px] ${filled ? 'bg-yellow-600/15 border-yellow-600/30' : 'bg-dark-800/40 border-dark-700 border-dashed'}`}>
+        <div className="text-dark-500 text-[9px] uppercase tracking-wider mb-0.5">{label}</div>
+        {children}
       </div>
-    </div>
-  );
+    );
+    return (
+      <div>
+        <div className="text-dark-400 text-[10px] uppercase tracking-wider font-semibold mb-1.5">{title} ряд</div>
+        <div className="space-y-1.5">
+          <Slot label="Передній" filled={!!front}>
+            {front ? <CarCard car={front} /> : <span className="text-dark-600 text-xs">вільно</span>}
+          </Slot>
+          <Slot label="Задній" filled={backKart != null}>
+            {backKart != null
+              ? <span className={`font-mono text-xs ${KART_COLOR}`}>{labelKart(backKart)}</span>
+              : <span className="text-dark-600 text-xs">вільно</span>}
+          </Slot>
+          {extraFront.map(car => <CarCard key={pitKey(car)} car={car} />)}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="card p-3">
@@ -214,21 +227,21 @@ function PitField({ lane, canEdit, onSetRow }: {
         <span className="text-dark-600 text-xs">({total})</span>
       </div>
 
-      {/* Waiting list — full width, arrival order, no row yet. */}
-      {lane.waiting.length > 0 && (
-        <div className="mb-3">
-          <div className="text-dark-500 text-[10px] uppercase tracking-wider mb-1">Очікують (ряд невідомий)</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-            {lane.waiting.map(car => <CarCard key={pitKey(car)} car={car} />)}
-          </div>
-        </div>
-      )}
-
-      {/* Two rows: Left | Right. */}
+      {/* Two rows: Left | Right (always first). */}
       <div className="grid grid-cols-2 gap-2">
         <RowColumn title="Лівий" cars={lane.left} parked={lane.leftParked} />
         <RowColumn title="Правий" cars={lane.right} parked={lane.rightParked} />
       </div>
+
+      {/* Waiting list — full width (spans both rows), arrival order, no row yet. */}
+      {lane.waiting.length > 0 && (
+        <div className="mt-3">
+          <div className="text-dark-500 text-[10px] uppercase tracking-wider mb-1">Очікують (ряд невідомий)</div>
+          <div className="space-y-1.5">
+            {lane.waiting.map(car => <CarCard key={pitKey(car)} car={car} />)}
+          </div>
+        </div>
+      )}
 
       {total === 0 && lane.leftParked.length === 0 && lane.rightParked.length === 0 && (
         <div className="text-dark-500 text-sm mt-2">Зараз нікого на піту</div>
