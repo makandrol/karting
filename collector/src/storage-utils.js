@@ -177,7 +177,7 @@ export function buildKartStats(rows, excludedLaps) {
     if (!agg) {
       agg = {
         pilot: r.pilot,
-        lap_time: null, lap_sec: Infinity, s1: null, s2: null, ts: null,
+        lap_time: null, lap_sec: Infinity, s1: null, s2: null, ts: null, session_id: null,
         bestS1: null, bestS1Sec: Infinity, bestS2: null, bestS2Sec: Infinity,
       };
       pilots.set(r.pilot, agg);
@@ -189,6 +189,7 @@ export function buildKartStats(rows, excludedLaps) {
       agg.s1 = r.s1 || null;
       agg.s2 = r.s2 || null;
       agg.ts = r.ts || null;
+      agg.session_id = r.session_id ?? null;
     }
     // Найкращі сектори окремо → theoretical best
     const s1sec = parseLapTimeSec(r.s1);
@@ -208,6 +209,7 @@ export function buildKartStats(rows, excludedLaps) {
           s1: a.s1,
           s2: a.s2,
           ts: a.ts,
+          session_id: a.session_id,
           tb_s1: a.bestS1,
           tb_s2: a.bestS2,
           tb_sec: hasTB ? a.bestS1Sec + a.bestS2Sec : null,

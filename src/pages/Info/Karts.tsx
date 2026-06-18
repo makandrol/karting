@@ -1,10 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../../services/api';
-import { toSeconds } from '../../utils/timing';
+import { api, type DbSession } from '../../services/api';
+import { toSeconds, isKartName } from '../../utils/timing';
 import { fmtDateTimeShort as fmtDate } from '../../utils/datetime';
 import { useLocalStorage } from '../../services/useLocalStorage';
 import { useKartFilters, useSelectedDateSessions } from '../../services/useKartFilters';
+import { COMPETITION_CONFIGS, getPhaseShortLabel } from '../../data/competitions';
+import { buildGonzalesKartPilotMap } from '../../utils/gonzalesPilotResolver';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import TrackFilter from '../../components/Sessions/TrackFilter';
@@ -18,6 +20,7 @@ interface KartStat {
     s1: string | null;
     s2: string | null;
     ts: number | null;
+    session_id: string | null;
     tb_s1: string | null;
     tb_s2: string | null;
     tb_sec: number | null;
@@ -95,6 +98,69 @@ export default function Karts() {
       .finally(() => { setLoading(false); });
   }, [statSessionsKey]);
 
+  // Competitions (для типу заїзду + резолву пілота Гонзалеса з "Карт N").
+  const [competitions, setCompetitions] = useState<any[]>([]);
+  useEffect(() => {
+    api.competitions.list().then(d => setCompetitions(d as any[])).catch(() => setCompetitions([]));
+  }, []);
+
+  // session_id → деталі сесії (включно з merged sub-ids на parent).
+  const sessionMeta = useMemo(() => {
+    const map = new Map<string, DbSession>();
+    for (const s of statSessionDetails) {
+      map.set(s.id, s);
+      if (s.merged_session_ids) for (const sub of s.merged_session_ids) map.set(sub, s);
+    }
+    return map;
+  }, [statSessionDetails]);
+
+  // (session_id|kart) → real pilot для round-сесій Гонзалеса.
+  const gonzalesPilotMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of competitions) {
+      if (c.format !== 'gonzales') continue;
+      const cfg = c.results?.gonzalesConfig;
+      if (!cfg?.pilotStartSlots) continue;
+      const roundSessions = (c.sessions || []).filter((s: any) => s.phase && /^round_\d+/.test(s.phase));
+      if (roundSessions.length === 0) continue;
+      const pilotCount = Object.keys(cfg.pilotStartSlots).length;
+      const karts = cfg.kartList && cfg.kartList.length > 0
+        ? cfg.kartList
+        : Array.from({ length: 12 }, (_, i) => i + 1);
+      const sub = buildGonzalesKartPilotMap(
+        roundSessions.map((s: any) => ({ sessionId: s.sessionId, phase: s.phase })),
+        cfg,
+        karts,
+        pilotCount,
+      );
+      for (const [k, v] of sub) map.set(k, v);
+    }
+    return map;
+  }, [competitions]);
+
+  /** Розв'язує реальне ім'я пілота: для "Карт N" із round-сесії Гонзалеса — з ротації. */
+  const resolvePilot = (pilot: string, sessionId: string | null, kart: number): string => {
+    if (!sessionId || !isKartName(pilot)) return pilot;
+    const meta = sessionMeta.get(sessionId);
+    const parentId = meta?.id ?? sessionId;
+    return gonzalesPilotMap.get(`${parentId}|${kart}`) ?? gonzalesPilotMap.get(`${sessionId}|${kart}`) ?? pilot;
+  };
+
+  /** Лейбл типу заїзду: "ЛЧ · Г1", "Прокат 5" тощо. */
+  const sessionTypeLabel = (sessionId: string | null): string => {
+    if (!sessionId) return '—';
+    const s = sessionMeta.get(sessionId);
+    if (!s) return 'Прокат';
+    if (s.competition_format && s.competition_phase) {
+      const short = COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.shortName || s.competition_format;
+      return `${short} · ${getPhaseShortLabel(s.competition_format, s.competition_phase)}`;
+    }
+    if (s.competition_format) {
+      return COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.shortName || s.competition_format;
+    }
+    return `Прокат${s.race_number != null ? ` ${s.race_number}` : ''}`;
+  };
+
   const [disabledKartsArr, setDisabledKartsArr] = useLocalStorage<number[]>('karting_disabled_karts', []);
   const disabledKarts = useMemo(() => new Set(disabledKartsArr), [disabledKartsArr]);
   const setDisabledKarts = (next: Set<number>) => setDisabledKartsArr([...next]);
@@ -105,10 +171,6 @@ export default function Karts() {
   // Метрика для рейтингу/сортування: lap_sec для 'best', tb_sec для 'tb'.
   const metricOf = (l: KartStat['top5'][number]) =>
     sortMode === 'tb' ? (l.tb_sec ?? Infinity) : (l.lap_sec ?? Infinity);
-
-  // top5 пілотів, відсортований за активною метрикою (для TB порядок інший).
-  const sortedTop = (k: KartStat) =>
-    [...k.top5].sort((a, b) => metricOf(a) - metricOf(b));
 
   const kartRanking = useMemo(() => {
     const metric = (l: KartStat['top5'][number]) =>
@@ -133,6 +195,39 @@ export default function Karts() {
   const inactiveKarts = kartStats.filter(k => disabledKarts.has(k.kart));
   // У режимах рейтингу (best/tb) карти йдуть #1, #2... тож номер ранку зайвий.
   const showRankBadge = sortMode === 'number';
+
+  const useTB = sortMode === 'tb';
+
+  interface FlatRow {
+    kart: number; rank?: number; pilot: string;
+    timeSec: number | null; timeStr: string | null; s1: string | null; s2: string | null;
+    sessionId: string | null; ts: number | null;
+  }
+
+  // Плоска таблиця: по displayLaps найкращих кіл на кожен карт.
+  const flatRows = useMemo<FlatRow[]>(() => {
+    const rows: FlatRow[] = [];
+    for (const k of activeKarts) {
+      const top = [...k.top5].sort((a, b) => metricOf(a) - metricOf(b)).slice(0, displayLaps);
+      for (const r of top) {
+        const sec = useTB ? r.tb_sec : r.lap_sec;
+        const timeStr = useTB ? (r.tb_sec != null ? r.tb_sec.toFixed(3) : null) : r.lap_time;
+        rows.push({
+          kart: k.kart,
+          rank: showRankBadge ? kartRanking.get(k.kart) : undefined,
+          pilot: resolvePilot(r.pilot, r.session_id, k.kart),
+          timeSec: sec,
+          timeStr,
+          s1: useTB ? r.tb_s1 : r.s1,
+          s2: useTB ? r.tb_s2 : r.s2,
+          sessionId: r.session_id,
+          ts: r.ts,
+        });
+      }
+    }
+    return rows;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKarts, displayLaps, sortMode, kartRanking, gonzalesPilotMap, sessionMeta, showRankBadge]);
 
   return (
     <div className="space-y-6">
@@ -216,23 +311,64 @@ export default function Karts() {
           </div>
         </div>
 
-        <div className="divide-y divide-dark-800/50">
-          {activeKarts.map(kart => (
-            <KartRow key={kart.kart} kart={kart} rank={showRankBadge ? kartRanking.get(kart.kart) : undefined}
-              onDisable={() => toggleKartDisabled(kart.kart)} disabled={false} displayLaps={displayLaps}
-              sortMode={sortMode} laps={sortedTop(kart)} />
-          ))}
+        {/* Flat table */}
+        <div className="card p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="table-header">
+                <th className="table-cell text-center w-14">Карт</th>
+                <th className="table-cell text-right">Час</th>
+                <th className="table-cell text-right">S1</th>
+                <th className="table-cell text-right">S2</th>
+                <th className="table-cell text-left">Пілот</th>
+                <th className="table-cell text-left">Заїзд</th>
+                <th className="table-cell text-left">Час</th>
+                <th className="table-cell text-center w-8"></th>
+              </tr></thead>
+              <tbody>
+                {flatRows.map((r, i) => (
+                  <tr key={`${r.kart}-${r.pilot}-${r.sessionId}-${i}`} className="table-row group">
+                    <td className="table-cell text-center">
+                      <Link to={`/info/karts/${r.kart}`} className="font-mono font-bold text-primary-400 hover:text-primary-300">
+                        {r.kart}{r.rank ? <span className="text-dark-500 font-normal">·#{r.rank}</span> : ''}
+                      </Link>
+                    </td>
+                    <td className="table-cell text-right font-mono font-semibold text-green-400">{r.timeStr ? toSeconds(r.timeStr) : '—'}</td>
+                    <td className="table-cell text-right font-mono text-[11px] text-dark-400">{r.s1 ? toSeconds(r.s1) : '—'}</td>
+                    <td className="table-cell text-right font-mono text-[11px] text-dark-400">{r.s2 ? toSeconds(r.s2) : '—'}</td>
+                    <td className="table-cell text-left text-white whitespace-nowrap">{r.pilot}</td>
+                    <td className="table-cell text-left text-dark-300 whitespace-nowrap">{sessionTypeLabel(r.sessionId)}</td>
+                    <td className="table-cell text-left whitespace-nowrap">
+                      {r.sessionId ? (
+                        <Link to={`/sessions/${sessionMeta.get(r.sessionId)?.id ?? r.sessionId}`}
+                          className="text-primary-400/80 hover:text-primary-300 underline underline-offset-2 decoration-primary-400/30">
+                          {r.ts ? fmtDate(r.ts) : '—'}
+                        </Link>
+                      ) : (r.ts ? fmtDate(r.ts) : '—')}
+                    </td>
+                    <td className="table-cell text-center">
+                      <button onClick={() => toggleKartDisabled(r.kart)} title="Сховати карт"
+                        className="text-dark-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+                    </td>
+                  </tr>
+                ))}
+                {flatRows.length === 0 && (
+                  <tr><td colSpan={8} className="table-cell text-center text-dark-600 py-8">Немає даних. Оберіть дні в календарі.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
+
         {showDisabled && inactiveKarts.length > 0 && (
-          <div className="mt-3 opacity-50">
-            <div className="text-dark-500 text-[10px] uppercase tracking-wider px-1 pb-1">Неактивні</div>
-            <div className="divide-y divide-dark-800/50">
-              {inactiveKarts.map(kart => (
-                <KartRow key={kart.kart} kart={kart} rank={undefined}
-                  onDisable={() => toggleKartDisabled(kart.kart)} disabled displayLaps={displayLaps}
-                  sortMode={sortMode} laps={sortedTop(kart)} />
-              ))}
-            </div>
+          <div className="mt-3 text-[10px] text-dark-500">
+            <span className="uppercase tracking-wider">Приховані карти: </span>
+            {inactiveKarts.map(k => (
+              <button key={k.kart} onClick={() => toggleKartDisabled(k.kart)}
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mr-1 rounded bg-dark-800 text-dark-400 hover:text-green-400 transition-colors">
+                Карт {k.kart} <span className="text-green-400/60">+</span>
+              </button>
+            ))}
           </div>
         )}
 
@@ -241,48 +377,10 @@ export default function Karts() {
           <button onClick={() => setDisabledKarts(new Set())} className="text-dark-400 text-[10px] hover:text-white transition-colors">показати всі</button>
           <span className="text-dark-700">|</span>
           <button onClick={() => setShowDisabled((v: boolean) => !v)} className="text-dark-400 text-[10px] hover:text-white transition-colors">
-            {showDisabled ? 'сховати неактивні' : 'показати неактивні'}
+            {showDisabled ? 'сховати приховані' : `показати приховані${inactiveKarts.length > 0 ? ` (${inactiveKarts.length})` : ''}`}
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function KartRow({ kart, onDisable, disabled, rank, displayLaps, sortMode, laps }: {
-  kart: KartStat; onDisable: () => void; disabled: boolean; rank?: number; displayLaps: number;
-  sortMode: SortMode; laps: KartStat['top5'];
-}) {
-  const top = laps.slice(0, displayLaps);
-  const useTB = sortMode === 'tb';
-  return (
-    <div className="flex items-start group">
-      <Link to={`/info/karts/${kart.kart}`} className="flex-1 flex items-start gap-4 px-3 py-2 rounded-lg hover:bg-dark-700/50 transition-colors">
-        <span className={`text-sm w-24 shrink-0 pt-0.5 ${disabled ? 'text-dark-600' : 'text-dark-300'}`}>
-          Карт {kart.kart}{rank ? <span className="text-dark-500">, #{rank}</span> : ''}
-        </span>
-        <div className="flex-1 space-y-0.5">
-          {top.length > 0 ? top.map((r, idx) => {
-            const time = useTB ? (r.tb_sec != null ? r.tb_sec.toFixed(3) : null) : r.lap_time;
-            const s1 = useTB ? r.tb_s1 : r.s1;
-            const s2 = useTB ? r.tb_s2 : r.s2;
-            return (
-              <div key={idx} className="text-xs">
-                <span className="font-mono text-green-400">{time ? toSeconds(time) : '—'}</span>
-                {(s1 || s2) && (
-                  <span className="font-mono text-dark-500 ml-1">- {s1 ? toSeconds(s1) : '—'}, {s2 ? toSeconds(s2) : '—'}</span>
-                )}
-                <span className="text-dark-500 ml-1.5">— {r.pilot}</span>
-                {r.ts && <span className="text-dark-600 ml-1">{fmtDate(r.ts)}</span>}
-              </div>
-            );
-          }) : <div className="text-dark-700 text-xs">—</div>}
-        </div>
-      </Link>
-      <button onClick={onDisable} title={disabled ? 'Активувати' : 'Деактивувати'}
-        className={`px-2 py-2 text-[10px] rounded transition-colors shrink-0 ${disabled ? 'text-green-400/50 hover:text-green-400' : 'text-dark-700 hover:text-red-400'}`}>
-        {disabled ? '✓' : '✕'}
-      </button>
     </div>
   );
 }
