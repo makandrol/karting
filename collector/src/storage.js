@@ -684,6 +684,42 @@ export const storage = {
   },
 
   /**
+   * Recompute `gonzalesRoundCount` for a Gonzales competition from the number
+   * of distinct pilots across ALL its qualifying sessions.
+   *
+   * Кількість раундів = MAX(12, пілотів). Карти завжди 12; зайві пілоти додають
+   * раунди для повної ротації. "Карт N" рахуються як валідні пілоти (timing
+   * іноді не виставляє реальні імена, але це справжні учасники).
+   *
+   * Зберігає лише якщо нове значення БІЛЬШЕ за поточне — щоб не "вкорочувати"
+   * змагання, якщо в пізнішій сесії менше пілотів (хтось зійшов).
+   *
+   * @param {object} comp parsed competition row
+   * @returns {number|null} the round count now stored, or null if not gonzales
+   */
+  recomputeGonzalesRoundCount(comp) {
+    if (!comp || comp.format !== 'gonzales') return null;
+
+    const qualiSessions = comp.sessions.filter(s => s.phase?.startsWith('qualifying'));
+    if (qualiSessions.length === 0) return null;
+
+    const pilots = new Set();
+    for (const qs of qualiSessions) {
+      const laps = this.getLaps(qs.sessionId);
+      for (const l of laps) pilots.add(l.pilot);
+    }
+    if (pilots.size === 0) return null;
+
+    const roundCount = Math.max(12, pilots.size);
+    const current = comp.results?.gonzalesRoundCount ?? 12;
+    if (roundCount > current) {
+      this.updateCompetition(comp.id, { results: { ...(comp.results || {}), gonzalesRoundCount: roundCount } });
+      console.log(`🔢 recomputeGonzalesRoundCount: comp ${comp.id} → ${roundCount} rounds (${pilots.size} quali pilots, was ${current})`);
+    }
+    return Math.max(roundCount, current);
+  },
+
+  /**
    * Lightweight auto-link на момент створення нової сесії.
    *
    * На цей момент в БД ще нема `laps` для нової сесії, тому overlap-аналіз
@@ -716,7 +752,14 @@ export const storage = {
     }
 
     const results = liveComp.results || {};
-    const gonzalesRoundCount = results.gonzalesRoundCount ?? 12;
+    // Гонзалес: перерахувати кількість раундів з квалі-пілотів ПЕРЕД фільтром фаз,
+    // щоб нові заїзди не блокувались дефолтним roundCount=12 (інакше all-phases-filled
+    // спрацює зарано і змагання передчасно "завершиться").
+    let gonzalesRoundCount = results.gonzalesRoundCount ?? 12;
+    if (liveComp.format === 'gonzales') {
+      const recomputed = this.recomputeGonzalesRoundCount(liveComp);
+      if (recomputed != null) gonzalesRoundCount = recomputed;
+    }
     const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? null;
 
     const allPhases = buildFullPhases(liveComp.format, { gonzalesRoundCount });
@@ -796,17 +839,6 @@ export const storage = {
       detectedGroupCount = treatAsQualifying
         ? capGroupCount(qualiSessions.length + 1, comp.format)
         : qualiSessions.length;
-
-      // Гонзалес: кількість раундів (заїздів) = MAX(12, пілотів з усіх квал).
-      // Карти завжди 12; зайві пілоти додають раунди для повної ротації.
-      // Зберігаємо лише якщо ще не задано вручну з фронтенду.
-      if (treatAsQualifying && results.gonzalesRoundCount == null) {
-        const allQualiPilots = new Set(cumulativePilots);
-        for (const p of newPilots) allQualiPilots.add(p);
-        const roundCount = Math.max(12, allQualiPilots.size);
-        this.updateCompetition(comp.id, { results: { ...results, gonzalesRoundCount: roundCount } });
-        console.log(`🔢 detectGroupCountIfNeeded: comp ${comp.id} → gonzalesRoundCount=${roundCount} (${allQualiPilots.size} quali pilots)`);
-      }
     } else {
       const detection = detectGroupCountFromOverlap({
         cumulativeQualifyingPilots: cumulativePilots,

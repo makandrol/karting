@@ -184,6 +184,96 @@ describe('storage.autoLinkSessionToActiveCompetition', () => {
 });
 
 // ============================================================
+// recomputeGonzalesRoundCount
+// ============================================================
+
+describe('storage.recomputeGonzalesRoundCount', () => {
+  it('рахує MAX(12, пілотів) з квалі-сесій ("Карт N" як валідні пілоти)', () => {
+    insertSession('session-1000');
+    insertSession('session-2000');
+    insertLaps('session-1000', { 'Іванов': 3, 'Петров': 3, 'Сидоров': 3 }); // 3 реальних
+    insertLaps('session-2000', {
+      'Карт 1': 3, 'Карт 2': 3, 'Карт 3': 3, 'Карт 4': 3, 'Карт 5': 3,
+      'Карт 6': 3, 'Карт 7': 3, 'Карт 8': 3, 'Карт 9': 3, 'Карт 10': 3,
+      'Карт 11': 3, 'Карт 12': 3, 'Карт 13': 3, 'Карт 14': 3, 'Карт 15': 3,
+      'Карт 16': 3,
+    }); // 16 "Карт N" — рахуються як пілоти
+    makeCompetition({
+      id: 'g1', format: 'gonzales',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-2000', phase: 'qualifying_2' },
+      ],
+    });
+
+    const comp = storage.getCompetition('g1');
+    const rc = storage.recomputeGonzalesRoundCount(comp);
+    expect(rc).toBe(19); // 3 + 16 = 19 distinct → MAX(12, 19) = 19
+    expect(storage.getCompetition('g1').results.gonzalesRoundCount).toBe(19);
+  });
+
+  it('повертає 12 коли пілотів менше за 12', () => {
+    insertSession('session-1000');
+    insertLaps('session-1000', { 'A': 3, 'B': 3, 'C': 3, 'D': 3 });
+    makeCompetition({
+      id: 'g1', format: 'gonzales',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+    });
+    const comp = storage.getCompetition('g1');
+    expect(storage.recomputeGonzalesRoundCount(comp)).toBe(12);
+  });
+
+  it('не зменшує вже збережений roundCount', () => {
+    insertSession('session-1000');
+    insertLaps('session-1000', { 'A': 3, 'B': 3 });
+    makeCompetition({
+      id: 'g1', format: 'gonzales',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+      results: { gonzalesRoundCount: 18 },
+    });
+    const comp = storage.getCompetition('g1');
+    expect(storage.recomputeGonzalesRoundCount(comp)).toBe(18);
+    expect(storage.getCompetition('g1').results.gonzalesRoundCount).toBe(18);
+  });
+
+  it('ігнорує не-gonzales формати', () => {
+    makeCompetition({ id: 'c1', format: 'light_league' });
+    const comp = storage.getCompetition('c1');
+    expect(storage.recomputeGonzalesRoundCount(comp)).toBe(null);
+  });
+});
+
+// ============================================================
+// gonzales auto-link: не блокується дефолтним roundCount=12
+// ============================================================
+
+describe('storage.autoLinkSessionToActiveCompetition (gonzales rounds)', () => {
+  it('лінкує 13-й раунд коли пілотів >12 (roundCount перераховано)', () => {
+    // 2 квали з 15 пілотами сумарно → roundCount має стати 15
+    insertSession('session-100');
+    insertSession('session-200');
+    insertLaps('session-100', {
+      'P1': 3, 'P2': 3, 'P3': 3, 'P4': 3, 'P5': 3, 'P6': 3, 'P7': 3, 'P8': 3,
+    });
+    insertLaps('session-200', {
+      'P9': 3, 'P10': 3, 'P11': 3, 'P12': 3, 'P13': 3, 'P14': 3, 'P15': 3,
+    });
+
+    const sessions = [
+      { sessionId: 'session-100', phase: 'qualifying_1' },
+      { sessionId: 'session-200', phase: 'qualifying_2' },
+    ];
+    for (let r = 1; r <= 12; r++) sessions.push({ sessionId: `session-${1000 + r}`, phase: `round_${r}` });
+    makeCompetition({ id: 'g1', format: 'gonzales', sessions });
+
+    insertSession('session-1013'); // 13-й раунд
+    const result = storage.autoLinkSessionToActiveCompetition('session-1013');
+    expect(result?.phase).toBe('round_13');
+    expect(storage.getCompetition('g1').results.gonzalesRoundCount).toBe(15);
+  });
+});
+
+// ============================================================
 // recheckSessionPhase
 // ============================================================
 
