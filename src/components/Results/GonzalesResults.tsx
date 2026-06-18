@@ -1135,12 +1135,10 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                         onTouchMove={handleTouchMove}
                         onTouchEnd={handleTouchEnd}
                       >{pilot}</span>
-                      <button onPointerDown={() => {
-                          const p = pilot;
-                          setTimeout(() => {
-                            const newName = window.prompt(`Перейменувати "${p}" на:`, p);
-                            if (newName && newName.trim() && newName.trim() !== p) onRenamePilot(p, newName.trim());
-                          }, 10);
+                      <button onClick={(e) => {
+                          e.stopPropagation();
+                          const newName = window.prompt(`Перейменувати "${pilot}" на:`, pilot);
+                          if (newName && newName.trim() && newName.trim() !== pilot) onRenamePilot(pilot, newName.trim());
                         }}
                         className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-dark-700/50 text-dark-500 hover:bg-dark-700 hover:text-primary-400 text-sm"
                         title="Перейменувати пілота">✎</button>
@@ -1191,12 +1189,10 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                 onTouchEnd={handleTouchEnd}
               >
                 <span className="text-white text-[10px]">{pilot}</span>
-                <button onPointerDown={() => {
-                    const p = pilot;
-                    setTimeout(() => {
-                      const newName = window.prompt(`Перейменувати "${p}" на:`, p);
-                      if (newName && newName.trim() && newName.trim() !== p) onRenamePilot(p, newName.trim());
-                    }, 10);
+                <button onClick={(e) => {
+                    e.stopPropagation();
+                    const newName = window.prompt(`Перейменувати "${pilot}" на:`, pilot);
+                    if (newName && newName.trim() && newName.trim() !== pilot) onRenamePilot(pilot, newName.trim());
                   }}
                   className="text-[9px] text-dark-600 hover:text-primary-400" title="Перейменувати">✎</button>
                 <button onClick={() => onExcludePilot(pilot)}
