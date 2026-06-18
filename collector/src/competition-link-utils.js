@@ -286,7 +286,7 @@ export function capGroupCount(desired, format) {
  * Sprint/Marathon — manual only (rare special events, not regular).
  */
 export const COMPETITION_SCHEDULE = {
-  1: { format: 'gonzales',         shortName: 'Гонз' },  // Понеділок
+  1: { format: 'gonzales',         shortName: 'Гонз', startHour: 20, startMin: 5 },  // Понеділок 20:05
   2: { format: 'light_league',     shortName: 'ЛЛ' },    // Вівторок
   3: { format: 'champions_league', shortName: 'ЛЧ' },    // Середа
 };
@@ -337,16 +337,22 @@ export function getScheduledFormat(timestampMs) {
 }
 
 /**
- * Is `timestampMs` inside the competition window (>=19:45 Kyiv on a scheduled day)?
+ * Is `timestampMs` inside the competition window for its scheduled day?
+ *
+ * Поріг часу — per-day (startHour/startMin у COMPETITION_SCHEDULE), з
+ * fallback на глобальний дефолт (19:45). Гонзалес стартує о 20:05.
  *
  * @param {number} timestampMs
  * @returns {boolean}
  */
 export function isCompetitionTime(timestampMs) {
   const parts = getKyivLocalParts(timestampMs);
-  if (!COMPETITION_SCHEDULE[parts.dayOfWeek]) return false;
-  if (parts.hour < COMPETITION_AUTO_START_HOUR_KYIV) return false;
-  if (parts.hour === COMPETITION_AUTO_START_HOUR_KYIV && parts.minute < COMPETITION_AUTO_START_MIN_KYIV) return false;
+  const sched = COMPETITION_SCHEDULE[parts.dayOfWeek];
+  if (!sched) return false;
+  const startHour = sched.startHour ?? COMPETITION_AUTO_START_HOUR_KYIV;
+  const startMin = sched.startMin ?? COMPETITION_AUTO_START_MIN_KYIV;
+  if (parts.hour < startHour) return false;
+  if (parts.hour === startHour && parts.minute < startMin) return false;
   return true;
 }
 

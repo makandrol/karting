@@ -508,12 +508,24 @@ describe('getScheduledFormat', () => {
 });
 
 describe('isCompetitionTime', () => {
-  it('Понеділок 19:45 Kyiv → true', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 45))).toBe(true);
+  it('Понеділок 20:05 Kyiv → true (Гонзалес старт)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 20, 5))).toBe(true);
   });
 
-  it('Понеділок 19:44 → false', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 44))).toBe(false);
+  it('Понеділок 20:04 → false (Гонзалес ще не почався)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 20, 4))).toBe(false);
+  });
+
+  it('Понеділок 19:45 → false (Гонзалес о 20:05, не 19:45)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 45))).toBe(false);
+  });
+
+  it('Вівторок 19:45 Kyiv → true (ЛЛ дефолтний поріг)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 45))).toBe(true);
+  });
+
+  it('Вівторок 19:44 → false', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 44))).toBe(false);
   });
 
   it('Понеділок 18:00 → false (зарано)', () => {

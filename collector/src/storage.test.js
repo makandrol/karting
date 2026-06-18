@@ -323,8 +323,8 @@ function kyivTs(year, month, day, hour = 0, minute = 0) {
 }
 
 describe('storage.autoStartCompetitionIfTime', () => {
-  it('створює gonzales у понеділок ≥19:45 Kyiv', () => {
-    const ts = kyivTs(2026, 6, 1, 20, 0); // Mon 20:00
+  it('створює gonzales у понеділок ≥20:05 Kyiv', () => {
+    const ts = kyivTs(2026, 6, 1, 20, 10); // Mon 20:10
     const created = storage.autoStartCompetitionIfTime(ts);
     expect(created).not.toBeNull();
     expect(created.format).toBe('gonzales');
@@ -343,9 +343,9 @@ describe('storage.autoStartCompetitionIfTime', () => {
     expect(created.format).toBe('champions_league');
   });
 
-  it('повертає null до 19:45 Kyiv', () => {
+  it('повертає null до 20:05 Kyiv (понеділок, Гонзалес)', () => {
     expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 0))).toBe(null);
-    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 44))).toBe(null);
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 20, 4))).toBe(null);
   });
 
   it('повертає null у дні поза розкладом (Чт, Пт, Сб, Нд)', () => {
@@ -356,7 +356,7 @@ describe('storage.autoStartCompetitionIfTime', () => {
   });
 
   it('повертає існуюче змагання якщо вже є того дня (idempotent)', () => {
-    const ts = kyivTs(2026, 6, 1, 20, 0);
+    const ts = kyivTs(2026, 6, 1, 20, 10);
     const a = storage.autoStartCompetitionIfTime(ts);
     const b = storage.autoStartCompetitionIfTime(ts);
     expect(b.id).toBe(a.id);
@@ -371,7 +371,7 @@ describe('storage.autoStartCompetitionIfTime', () => {
     // Hack: вручну виставляю date через update
     storage.updateCompetition('gonzales-existing', { date: '2026-06-01' });
 
-    const result = storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 20, 0));
+    const result = storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 20, 10));
     expect(result.id).toBe('gonzales-existing');
     expect(result.status).toBe('finished');
   });
@@ -379,7 +379,7 @@ describe('storage.autoStartCompetitionIfTime', () => {
 
 describe('storage.autoLinkSessionToActiveCompetition (with auto-start)', () => {
   it('створює нове gonzales-змагання + лінкує першу сесію як qualifying_1 у понеділок', () => {
-    const ts = kyivTs(2026, 6, 1, 20, 0);
+    const ts = kyivTs(2026, 6, 1, 20, 10);
     const sessionId = `session-${ts}`;
     insertSession(sessionId, { startTime: ts });
 
