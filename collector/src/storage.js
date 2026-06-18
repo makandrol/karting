@@ -643,7 +643,7 @@ export const storage = {
     const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
     let liveComp = comps.find(c => c.status === 'live');
 
-    // No live comp yet — try auto-start (Mon=Гонз, Tue=ЛЛ, Wed=ЛЧ, ≥19:30 Kyiv)
+    // No live comp yet — try auto-start (Mon=Гонз, Tue=ЛЛ, Wed=ЛЧ, ≥19:45 Kyiv)
     if (!liveComp) {
       const sessionTs = parseInt(sessionId.replace('session-', '')) || Date.now();
       const created = this.autoStartCompetitionIfTime(sessionTs);

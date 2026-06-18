@@ -322,7 +322,7 @@ function kyivTs(year, month, day, hour = 0, minute = 0) {
 }
 
 describe('storage.autoStartCompetitionIfTime', () => {
-  it('створює gonzales у понеділок ≥19:30 Kyiv', () => {
+  it('створює gonzales у понеділок ≥19:45 Kyiv', () => {
     const ts = kyivTs(2026, 6, 1, 20, 0); // Mon 20:00
     const created = storage.autoStartCompetitionIfTime(ts);
     expect(created).not.toBeNull();
@@ -342,9 +342,9 @@ describe('storage.autoStartCompetitionIfTime', () => {
     expect(created.format).toBe('champions_league');
   });
 
-  it('повертає null до 19:30 Kyiv', () => {
+  it('повертає null до 19:45 Kyiv', () => {
     expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 0))).toBe(null);
-    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 29))).toBe(null);
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 44))).toBe(null);
   });
 
   it('повертає null у дні поза розкладом (Чт, Пт, Сб, Нд)', () => {

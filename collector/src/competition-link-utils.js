@@ -281,7 +281,7 @@ export function capGroupCount(desired, format) {
  * Weekly competition schedule. Day index: 0=Sunday, 1=Monday, ..., 6=Saturday.
  *
  * Reflects the karting club's actual operating pattern (analysed from real
- * sessions Apr-May 2026): Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ. All start ≥19:30 Kyiv.
+ * sessions Apr-May 2026): Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ. All start ≥19:45 Kyiv.
  *
  * Sprint/Marathon — manual only (rare special events, not regular).
  */
@@ -295,7 +295,7 @@ export const COMPETITION_SCHEDULE = {
 export const COMPETITION_AUTO_START_HOUR_KYIV = 19;
 
 /** Minute past the hour at which window opens. */
-export const COMPETITION_AUTO_START_MIN_KYIV = 30;
+export const COMPETITION_AUTO_START_MIN_KYIV = 45;
 
 /**
  * Kyiv UTC offset in hours.
@@ -337,7 +337,7 @@ export function getScheduledFormat(timestampMs) {
 }
 
 /**
- * Is `timestampMs` inside the competition window (>=19:30 Kyiv on a scheduled day)?
+ * Is `timestampMs` inside the competition window (>=19:45 Kyiv on a scheduled day)?
  *
  * @param {number} timestampMs
  * @returns {boolean}

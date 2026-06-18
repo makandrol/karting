@@ -456,9 +456,9 @@ describe('COMPETITION_SCHEDULE constants', () => {
     expect(COMPETITION_SCHEDULE[6]).toBeUndefined();
   });
 
-  it('старт о 19:30 Kyiv', () => {
+  it('старт о 19:45 Kyiv', () => {
     expect(COMPETITION_AUTO_START_HOUR_KYIV).toBe(19);
-    expect(COMPETITION_AUTO_START_MIN_KYIV).toBe(30);
+    expect(COMPETITION_AUTO_START_MIN_KYIV).toBe(45);
   });
 });
 
@@ -508,12 +508,12 @@ describe('getScheduledFormat', () => {
 });
 
 describe('isCompetitionTime', () => {
-  it('Понеділок 19:30 Kyiv → true', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 30))).toBe(true);
+  it('Понеділок 19:45 Kyiv → true', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 45))).toBe(true);
   });
 
-  it('Понеділок 19:29 → false', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 29))).toBe(false);
+  it('Понеділок 19:44 → false', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 44))).toBe(false);
   });
 
   it('Понеділок 18:00 → false (зарано)', () => {
