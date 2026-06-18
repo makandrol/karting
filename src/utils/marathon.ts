@@ -27,6 +27,8 @@ export interface MarathonLap {
   kart: number;
   pilotName: string;
   ts: number;
+  /** Race position after this lap (from timing). */
+  position: number | null;
 }
 
 export interface MarathonPitStop {
@@ -111,6 +113,7 @@ export interface MarathonLapRow {
   lap_time: string;
   ts: number;
   driver: string;
+  position: number | null;
 }
 
 export interface MarathonPilotColumn {
@@ -141,6 +144,7 @@ export function buildMarathonLapColumns(model: MarathonModel): MarathonPilotColu
           lap_time: l.lapTime,
           ts: l.ts,
           driver: l.pilotName,
+          position: l.position,
         });
       }
     }
@@ -155,6 +159,19 @@ export function buildMarathonLapColumns(model: MarathonModel): MarathonPilotColu
       bestS2: Infinity,
     };
   });
+}
+
+/**
+ * Start positions per team column (key `team-<startKart>` → first lap position),
+ * for the laps-by-pilots race mode (sort by position + per-lap position deltas).
+ */
+export function buildMarathonStartPositions(model: MarathonModel): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const team of model.teams) {
+    const firstLap = team.stints[0]?.laps[0];
+    if (firstLap?.position != null) map.set(`team-${team.startKart}`, firstLap.position);
+  }
+  return map;
 }
 
 interface RawTeam {
@@ -332,6 +349,7 @@ export function parseMarathon(
           kart: actualKart,
           pilotName,
           ts: ev.ts,
+          position: pos || null,
         });
       }
     }

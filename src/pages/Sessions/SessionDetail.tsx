@@ -18,7 +18,7 @@ import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import type { TimingEntry } from '../../types';
 import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
-import { parseMarathon, buildMarathonLapColumns } from '../../utils/marathon';
+import { parseMarathon, buildMarathonLapColumns, buildMarathonStartPositions } from '../../utils/marathon';
 import { lazy, Suspense } from 'react';
 import { useSessionData } from './useSessionData';
 
@@ -92,6 +92,16 @@ export default function SessionDetail() {
 
   const { isSectionVisible, getPageLayout } = useLayoutPrefs();
   const sessionLayout = getPageLayout('sessionDetail');
+
+  // Marathon: parse events once → per-team lap columns + start positions (race mode).
+  const marathonLapData = useMemo(() => {
+    if (compFormat !== 'marathon' || rawEvents.length === 0) return null;
+    const model = parseMarathon(rawEvents);
+    return {
+      columns: buildMarathonLapColumns(model),
+      startPositions: buildMarathonStartPositions(model),
+    };
+  }, [compFormat, rawEvents]);
 
   const handleRenamePilot = async (oldName: string, newName: string) => {
     if (!sessionId) return;
@@ -306,9 +316,10 @@ export default function SessionDetail() {
 
             const lapsByPilotsEl = isMarathon ? (
               <LapsByPilots key="lapsByPilots"
-                pilots={buildMarathonLapColumns(parseMarathon(rawEvents)) as any}
+                pilots={(marathonLapData?.columns ?? []) as any}
                 currentEntries={trackEntries}
                 sessionId={sessionId}
+                startPositions={marathonLapData?.startPositions}
                 marathon />
             ) : (
               <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
@@ -378,9 +389,10 @@ export default function SessionDetail() {
           {!(dbSession.end_time && dbLaps.length > 0) && (
             isMarathon ? (
               <LapsByPilots key="lapsByPilots"
-                pilots={buildMarathonLapColumns(parseMarathon(rawEvents)) as any}
+                pilots={(marathonLapData?.columns ?? []) as any}
                 currentEntries={trackEntries}
                 sessionId={sessionId}
+                startPositions={marathonLapData?.startPositions}
                 marathon />
             ) : (
               <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}

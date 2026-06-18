@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMarathon, trimmedAverage, buildMarathonLapColumns } from './marathon';
+import { parseMarathon, trimmedAverage, buildMarathonLapColumns, buildMarathonStartPositions } from './marathon';
 
 /** Build a `lap` event mirroring the collector's stored shape. */
 function lapEvent(ts: number, team: Record<string, any>, lastLap: string, lapNumber: number) {
@@ -166,5 +166,15 @@ describe('buildMarathonLapColumns', () => {
     expect(laps).toHaveLength(3);
     expect(laps[0]).toMatchObject({ kart: 5, driver: 'Ковшар' });
     expect(laps[2]).toMatchObject({ kart: 21, driver: 'Овчарук' });
+  });
+
+  it('laps carry race position', () => {
+    const cols = buildMarathonLapColumns(parseMarathon(events));
+    expect(cols[0].laps[0].position).toBe(1);
+  });
+
+  it('start positions keyed by team column', () => {
+    const sp = buildMarathonStartPositions(parseMarathon(events));
+    expect(sp.get('team-18')).toBe(1);
   });
 });
