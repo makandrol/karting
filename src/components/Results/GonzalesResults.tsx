@@ -623,7 +623,7 @@ export default function GonzalesResults({
                     <td className={`table-cell text-center font-mono font-bold ${
                       avg !== null ? 'text-white' : 'text-dark-700'
                     } ${sortKey === 'average' ? SORT_HL : ''}`}>
-                      {avg !== null ? avg.toFixed(2) : '—'}
+                      {avg !== null ? avg.toFixed(3) : '—'}
                       {showPos && avg !== null && bestAverage !== null && (() => {
                         const d = avg - bestAverage;
                         return (
