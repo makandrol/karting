@@ -93,6 +93,16 @@ describe('parseMarathon — single team, one pit stop, kart change', () => {
     expect(m.pitIntervals).toHaveLength(1);
     expect(m.pitIntervals[0]).toMatchObject({ startKart: 18, startTs: 3500, endTs: 3600 });
   });
+
+  it('enriches pit interval with kartIn/kartOut/segment + pit index', () => {
+    const m = parseMarathon(events);
+    const pit = m.pitIntervals[0];
+    expect(pit.pitIndex).toBe(1);
+    expect(pit.kartIn).toBe(5);   // came in on kart 5
+    expect(pit.kartOut).toBe(21); // left on kart 21
+    expect(pit.segBestLapSec).toBeCloseTo(41.0, 3); // best of the pre-pit stint
+    expect(pit.segDurationSec).toBeCloseTo(42 + 41 + 43, 3);
+  });
 });
 
 describe('parseMarathon — kart=0 laps are kept (not dropped)', () => {

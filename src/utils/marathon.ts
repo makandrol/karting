@@ -113,6 +113,16 @@ export interface MarathonPitInterval {
   pilotName: string;
   startTs: number;
   endTs: number;
+  /** Kart the team drove INTO the pit (left behind), if known. */
+  kartIn: number | null;
+  /** Kart the team took OUT of the pit (next stint), if known yet. */
+  kartOut: number | null;
+  /** Best lap (seconds) of the segment that just ended (before this pit). */
+  segBestLapSec: number | null;
+  /** Duration (seconds) of the segment that just ended (sum of its lap times). */
+  segDurationSec: number | null;
+  /** Pit index (1-based) for this team. */
+  pitIndex: number;
 }
 
 export interface MarathonModel {
@@ -384,6 +394,11 @@ export function parseMarathon(
         pilotName,
         startTs: t.onPitSinceTs,
         endTs: ev.ts,
+        kartIn: t.lastKnownKart || null,
+        kartOut: null,
+        segBestLapSec: null,
+        segDurationSec: null,
+        pitIndex: 0,
       });
       t.onPitSinceTs = null;
     }
@@ -483,6 +498,8 @@ export function parseMarathon(
 
   const kartStats = buildKartStats(teams);
 
+  enrichPitIntervals(pitIntervals, teams);
+
   pitIntervals.sort((a, b) => a.startTs - b.startTs);
 
   return { teams, kartStats, pitIntervals };
@@ -520,6 +537,42 @@ function resolvePlaceholderPilots(laps: MarathonLap[]): void {
   for (let i = n - 1; i >= 0; i--) {
     if (laps[i].kart > 0) nextKart = laps[i].kart;
     else if (nextKart > 0) laps[i].kart = nextKart;
+  }
+}
+
+/**
+ * Fill kartIn / kartOut / segment best-lap+duration / pitIndex for each pit
+ * interval from the team's stints: the stint ending right before the pit is the
+ * just-finished segment (kartIn = its kart), the stint starting right after is
+ * the next kart (kartOut). kartOut may be null if not driven yet (still on pit).
+ */
+function enrichPitIntervals(intervals: MarathonPitInterval[], teams: MarathonTeam[]): void {
+  const byStartKart = new Map<number, MarathonTeam>();
+  for (const t of teams) byStartKart.set(t.startKart, t);
+
+  // Per team, count pits in chronological order.
+  const pitCounter = new Map<number, number>();
+
+  const ordered = [...intervals].sort((a, b) => a.startTs - b.startTs);
+  for (const iv of ordered) {
+    const team = byStartKart.get(iv.startKart);
+    if (!team) continue;
+    pitCounter.set(iv.startKart, (pitCounter.get(iv.startKart) ?? 0) + 1);
+    iv.pitIndex = pitCounter.get(iv.startKart)!;
+
+    // Segment that just ended = last stint with endTs <= pit startTs.
+    let prevStint = null as MarathonStint | null;
+    let nextStint = null as MarathonStint | null;
+    for (const s of team.stints) {
+      if (s.endTs <= iv.startTs) prevStint = s;
+      if (nextStint == null && s.startTs >= iv.endTs) nextStint = s;
+    }
+    if (prevStint) {
+      iv.kartIn = prevStint.kart || iv.kartIn;
+      iv.segBestLapSec = prevStint.bestLapSec;
+      iv.segDurationSec = prevStint.laps.reduce((sum, l) => sum + l.lapSec, 0);
+    }
+    if (nextStint) iv.kartOut = nextStint.kart || null;
   }
 }
 
@@ -564,8 +617,7 @@ function buildKartStats(teams: MarathonTeam[]): MarathonKartStat[] {
   const map = new Map<number, MarathonKartStat>();
   for (const team of teams) {
     for (const stint of team.stints) {
-      if (!stint.kart) continue;
-      let ks = map.get(stint.kart);
+      if (!stint.kart) continue;      let ks = map.get(stint.kart);
       if (!ks) {
         ks = { kart: stint.kart, usages: [], totalLaps: 0, bestLapSec: null, bestLap: null, drivenSec: 0 };
         map.set(stint.kart, ks);

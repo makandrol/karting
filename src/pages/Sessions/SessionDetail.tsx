@@ -280,12 +280,19 @@ export default function SessionDetail() {
                 startPositions={marathonLapData?.startPositions}
                 marathon />
             );
+            const marathonPitEl = (
+              <MarathonResults key="marathonPit"
+                events={rawEvents}
+                sessionStartTime={dbSession.start_time}
+                currentTimeSec={replayTimeSec}
+                sections={['marathonPit']} />
+            );
             const marathonTeamsEl = (
               <MarathonResults key="marathonTeams"
                 events={rawEvents}
                 sessionStartTime={dbSession.start_time}
                 currentTimeSec={replayTimeSec}
-                sections={['marathonPit', 'marathonTeams']} />
+                sections={['marathonTeams']} />
             );
             const marathonKartsEl = (
               <MarathonResults key="marathonKarts"
@@ -297,6 +304,7 @@ export default function SessionDetail() {
             if (replayLaps.length === 0) {
               return (
                 <>
+                  {marathonPitEl}
                   {marathonTeamsEl}
                   {marathonKartsEl}
                 </>
@@ -328,6 +336,7 @@ export default function SessionDetail() {
                     timingTable: table,
                     track: track?.svgPath ? <TrackMap track={track} entries={trackEntries} static /> : null,
                     lapsByPilots: lapsByPilotsEl,
+                    marathonPit: marathonPitEl,
                     marathonTeams: marathonTeamsEl,
                     marathonKarts: marathonKartsEl,
                   };
