@@ -161,12 +161,16 @@ export function mergeSessions(sessions) {
  *  - lap_time/lap_sec + s1/s2 — найшвидше реальне коло та його сектори
  *  - tb_s1/tb_s2/tb_sec — theoretical best (найкращий S1 + найкращий S2 окремо)
  *
- * Input: rows with { kart, pilot, lap_time, s1, s2, lap_sec, ts }.
+ * Input: rows with { session_id, kart, pilot, lap_time, s1, s2, lap_sec, ts }.
+ * @param {Iterable<string>} [excludedLaps] keys "sessionId|pilot|ts" to skip
  * Output: [{ kart, top5: [{pilot, lap_time, lap_sec, s1, s2, tb_s1, tb_s2, tb_sec, ts}, ...] }]
  */
-export function buildKartStats(rows) {
+export function buildKartStats(rows, excludedLaps) {
+  const excluded = excludedLaps instanceof Set ? excludedLaps : new Set(excludedLaps || []);
   const byKart = new Map();
   for (const r of rows) {
+    if (excluded.size > 0 && r.session_id != null && r.ts != null
+        && excluded.has(`${r.session_id}|${r.pilot}|${r.ts}`)) continue;
     if (!byKart.has(r.kart)) byKart.set(r.kart, new Map());
     const pilots = byKart.get(r.kart);
     let agg = pilots.get(r.pilot);

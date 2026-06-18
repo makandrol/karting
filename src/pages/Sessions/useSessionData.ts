@@ -91,7 +91,15 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
         setS1Events(parsed.s1Events);
         setSnapshots(parsed.snapshots);
 
-        // Competition data: excluded laps, format, start positions
+        // Excluded laps: глобальне сховище (для всіх заїздів) + legacy
+        // comp.results.excludedLaps (стара схема для змагань) — об'єднуємо.
+        const excludedSet = new Set<string>();
+        try {
+          const globalExcluded = await api.laps.excludedList();
+          for (const k of globalExcluded.laps) excludedSet.add(k);
+        } catch { /* ignore */ }
+
+        // Competition data: format, start positions
         const compPhase = (found as any)?.competition_phase;
         const compId = (found as any)?.competition_id;
         const compFormat = (found as any)?.competition_format;
@@ -101,9 +109,10 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
           try {
             const comp = await api.competitions.getNormalized(compId);
             const results = comp.results;
-            if (active && results.excludedLaps) setExcludedLaps(new Set(results.excludedLaps));
+            if (results.excludedLaps) for (const k of results.excludedLaps) excludedSet.add(k);
           } catch { /* ignore */ }
         }
+        if (active) setExcludedLaps(excludedSet);
 
         if (compId && (compPhase?.startsWith('race_') || compPhase?.startsWith('final_')) && compFormat) {
           const sp = await fetchRaceStartPositions(COLLECTOR_URL, compId, compPhase, compFormat);

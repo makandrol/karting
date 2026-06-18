@@ -539,6 +539,25 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /db/excluded-laps — глобально виключені кола (ключі "sessionId|pilot|ts")
+    if (req.method === 'GET' && url.pathname === '/db/excluded-laps') {
+      sendJson(res, 200, { laps: [...storage.getExcludedLaps()] });
+      return;
+    }
+
+    // POST /db/excluded-laps/toggle — toggle одного кола (admin only)
+    if (req.method === 'POST' && url.pathname === '/db/excluded-laps/toggle') {
+      if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+      try {
+        const { lapKey } = JSON.parse(await readBody(req));
+        if (!lapKey || typeof lapKey !== 'string') { sendJson(res, 400, { error: 'lapKey required' }); return; }
+        const excluded = storage.toggleExcludedLap(lapKey);
+        console.log(`${excluded ? '🚫' : '↩️'} Lap ${lapKey} ${excluded ? 'excluded' : 'restored'} (global)`);
+        sendJson(res, 200, { ok: true, lapKey, excluded });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
     // POST /db/rename-pilot — перейменувати пілота в заїзді (admin only)
     if (req.method === 'POST' && url.pathname === '/db/rename-pilot') {
       if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }

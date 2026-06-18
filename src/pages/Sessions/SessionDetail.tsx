@@ -66,16 +66,12 @@ export default function SessionDetail() {
     } catch { /* ignore */ }
   };
 
-  const compId = (dbSession as any)?.competition_id;
   const handleToggleLap = async (lapKey: string) => {
-    if (!compId) return;
     const next = new Set(excludedLaps);
     next.has(lapKey) ? next.delete(lapKey) : next.add(lapKey);
     setExcludedLaps(next);
     try {
-      const comp = await api.competitions.getNormalized(compId);
-      const results = comp.results;
-      await api.competitions.update(compId, { results: { ...results, excludedLaps: [...next] } });
+      await api.laps.toggleExcluded(lapKey);
     } catch {}
   };
 
@@ -260,7 +256,7 @@ export default function SessionDetail() {
             const lapsByPilotsEl = (
               <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
                 excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
-                onToggleLap={isOwner && compId ? handleToggleLap : undefined}
+                onToggleLap={isOwner ? handleToggleLap : undefined}
                 sessionId={sessionId}
                 startPositions={isRace ? startPositions : undefined} />
             );
@@ -308,7 +304,7 @@ export default function SessionDetail() {
           {!(dbSession.end_time && dbLaps.length > 0) && (
             <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
               excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
-              onToggleLap={isOwner && compId ? handleToggleLap : undefined}
+              onToggleLap={isOwner ? handleToggleLap : undefined}
               sessionId={sessionId}
               startPositions={isRace ? startPositions : undefined} />
           )}

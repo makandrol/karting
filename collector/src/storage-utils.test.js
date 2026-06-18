@@ -160,6 +160,23 @@ describe('buildKartStats', () => {
     const result = buildKartStats(rows);
     expect(result[0].top5[0].tb_sec).toBeNull();
   });
+
+  it('пропускає глобально виключені кола (excludedLaps)', () => {
+    const rows = [
+      { session_id: 's1', kart: 1, pilot: 'A', lap_time: '40.0', lap_sec: 40.0, s1: '19.0', s2: '21.0', ts: 100 },
+      { session_id: 's1', kart: 1, pilot: 'A', lap_time: '41.0', lap_sec: 41.0, s1: '19.5', s2: '21.5', ts: 200 },
+    ];
+    // Без виключень — best 40.0
+    expect(buildKartStats(rows).find(r => r.kart === 1).top5[0].lap_time).toBe('40.0');
+    // Виключаємо найшвидше коло (ts=100) → best стає 41.0
+    const excluded = new Set(['s1|A|100']);
+    const res = buildKartStats(rows, excluded);
+    const a = res.find(r => r.kart === 1).top5[0];
+    expect(a.lap_time).toBe('41.0');
+    // TB рахується тільки з невиключених кіл: S1 19.5 + S2 21.5
+    expect(a.tb_s1).toBe('19.5');
+    expect(a.tb_s2).toBe('21.5');
+  });
 });
 
 describe('remapKartNamesToPilots', () => {

@@ -147,6 +147,9 @@ try {
   if (row?.value) _currentTrackId = parseInt(row.value) || 1;
 } catch {}
 
+// Кеш Set виключених кіл (lazy, інвалідовується при toggle).
+let _excludedLapsCache = null;
+
 // ============================================================
 // Prepared statements
 // ============================================================
@@ -341,20 +344,20 @@ export const storage = {
 
   getKartStats(fromDate, toDate) {
     const rows = stmts.getKartStats.all(fromDate, toDate);
-    return buildKartStats(remapKartNamesToPilots(rows));
+    return buildKartStats(remapKartNamesToPilots(rows), this.getExcludedLaps());
   },
 
   getKartStatsBySessions(sessionIds) {
     if (!sessionIds || sessionIds.length === 0) return [];
     const placeholders = sessionIds.map(() => '?').join(',');
     const rows = db.prepare(`
-      SELECT session_id, kart, pilot, lap_time, ts,
+      SELECT session_id, kart, pilot, lap_time, s1, s2, ts,
         (${LAP_SEC_EXPR}) as lap_sec
       FROM laps
       WHERE session_id IN (${placeholders}) AND ${VALID_LAP}
       ORDER BY kart, lap_sec
     `).all(...sessionIds);
-    return buildKartStats(remapKartNamesToPilots(rows));
+    return buildKartStats(remapKartNamesToPilots(rows), this.getExcludedLaps());
   },
 
   /** Отримати події (враховує merged sessions) */
@@ -525,6 +528,32 @@ export const storage = {
   },
 
   // ============================================================
+  // Excluded laps (глобально — для karts/гонки/прокату)
+  // ============================================================
+  // Зберігаються як JSON-масив ключів "sessionId|pilot|ts" у system_state.
+  // Кешуємо Set в пам'яті для O(1) перевірки без парсингу JSON щоразу.
+
+  getExcludedLaps() {
+    if (_excludedLapsCache === null) {
+      const raw = this.getSystemState('excluded_laps');
+      let arr = [];
+      try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
+      _excludedLapsCache = new Set(arr);
+    }
+    return _excludedLapsCache;
+  },
+
+  /** Toggle одного кола за ключем "sessionId|pilot|ts". @returns {boolean} excluded after toggle */
+  toggleExcludedLap(lapKey) {
+    const set = this.getExcludedLaps();
+    let excluded;
+    if (set.has(lapKey)) { set.delete(lapKey); excluded = false; }
+    else { set.add(lapKey); excluded = true; }
+    this.setSystemState('excluded_laps', JSON.stringify([...set]));
+    return excluded;
+  },
+
+  // ============================================================
   // Competitions CRUD
   // ============================================================
 
@@ -557,12 +586,26 @@ export const storage = {
 
   getCompetition(id) {
     const row = stmts.getCompetition.get(id);
-    return row ? parseCompetitionRow(row) : null;
+    return row ? this._withGlobalExcludedLaps(parseCompetitionRow(row)) : null;
   },
 
   getCompetitions(format) {
     const rows = format ? stmts.getCompetitionsByFormat.all(format) : stmts.getAllCompetitions.all();
-    return rows.map(parseCompetitionRow);
+    return rows.map(parseCompetitionRow).map(c => this._withGlobalExcludedLaps(c));
+  },
+
+  /**
+   * Домішує глобально виключені кола у results.excludedLaps змагання, щоб
+   * фронт (гонка/standings) враховував їх без окремого запиту. Глобальне
+   * сховище — джерело правди; legacy comp.results.excludedLaps зберігається.
+   */
+  _withGlobalExcludedLaps(comp) {
+    if (!comp) return comp;
+    const global = this.getExcludedLaps();
+    if (global.size === 0) return comp;
+    const results = comp.results || {};
+    const merged = new Set([...(results.excludedLaps || []), ...global]);
+    return { ...comp, results: { ...results, excludedLaps: [...merged] } };
   },
 
   deleteCompetition(id) {
