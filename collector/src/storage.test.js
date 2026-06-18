@@ -28,6 +28,7 @@ function clean() {
     DELETE FROM events;
     DELETE FROM sessions;
   `);
+  storage._clearCaches();
 }
 
 function insertSession(id, opts = {}) {

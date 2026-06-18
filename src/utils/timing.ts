@@ -152,9 +152,15 @@ export async function fetchRaceStartPositions(
 
     const sourceSessions = sessions.filter(s => s.phase.startsWith(sourcePhasePrefix));
     const pilotBest = new Map<string, number>();
-    for (const ss of sourceSessions) {
-      const laps: { pilot: string; lap_time: string | null; ts: number }[] =
-        await fetch(`${collectorUrl}/db/laps?session=${ss.sessionId}`).then(r => r.json()).catch(() => []);
+    const sourceLapArrays = await Promise.all(
+      sourceSessions.map(ss =>
+        fetch(`${collectorUrl}/db/laps?session=${ss.sessionId}`)
+          .then(r => r.json())
+          .catch(() => [])
+          .then((laps: { pilot: string; lap_time: string | null; ts: number }[]) => ({ ss, laps })),
+      ),
+    );
+    for (const { ss, laps } of sourceLapArrays) {
       for (const l of laps) {
         if (!l.lap_time || excluded.has(l.pilot)) continue;
         if (excludedLapKeys.has(`${ss.sessionId}|${l.pilot}|${l.ts}`)) continue;
@@ -181,12 +187,18 @@ export async function fetchRaceStartPositions(
 
         const fetchLapsForPhase = async (prefix: string) => {
           const phaseSessions = sessions.filter(s => s.phase.startsWith(prefix));
+          const perSession = await Promise.all(
+            phaseSessions.map(ss => {
+              const gMatch = ss.phase.match(/group_(\d+)/);
+              const gNum = gMatch ? parseInt(gMatch[1]) : 0;
+              return fetch(`${collectorUrl}/db/laps?session=${ss.sessionId}`)
+                .then(r => r.json())
+                .catch(() => [])
+                .then((laps: { pilot: string; lap_time: string | null; ts: number; position?: number }[]) => ({ ss, gNum, laps }));
+            }),
+          );
           const allLaps: { pilot: string; lap_time: string; ts: number; group: number }[] = [];
-          for (const ss of phaseSessions) {
-            const gMatch = ss.phase.match(/group_(\d+)/);
-            const gNum = gMatch ? parseInt(gMatch[1]) : 0;
-            const laps: { pilot: string; lap_time: string | null; ts: number; position?: number }[] =
-              await fetch(`${collectorUrl}/db/laps?session=${ss.sessionId}`).then(r => r.json()).catch(() => []);
+          for (const { ss, gNum, laps } of perSession) {
             for (const l of laps) {
               if (!l.lap_time || excluded.has(l.pilot)) continue;
               if (excludedLapKeys.has(`${ss.sessionId}|${l.pilot}|${l.ts}`)) continue;
@@ -198,10 +210,12 @@ export async function fetchRaceStartPositions(
           return allLaps;
         };
 
-        const q1Laps = await fetchLapsForPhase('qualifying_1_');
-        const q2Laps = await fetchLapsForPhase('qualifying_2_');
-        const r1Laps = await fetchLapsForPhase('race_1_');
-        const r2Laps = await fetchLapsForPhase('race_2_');
+        const [q1Laps, q2Laps, r1Laps, r2Laps] = await Promise.all([
+          fetchLapsForPhase('qualifying_1_'),
+          fetchLapsForPhase('qualifying_2_'),
+          fetchLapsForPhase('race_1_'),
+          fetchLapsForPhase('race_2_'),
+        ]);
 
         const bestTimeByPilot = (laps: typeof q1Laps) => {
           const map = new Map<string, number>();

@@ -86,6 +86,9 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_laps_session ON laps(session_id);
   CREATE INDEX IF NOT EXISTS idx_laps_pilot ON laps(pilot);
+  CREATE INDEX IF NOT EXISTS idx_laps_kart ON laps(kart);
+  CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(date);
+  CREATE INDEX IF NOT EXISTS idx_sessions_date_race ON sessions(date, race_number);
 
   CREATE TABLE IF NOT EXISTS db_stats (
     key TEXT PRIMARY KEY,
@@ -150,6 +153,11 @@ try {
 // Кеш Set виключених кіл (lazy, інвалідовується при toggle).
 let _excludedLapsCache = null;
 
+// Кеш розпарсених змагань (lazy). parseCompetitionRow важкий (JSON.parse
+// results.standings), а getAllCompetitions викликається у багатьох гарячих
+// шляхах. Інвалідовується при будь-якому write у competitions.
+let _competitionsCache = null;
+
 // ============================================================
 // Prepared statements
 // ============================================================
@@ -170,6 +178,9 @@ const stmts = {
   getLapsByDate: db.prepare(`
     SELECT l.* FROM laps l JOIN sessions s ON s.id = l.session_id WHERE s.date = ?
   `),
+  getSessionTimeRow: db.prepare('SELECT start_time, end_time, race_number, date FROM sessions WHERE id = ?'),
+  getSessionEndTime: db.prepare('SELECT end_time FROM sessions WHERE id = ?'),
+  getSiblingsByRace: db.prepare('SELECT id, start_time, end_time FROM sessions WHERE date = ? AND race_number = ? AND id != ? ORDER BY start_time'),
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
   getSessionCountsByDateRange: db.prepare('SELECT date, COUNT(*) as count FROM sessions WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date'),
   getKartStats: db.prepare(`
@@ -385,28 +396,24 @@ export const storage = {
 
   /** Знайти merged_session_ids для батьківської сесії (лёгкий SQL-запит) */
   _getMergedIds(sessionId) {
-    const row = db.prepare('SELECT start_time, end_time, race_number, date FROM sessions WHERE id = ?').get(sessionId);
+    const row = stmts.getSessionTimeRow.get(sessionId);
     if (!row || row.race_number === null) return null;
 
-    const siblings = db.prepare(
-      `SELECT id FROM sessions WHERE date = ? AND race_number = ? AND id != ? ORDER BY start_time`
-    ).all(row.date, row.race_number, sessionId);
-
+    // Сусіди одразу з start_time/end_time — без окремого запиту на кожного.
+    const siblings = stmts.getSiblingsByRace.all(row.date, row.race_number, sessionId);
     if (siblings.length === 0) return null;
 
     const ids = [sessionId];
     const start = row.start_time;
     const end = row.end_time || row.start_time;
 
-    for (const s of siblings) {
-      const sRow = db.prepare('SELECT start_time, end_time FROM sessions WHERE id = ?').get(s.id);
-      if (!sRow) continue;
+    for (const sRow of siblings) {
       const sEnd = sRow.end_time || sRow.start_time;
       const gap = Math.min(
         Math.abs(sRow.start_time - end),
         Math.abs(start - sEnd)
       );
-      if (gap < MERGE_GAP_MS) ids.push(s.id);
+      if (gap < MERGE_GAP_MS) ids.push(sRow.id);
     }
 
     return ids.length > 1 ? ids : null;
@@ -503,6 +510,12 @@ export const storage = {
     db.close();
   },
 
+  /** Скинути in-memory кеші (для тестів, що чистять БД напряму). */
+  _clearCaches() {
+    _competitionsCache = null;
+    _excludedLapsCache = null;
+  },
+
   /** Отримати системний стан */
   getSystemState(key) {
     const row = stmts.getState.get(key);
@@ -552,6 +565,7 @@ export const storage = {
       uploaded_results ? JSON.stringify(uploaded_results) : null,
       status || 'live',
     );
+    _competitionsCache = null;
   },
 
   updateCompetition(id, fields) {
@@ -568,17 +582,32 @@ export const storage = {
       fields.status !== undefined ? fields.status : (parsed.status || 'live'),
       id,
     );
+    _competitionsCache = null;
     return true;
   },
 
+  /**
+   * Усі змагання, розпарсені, з кешу. parseCompetitionRow важкий (JSON.parse
+   * results), тож кешуємо результат і повторно використовуємо у всіх гарячих
+   * шляхах (getSessionsByDate, auto-link, finalize, ...). Кеш скидається при
+   * будь-якому write у competitions.
+   */
+  getAllCompetitionsParsed() {
+    if (_competitionsCache === null) {
+      _competitionsCache = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    }
+    return _competitionsCache;
+  },
+
   getCompetition(id) {
-    const row = stmts.getCompetition.get(id);
-    return row ? this._withGlobalExcludedLaps(parseCompetitionRow(row)) : null;
+    const comp = this.getAllCompetitionsParsed().find(c => c.id === id);
+    return comp ? this._withGlobalExcludedLaps(comp) : null;
   },
 
   getCompetitions(format) {
-    const rows = format ? stmts.getCompetitionsByFormat.all(format) : stmts.getAllCompetitions.all();
-    return rows.map(parseCompetitionRow).map(c => this._withGlobalExcludedLaps(c));
+    const all = this.getAllCompetitionsParsed();
+    const filtered = format ? all.filter(c => c.format === format) : all;
+    return filtered.map(c => this._withGlobalExcludedLaps(c));
   },
 
   /**
@@ -596,13 +625,13 @@ export const storage = {
   },
 
   deleteCompetition(id) {
-    return stmts.deleteCompetition.run(id).changes > 0;
+    const changed = stmts.deleteCompetition.run(id).changes > 0;
+    if (changed) _competitionsCache = null;
+    return changed;
   },
 
   getSessionCompetition(sessionId) {
-    const comps = stmts.getAllCompetitions.all();
-    for (const row of comps) {
-      const comp = parseCompetitionRow(row);
+    for (const comp of this.getAllCompetitionsParsed()) {
       const entry = comp.sessions.find(s => s.sessionId === sessionId);
       if (entry) return { competitionId: comp.id, competitionName: comp.name, format: comp.format, phase: entry.phase, status: comp.status };
     }
@@ -610,9 +639,8 @@ export const storage = {
   },
 
   getSessionCompetitionMap() {
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
     const map = new Map();
-    for (const comp of comps) {
+    for (const comp of this.getAllCompetitionsParsed()) {
       for (const s of comp.sessions) {
         map.set(s.sessionId, { competitionId: comp.id, competitionName: comp.name, format: comp.format, phase: s.phase, status: comp.status });
       }
@@ -636,9 +664,8 @@ export const storage = {
     if (!isCompetitionTime(now)) return null;
 
     const date = getKyivIsoDate(now);
-    const sameDay = stmts.getCompetitionsByFormat.all(format)
-      .map(parseCompetitionRow)
-      .find(c => c.date === date);
+    const sameDay = this.getAllCompetitionsParsed()
+      .find(c => c.format === format && c.date === date);
     if (sameDay) return sameDay;
 
     const id = buildAutoCompetitionId(format, now);
@@ -670,7 +697,7 @@ export const storage = {
    * @returns {{competitionId: string, phase: string}|null}
    */
   autoLinkSessionToActiveCompetition(sessionId) {
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comps = this.getAllCompetitionsParsed();
     let liveComp = comps.find(c => c.status === 'live');
 
     // No live comp yet — try auto-start (Mon=Гонз, Tue=ЛЛ, Wed=ЛЧ, ≥19:45 Kyiv)
@@ -730,7 +757,7 @@ export const storage = {
    * @returns {number|null} groupCount that was detected and stored, or null
    */
   detectGroupCountIfNeeded(sessionId) {
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comps = this.getAllCompetitionsParsed();
     const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
     if (!comp || comp.status !== 'live') return null;
 
@@ -806,7 +833,7 @@ export const storage = {
    * Викликається з poller.js при першому колі.
    */
   finalizeSessionPhaseOnFirstLap(sessionId) {
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comps = this.getAllCompetitionsParsed();
     const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
     if (!comp || comp.status !== 'live') return;
     if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint' && comp.format !== 'gonzales') return;
@@ -926,14 +953,14 @@ export const storage = {
     const FINISH_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour after last session
     const finishedIds = [];
 
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comps = this.getAllCompetitionsParsed();
     const live = comps.filter(c => c.status === 'live');
 
     for (const comp of live) {
       if (comp.sessions.length === 0) continue;
 
       const sessionMeta = comp.sessions
-        .map(s => db.prepare('SELECT end_time FROM sessions WHERE id = ?').get(s.sessionId))
+        .map(s => stmts.getSessionEndTime.get(s.sessionId))
         .filter(Boolean);
       if (sessionMeta.length === 0) continue;
 
@@ -963,7 +990,7 @@ export const storage = {
   },
 
   autoUnlinkSession(sessionId) {
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comps = this.getAllCompetitionsParsed();
     for (const comp of comps) {
       const entry = comp.sessions.find(s => s.sessionId === sessionId);
       if (entry) {
