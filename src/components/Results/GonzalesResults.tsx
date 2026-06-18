@@ -815,6 +815,8 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const [replTo, setReplTo] = useState('');
   const [dragSlotIdx, setDragSlotIdx] = useState<number | null>(null);
   const [dragPilot, setDragPilot] = useState<string | null>(null);
+  const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   // Touch drag support (HTML5 drag doesn't work on mobile)
   const slotRowRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -1127,19 +1129,30 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                         <button onClick={() => !isLast && movePilot(si, si + 1)} disabled={isLast}
                           className={`text-sm leading-none px-0.5 ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▼</button>
                       </div>
-                      <span className="text-white cursor-grab flex-1 text-xs truncate touch-none"
-                        draggable
-                        onDragStart={(e) => { e.stopPropagation(); setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
-                        onDragEnd={() => setDragPilot(null)}
-                        onTouchStart={(e) => { e.stopPropagation(); handleTouchStart('pilot', pilot)(e); }}
-                        onTouchMove={handleTouchMove}
-                        onTouchEnd={handleTouchEnd}
-                      >{pilot}</span>
-                      <button onClick={(e) => {
-                          e.stopPropagation();
-                          const newName = window.prompt(`Перейменувати "${pilot}" на:`, pilot);
-                          if (newName && newName.trim() && newName.trim() !== pilot) onRenamePilot(pilot, newName.trim());
-                        }}
+                      {renamingPilot === pilot ? (
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          const newName = renameValue.trim();
+                          if (newName && newName !== pilot) onRenamePilot(pilot, newName);
+                          else setRenamingPilot(null);
+                        }} className="flex-1">
+                          <input autoFocus type="text" value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Escape') setRenamingPilot(null); }}
+                            onBlur={() => setRenamingPilot(null)}
+                            className="w-full bg-dark-800 border border-primary-500 text-white text-xs rounded px-1.5 py-0.5 outline-none" />
+                        </form>
+                      ) : (
+                        <span className="text-white cursor-grab flex-1 text-xs truncate touch-none"
+                          draggable
+                          onDragStart={(e) => { e.stopPropagation(); setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
+                          onDragEnd={() => setDragPilot(null)}
+                          onTouchStart={(e) => { e.stopPropagation(); handleTouchStart('pilot', pilot)(e); }}
+                          onTouchMove={handleTouchMove}
+                          onTouchEnd={handleTouchEnd}
+                        >{pilot}</span>
+                      )}
+                      <button onClick={(e) => { e.stopPropagation(); setRenamingPilot(pilot); setRenameValue(pilot); }}
                         className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-dark-700/50 text-dark-500 hover:bg-dark-700 hover:text-primary-400 text-sm"
                         title="Перейменувати пілота">✎</button>
                       <button onClick={() => unassignPilot(pilot)}
@@ -1181,19 +1194,30 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
             {unassignedPilots.map((pilot, ui) => (
               <div key={pilot} ref={el => { unassignedRefs.current[ui] = el; }}
                 className="flex items-center gap-1 px-2 py-0.5 rounded bg-dark-800 cursor-grab touch-none"
-                draggable
-                onDragStart={(e) => { setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
+                draggable={renamingPilot !== pilot}
+                onDragStart={(e) => { if (renamingPilot === pilot) { e.preventDefault(); return; } setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
                 onDragEnd={() => setDragPilot(null)}
-                onTouchStart={handleTouchStart('pilot', pilot)}
+                onTouchStart={renamingPilot === pilot ? undefined : handleTouchStart('pilot', pilot)}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
               >
-                <span className="text-white text-[10px]">{pilot}</span>
-                <button onClick={(e) => {
-                    e.stopPropagation();
-                    const newName = window.prompt(`Перейменувати "${pilot}" на:`, pilot);
-                    if (newName && newName.trim() && newName.trim() !== pilot) onRenamePilot(pilot, newName.trim());
-                  }}
+                {renamingPilot === pilot ? (
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    const newName = renameValue.trim();
+                    if (newName && newName !== pilot) onRenamePilot(pilot, newName);
+                    else setRenamingPilot(null);
+                  }}>
+                    <input autoFocus type="text" value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') setRenamingPilot(null); }}
+                      onBlur={() => setRenamingPilot(null)}
+                      className="w-24 bg-dark-900 border border-primary-500 text-white text-[10px] rounded px-1 py-0.5 outline-none" />
+                  </form>
+                ) : (
+                  <span className="text-white text-[10px]">{pilot}</span>
+                )}
+                <button onClick={(e) => { e.stopPropagation(); setRenamingPilot(pilot); setRenameValue(pilot); }}
                   className="text-[9px] text-dark-600 hover:text-primary-400" title="Перейменувати">✎</button>
                 <button onClick={() => onExcludePilot(pilot)}
                   className="text-[9px] text-dark-600 hover:text-red-400" title="Виключити">✕</button>
