@@ -30,6 +30,16 @@ interface KartStat {
 
 type SortMode = 'best' | 'tb' | 'number';
 
+/** Субтильні відтінки тексту для типу заїзду (не яскраві — лише різні відтінки). */
+const FORMAT_TINT: Record<string, string> = {
+  champions_league: 'text-violet-300/80',
+  light_league: 'text-sky-300/80',
+  gonzales: 'text-amber-300/80',
+  sprint: 'text-emerald-300/80',
+  marathon: 'text-rose-300/80',
+  prokat: 'text-dark-400',
+};
+
 interface KartsFilters {
   sortMode: SortMode;
   topN: number;
@@ -164,6 +174,12 @@ export default function Karts() {
       return COMPETITION_CONFIGS[s.competition_format as keyof typeof COMPETITION_CONFIGS]?.shortName || s.competition_format;
     }
     return `Прокат${s.race_number != null ? ` ${s.race_number}` : ''}`;
+  };
+
+  /** Формат заїзду для кольорового відтінку. */
+  const sessionFormatOf = (sessionId: string | null): string => {
+    if (!sessionId) return 'prokat';
+    return sessionMeta.get(sessionId)?.competition_format || 'prokat';
   };
 
   const [disabledKartsArr, setDisabledKartsArr] = useLocalStorage<number[]>('karting_disabled_karts', []);
@@ -325,8 +341,8 @@ export default function Karts() {
                 <th className="text-right w-[68px] px-1 py-1.5">Час</th>
                 <th className="text-right w-[56px] px-1 py-1.5">S1</th>
                 <th className="text-right w-[56px] px-1 py-1.5">S2</th>
-                <th className="table-cell text-left pl-3">Пілот</th>
-                <th className="table-cell text-left">Заїзд</th>
+                <th className="text-left pl-3 pr-1 py-1.5 w-px whitespace-nowrap">Пілот</th>
+                <th className="text-left pl-2 py-1.5 w-full">Заїзд</th>
               </tr></thead>
               <tbody>
                 {flatRows.map((r, i) => {
@@ -336,27 +352,30 @@ export default function Karts() {
                   <tr key={`${r.kart}-${r.pilot}-${r.sessionId}-${i}`}
                     className={`group ${isFirstOfKart && i > 0 ? 'border-t-[6px] border-t-dark-950' : ''} hover:bg-dark-700/30`}>
                     {isFirstOfKart ? (
-                      <td rowSpan={groupSize} className="text-center align-middle border-r-2 border-dark-700 bg-dark-900/60 px-1">
+                      <td rowSpan={groupSize} className="text-center align-middle border-r-2 border-dark-700 bg-dark-900/60 px-1 relative">
+                        <button onClick={() => toggleKartDisabled(r.kart)} title="Сховати карт"
+                          className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded text-dark-500 hover:text-red-400 active:text-red-400 hover:bg-dark-700/60 text-xs leading-none">✕</button>
                         <Link to={`/info/karts/${r.kart}`} className="font-mono font-extrabold text-blue-400 hover:text-blue-300 text-2xl leading-none">
                           {r.kart}
                         </Link>
                         {r.rank ? <span className="block text-dark-500 font-normal text-[10px] mt-0.5">#{r.rank}</span> : null}
-                        <button onClick={() => toggleKartDisabled(r.kart)} title="Сховати карт"
-                          className="block mx-auto mt-0.5 text-dark-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">✕</button>
                       </td>
                     ) : null}
                     <td className="text-right font-mono font-semibold text-green-400 px-1 py-0.5">{r.timeStr ? toSeconds(r.timeStr) : '—'}</td>
                     <td className="text-right font-mono text-[11px] text-dark-400 px-1 py-0.5">{r.s1 ? toSeconds(r.s1) : '—'}</td>
                     <td className="text-right font-mono text-[11px] text-dark-400 px-1 py-0.5">{r.s2 ? toSeconds(r.s2) : '—'}</td>
-                    <td className="text-left text-white whitespace-nowrap pl-3 pr-2 py-0.5">{r.pilot}</td>
-                    <td className="text-left whitespace-nowrap px-2 py-0.5">
+                    <td className="text-left text-white whitespace-nowrap pl-3 pr-1 py-0.5 w-px">{r.pilot}</td>
+                    <td className="text-left whitespace-nowrap pl-2 pr-2 py-0.5 w-full">
                       {r.sessionId ? (
-                        <Link to={`/sessions/${sessionMeta.get(r.sessionId)?.id ?? r.sessionId}`}
-                          className="text-primary-400/90 hover:text-primary-300 underline underline-offset-2 decoration-primary-400/30">
-                          {r.ts ? fmtDate(r.ts) : ''} · {sessionTypeLabel(r.sessionId)}
+                        <Link to={`/sessions/${sessionMeta.get(r.sessionId)?.id ?? r.sessionId}`} className="hover:underline underline-offset-2">
+                          <span className={`${FORMAT_TINT[sessionFormatOf(r.sessionId)] ?? 'text-dark-300'}`}>{sessionTypeLabel(r.sessionId)}</span>
+                          {r.ts ? <span className="text-dark-500 text-[10px] ml-1.5">{fmtDate(r.ts)}</span> : null}
                         </Link>
                       ) : (
-                        <span className="text-dark-300">{r.ts ? fmtDate(r.ts) : '—'} · {sessionTypeLabel(r.sessionId)}</span>
+                        <span>
+                          <span className={`${FORMAT_TINT[sessionFormatOf(r.sessionId)] ?? 'text-dark-300'}`}>{sessionTypeLabel(r.sessionId)}</span>
+                          {r.ts ? <span className="text-dark-500 text-[10px] ml-1.5">{fmtDate(r.ts)}</span> : null}
+                        </span>
                       )}
                     </td>
                   </tr>
