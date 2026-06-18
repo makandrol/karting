@@ -50,8 +50,8 @@ describe('buildFullPhases / filterPhases (frontend mirror)', () => {
     expect(buildFullPhases('sprint')).toHaveLength(15);
   });
 
-  it('Gonzales: default 2 + 12*2 = 26', () => {
-    expect(buildFullPhases('gonzales')).toHaveLength(26);
+  it('Gonzales: default 2 quali + 12 rounds (no groups) = 14', () => {
+    expect(buildFullPhases('gonzales')).toHaveLength(14);
   });
 
   it('filterPhases LL/2 groups: 6 phases', () => {
@@ -333,9 +333,9 @@ describe('planAutoLink', () => {
       availableSessionsAfter: Array.from({ length: 10 }, (_, i) => ({ id: `s${i}` })),
       gonzalesRoundCount: 3,
     });
-    // 1 group, 3 rounds: q1 + round_1_g1 + round_2_g1 + round_3_g1 = 4 phases
+    // 1 quala + 3 rounds (no groups): q1 + round_1 + round_2 + round_3 = 4 phases
     // currentPhaseIdx=0 → q1, remaining=3
     expect(r).toHaveLength(3);
-    expect(r.map(x => x.phaseId)).toEqual(['round_1_group_1', 'round_2_group_1', 'round_3_group_1']);
+    expect(r.map(x => x.phaseId)).toEqual(['round_1', 'round_2', 'round_3']);
   });
 });

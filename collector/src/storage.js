@@ -796,6 +796,17 @@ export const storage = {
       detectedGroupCount = treatAsQualifying
         ? capGroupCount(qualiSessions.length + 1, comp.format)
         : qualiSessions.length;
+
+      // Гонзалес: кількість раундів (заїздів) = MAX(12, пілотів з усіх квал).
+      // Карти завжди 12; зайві пілоти додають раунди для повної ротації.
+      // Зберігаємо лише якщо ще не задано вручну з фронтенду.
+      if (treatAsQualifying && results.gonzalesRoundCount == null) {
+        const allQualiPilots = new Set(cumulativePilots);
+        for (const p of newPilots) allQualiPilots.add(p);
+        const roundCount = Math.max(12, allQualiPilots.size);
+        this.updateCompetition(comp.id, { results: { ...results, gonzalesRoundCount: roundCount } });
+        console.log(`🔢 detectGroupCountIfNeeded: comp ${comp.id} → gonzalesRoundCount=${roundCount} (${allQualiPilots.size} quali pilots)`);
+      }
     } else {
       const detection = detectGroupCountFromOverlap({
         cumulativeQualifyingPilots: cumulativePilots,

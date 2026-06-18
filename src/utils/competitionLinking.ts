@@ -39,10 +39,10 @@ export function buildFullPhases(format: string, opts: BuildPhasesOpts = {}): str
   const { gonzalesRoundCount = GONZALES_DEFAULT_ROUND_COUNT } = opts;
 
   if (format === 'gonzales') {
+    // Гонзалес НЕ має груп — 1 заїзд на раунд. Кількість раундів = MAX(12, пілотів).
     const phases = ['qualifying_1', 'qualifying_2'];
     for (let r = 1; r <= gonzalesRoundCount; r++) {
-      phases.push(`round_${r}_group_2`);
-      phases.push(`round_${r}_group_1`);
+      phases.push(`round_${r}`);
     }
     return phases;
   }

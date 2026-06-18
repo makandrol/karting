@@ -130,14 +130,9 @@ export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
       { id: 'qualifying_1', label: 'Кваліфікація 1', shortLabel: 'Кв1' },
       { id: 'qualifying_2', label: 'Кваліфікація 2', shortLabel: 'Кв2' },
       ...Array.from({ length: 24 }, (_, i) => ({
-        id: `round_${i + 1}_group_2`,
-        label: `round_${i + 1}_group_2`,
-        shortLabel: `round_${i + 1}_group_2`,
-      })),
-      ...Array.from({ length: 24 }, (_, i) => ({
-        id: `round_${i + 1}_group_1`,
-        label: `round_${i + 1}_group_1`,
-        shortLabel: `round_${i + 1}_group_1`,
+        id: `round_${i + 1}`,
+        label: `Гонка ${i + 1}`,
+        shortLabel: `Г${i + 1}`,
       })),
     ],
   },
@@ -193,42 +188,27 @@ export function getPhasesForFormat(format: string, groupCount?: number | null, r
   const config = PHASE_CONFIGS[format];
   if (!config) return [];
 
-  const renumberGonzales = (phases: PhaseConfig[]): PhaseConfig[] => {
-    let raceNum = 1;
-    return phases.map(p => {
-      if (p.id.startsWith('qualifying_')) return p;
-      return { id: p.id, label: `Гонка ${raceNum}`, shortLabel: `Г${raceNum++}` };
+  // Гонзалес: фази round_N не мають груп. Раунди обмежуються roundCount (MAX(12, пілотів)),
+  // кількість кваліфікацій — groupCount (1 квала → лише qualifying_1).
+  if (format === 'gonzales') {
+    const rc = roundCount ?? 12;
+    return config.phases.filter(p => {
+      if (p.id.startsWith('qualifying_')) {
+        if (groupCount == null) return true;
+        return parseInt(p.id.split('_')[1]) <= groupCount;
+      }
+      const rm = p.id.match(/^round_(\d+)$/);
+      if (rm) return parseInt(rm[1]) <= rc;
+      return true;
     });
-  };
+  }
 
   if (groupCount === undefined || groupCount === null) {
-    if (format === 'gonzales') {
-      const rc = roundCount ?? 12;
-      const filtered = config.phases.filter(p => {
-        if (p.id.startsWith('qualifying_')) return true;
-        const rm = p.id.match(/^round_(\d+)/);
-        if (rm) return parseInt(rm[1]) <= rc;
-        return true;
-      });
-      return renumberGonzales(filtered);
-    }
     return config.phases;
   }
 
   const filtered = config.phases.filter(p => {
-    if (format === 'gonzales') {
-      if (p.id.startsWith('qualifying_')) {
-        const num = parseInt(p.id.split('_')[1]);
-        return num <= groupCount;
-      }
-      const rm = p.id.match(/^round_(\d+)/);
-      if (rm) {
-        const roundNum = parseInt(rm[1]);
-        const rc = roundCount ?? 12;
-        if (roundNum > rc) return false;
-      }
-    }
-    if (format !== 'sprint' && format !== 'gonzales' && p.id.startsWith('qualifying_')) {
+    if (format !== 'sprint' && p.id.startsWith('qualifying_')) {
       const num = parseInt(p.id.split('_')[1]);
       return num <= groupCount;
     }
@@ -237,12 +217,14 @@ export function getPhasesForFormat(format: string, groupCount?: number | null, r
     return true;
   });
 
-  if (format === 'gonzales') return renumberGonzales(filtered);
   return filtered;
 }
 
 export function getPhaseLabel(format: string, phaseId: string, groupCount?: number): string {
   if (format === 'gonzales' && phaseId.startsWith('round_')) {
+    // Новий формат: round_N → "Гонка N". Legacy: round_N_group_Y → мапиться на номер гонки.
+    const plain = phaseId.match(/^round_(\d+)$/);
+    if (plain) return `Гонка ${parseInt(plain[1])}`;
     const rm = phaseId.match(/^round_(\d+)_group_(\d+)$/);
     if (rm) {
       const round = parseInt(rm[1]);
@@ -262,6 +244,8 @@ export function getPhaseLabel(format: string, phaseId: string, groupCount?: numb
 
 export function getPhaseShortLabel(format: string, phaseId: string, groupCount?: number): string {
   if (format === 'gonzales' && phaseId.startsWith('round_')) {
+    const plain = phaseId.match(/^round_(\d+)$/);
+    if (plain) return `Г${parseInt(plain[1])}`;
     const rm = phaseId.match(/^round_(\d+)_group_(\d+)$/);
     if (rm) {
       const round = parseInt(rm[1]);

@@ -45,10 +45,11 @@ export function buildFullPhases(format, opts = {}) {
   const { gonzalesRoundCount = GONZALES_DEFAULT_ROUND_COUNT } = opts;
 
   if (format === 'gonzales') {
+    // Гонзалес НЕ має груп — 1 заїзд на раунд. Кількість раундів = MAX(12, пілотів).
+    // Карти завжди 12; якщо пілотів більше, додаються раунди для повної ротації.
     const phases = ['qualifying_1', 'qualifying_2'];
     for (let r = 1; r <= gonzalesRoundCount; r++) {
-      phases.push(`round_${r}_group_2`);
-      phases.push(`round_${r}_group_1`);
+      phases.push(`round_${r}`);
     }
     return phases;
   }
@@ -91,7 +92,8 @@ export function buildFullPhases(format, opts = {}) {
  * Rules:
  * - LL/CL: drop `qualifying_N` if N > groupCount and any phase with `group_M` if M > groupCount.
  * - Sprint: drop `*_group_M` if M > groupCount (qualifying phases теж мають group_M).
- * - Gonzales: drop `qualifying_N` if N > groupCount; drop `round_N` if N > gonzalesRoundCount.
+ * - Gonzales: drop `qualifying_N` if N > groupCount; drop `round_N` if N > gonzalesRoundCount
+ *   (раунди НЕ мають груп — групи стосуються лише кількості кваліфікацій).
  *
  * groupCount=null/undefined → no filtering (returns full list).
  *
