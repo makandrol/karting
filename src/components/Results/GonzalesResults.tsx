@@ -28,6 +28,8 @@ interface Props {
   trackId?: number | null;
   /** Manual pilot-count override (results.totalPilotsOverride) — authoritative for rotation size. */
   pilotCountOverride?: number | null;
+  /** Soft re-fetch of laps after a pilot rename (avoids full page reload). */
+  onRefreshLaps?: () => Promise<void> | void;
 }
 
 export interface GonzalesConfig {
@@ -46,7 +48,7 @@ type SortKey = 'average' | 'name' | `kart_${number}`;
 export default function GonzalesResults({
   competitionId, sessions, sessionLaps, liveSessionId, liveEnabled,
   onToggleLive, initialExcludedPilots, excludedLapKeys, onSaveResults, gonzalesConfig,
-  onPilotCount, onAutoGroups, kartManagerPortal, trackId, pilotCountOverride,
+  onPilotCount, onAutoGroups, kartManagerPortal, trackId, pilotCountOverride, onRefreshLaps,
 }: Props) {
   const { hasPermission, isOwner } = useAuth();
   const { isSectionVisible } = useLayoutPrefs();
@@ -228,8 +230,9 @@ export default function GonzalesResults({
     setExcludedPilots(nextExcluded);
     await saveGonzalesConfig({ pilotStartSlots: nextSlots, lockedPilots: nextLocked });
     await onSaveResults({ excludedPilots: [...nextExcluded] });
-    window.location.reload();
-  }, [sessions, pilotStartSlots, lockedPilots, excludedPilots, saveGonzalesConfig, onSaveResults]);
+    if (onRefreshLaps) await onRefreshLaps();
+    else window.location.reload();
+  }, [sessions, pilotStartSlots, lockedPilots, excludedPilots, saveGonzalesConfig, onSaveResults, onRefreshLaps]);
 
   // Derive pilot count from qualifying sessions
   const qualifyingPilots = useMemo(() => {

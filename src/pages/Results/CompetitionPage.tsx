@@ -462,6 +462,17 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
 
   const knownSessionCountRef = useRef(initialCompetition.sessions.length);
 
+  const refreshLaps = useCallback(async () => {
+    try {
+      let fresh: Competition;
+      try { fresh = await api.competitions.getNormalized(initialCompetition.id) as unknown as Competition; }
+      catch { fresh = competition; }
+      setCompetition(fresh);
+      const map = await fetchAllLaps(fresh);
+      setSessionLaps(map);
+    } catch {}
+  }, [initialCompetition.id, competition]);
+
   useEffect(() => {
     let cancelled = false;
     fetchAllLaps(initialCompetition).then(map => {
@@ -564,6 +575,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         kartManagerPortal={kartManagerPortalEl}
         trackId={competition.results?.trackId ?? null}
         pilotCountOverride={competition.results?.totalPilotsLocked ? (competition.results?.totalPilotsOverride ?? null) : null}
+        onRefreshLaps={refreshLaps}
       />
     );
 
