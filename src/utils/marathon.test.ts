@@ -112,14 +112,21 @@ describe('parseMarathon — kart=0 laps are kept (not dropped)', () => {
     expect(m.teams[0].totalLaps).toBe(4);
   });
 
-  it('kart=0 laps inherit the last known kart (no spurious stint split)', () => {
+  it('kart=0 laps inherit the nearest real kart (no spurious stint split)', () => {
     const m = parseMarathon(events);
-    // first lap inherits start slot (4); laps 2-4 are kart 8 → at most 2 stints
+    // lap1 kart=0 (no prior real kart) → inherits the next real kart (8);
+    // mid-stint kart=0 (lap 3) inherits previous kart 8 → single kart-8 stint
     const karts = m.teams[0].stints.map(s => s.kart);
-    expect(karts).toEqual([4, 8]);
-    // the mid-stint kart=0 lap (lap 3) is attributed to kart 8, not a new stint
+    expect(karts).toEqual([8]);
     const kart8 = m.teams[0].stints.find(s => s.kart === 8)!;
-    expect(kart8.lapCount).toBe(3);
+    expect(kart8.lapCount).toBe(4);
+  });
+
+  it('placeholder "Карт N" driver names resolve to the real pilot', () => {
+    const m = parseMarathon(events);
+    // all laps belong to the real driver P, not "Карт 4"
+    expect(m.teams[0].pilots).toEqual(['P']);
+    expect(m.kartStats.every(k => k.usages.every(u => !u.pilotName.startsWith('Карт')))).toBe(true);
   });
 });
 

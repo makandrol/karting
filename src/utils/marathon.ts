@@ -341,7 +341,7 @@ export function parseMarathon(
         lastOnPit: false,
         lastLapNumber: 0,
         onPitSinceTs: null,
-        lastKnownKart: startKart,
+        lastKnownKart: 0,
       };
       teamMap.set(startKart, t);
     }
@@ -411,7 +411,7 @@ export function parseMarathon(
 
     // Track the last real kart so kart=0 reads (transient, near pit/start) can
     // inherit it instead of being dropped — dropping loses real laps and breaks
-    // lap counts/timeline.
+    // lap counts/timeline. 0 = unknown (resolved later by nearest real kart).
     if (!isOnPitKart(actualKart)) t.lastKnownKart = actualKart;
 
     if (type === 'lap') {
@@ -437,6 +437,7 @@ export function parseMarathon(
   // Build teams with stints (a stint = contiguous run of same pilot + same kart).
   const teams: MarathonTeam[] = [];
   for (const t of teamMap.values()) {
+    resolvePlaceholderPilots(t.laps);
     const stints = buildStints(t.laps, trimBest, trimWorst);
     const pilots: string[] = [];
     for (const s of stints) if (!pilots.includes(s.pilotName)) pilots.push(s.pilotName);
@@ -485,6 +486,41 @@ export function parseMarathon(
   pitIntervals.sort((a, b) => a.startTs - b.startTs);
 
   return { teams, kartStats, pitIntervals };
+}
+
+/** "Карт N" / empty = timing hasn't read a real driver name yet. */
+function isPlaceholderName(name: string): boolean {
+  return !name || /^Карт\s/i.test(name);
+}
+
+/**
+ * Replace placeholder "Карт N" driver names (timing didn't read a name at that
+ * moment, near start/pit) with the nearest real name within the team's laps —
+ * previous real name, else the next one. The transponder is one team, so a
+ * "Карт N" lap belongs to whoever was driving around it. Also resolves any
+ * remaining kart=0 laps (leading reads before the first real kart) to the
+ * nearest known kart.
+ */
+function resolvePlaceholderPilots(laps: MarathonLap[]): void {
+  const n = laps.length;
+  // forward fill from previous real name
+  let lastReal: string | null = null;
+  for (let i = 0; i < n; i++) {
+    if (!isPlaceholderName(laps[i].pilotName)) lastReal = laps[i].pilotName;
+    else if (lastReal) laps[i].pilotName = lastReal;
+  }
+  // backward fill the leading placeholders (before any real name appeared)
+  let nextReal: string | null = null;
+  for (let i = n - 1; i >= 0; i--) {
+    if (!isPlaceholderName(laps[i].pilotName)) nextReal = laps[i].pilotName;
+    else if (nextReal) laps[i].pilotName = nextReal;
+  }
+  // backward fill leading kart=0 laps to the first real kart
+  let nextKart = 0;
+  for (let i = n - 1; i >= 0; i--) {
+    if (laps[i].kart > 0) nextKart = laps[i].kart;
+    else if (nextKart > 0) laps[i].kart = nextKart;
+  }
 }
 
 function buildStints(laps: MarathonLap[], trimBest: number, trimWorst: number): MarathonStint[] {
