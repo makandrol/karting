@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type DbSession } from '../../services/api';
-import { toSeconds, isKartName } from '../../utils/timing';
+import { toSeconds } from '../../utils/timing';
 import { fmtDateTimeShort as fmtDate } from '../../utils/datetime';
 import { useLocalStorage } from '../../services/useLocalStorage';
 import { useKartFilters, useSelectedDateSessions } from '../../services/useKartFilters';
@@ -138,12 +138,14 @@ export default function Karts() {
     return map;
   }, [competitions]);
 
-  /** Розв'язує реальне ім'я пілота: для "Карт N" із round-сесії Гонзалеса — з ротації. */
+  /** Display-ім'я: завжди raw timing, а наше відоме ім'я (з ротації Гонзалеса) — у дужках. */
   const resolvePilot = (pilot: string, sessionId: string | null, kart: number): string => {
-    if (!sessionId || !isKartName(pilot)) return pilot;
+    if (!sessionId) return pilot;
     const meta = sessionMeta.get(sessionId);
     const parentId = meta?.id ?? sessionId;
-    return gonzalesPilotMap.get(`${parentId}|${kart}`) ?? gonzalesPilotMap.get(`${sessionId}|${kart}`) ?? pilot;
+    const resolved = gonzalesPilotMap.get(`${parentId}|${kart}`) ?? gonzalesPilotMap.get(`${sessionId}|${kart}`);
+    if (!resolved || resolved === pilot) return pilot;
+    return `${pilot} (${resolved})`;
   };
 
   /** Лейбл типу заїзду: "ЛЧ · Г1", "Прокат 5" тощо. */
@@ -323,16 +325,23 @@ export default function Karts() {
                 <th className="table-cell text-left">Пілот</th>
                 <th className="table-cell text-left">Заїзд</th>
                 <th className="table-cell text-left">Час</th>
-                <th className="table-cell text-center w-8"></th>
               </tr></thead>
               <tbody>
-                {flatRows.map((r, i) => (
-                  <tr key={`${r.kart}-${r.pilot}-${r.sessionId}-${i}`} className="table-row group">
-                    <td className="table-cell text-center">
-                      <Link to={`/info/karts/${r.kart}`} className="font-mono font-bold text-primary-400 hover:text-primary-300">
-                        {r.kart}{r.rank ? <span className="text-dark-500 font-normal">·#{r.rank}</span> : ''}
-                      </Link>
-                    </td>
+                {flatRows.map((r, i) => {
+                  const isFirstOfKart = i === 0 || flatRows[i - 1].kart !== r.kart;
+                  const groupSize = flatRows.filter(x => x.kart === r.kart).length;
+                  return (
+                  <tr key={`${r.kart}-${r.pilot}-${r.sessionId}-${i}`}
+                    className={`table-row group ${isFirstOfKart && i > 0 ? 'border-t-2 border-t-dark-700' : ''}`}>
+                    {isFirstOfKart ? (
+                      <td rowSpan={groupSize} className="table-cell text-center align-middle border-r border-dark-800 bg-dark-900/40">
+                        <Link to={`/info/karts/${r.kart}`} className="font-mono font-bold text-primary-400 hover:text-primary-300">
+                          {r.kart}{r.rank ? <span className="block text-dark-500 font-normal text-[10px]">#{r.rank}</span> : ''}
+                        </Link>
+                        <button onClick={() => toggleKartDisabled(r.kart)} title="Сховати карт"
+                          className="block mx-auto mt-0.5 text-dark-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">✕</button>
+                      </td>
+                    ) : null}
                     <td className="table-cell text-right font-mono font-semibold text-green-400">{r.timeStr ? toSeconds(r.timeStr) : '—'}</td>
                     <td className="table-cell text-right font-mono text-[11px] text-dark-400">{r.s1 ? toSeconds(r.s1) : '—'}</td>
                     <td className="table-cell text-right font-mono text-[11px] text-dark-400">{r.s2 ? toSeconds(r.s2) : '—'}</td>
@@ -346,14 +355,11 @@ export default function Karts() {
                         </Link>
                       ) : (r.ts ? fmtDate(r.ts) : '—')}
                     </td>
-                    <td className="table-cell text-center">
-                      <button onClick={() => toggleKartDisabled(r.kart)} title="Сховати карт"
-                        className="text-dark-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
-                    </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {flatRows.length === 0 && (
-                  <tr><td colSpan={8} className="table-cell text-center text-dark-600 py-8">Немає даних. Оберіть дні в календарі.</td></tr>
+                  <tr><td colSpan={7} className="table-cell text-center text-dark-600 py-8">Немає даних. Оберіть дні в календарі.</td></tr>
                 )}
               </tbody>
             </table>

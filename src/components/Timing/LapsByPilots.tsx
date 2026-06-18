@@ -30,6 +30,8 @@ interface LapsByPilotsProps {
   onToggleLap?: (key: string) => void;
   sessionId?: string;
   startPositions?: Map<string, number>;
+  /** Опційний трансформер відображуваного імені (raw timing + наше в дужках). Не впливає на rename/ключі. */
+  pilotDisplayName?: (name: string, kart: number) => string;
 }
 
 export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sessionId?: string): PilotLaps[] {
@@ -60,6 +62,8 @@ export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sess
 
 function compactName(name: string): string {
   if (!name || name.length <= 10) return name;
+  // Декороване ім'я "Карт 16 (X)" не вкорочуємо — показуємо повністю.
+  if (name.includes('(')) return name;
   const parts = name.trim().split(' ').filter(Boolean);
   if (parts.length < 2) return name.slice(0, 10);
   const surname = parts[0];
@@ -67,7 +71,7 @@ function compactName(name: string): string {
   return `${surname} ${parts[1][0]}.`;
 }
 
-export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId, startPositions }: LapsByPilotsProps) {
+export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId, startPositions, pilotDisplayName }: LapsByPilotsProps) {
   const [viewMode, setViewMode] = useState<'all' | 'main'>('main');
   const [sortMode, setSortMode] = useState<'time' | 'position'>('time');
   const isRace = startPositions != null && startPositions.size > 0;
@@ -128,8 +132,8 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
               <th className="table-cell text-center w-8">Коло</th>
               {sortedPilots.map(p => (
                 <th key={p.name} className="table-cell text-left min-w-[100px]">
-                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
-                    {compactName(p.name)}
+                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={pilotDisplayName ? pilotDisplayName(p.name, p.laps[0]?.kart ?? 0) : p.name}>
+                    {compactName(pilotDisplayName ? pilotDisplayName(p.name, p.laps[0]?.kart ?? 0) : p.name)}
                   </Link>
                   <div className="flex items-center gap-1 font-normal">
                     <span className={`${KART_COLOR} text-[11px]`}>Карт {p.laps[0]?.kart}</span>

@@ -1,8 +1,9 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../../services/api';
 import { toSeconds, mergePilotNames, parseTime, KART_COLOR } from '../../utils/timing';
+import { buildGonzalesKartPilotMap } from '../../utils/gonzalesPilotResolver';
 import { fmtTime, fmtDuration } from '../../utils/datetime';
 import { LoadingState } from '../../components/States';
 import { useAuth } from '../../services/auth';
@@ -39,6 +40,42 @@ export default function SessionDetail() {
 
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
   const [onboardOpen, setOnboardOpen] = useState(false);
+
+  // Гонзалес: мапа (kart) → реальне ім'я з ротації змагання, щоб показувати
+  // "Карт 16 (Апанасенко)" — raw timing + наше відоме ім'я в дужках.
+  const compFormat = (dbSession as any)?.competition_format as string | null;
+  const compPhaseRaw = (dbSession as any)?.competition_phase as string | null;
+  const compIdRaw = (dbSession as any)?.competition_id as string | null;
+  const isGonzalesRound = compFormat === 'gonzales' && !!compPhaseRaw && /^round_\d+/.test(compPhaseRaw);
+  const [gonzKartPilot, setGonzKartPilot] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    if (!isGonzalesRound || !compIdRaw || !sessionId) { setGonzKartPilot(new Map()); return; }
+    let active = true;
+    (async () => {
+      try {
+        const comp: any = await api.competitions.getNormalized(compIdRaw);
+        const cfg = comp?.results?.gonzalesConfig;
+        if (!cfg?.pilotStartSlots || !active) return;
+        const pilotCount = Object.keys(cfg.pilotStartSlots).length;
+        const karts = cfg.kartList && cfg.kartList.length > 0 ? cfg.kartList : Array.from({ length: 12 }, (_, i) => i + 1);
+        const map = buildGonzalesKartPilotMap([{ sessionId, phase: compPhaseRaw }], cfg, karts, pilotCount);
+        // Ключі мапи — `${sessionId}|${kart}`; зведемо до kart→pilot для цієї сесії.
+        const byKart = new Map<string, string>();
+        for (const [k, v] of map) { const kart = k.split('|')[1]; if (kart) byKart.set(kart, v); }
+        if (active) setGonzKartPilot(byKart);
+      } catch { /* ignore */ }
+    })();
+    return () => { active = false; };
+  }, [isGonzalesRound, compIdRaw, sessionId, compPhaseRaw]);
+
+  /** Display-ім'я пілота: raw timing + наше ім'я в дужках (для Гонзалеса). */
+  const displayPilot = useMemo(() => (pilot: string, kart: number): string => {
+    if (!isGonzalesRound) return pilot;
+    const resolved = gonzKartPilot.get(String(kart));
+    if (!resolved || resolved === pilot) return pilot;
+    return `${pilot} (${resolved})`;
+  }, [isGonzalesRound, gonzKartPilot]);
 
   const { isSectionVisible, getPageLayout } = useLayoutPrefs();
   const sessionLayout = getPageLayout('sessionDetail');
@@ -225,7 +262,7 @@ export default function SessionDetail() {
                   {liveEntries.map((e: any, i: number) => (
                     <tr key={e.pilot} className="table-row">
                       <td className="table-cell text-center font-mono font-bold text-white">{e.position || i + 1}</td>
-                      <td className="table-cell text-left text-white">{e.pilot}</td>
+                      <td className="table-cell text-left text-white">{displayPilot(e.pilot, e.kart)}</td>
                       <td className={`table-cell text-center font-mono ${KART_COLOR}`}>{e.kart}</td>
                       <td className="table-cell text-center font-mono text-dark-300">{e.lapNumber || 0}</td>
                       <td className="table-cell text-right font-mono text-dark-300">{toSeconds(e.lastLap)}</td>
@@ -258,6 +295,7 @@ export default function SessionDetail() {
                 excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
                 onToggleLap={isOwner ? handleToggleLap : undefined}
                 sessionId={sessionId}
+                pilotDisplayName={displayPilot}
                 startPositions={isRace ? startPositions : undefined} />
             );
 
@@ -306,6 +344,7 @@ export default function SessionDetail() {
               excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
               onToggleLap={isOwner ? handleToggleLap : undefined}
               sessionId={sessionId}
+              pilotDisplayName={displayPilot}
               startPositions={isRace ? startPositions : undefined} />
           )}
         </>
