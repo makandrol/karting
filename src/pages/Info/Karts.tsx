@@ -335,9 +335,9 @@ export default function Karts() {
                   const groupSize = flatRows.filter(x => x.kart === r.kart).length;
                   return (
                   <tr key={`${r.kart}-${r.pilot}-${r.sessionId}-${i}`}
-                    className={`table-row group ${isFirstOfKart && i > 0 ? 'border-t-2 border-t-dark-700' : ''}`}>
+                    className={`group ${isFirstOfKart && i > 0 ? 'border-t-[6px] border-t-dark-950' : ''} hover:bg-dark-700/30`}>
                     {isFirstOfKart ? (
-                      <td rowSpan={groupSize} className="text-center align-middle border-r border-dark-800 bg-dark-900/40 px-1">
+                      <td rowSpan={groupSize} className="text-center align-middle border-r-2 border-dark-700 bg-dark-900/60 px-1">
                         <Link to={`/info/karts/${r.kart}`} className="font-mono font-extrabold text-blue-400 hover:text-blue-300 text-2xl leading-none">
                           {r.kart}
                         </Link>
@@ -346,12 +346,12 @@ export default function Karts() {
                           className="block mx-auto mt-0.5 text-dark-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">✕</button>
                       </td>
                     ) : null}
-                    <td className="text-right font-mono font-semibold text-green-400 px-1 py-1">{r.timeStr ? toSeconds(r.timeStr) : '—'}</td>
-                    <td className="text-right font-mono text-[11px] text-dark-400 px-1 py-1">{r.s1 ? toSeconds(r.s1) : '—'}</td>
-                    <td className="text-right font-mono text-[11px] text-dark-400 px-1 py-1">{r.s2 ? toSeconds(r.s2) : '—'}</td>
-                    <td className="table-cell text-left text-white whitespace-nowrap pl-3">{r.pilot}</td>
-                    <td className="table-cell text-left text-dark-300 whitespace-nowrap">{sessionTypeLabel(r.sessionId)}</td>
-                    <td className="table-cell text-left whitespace-nowrap">
+                    <td className="text-right font-mono font-semibold text-green-400 px-1 py-0.5">{r.timeStr ? toSeconds(r.timeStr) : '—'}</td>
+                    <td className="text-right font-mono text-[11px] text-dark-400 px-1 py-0.5">{r.s1 ? toSeconds(r.s1) : '—'}</td>
+                    <td className="text-right font-mono text-[11px] text-dark-400 px-1 py-0.5">{r.s2 ? toSeconds(r.s2) : '—'}</td>
+                    <td className="text-left text-white whitespace-nowrap pl-3 pr-2 py-0.5">{r.pilot}</td>
+                    <td className="text-left text-dark-300 whitespace-nowrap px-2 py-0.5">{sessionTypeLabel(r.sessionId)}</td>
+                    <td className="text-left whitespace-nowrap px-2 py-0.5">
                       {r.sessionId ? (
                         <Link to={`/sessions/${sessionMeta.get(r.sessionId)?.id ?? r.sessionId}`}
                           className="text-primary-400/80 hover:text-primary-300 underline underline-offset-2 decoration-primary-400/30">
