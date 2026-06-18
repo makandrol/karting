@@ -354,6 +354,7 @@ export default function SessionDetail() {
                 defaultSortMode={effIsRace ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                 onEntriesUpdate={setTrackEntries}
                 onTimeUpdate={isMarathon ? setReplayTimeSec : undefined}
+                useRealLapTimes={isMarathon}
                 renderScrubber={(scrubber) => (
                   <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
                     {scrubber}

@@ -322,6 +322,7 @@ export function parseMarathon(
     lastOnPit: boolean;
     lastLapNumber: number;
     onPitSinceTs: number | null;
+    lastKnownKart: number;
   }>();
 
   const pitIntervals: MarathonPitInterval[] = [];
@@ -340,6 +341,7 @@ export function parseMarathon(
         lastOnPit: false,
         lastLapNumber: 0,
         onPitSinceTs: null,
+        lastKnownKart: startKart,
       };
       teamMap.set(startKart, t);
     }
@@ -407,17 +409,23 @@ export function parseMarathon(
     t.lastPitstops = pitstops;
     t.lastOnPit = onPit;
 
+    // Track the last real kart so kart=0 reads (transient, near pit/start) can
+    // inherit it instead of being dropped — dropping loses real laps and breaks
+    // lap counts/timeline.
+    if (!isOnPitKart(actualKart)) t.lastKnownKart = actualKart;
+
     if (type === 'lap') {
       const lapTime = d.lastLap ?? d.lapTime ?? null;
       const lapSec = parseTime(lapTime);
       const lapNumber = toKartNum(d.lapNumber) || raw.lapCount || 0;
       t.lastLapNumber = lapNumber;
-      if (lapTime && lapSec != null && !isOnPitKart(actualKart) && pilotName) {
+      const lapKart = isOnPitKart(actualKart) ? t.lastKnownKart : actualKart;
+      if (lapTime && lapSec != null && pilotName) {
         t.laps.push({
           lapNumber,
           lapTime,
           lapSec,
-          kart: actualKart,
+          kart: lapKart,
           pilotName,
           ts: ev.ts,
           position: pos || null,

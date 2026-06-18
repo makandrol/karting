@@ -95,6 +95,34 @@ describe('parseMarathon — single team, one pit stop, kart change', () => {
   });
 });
 
+describe('parseMarathon — kart=0 laps are kept (not dropped)', () => {
+  // Regression: timing reports kart "0" for some laps (near start/pit). Dropping
+  // them undercounts laps so a team appears a lap behind. They must be kept and
+  // inherit the last known kart.
+  const base = { transponderId: 'T', number: '4', teamName: 'A', pitstops: '0', isOnPit: false, position: '1' };
+  const events = [
+    lapEvent(1000, { ...base, pilotName: 'Карт 4', kart: '0' }, '43.000', 1), // first lap, no kart read
+    lapEvent(2000, { ...base, pilotName: 'P', kart: '8' }, '42.000', 2),
+    lapEvent(3000, { ...base, pilotName: 'P', kart: '0' }, '42.500', 3), // transient kart=0 mid-stint
+    lapEvent(4000, { ...base, pilotName: 'P', kart: '8' }, '42.100', 4),
+  ];
+
+  it('counts all 4 laps', () => {
+    const m = parseMarathon(events);
+    expect(m.teams[0].totalLaps).toBe(4);
+  });
+
+  it('kart=0 laps inherit the last known kart (no spurious stint split)', () => {
+    const m = parseMarathon(events);
+    // first lap inherits start slot (4); laps 2-4 are kart 8 → at most 2 stints
+    const karts = m.teams[0].stints.map(s => s.kart);
+    expect(karts).toEqual([4, 8]);
+    // the mid-stint kart=0 lap (lap 3) is attributed to kart 8, not a new stint
+    const kart8 = m.teams[0].stints.find(s => s.kart === 8)!;
+    expect(kart8.lapCount).toBe(3);
+  });
+});
+
 describe('parseMarathon — kart stats', () => {
   const t1 = { transponderId: 'A', number: '1', teamName: 'A', pitstops: '0', isOnPit: false, position: '1' };
   const t2 = { transponderId: 'B', number: '2', teamName: 'B', pitstops: '0', isOnPit: false, position: '2' };
