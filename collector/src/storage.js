@@ -156,10 +156,8 @@ let _excludedLapsCache = null;
 
 const MIN_LAP_SEC = 38;
 const LAP_SEC_EXPR = `CASE WHEN lap_time LIKE '%:%' THEN CAST(SUBSTR(lap_time, 1, INSTR(lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(lap_time, INSTR(lap_time, ':') + 1) AS REAL) ELSE CAST(lap_time AS REAL) END`;
-const LAP_SEC_EXPR_L2 = LAP_SEC_EXPR.replace(/lap_time/g, 'l2.lap_time');
 const LAP_SEC_EXPR_L = LAP_SEC_EXPR.replace(/lap_time/g, 'l.lap_time');
 const VALID_LAP = `lap_time IS NOT NULL AND (${LAP_SEC_EXPR}) >= ${MIN_LAP_SEC}`;
-const VALID_LAP_L2 = `l2.lap_time IS NOT NULL AND (${LAP_SEC_EXPR_L2}) >= ${MIN_LAP_SEC}`;
 const VALID_LAP_L = `l.lap_time IS NOT NULL AND (${LAP_SEC_EXPR_L}) >= ${MIN_LAP_SEC}`;
 
 const stmts = {
@@ -169,29 +167,6 @@ const stmts = {
   insertLap: db.prepare('INSERT INTO laps (session_id, pilot, kart, lap_number, lap_time, s1, s2, best_lap, position, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
   getSessions: db.prepare('SELECT * FROM sessions ORDER BY start_time DESC LIMIT ?'),
   getSessionsByDate: db.prepare('SELECT * FROM sessions WHERE date = ? ORDER BY start_time'),
-  getSessionsWithStats: db.prepare(`
-    SELECT s.*,
-      ls.real_pilot_count,
-      ls.best_lap_time
-    FROM sessions s
-    LEFT JOIN (
-      SELECT session_id,
-        COUNT(DISTINCT pilot) as real_pilot_count,
-        (SELECT l2.lap_time FROM laps l2 WHERE l2.session_id = laps.session_id AND ${VALID_LAP_L2}
-          ORDER BY (${LAP_SEC_EXPR_L2}) ASC LIMIT 1
-        ) as best_lap_time
-      FROM laps
-      WHERE ${VALID_LAP}
-      GROUP BY session_id
-    ) ls ON ls.session_id = s.id
-    WHERE s.date = ?
-    ORDER BY s.start_time
-  `),
-  getBestLapPilot: db.prepare(`
-    SELECT pilot, kart FROM laps
-    WHERE session_id = ? AND lap_time = ?
-    LIMIT 1
-  `),
   getLapsByDate: db.prepare(`
     SELECT l.* FROM laps l JOIN sessions s ON s.id = l.session_id WHERE s.date = ?
   `),
@@ -442,21 +417,19 @@ export const storage = {
   },
 
   getKartSessionCounts(kartNumber) {
-    const dates = db.prepare('SELECT DISTINCT date FROM sessions ORDER BY date').all().map(r => r.date);
-    const result = [];
-    for (const date of dates) {
-      const sessions = this.getSessionsByDate(date);
-      let count = 0;
-      for (const s of sessions) {
-        if (!s.end_time || (s.end_time - s.start_time) < 60000) continue;
-        const ids = s.merged_session_ids || [s.id];
-        const placeholders = ids.map(() => '?').join(',');
-        const hasKart = db.prepare(`SELECT 1 FROM laps WHERE kart = ? AND session_id IN (${placeholders}) AND ${VALID_LAP} LIMIT 1`).get(kartNumber, ...ids);
-        if (hasKart) count++;
-      }
-      if (count > 0) result.push({ date, count });
-    }
-    return result;
+    // Скільки сесій за день містили кола цього карта. Один SQL-запит
+    // (раніше тут був getSessionsByDate на кожну дату — ~4.5с для карта).
+    // Рахуємо distinct session_id з валідними колами карта, групуємо по даті.
+    const rows = db.prepare(`
+      SELECT s.date as date, COUNT(DISTINCT l.session_id) as count
+      FROM laps l
+      JOIN sessions s ON s.id = l.session_id
+      WHERE l.kart = ? AND ${VALID_LAP_L}
+      GROUP BY s.date
+      HAVING count > 0
+      ORDER BY s.date
+    `).all(kartNumber);
+    return rows;
   },
 
   /** Статистика БД */

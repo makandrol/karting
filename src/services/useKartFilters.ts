@@ -1,6 +1,8 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import { useLocalStorage } from './useLocalStorage';
 import { fmtDateISO } from '../utils/datetime';
+import { isValidSession } from '../utils/timing';
+import { api, type DbSession } from './api';
 import { ALL_TRACK_IDS } from '../components/Sessions/TrackFilter';
 
 /**
@@ -80,4 +82,49 @@ export function useKartFilters() {
     selectedTracks, trackFilter, toggleTrack, selectAllTracks, clearAllTracks,
     excludedSessions, toggleExcludeSession,
   };
+}
+
+/**
+ * Завантажує валідні завершені сесії для набору дат (паралельно).
+ * Спільне для сторінки всіх картів і конкретного карта.
+ *
+ * @param selectedDates set дат "YYYY-MM-DD"
+ * @param trackFilter якщо передано — фільтрує сесії по track_id
+ */
+export function useSelectedDateSessions(
+  selectedDates: Set<string>,
+  trackFilter?: Set<number> | null,
+): { sessions: DbSession[]; loading: boolean } {
+  const [sessions, setSessions] = useState<DbSession[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Стабільний ключ дат для deps (Set пересоздається щорендеру).
+  const datesKey = useMemo(() => [...selectedDates].sort().join(','), [selectedDates]);
+
+  useEffect(() => {
+    const dates = datesKey ? datesKey.split(',') : [];
+    if (dates.length === 0) { setSessions([]); return; }
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      const results = await Promise.all(
+        dates.map(date =>
+          api.sessions.byDate(date)
+            .then(data => (data as unknown as DbSession[]).filter(s => s.end_time && isValidSession(s)))
+            .catch(() => [] as DbSession[]),
+        ),
+      );
+      if (cancelled) return;
+      setSessions(results.flat());
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [datesKey]);
+
+  const filtered = useMemo(
+    () => (trackFilter ? sessions.filter(s => trackFilter.has((s as any).track_id || 1)) : sessions),
+    [sessions, trackFilter],
+  );
+
+  return { sessions: filtered, loading };
 }

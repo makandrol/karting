@@ -1,10 +1,10 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo } from 'react';
 import { api, type DbSession } from '../../services/api';
-import { parseTime, toSeconds, mergePilotNames, isValidSession, shortPilot } from '../../utils/timing';
+import { parseTime, toSeconds, mergePilotNames, shortPilot } from '../../utils/timing';
 import { fmtTimeShort as fmtTime, fmtDateDM as fmtDate } from '../../utils/datetime';
 import { LoadingState } from '../../components/States';
-import { useKartFilters } from '../../services/useKartFilters';
+import { useKartFilters, useSelectedDateSessions } from '../../services/useKartFilters';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import TrackFilter from '../../components/Sessions/TrackFilter';
@@ -49,6 +49,9 @@ export default function KartDetail() {
       .catch(() => setKartDateCounts(undefined));
   }, [kartNumber]);
 
+  // Сесії вибраних днів на вибраних трасах — спільний хук.
+  const { sessions: allSessions } = useSelectedDateSessions(selectedDates, selectedTracks);
+
   // Fetch session IDs and details for selected dates
   const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
   const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
@@ -56,9 +59,12 @@ export default function KartDetail() {
   const [subIdToMergedMap, setSubIdToMergedMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(false);
 
-  // Fetch sessions + kart laps in one flow, filter to only sessions with this kart
+  // Стабільний ключ сесій для deps.
+  const sessionsKey = useMemo(() => allSessions.map(s => s.id).sort().join(','), [allSessions]);
+
+  // Fetch kart laps for the loaded sessions, filter to sessions with this kart
   useEffect(() => {
-    if (selectedDates.size === 0) {
+    if (allSessions.length === 0) {
       setStatSessionIds(new Set());
       setStatSessionDetails([]);
       setLaps([]);
@@ -67,22 +73,10 @@ export default function KartDetail() {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      // 1. Fetch all sessions for selected dates (на вибраних трасах), паралельно
-      const perDate = await Promise.all(
-        [...selectedDates].map(date =>
-          api.sessions.byDate(date)
-            .then(data => (data as unknown as DbSession[])
-              .filter(s => s.end_time && isValidSession(s) && selectedTracks.has(s.track_id || 1)))
-            .catch(() => [] as DbSession[]),
-        ),
-      );
-      const allSessions: DbSession[] = perDate.flat();
-      if (cancelled) return;
-
-      // 2. Fetch laps for this kart
-      const sortedDates = [...selectedDates].sort();
-      const from = sortedDates[0];
-      const to = sortedDates[sortedDates.length - 1];
+      // Fetch laps for this kart over the date range
+      const dates = [...selectedDates].sort();
+      const from = dates[0];
+      const to = dates[dates.length - 1];
       let kartLaps: KartLap[] = [];
       try {
         kartLaps = await api.laps.byKart(kartNumber, from, to) as unknown as KartLap[];
@@ -137,7 +131,7 @@ export default function KartDetail() {
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [selectedDates, kartNumber, selectedTracks]);
+  }, [sessionsKey, kartNumber]);
 
   const [sortBy, setSortBy] = useState<'best' | 'date'>('best');
 

@@ -1,10 +1,10 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { api, type DbSession } from '../../services/api';
-import { toSeconds, isValidSession } from '../../utils/timing';
+import { api } from '../../services/api';
+import { toSeconds } from '../../utils/timing';
 import { fmtDateTimeShort as fmtDate } from '../../utils/datetime';
 import { useLocalStorage } from '../../services/useLocalStorage';
-import { useKartFilters } from '../../services/useKartFilters';
+import { useKartFilters, useSelectedDateSessions } from '../../services/useKartFilters';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import TrackFilter from '../../components/Sessions/TrackFilter';
@@ -64,28 +64,8 @@ export default function Karts() {
     excludedSessions, toggleExcludeSession,
   } = useKartFilters();
 
-  // Fetch session details for all selected dates (raw, без фільтра трас)
-  const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
-
-  useEffect(() => {
-    if (selectedDates.size === 0) {
-      setStatSessionDetails([]);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const results = await Promise.all(
-        [...selectedDates].map(date =>
-          api.sessions.byDate(date)
-            .then(data => (data as unknown as DbSession[]).filter(s => s.end_time && isValidSession(s)))
-            .catch(() => [] as DbSession[]),
-        ),
-      );
-      if (cancelled) return;
-      setStatSessionDetails(results.flat());
-    })();
-    return () => { cancelled = true; };
-  }, [selectedDates]);
+  // Сесії вибраних днів (raw, без фільтра трас) — спільний хук.
+  const { sessions: statSessionDetails } = useSelectedDateSessions(selectedDates);
 
   // Заїзди вибраних днів на вибраних трасах (для таблиці).
   const visibleSessions = useMemo(
@@ -112,7 +92,7 @@ export default function Karts() {
     api.karts.statsBySessions(ids)
       .then(setKartStats)
       .catch(() => setKartStats([]))
-      .finally(() => setLoading(false));
+      .finally(() => { setLoading(false); });
   }, [statSessionsKey]);
 
   const [disabledKartsArr, setDisabledKartsArr] = useLocalStorage<number[]>('karting_disabled_karts', []);
