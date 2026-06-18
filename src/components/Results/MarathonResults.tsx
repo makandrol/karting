@@ -155,7 +155,7 @@ function PitField({ lane, canEdit, onSetRow }: {
   onSetRow: (car: PitLaneCar, row: PitRow | null) => void;
 }) {
   const labelKart = (k: number | null) => (k && k > 0 ? `Карт ${k}` : 'Карт ?');
-  const total = lane.waiting.length + lane.left.length + lane.right.length;
+  const total = lane.waiting.length + (lane.leftRow.front ? 1 : 0) + (lane.rightRow.front ? 1 : 0);
 
   // Car card with edge arrows: left 15% = throw into left row, right 15% = right row.
   const CarCard = ({ car }: { car: PitLaneCar }) => (
@@ -188,34 +188,26 @@ function PitField({ lane, canEdit, onSetRow }: {
     </div>
   );
 
-  // A pit row = 2 stacked slots (front = head/next to leave, back = parked).
-  const RowColumn = ({ title, cars, parked }: { title: string; cars: PitLaneCar[]; parked: number[] }) => {
-    const front = cars[0] ?? null;
-    const extraFront = cars.slice(1);
-    const backKart = parked[0] ?? null;
-    const Slot = ({ label, children, filled }: { label: string; children: React.ReactNode; filled: boolean }) => (
-      <div className={`rounded-lg border px-2 py-1.5 min-h-[44px] ${filled ? 'bg-yellow-600/15 border-yellow-600/30' : 'bg-dark-800/40 border-dark-700 border-dashed'}`}>
-        <div className="text-dark-500 text-[9px] uppercase tracking-wider mb-0.5">{label}</div>
-        {children}
-      </div>
-    );
-    return (
-      <div>
-        <div className="text-dark-400 text-[10px] uppercase tracking-wider font-semibold mb-1.5">{title} ряд</div>
-        <div className="space-y-1.5">
-          <Slot label="Передній" filled={!!front}>
-            {front ? <CarCard car={front} /> : <span className="text-dark-600 text-xs">вільно</span>}
-          </Slot>
-          <Slot label="Задній" filled={backKart != null}>
-            {backKart != null
-              ? <span className={`font-mono text-xs ${KART_COLOR}`}>{labelKart(backKart)}</span>
-              : <span className="text-dark-600 text-xs">вільно</span>}
-          </Slot>
-          {extraFront.map(car => <CarCard key={pitKey(car)} car={car} />)}
+  // A pit row = front slot (driver who took the head kart) + back slot (parked kart).
+  const RowColumn = ({ title, slots }: { title: string; slots: import('../../utils/marathonPitLane').PitRowSlots }) => (
+    <div>
+      <div className="text-dark-400 text-[10px] uppercase tracking-wider font-semibold mb-1.5">{title} ряд</div>
+      <div className="space-y-1.5">
+        <div className={`rounded-lg border px-2 py-1.5 min-h-[44px] ${slots.front ? '' : 'bg-dark-800/40 border-dark-700 border-dashed'}`}>
+          <div className="text-dark-500 text-[9px] uppercase tracking-wider mb-0.5">Передній{slots.frontKart ? ` · ${labelKart(slots.frontKart)}` : ''}</div>
+          {slots.front
+            ? <CarCard car={slots.front} />
+            : <span className="text-dark-600 text-xs">вільно</span>}
+        </div>
+        <div className={`rounded-lg border px-2 py-1.5 min-h-[40px] ${slots.backKart != null ? 'bg-yellow-600/15 border-yellow-600/30' : 'bg-dark-800/40 border-dark-700 border-dashed'}`}>
+          <div className="text-dark-500 text-[9px] uppercase tracking-wider mb-0.5">Задній</div>
+          {slots.backKart != null
+            ? <span className={`font-mono text-sm ${KART_COLOR}`}>{labelKart(slots.backKart)}</span>
+            : <span className="text-dark-600 text-xs">вільно</span>}
         </div>
       </div>
-    );
-  };
+    </div>
+  );
 
   return (
     <div className="card p-3">
@@ -226,8 +218,8 @@ function PitField({ lane, canEdit, onSetRow }: {
 
       {/* Two rows: Left | Right (always first). */}
       <div className="grid grid-cols-2 gap-2">
-        <RowColumn title="Лівий" cars={lane.left} parked={lane.leftParked} />
-        <RowColumn title="Правий" cars={lane.right} parked={lane.rightParked} />
+        <RowColumn title="Лівий" slots={lane.leftRow} />
+        <RowColumn title="Правий" slots={lane.rightRow} />
       </div>
 
       {/* Waiting list — full width (spans both rows), arrival order, no row yet. */}
@@ -240,7 +232,7 @@ function PitField({ lane, canEdit, onSetRow }: {
         </div>
       )}
 
-      {total === 0 && lane.leftParked.length === 0 && lane.rightParked.length === 0 && (
+      {total === 0 && (
         <div className="text-dark-500 text-sm mt-2">Зараз нікого на піту</div>
       )}
     </div>
