@@ -4,6 +4,8 @@ export interface DbLap {
   id?: number;
   session_id?: string;
   pilot: string;
+  /** Real pilot name if collector resolved "Карт N" → name (else null). pilot stays raw. */
+  resolved_pilot?: string | null;
   kart: number;
   lap_number: number;
   lap_time: string | null;

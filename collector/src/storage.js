@@ -303,8 +303,9 @@ export const storage = {
       for (const l of laps) {
         const sec = parseLapTimeSec(l.lap_time);
         if (sec === null || sec <= 0) continue;
-        pilots.add(l.pilot);
-        if (sec < bestSec) { bestSec = sec; best_lap_time = l.lap_time; best_lap_pilot = l.pilot; best_lap_kart = l.kart; }
+        const canonical = l.resolved_pilot ?? l.pilot;
+        pilots.add(canonical);
+        if (sec < bestSec) { bestSec = sec; best_lap_time = l.lap_time; best_lap_pilot = canonical; best_lap_kart = l.kart; }
       }
       const real_pilot_count = pilots.size || null;
       const comp = compMap.get(r.id) || null;

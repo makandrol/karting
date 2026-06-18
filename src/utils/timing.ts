@@ -92,6 +92,16 @@ export function isKartName(name: string): boolean {
 }
 
 /**
+ * Display-ім'я пілота: завжди показуємо raw timing-ім'я, а якщо відоме
+ * "наше" ім'я (resolved через ремап колектора чи ротацію Гонзалеса) і воно
+ * відрізняється — додаємо в дужках: "Карт 16 (Апанасенко)".
+ */
+export function displayPilotName(rawPilot: string, resolved?: string | null): string {
+  if (!resolved || resolved === rawPilot) return rawPilot;
+  return `${rawPilot} (${resolved})`;
+}
+
+/**
  * Merge laps where pilot name is "Карт X" with subsequent laps from a named pilot on the same kart.
  * The timing system sometimes shows "Карт X" for the first few laps before the real name appears.
  */

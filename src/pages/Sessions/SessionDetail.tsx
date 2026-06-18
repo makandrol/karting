@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../../services/api';
-import { toSeconds, mergePilotNames, parseTime, KART_COLOR } from '../../utils/timing';
+import { toSeconds, parseTime, KART_COLOR } from '../../utils/timing';
 import { buildGonzalesKartPilotMap } from '../../utils/gonzalesPilotResolver';
 import { fmtTime, fmtDuration } from '../../utils/datetime';
 import { LoadingState } from '../../components/States';
@@ -69,13 +69,23 @@ export default function SessionDetail() {
     return () => { active = false; };
   }, [isGonzalesRound, compIdRaw, sessionId, compPhaseRaw]);
 
-  /** Display-ім'я пілота: raw timing + наше ім'я в дужках (для Гонзалеса). */
+  /** kart → resolved name з ремапу колектора (resolved_pilot на лапах). */
+  const kartResolvedFromLapsMemo = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const l of dbLaps) {
+      if (l.resolved_pilot && !m.has(l.kart)) m.set(l.kart, l.resolved_pilot);
+    }
+    return m;
+  }, [dbLaps]);
+
+  /** Display-ім'я пілота: raw timing + наше ім'я в дужках. */
   const displayPilot = useMemo(() => (pilot: string, kart: number): string => {
-    if (!isGonzalesRound) return pilot;
-    const resolved = gonzKartPilot.get(String(kart));
-    if (!resolved || resolved === pilot) return pilot;
-    return `${pilot} (${resolved})`;
-  }, [isGonzalesRound, gonzKartPilot]);
+    // Для Гонзалес-round беремо ім'я з ротації; інакше — з ремапу колектора (resolved_pilot).
+    const resolved = isGonzalesRound
+      ? gonzKartPilot.get(String(kart))
+      : kartResolvedFromLapsMemo.get(kart);
+    return resolved && resolved !== pilot ? `${pilot} (${resolved})` : pilot;
+  }, [isGonzalesRound, gonzKartPilot, kartResolvedFromLapsMemo]);
 
   const { isSectionVisible, getPageLayout } = useLayoutPrefs();
   const sessionLayout = getPageLayout('sessionDetail');
@@ -126,7 +136,7 @@ export default function SessionDetail() {
     );
   }
 
-  const mergedLaps = mergePilotNames(dbLaps);
+  const mergedLaps = dbLaps;
   const pilots = buildPilotLaps(
     mergedLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time, s1: l.s1, s2: l.s2, ts: l.ts, position: l.position })),
     excludedLaps.size > 0 ? excludedLaps : undefined,

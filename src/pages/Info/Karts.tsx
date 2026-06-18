@@ -15,6 +15,7 @@ interface KartStat {
   kart: number;
   top5: {
     pilot: string;
+    resolved_pilot?: string | null;
     lap_time: string | null;
     lap_sec: number | null;
     s1: string | null;
@@ -138,12 +139,14 @@ export default function Karts() {
     return map;
   }, [competitions]);
 
-  /** Display-ім'я: завжди raw timing, а наше відоме ім'я (з ротації Гонзалеса) — у дужках. */
-  const resolvePilot = (pilot: string, sessionId: string | null, kart: number): string => {
-    if (!sessionId) return pilot;
-    const meta = sessionMeta.get(sessionId);
-    const parentId = meta?.id ?? sessionId;
-    const resolved = gonzalesPilotMap.get(`${parentId}|${kart}`) ?? gonzalesPilotMap.get(`${sessionId}|${kart}`);
+  /** Display-ім'я: завжди raw timing, наше відоме ім'я (ремап колектора або ротація Гонзалеса) — у дужках. */
+  const resolvePilot = (pilot: string, sessionId: string | null, kart: number, lapResolved?: string | null): string => {
+    let resolved = lapResolved || null;
+    if (!resolved && sessionId) {
+      const meta = sessionMeta.get(sessionId);
+      const parentId = meta?.id ?? sessionId;
+      resolved = gonzalesPilotMap.get(`${parentId}|${kart}`) ?? gonzalesPilotMap.get(`${sessionId}|${kart}`) ?? null;
+    }
     if (!resolved || resolved === pilot) return pilot;
     return `${pilot} (${resolved})`;
   };
@@ -217,7 +220,7 @@ export default function Karts() {
         rows.push({
           kart: k.kart,
           rank: showRankBadge ? kartRanking.get(k.kart) : undefined,
-          pilot: resolvePilot(r.pilot, r.session_id, k.kart),
+          pilot: resolvePilot(r.pilot, r.session_id, k.kart, r.resolved_pilot),
           timeSec: sec,
           timeStr,
           s1: useTB ? r.tb_s1 : r.s1,
@@ -318,11 +321,11 @@ export default function Karts() {
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead><tr className="table-header">
-                <th className="table-cell text-center w-14">Карт</th>
-                <th className="table-cell text-right">Час</th>
-                <th className="table-cell text-right">S1</th>
-                <th className="table-cell text-right">S2</th>
-                <th className="table-cell text-left">Пілот</th>
+                <th className="text-center w-16 px-1 py-1.5">Карт</th>
+                <th className="text-right w-[68px] px-1 py-1.5">Час</th>
+                <th className="text-right w-[56px] px-1 py-1.5">S1</th>
+                <th className="text-right w-[56px] px-1 py-1.5">S2</th>
+                <th className="table-cell text-left pl-3">Пілот</th>
                 <th className="table-cell text-left">Заїзд</th>
                 <th className="table-cell text-left">Час</th>
               </tr></thead>
@@ -334,18 +337,19 @@ export default function Karts() {
                   <tr key={`${r.kart}-${r.pilot}-${r.sessionId}-${i}`}
                     className={`table-row group ${isFirstOfKart && i > 0 ? 'border-t-2 border-t-dark-700' : ''}`}>
                     {isFirstOfKart ? (
-                      <td rowSpan={groupSize} className="table-cell text-center align-middle border-r border-dark-800 bg-dark-900/40">
-                        <Link to={`/info/karts/${r.kart}`} className="font-mono font-bold text-primary-400 hover:text-primary-300">
-                          {r.kart}{r.rank ? <span className="block text-dark-500 font-normal text-[10px]">#{r.rank}</span> : ''}
+                      <td rowSpan={groupSize} className="text-center align-middle border-r border-dark-800 bg-dark-900/40 px-1">
+                        <Link to={`/info/karts/${r.kart}`} className="font-mono font-extrabold text-blue-400 hover:text-blue-300 text-2xl leading-none">
+                          {r.kart}
                         </Link>
+                        {r.rank ? <span className="block text-dark-500 font-normal text-[10px] mt-0.5">#{r.rank}</span> : null}
                         <button onClick={() => toggleKartDisabled(r.kart)} title="Сховати карт"
                           className="block mx-auto mt-0.5 text-dark-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">✕</button>
                       </td>
                     ) : null}
-                    <td className="table-cell text-right font-mono font-semibold text-green-400">{r.timeStr ? toSeconds(r.timeStr) : '—'}</td>
-                    <td className="table-cell text-right font-mono text-[11px] text-dark-400">{r.s1 ? toSeconds(r.s1) : '—'}</td>
-                    <td className="table-cell text-right font-mono text-[11px] text-dark-400">{r.s2 ? toSeconds(r.s2) : '—'}</td>
-                    <td className="table-cell text-left text-white whitespace-nowrap">{r.pilot}</td>
+                    <td className="text-right font-mono font-semibold text-green-400 px-1 py-1">{r.timeStr ? toSeconds(r.timeStr) : '—'}</td>
+                    <td className="text-right font-mono text-[11px] text-dark-400 px-1 py-1">{r.s1 ? toSeconds(r.s1) : '—'}</td>
+                    <td className="text-right font-mono text-[11px] text-dark-400 px-1 py-1">{r.s2 ? toSeconds(r.s2) : '—'}</td>
+                    <td className="table-cell text-left text-white whitespace-nowrap pl-3">{r.pilot}</td>
                     <td className="table-cell text-left text-dark-300 whitespace-nowrap">{sessionTypeLabel(r.sessionId)}</td>
                     <td className="table-cell text-left whitespace-nowrap">
                       {r.sessionId ? (

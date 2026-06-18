@@ -615,7 +615,7 @@ describe('storage.getLaps з ремапом "Карт N" → real names', () => 
     });
   }
 
-  it('перейменовує "Карт N" коли є real name на тому ж карті', () => {
+  it('резолвить "Карт N" коли є real name на тому ж карті (pilot raw + resolved_pilot)', () => {
     insertSession('session-1000');
     insertRawLap('session-1000', 'Карт 3', 3, 1, '42.0', 1000);
     insertRawLap('session-1000', 'Карт 3', 3, 2, '42.5', 2000);
@@ -623,16 +623,22 @@ describe('storage.getLaps з ремапом "Карт N" → real names', () => 
 
     const laps = storage.getLaps('session-1000');
     expect(laps).toHaveLength(3);
-    expect(laps.every(l => l.pilot === 'Шевченко')).toBe(true);
+    // pilot лишається raw; resolved_pilot = "Шевченко" для "Карт 3"
+    const kartLaps = laps.filter(l => l.pilot === 'Карт 3');
+    expect(kartLaps.length).toBe(2);
+    expect(kartLaps.every(l => l.resolved_pilot === 'Шевченко')).toBe(true);
+    const real = laps.find(l => l.pilot === 'Шевченко');
+    expect(real.resolved_pilot).toBe(null);
   });
 
-  it('лишає "Карт N" якщо нема real name', () => {
+  it('лишає "Карт N" без resolved якщо нема real name', () => {
     insertSession('session-1000');
     insertRawLap('session-1000', 'Карт 5', 5, 1, '42.0', 1000);
     insertRawLap('session-1000', 'Карт 5', 5, 2, '42.5', 2000);
 
     const laps = storage.getLaps('session-1000');
     expect(laps.every(l => l.pilot === 'Карт 5')).toBe(true);
+    expect(laps.every(l => l.resolved_pilot === null)).toBe(true);
   });
 
   it('autoLink overlap-аналіз бачить правильні імена після ремапу', () => {
