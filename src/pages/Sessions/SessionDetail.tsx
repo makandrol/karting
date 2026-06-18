@@ -18,7 +18,7 @@ import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import type { TimingEntry } from '../../types';
 import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
-import { parseMarathon, buildMarathonLapColumns, buildMarathonStartPositions } from '../../utils/marathon';
+import { parseMarathon, buildMarathonLapColumns, buildMarathonStartPositions, buildMarathonReplayLaps, buildMarathonReplayStartPositions } from '../../utils/marathon';
 import { lazy, Suspense } from 'react';
 import { useSessionData } from './useSessionData';
 
@@ -100,6 +100,9 @@ export default function SessionDetail() {
     return {
       columns: buildMarathonLapColumns(model),
       startPositions: buildMarathonStartPositions(model),
+      replayLaps: buildMarathonReplayLaps(model),
+      replayStartPositions: buildMarathonReplayStartPositions(model),
+      teamCount: model.teams.length,
     };
   }, [compFormat, rawEvents]);
 
@@ -308,7 +311,12 @@ export default function SessionDetail() {
           )}
 
           {dbSession.end_time && dbLaps.length > 0 && (() => {
-            const replayLaps = buildReplayLaps(mergedLaps);
+            const replayLaps = isMarathon && marathonLapData
+              ? marathonLapData.replayLaps
+              : buildReplayLaps(mergedLaps);
+            const marathonRace = isMarathon && marathonLapData;
+            const effStartPositions = marathonRace ? marathonLapData!.replayStartPositions : startPositions;
+            const effIsRace = marathonRace ? true : isRace;
             const realDurationSec = dbSession.end_time
               ? Math.round((dbSession.end_time - dbSession.start_time) / 1000)
               : Math.max(...dbLaps.map(l => l.lap_number), 1) * (parseTime(dbLaps.find(l => l.lap_time)?.lap_time ?? null) || 42) + 30;
@@ -339,11 +347,11 @@ export default function SessionDetail() {
                 autoPlay={true}
                 s1Events={s1Events}
                 snapshots={replaySnapshots}
-                startPositions={startPositions}
+                startPositions={effStartPositions}
                 raceGroup={raceGroup}
                 totalQualifiedPilots={totalQualifiedPilots || undefined}
-                hidePoints={sessionFormat === 'sprint'}
-                defaultSortMode={isRace ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
+                hidePoints={sessionFormat === 'sprint' || isMarathon}
+                defaultSortMode={effIsRace ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                 onEntriesUpdate={setTrackEntries}
                 onTimeUpdate={isMarathon ? setReplayTimeSec : undefined}
                 renderScrubber={(scrubber) => (

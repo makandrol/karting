@@ -357,7 +357,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       }
 
       const liveLapNumber = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.lapNumber : completedLaps;
-      const liveKart = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.kart : (pilotLaps[0]?.kart || 0);
+      const liveKart = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.kart : (prevLapData?.kart || pilotLaps[0]?.kart || 0);
 
       // Position from last recorded lap — used for sorting after all laps done
       const lastRecordedPos = prevLapData?.position ?? 99;

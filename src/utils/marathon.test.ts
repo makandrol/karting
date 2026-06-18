@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMarathon, trimmedAverage, buildMarathonLapColumns, buildMarathonStartPositions } from './marathon';
+import { parseMarathon, trimmedAverage, buildMarathonLapColumns, buildMarathonStartPositions, buildMarathonReplayLaps } from './marathon';
 
 /** Build a `lap` event mirroring the collector's stored shape. */
 function lapEvent(ts: number, team: Record<string, any>, lastLap: string, lapNumber: number) {
@@ -215,5 +215,12 @@ describe('buildMarathonLapColumns', () => {
   it('start positions keyed by team column', () => {
     const sp = buildMarathonStartPositions(parseMarathon(events));
     expect(sp.get('team-18')).toBe(1);
+  });
+
+  it('replay laps: one entry-stream per team labelled by team name, real kart per lap', () => {
+    const rows = buildMarathonReplayLaps(parseMarathon(events));
+    expect(new Set(rows.map(r => r.pilot))).toEqual(new Set(['Toretto Mafia']));
+    expect(rows[0]).toMatchObject({ pilot: 'Toretto Mafia', kart: 5, position: 1, lapNumber: 1 });
+    expect(rows[rows.length - 1]).toMatchObject({ kart: 21 });
   });
 });

@@ -189,6 +189,62 @@ export function buildMarathonStartPositions(model: MarathonModel): Map<string, n
   return map;
 }
 
+export interface MarathonReplayLap {
+  pilot: string;
+  kart: number;
+  lapNumber: number;
+  lapTime: string;
+  s1: string;
+  s2: string;
+  position: number;
+  ts: number;
+}
+
+/**
+ * Replay/timing-table rows for marathon: ONE entry per team (not per pilot),
+ * so the live/replay table mirrors the tablo (18 teams in race order) instead
+ * of 36 "Карт N"/pilot rows. `pilot` = team label; `kart` = actual kart on lap.
+ */
+export function buildMarathonReplayLaps(model: MarathonModel): MarathonReplayLap[] {
+  const rows: MarathonReplayLap[] = [];
+  for (const team of model.teams) {
+    const label = teamReplayLabel(team);
+    let lapNo = 0;
+    for (const stint of team.stints) {
+      for (const l of stint.laps) {
+        lapNo++;
+        rows.push({
+          pilot: label,
+          kart: l.kart,
+          lapNumber: lapNo,
+          lapTime: l.lapTime,
+          s1: '',
+          s2: '',
+          position: l.position ?? 0,
+          ts: l.ts,
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+/** Unique, human label for a team in the replay table. */
+export function teamReplayLabel(team: MarathonTeam): string {
+  const base = (team.teamName || '').trim();
+  return base && !base.startsWith('Карт') ? base : `Карт ${team.startKart}`;
+}
+
+/** Start positions keyed by the replay team label (for race-mode sorting). */
+export function buildMarathonReplayStartPositions(model: MarathonModel): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const team of model.teams) {
+    const firstLap = team.stints[0]?.laps[0];
+    if (firstLap?.position != null) map.set(teamReplayLabel(team), firstLap.position);
+  }
+  return map;
+}
+
 interface RawTeam {
   transponderId?: string;
   number?: string | number;
