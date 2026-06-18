@@ -121,6 +121,7 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
   };
 
   const allDatesWithData = [...datesWithData].sort().reverse();
+  const datesWithDataSet = new Set(datesWithData);
   const yearMonths = new Map<string, Set<number>>();
   for (const d of allDatesWithData) {
     const y = d.slice(0, 4);
@@ -134,7 +135,9 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
   const DateBtn = ({ d }: { d: string }) => {
     const isToday = d === todayStr;
     const count = displayCounts[d] ?? 0;
-    const hasData = count > 0 || isToday;
+    // Старші за 2 тижні дати не мають числового лічильника (важкий merge не рахується),
+    // але є в легкому списку datesWithData — їх теж треба вважати клікабельними.
+    const hasData = count > 0 || isToday || datesWithDataSet.has(d);
     const dayDate = new Date(d + 'T00:00:00');
     const label = `${DAY_NAMES[dayDate.getDay()]} ${String(dayDate.getDate()).padStart(2, '0')}.${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
 
@@ -142,11 +145,11 @@ export default function DateNavigator({ selectedDate, onSelectDate, selectedDate
       const isActive = selectedDates!.has(d);
       return (
         <button
-          onClick={() => onToggleDate!(d)}
+          onClick={() => hasData && onToggleDate!(d)}
           className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
             isActive ? 'bg-primary-600 text-white ring-1 ring-primary-400' :
             isToday ? 'bg-green-600/20 text-green-400' :
-            count > 0 ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
+            hasData ? 'bg-dark-800 text-dark-300 hover:text-white hover:bg-dark-700' :
             'bg-dark-900 text-dark-600 hover:text-dark-300 hover:bg-dark-800'
           }`}
         >
