@@ -257,7 +257,94 @@ export default function SessionDetail() {
         </div>
       </div>
 
-      {pilots.length === 0 && liveEntries.length === 0 ? (
+      {isMarathon ? (
+        <>
+          {!dbSession.end_time && (
+            <div className="flex items-center gap-2 text-green-400 text-xs">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              Гонка активна — дані оновлюються кожні 3 секунди
+            </div>
+          )}
+          {(() => {
+            const replayLaps = marathonLapData?.replayLaps ?? [];
+            const realDurationSec = dbSession.end_time
+              ? Math.round((dbSession.end_time - dbSession.start_time) / 1000)
+              : Math.round((Date.now() - dbSession.start_time) / 1000);
+            const track = allTracks.find(t => t.id === dbSession.track_id) || allTracks[0];
+            const lapsByPilotsEl = (
+              <LapsByPilots key="lapsByPilots"
+                pilots={(marathonLapData?.columns ?? []) as any}
+                currentEntries={trackEntries}
+                isLive={!dbSession.end_time}
+                sessionId={sessionId}
+                startPositions={marathonLapData?.startPositions}
+                marathon />
+            );
+            const marathonTeamsEl = (
+              <MarathonResults key="marathonTeams"
+                events={rawEvents}
+                sessionStartTime={dbSession.start_time}
+                currentTimeSec={replayTimeSec}
+                sections={['marathonPit', 'marathonTeams']} />
+            );
+            const marathonKartsEl = (
+              <MarathonResults key="marathonKarts"
+                events={rawEvents}
+                sessionStartTime={dbSession.start_time}
+                sections={['marathonKarts']} />
+            );
+
+            if (replayLaps.length === 0) {
+              return (
+                <>
+                  {marathonTeamsEl}
+                  {marathonKartsEl}
+                </>
+              );
+            }
+
+            return (
+              <SessionReplay
+                laps={replayLaps}
+                durationSec={realDurationSec}
+                sessionStartTime={dbSession.start_time}
+                isLive={!dbSession.end_time}
+                raceNumber={dbSession.race_number}
+                autoPlay={true}
+                startPositions={marathonLapData?.replayStartPositions}
+                hidePoints
+                defaultSortMode={'race' as ReplaySortMode}
+                onEntriesUpdate={setTrackEntries}
+                onTimeUpdate={setReplayTimeSec}
+                useRealLapTimes
+                renderScrubber={(scrubber) => (
+                  <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+                    {scrubber}
+                  </div>
+                )}
+                renderContent={({ scrubber, table }) => {
+                  const sectionMap: Record<string, ReactNode> = {
+                    replay: scrubber,
+                    timingTable: table,
+                    track: track?.svgPath ? <TrackMap track={track} entries={trackEntries} static /> : null,
+                    lapsByPilots: lapsByPilotsEl,
+                    marathonTeams: marathonTeamsEl,
+                    marathonKarts: marathonKartsEl,
+                  };
+                  return (
+                    <>
+                      {sessionLayout.map(s => {
+                        if (!s.visible || !sectionMap[s.id]) return null;
+                        return <div key={s.id}>{sectionMap[s.id]}</div>;
+                      })}
+                    </>
+                  );
+                }}
+              />
+            );
+          })()}
+        </>
+      ) : pilots.length === 0 && liveEntries.length === 0 ? (
         <div className="card text-center py-8 text-dark-500 text-sm">
           {!dbSession.end_time ? 'Заїзд активний, кола ще не зафіксовані' : 'Немає даних кіл для цього заїзду'}
         </div>
@@ -311,25 +398,13 @@ export default function SessionDetail() {
           )}
 
           {dbSession.end_time && dbLaps.length > 0 && (() => {
-            const replayLaps = isMarathon && marathonLapData
-              ? marathonLapData.replayLaps
-              : buildReplayLaps(mergedLaps);
-            const marathonRace = isMarathon && marathonLapData;
-            const effStartPositions = marathonRace ? marathonLapData!.replayStartPositions : startPositions;
-            const effIsRace = marathonRace ? true : isRace;
+            const replayLaps = buildReplayLaps(mergedLaps);
             const realDurationSec = dbSession.end_time
               ? Math.round((dbSession.end_time - dbSession.start_time) / 1000)
               : Math.max(...dbLaps.map(l => l.lap_number), 1) * (parseTime(dbLaps.find(l => l.lap_time)?.lap_time ?? null) || 42) + 30;
             const track = allTracks.find(t => t.id === dbSession.track_id) || allTracks[0];
 
-            const lapsByPilotsEl = isMarathon ? (
-              <LapsByPilots key="lapsByPilots"
-                pilots={(marathonLapData?.columns ?? []) as any}
-                currentEntries={trackEntries}
-                sessionId={sessionId}
-                startPositions={marathonLapData?.startPositions}
-                marathon />
-            ) : (
+            const lapsByPilotsEl = (
               <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
                 excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
                 onToggleLap={isOwner ? handleToggleLap : undefined}
@@ -347,14 +422,12 @@ export default function SessionDetail() {
                 autoPlay={true}
                 s1Events={s1Events}
                 snapshots={replaySnapshots}
-                startPositions={effStartPositions}
+                startPositions={startPositions}
                 raceGroup={raceGroup}
                 totalQualifiedPilots={totalQualifiedPilots || undefined}
-                hidePoints={sessionFormat === 'sprint' || isMarathon}
-                defaultSortMode={effIsRace ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
+                hidePoints={sessionFormat === 'sprint'}
+                defaultSortMode={isRace ? 'race' as ReplaySortMode : 'qualifying' as ReplaySortMode}
                 onEntriesUpdate={setTrackEntries}
-                onTimeUpdate={isMarathon ? setReplayTimeSec : undefined}
-                useRealLapTimes={isMarathon}
                 renderScrubber={(scrubber) => (
                   <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
                     {scrubber}
@@ -366,21 +439,6 @@ export default function SessionDetail() {
                     timingTable: table,
                     track: track?.svgPath ? <TrackMap track={track} entries={trackEntries} static /> : null,
                     lapsByPilots: lapsByPilotsEl,
-                    marathonTeams: isMarathon ? (
-                      <MarathonResults
-                        events={rawEvents}
-                        sessionStartTime={dbSession.start_time}
-                        currentTimeSec={replayTimeSec}
-                        sections={['marathonPit', 'marathonTeams']}
-                      />
-                    ) : null,
-                    marathonKarts: isMarathon ? (
-                      <MarathonResults
-                        events={rawEvents}
-                        sessionStartTime={dbSession.start_time}
-                        sections={['marathonKarts']}
-                      />
-                    ) : null,
                   };
                   return (
                     <>
@@ -396,21 +454,12 @@ export default function SessionDetail() {
           })()}
 
           {!(dbSession.end_time && dbLaps.length > 0) && (
-            isMarathon ? (
-              <LapsByPilots key="lapsByPilots"
-                pilots={(marathonLapData?.columns ?? []) as any}
-                currentEntries={trackEntries}
-                sessionId={sessionId}
-                startPositions={marathonLapData?.startPositions}
-                marathon />
-            ) : (
-              <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
-                excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
-                onToggleLap={isOwner ? handleToggleLap : undefined}
-                sessionId={sessionId}
-                pilotDisplayName={displayPilot}
-                startPositions={isRace ? startPositions : undefined} />
-            )
+            <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
+              excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
+              onToggleLap={isOwner ? handleToggleLap : undefined}
+              sessionId={sessionId}
+              pilotDisplayName={displayPilot}
+              startPositions={isRace ? startPositions : undefined} />
           )}
         </>
       )}
