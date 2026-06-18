@@ -174,14 +174,14 @@ function PitField({ lane, canEdit, onSetRow }: {
       )}
       <div className={`px-2 py-1.5 ${canEdit ? 'mx-[15%]' : ''}`}>
         <div className="flex items-center gap-2">
+          <span className={`font-mono text-sm ${KART_COLOR} flex-shrink-0`}>{labelKart(car.kartIn)}</span>
+          <span className="text-yellow-400 text-sm font-mono font-bold flex-shrink-0">{pitDurStr(car.pitElapsedSec)}</span>
           {car.pilotName && !car.pilotName.startsWith('Карт') && (
             <span className="text-white text-sm font-medium truncate">{shortPilot(car.pilotName)}</span>
           )}
-          <span className={`font-mono text-sm ${KART_COLOR} flex-shrink-0`}>{labelKart(car.kartIn)}</span>
           {car.segBestLapSec != null && <span className="text-green-400 font-mono text-sm flex-shrink-0">{lapStr(car.segBestLapSec)}</span>}
-          <span className="text-yellow-400 text-sm font-mono font-bold flex-shrink-0 ml-auto">{pitDurStr(car.pitElapsedSec)}</span>
           {car.row && canEdit && (
-            <button onClick={() => onSetRow(car, null)} className="text-dark-500 hover:text-yellow-400 flex-shrink-0" title="Прибрати з ряду">&#10005;</button>
+            <button onClick={() => onSetRow(car, null)} className="text-dark-500 hover:text-yellow-400 flex-shrink-0 ml-auto" title="Прибрати з ряду">&#10005;</button>
           )}
         </div>
       </div>
