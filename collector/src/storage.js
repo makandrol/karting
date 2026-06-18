@@ -192,6 +192,9 @@ const stmts = {
     WHERE session_id = ? AND lap_time = ?
     LIMIT 1
   `),
+  getLapsByDate: db.prepare(`
+    SELECT l.* FROM laps l JOIN sessions s ON s.id = l.session_id WHERE s.date = ?
+  `),
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
   getSessionCountsByDateRange: db.prepare('SELECT date, COUNT(*) as count FROM sessions WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date'),
   getKartStats: db.prepare(`
@@ -295,22 +298,33 @@ export const storage = {
 
   /** Отримати сесії за дату (з мержем дублікатів по race_number) */
   getSessionsByDate(date) {
-    const rows = stmts.getSessionsWithStats.all(date);
+    const rows = stmts.getSessionsByDate.all(date);
     const compMap = this.getSessionCompetitionMap();
+
+    // Один запит усіх кіл дня (~30ms) замість важкого per-session SQL-підзапиту
+    // з CAST/ORDER BY (раніше ~600ms). real_pilot_count + best_lap рахуємо в JS.
+    const allLaps = remapKartNamesToPilots(stmts.getLapsByDate.all(date));
+    const lapsBySession = new Map();
+    for (const l of allLaps) {
+      if (!lapsBySession.has(l.session_id)) lapsBySession.set(l.session_id, []);
+      lapsBySession.get(l.session_id).push(l);
+    }
+
     const enriched = rows.map(r => {
-      let best_lap_pilot = null;
-      let best_lap_kart = null;
-      if (r.best_lap_time) {
-        // Шукаємо власника найкращого кола серед remap-лених лапів,
-        // щоб "Карт N" правильно перепризначилися на real name.
-        const remappedLaps = remapKartNamesToPilots(stmts.getLaps.all(r.id));
-        const bestLapRow = remappedLaps.find(l => l.lap_time === r.best_lap_time);
-        if (bestLapRow) { best_lap_pilot = bestLapRow.pilot; best_lap_kart = bestLapRow.kart; }
+      const laps = lapsBySession.get(r.id) || [];
+      const pilots = new Set();
+      let best_lap_time = null, best_lap_pilot = null, best_lap_kart = null, bestSec = Infinity;
+      for (const l of laps) {
+        const sec = parseLapTimeSec(l.lap_time);
+        if (sec === null || sec <= 0) continue;
+        pilots.add(l.pilot);
+        if (sec < bestSec) { bestSec = sec; best_lap_time = l.lap_time; best_lap_pilot = l.pilot; best_lap_kart = l.kart; }
       }
+      const real_pilot_count = pilots.size || null;
       const comp = compMap.get(r.id) || null;
       return {
-        ...r, best_lap_pilot, best_lap_kart,
-        pilot_count: r.real_pilot_count || r.pilot_count,
+        ...r, real_pilot_count, best_lap_time, best_lap_pilot, best_lap_kart,
+        pilot_count: real_pilot_count || r.pilot_count,
         competition_id: comp?.competitionId || null,
         competition_name: comp?.competitionName || null,
         competition_format: comp?.format || null,
@@ -1045,7 +1059,16 @@ export const storage = {
     const toUpdate = allOnDate.filter(s => !compMap.has(s.id)).map(s => s.id);
     if (toUpdate.length === 0) return 0;
 
-    return this.updateSessionsTrack(toUpdate, trackId);
+    const changes = this.updateSessionsTrack(toUpdate, trackId);
+    // Якщо міняємо трасу сьогоднішнього (останнього) прокату — оновлюємо й
+    // поточну трасу колектора, щоб live-poller створював нові sub-сесії вже
+    // на правильній трасі (інакше вони перетягують merge назад на стару).
+    const todayDate = new Date().toISOString().split('T')[0];
+    if (date === todayDate) {
+      this.setCurrentTrackId(trackId);
+      console.log(`🏁 propagateTrack ${sessionId} → ${trackId}; current track updated (today)`);
+    }
+    return changes;
   },
 
   renamePilot(sessionId, oldName, newName) {
