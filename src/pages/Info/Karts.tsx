@@ -327,7 +327,6 @@ export default function Karts() {
                 <th className="text-right w-[56px] px-1 py-1.5">S2</th>
                 <th className="table-cell text-left pl-3">Пілот</th>
                 <th className="table-cell text-left">Заїзд</th>
-                <th className="table-cell text-left">Час</th>
               </tr></thead>
               <tbody>
                 {flatRows.map((r, i) => {
@@ -350,20 +349,21 @@ export default function Karts() {
                     <td className="text-right font-mono text-[11px] text-dark-400 px-1 py-0.5">{r.s1 ? toSeconds(r.s1) : '—'}</td>
                     <td className="text-right font-mono text-[11px] text-dark-400 px-1 py-0.5">{r.s2 ? toSeconds(r.s2) : '—'}</td>
                     <td className="text-left text-white whitespace-nowrap pl-3 pr-2 py-0.5">{r.pilot}</td>
-                    <td className="text-left text-dark-300 whitespace-nowrap px-2 py-0.5">{sessionTypeLabel(r.sessionId)}</td>
                     <td className="text-left whitespace-nowrap px-2 py-0.5">
                       {r.sessionId ? (
                         <Link to={`/sessions/${sessionMeta.get(r.sessionId)?.id ?? r.sessionId}`}
-                          className="text-primary-400/80 hover:text-primary-300 underline underline-offset-2 decoration-primary-400/30">
-                          {r.ts ? fmtDate(r.ts) : '—'}
+                          className="text-primary-400/90 hover:text-primary-300 underline underline-offset-2 decoration-primary-400/30">
+                          {r.ts ? fmtDate(r.ts) : ''} · {sessionTypeLabel(r.sessionId)}
                         </Link>
-                      ) : (r.ts ? fmtDate(r.ts) : '—')}
+                      ) : (
+                        <span className="text-dark-300">{r.ts ? fmtDate(r.ts) : '—'} · {sessionTypeLabel(r.sessionId)}</span>
+                      )}
                     </td>
                   </tr>
                   );
                 })}
                 {flatRows.length === 0 && (
-                  <tr><td colSpan={7} className="table-cell text-center text-dark-600 py-8">Немає даних. Оберіть дні в календарі.</td></tr>
+                  <tr><td colSpan={6} className="table-cell text-center text-dark-600 py-8">Немає даних. Оберіть дні в календарі.</td></tr>
                 )}
               </tbody>
             </table>

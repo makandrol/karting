@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { api, type DbSession } from '../../services/api';
 import { parseTime, toSeconds, mergePilotNames, shortPilot } from '../../utils/timing';
 import { fmtTimeShort as fmtTime, fmtDateDM as fmtDate } from '../../utils/datetime';
+import { COMPETITION_CONFIGS, getPhaseShortLabel } from '../../data/competitions';
 import { LoadingState } from '../../components/States';
 import { useKartFilters, useSelectedDateSessions } from '../../services/useKartFilters';
 import DateNavigator from '../../components/Sessions/DateNavigator';
@@ -25,6 +26,16 @@ interface KartLap {
   session_start: number;
 }
 
+
+/** Лейбл типу заїзду: "ЛЧ · Г1", "Прокат 5" тощо. */
+function sessionTypeLabel(format: string | null, phase: string | null, raceNumber: number | null): string {
+  if (format && phase) {
+    const short = COMPETITION_CONFIGS[format as keyof typeof COMPETITION_CONFIGS]?.shortName || format;
+    return `${short} · ${getPhaseShortLabel(format, phase)}`;
+  }
+  if (format) return COMPETITION_CONFIGS[format as keyof typeof COMPETITION_CONFIGS]?.shortName || format;
+  return `Прокат${raceNumber != null ? ` ${raceNumber}` : ''}`;
+}
 
 export default function KartDetail() {
   const { kartId } = useParams<{ kartId: string }>();
@@ -135,21 +146,21 @@ export default function KartDetail() {
 
   const [sortBy, setSortBy] = useState<'best' | 'date'>('best');
 
-  // Per-session stats for this kart
+  // Per-session stats for this kart (grouped by merged-parent session id).
   const sessionStats = useMemo(() => {
     const bySession = new Map<string, KartLap[]>();
     for (const l of laps) {
       const mergedId = subIdToMergedMap.get(l.session_id) || l.session_id;
       if (excludedSessions.has(mergedId)) continue;
-      if (!bySession.has(l.session_id)) bySession.set(l.session_id, []);
-      bySession.get(l.session_id)!.push(l);
+      if (!bySession.has(mergedId)) bySession.set(mergedId, []);
+      bySession.get(mergedId)!.push(l);
     }
-    const result: { pilot: string; bestLap: string; bestLapSec: number; bestS1: string | null; bestS2: string | null; sessionId: string; date: string; sessionStart: number; raceNumber: number | null; lapCount: number }[] = [];
+    const result: { pilot: string; bestLap: string; bestLapSec: number; bestS1: string | null; bestS2: string | null; sessionId: string; date: string; sessionStart: number; raceNumber: number | null; competitionFormat: string | null; competitionPhase: string | null; lapCount: number }[] = [];
     for (const [sessionId, sessionLaps] of bySession) {
       let bestLap = '', bestLapSec = Infinity, bestS1: string | null = null, bestS1Sec = Infinity, bestS2: string | null = null, bestS2Sec = Infinity;
       const pilots = new Set<string>();
       for (const l of sessionLaps) {
-        pilots.add(l.pilot);
+        pilots.add((l as any).resolved_pilot ?? l.pilot);
         const sec = parseTime(l.lap_time);
         if (sec !== null && sec < bestLapSec) { bestLapSec = sec; bestLap = l.lap_time; }
         const s1sec = parseTime(l.s1);
@@ -163,6 +174,8 @@ export default function KartDetail() {
         bestLap, bestLapSec, bestS1, bestS2,
         sessionId, date: sessionLaps[0].date, sessionStart: sessionLaps[0].session_start,
         raceNumber: detail?.race_number ?? null,
+        competitionFormat: (detail as any)?.competition_format ?? null,
+        competitionPhase: (detail as any)?.competition_phase ?? null,
         lapCount: sessionLaps.length,
       });
     }
@@ -261,7 +274,7 @@ export default function KartDetail() {
                   <th className="table-cell text-right">Best</th>
                   <th className="table-cell text-right">B.S1</th>
                   <th className="table-cell text-right">B.S2</th>
-                  <th className="table-cell text-left">Session</th>
+                  <th className="table-cell text-left">Заїзд</th>
                 </tr></thead>
                 <tbody>
                   {sessionStats.map((s, i) => {
@@ -279,7 +292,7 @@ export default function KartDetail() {
                         <td className={`table-cell text-right font-mono text-[11px] ${isBestS2 ? 'text-purple-400' : 'text-dark-400'}`}>{s.bestS2 ? toSeconds(s.bestS2) : '—'}</td>
                         <td className="table-cell text-left">
                           <Link to={`/sessions/${s.sessionId}`} className="text-primary-400 hover:text-primary-300 transition-colors underline underline-offset-2 decoration-primary-400/30">
-                            {s.date.slice(5)} {fmtTime(s.sessionStart)}{s.raceNumber != null ? ` · Заїзд ${s.raceNumber}` : ''} · Прокат
+                            {s.date.slice(5)} {fmtTime(s.sessionStart)} · {sessionTypeLabel(s.competitionFormat, s.competitionPhase, s.raceNumber)}
                           </Link>
                         </td>
                       </tr>
