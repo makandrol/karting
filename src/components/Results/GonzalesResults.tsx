@@ -338,14 +338,34 @@ export default function GonzalesResults({
       if (slots[i].kart !== null) kartToSlotIdx.set(slots[i].kart!, i);
     }
 
-    // Assign: pilot's startSlot = (index of their qualifying kart + 1) % totalSlots
+    // Assign: pilot's startSlot = (index of their qualifying kart + 1) % totalSlots.
+    // Якщо слот зайнятий іншим пілотом (колізія через "Карт N" vs реальне ім'я
+    // на тому ж карті) — беремо наступний вільний. Пілоти без квалі-карта теж
+    // отримують перший вільний слот, щоб ЖОДЕН пілот не лишився без прив'язки.
     const next: Record<string, number> = {};
-    for (const pilot of activePilots) {
-      const qKart = pilotKart.get(pilot);
-      if (qKart == null) continue;
-      const kartIdx = kartToSlotIdx.get(qKart);
-      if (kartIdx == null) continue;
-      next[pilot] = (kartIdx + 1) % slots.length;
+    const taken = new Set<number>();
+
+    const claimSlot = (preferred: number | null): number => {
+      if (preferred != null && !taken.has(preferred) && preferred < slots.length) {
+        taken.add(preferred);
+        return preferred;
+      }
+      for (let i = 0; i < slots.length; i++) {
+        if (!taken.has(i)) { taken.add(i); return i; }
+      }
+      return preferred ?? 0;
+    };
+
+    // 1) Спочатку пілоти з квалі-картом — у бажаний слот (з обходом колізій)
+    const withKart = activePilots.filter(p => pilotKart.get(p) != null && kartToSlotIdx.get(pilotKart.get(p)!) != null);
+    const withoutKart = activePilots.filter(p => !withKart.includes(p));
+    for (const pilot of withKart) {
+      const kartIdx = kartToSlotIdx.get(pilotKart.get(pilot)!)!;
+      next[pilot] = claimSlot((kartIdx + 1) % slots.length);
+    }
+    // 2) Пілоти без квалі-карта — у перші вільні слоти
+    for (const pilot of withoutKart) {
+      next[pilot] = claimSlot(null);
     }
 
     if (Object.keys(next).length > 0) {
