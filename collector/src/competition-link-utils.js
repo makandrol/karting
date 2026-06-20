@@ -45,10 +45,11 @@ export function buildFullPhases(format, opts = {}) {
   const { gonzalesRoundCount = GONZALES_DEFAULT_ROUND_COUNT } = opts;
 
   if (format === 'gonzales') {
+    // Гонзалес НЕ має груп — 1 заїзд на раунд. Кількість раундів = MAX(12, пілотів).
+    // Карти завжди 12; якщо пілотів більше, додаються раунди для повної ротації.
     const phases = ['qualifying_1', 'qualifying_2'];
     for (let r = 1; r <= gonzalesRoundCount; r++) {
-      phases.push(`round_${r}_group_2`);
-      phases.push(`round_${r}_group_1`);
+      phases.push(`round_${r}`);
     }
     return phases;
   }
@@ -91,7 +92,8 @@ export function buildFullPhases(format, opts = {}) {
  * Rules:
  * - LL/CL: drop `qualifying_N` if N > groupCount and any phase with `group_M` if M > groupCount.
  * - Sprint: drop `*_group_M` if M > groupCount (qualifying phases теж мають group_M).
- * - Gonzales: drop `qualifying_N` if N > groupCount; drop `round_N` if N > gonzalesRoundCount.
+ * - Gonzales: drop `qualifying_N` if N > groupCount; drop `round_N` if N > gonzalesRoundCount
+ *   (раунди НЕ мають груп — групи стосуються лише кількості кваліфікацій).
  *
  * groupCount=null/undefined → no filtering (returns full list).
  *
@@ -281,12 +283,12 @@ export function capGroupCount(desired, format) {
  * Weekly competition schedule. Day index: 0=Sunday, 1=Monday, ..., 6=Saturday.
  *
  * Reflects the karting club's actual operating pattern (analysed from real
- * sessions Apr-May 2026): Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ. All start ≥19:30 Kyiv.
+ * sessions Apr-May 2026): Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ. All start ≥19:45 Kyiv.
  *
  * Sprint/Marathon — manual only (rare special events, not regular).
  */
 export const COMPETITION_SCHEDULE = {
-  1: { format: 'gonzales',         shortName: 'Гонз' },  // Понеділок
+  1: { format: 'gonzales',         shortName: 'Гонз', startHour: 20, startMin: 5 },  // Понеділок 20:05
   2: { format: 'light_league',     shortName: 'ЛЛ' },    // Вівторок
   3: { format: 'champions_league', shortName: 'ЛЧ' },    // Середа
 };
@@ -295,7 +297,7 @@ export const COMPETITION_SCHEDULE = {
 export const COMPETITION_AUTO_START_HOUR_KYIV = 19;
 
 /** Minute past the hour at which window opens. */
-export const COMPETITION_AUTO_START_MIN_KYIV = 30;
+export const COMPETITION_AUTO_START_MIN_KYIV = 45;
 
 /**
  * Kyiv UTC offset in hours.
@@ -337,16 +339,22 @@ export function getScheduledFormat(timestampMs) {
 }
 
 /**
- * Is `timestampMs` inside the competition window (>=19:30 Kyiv on a scheduled day)?
+ * Is `timestampMs` inside the competition window for its scheduled day?
+ *
+ * Поріг часу — per-day (startHour/startMin у COMPETITION_SCHEDULE), з
+ * fallback на глобальний дефолт (19:45). Гонзалес стартує о 20:05.
  *
  * @param {number} timestampMs
  * @returns {boolean}
  */
 export function isCompetitionTime(timestampMs) {
   const parts = getKyivLocalParts(timestampMs);
-  if (!COMPETITION_SCHEDULE[parts.dayOfWeek]) return false;
-  if (parts.hour < COMPETITION_AUTO_START_HOUR_KYIV) return false;
-  if (parts.hour === COMPETITION_AUTO_START_HOUR_KYIV && parts.minute < COMPETITION_AUTO_START_MIN_KYIV) return false;
+  const sched = COMPETITION_SCHEDULE[parts.dayOfWeek];
+  if (!sched) return false;
+  const startHour = sched.startHour ?? COMPETITION_AUTO_START_HOUR_KYIV;
+  const startMin = sched.startMin ?? COMPETITION_AUTO_START_MIN_KYIV;
+  if (parts.hour < startHour) return false;
+  if (parts.hour === startHour && parts.minute < startMin) return false;
   return true;
 }
 

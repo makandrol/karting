@@ -26,6 +26,10 @@ interface Props {
   onAutoGroups?: (n: number) => void;
   kartManagerPortal?: HTMLDivElement | null;
   trackId?: number | null;
+  /** Manual pilot-count override (results.totalPilotsOverride) — authoritative for rotation size. */
+  pilotCountOverride?: number | null;
+  /** Soft re-fetch of laps after a pilot rename (avoids full page reload). */
+  onRefreshLaps?: () => Promise<void> | void;
 }
 
 export interface GonzalesConfig {
@@ -44,7 +48,7 @@ type SortKey = 'average' | 'name' | `kart_${number}`;
 export default function GonzalesResults({
   competitionId, sessions, sessionLaps, liveSessionId, liveEnabled,
   onToggleLive, initialExcludedPilots, excludedLapKeys, onSaveResults, gonzalesConfig,
-  onPilotCount, onAutoGroups, kartManagerPortal, trackId,
+  onPilotCount, onAutoGroups, kartManagerPortal, trackId, pilotCountOverride, onRefreshLaps,
 }: Props) {
   const { hasPermission, isOwner } = useAuth();
   const { isSectionVisible } = useLayoutPrefs();
@@ -226,8 +230,9 @@ export default function GonzalesResults({
     setExcludedPilots(nextExcluded);
     await saveGonzalesConfig({ pilotStartSlots: nextSlots, lockedPilots: nextLocked });
     await onSaveResults({ excludedPilots: [...nextExcluded] });
-    window.location.reload();
-  }, [sessions, pilotStartSlots, lockedPilots, excludedPilots, saveGonzalesConfig, onSaveResults]);
+    if (onRefreshLaps) await onRefreshLaps();
+    else window.location.reload();
+  }, [sessions, pilotStartSlots, lockedPilots, excludedPilots, saveGonzalesConfig, onSaveResults, onRefreshLaps]);
 
   // Derive pilot count from qualifying sessions
   const qualifyingPilots = useMemo(() => {
@@ -246,13 +251,17 @@ export default function GonzalesResults({
     return [...qualifyingPilots].filter(p => !excludedPilots.has(p));
   }, [qualifyingPilots, excludedPilots, configLocked, lockedPilots]);
 
-  const pilotCount = activePilots.length > 0 ? activePilots.length : data.rows.length;
+  // pilotCount керує і кількістю раундів, і розміром ротації (карти + пропуски).
+  // Ручний override (results.totalPilotsOverride) має пріоритет над авто-підрахунком
+  // з квалі — інакше зміна "Кількість пілотів" не зменшує пропуски в таблиці слотів.
+  const autoPilotCount = activePilots.length > 0 ? activePilots.length : data.rows.length;
+  const pilotCount = pilotCountOverride != null && pilotCountOverride > 0 ? pilotCountOverride : autoPilotCount;
   const roundCount = Math.max(pilotCount, 12);
   const roundSessions = sessions.filter(s => s.phase && !s.phase.startsWith('qualifying'));
 
   useEffect(() => {
-    if (pilotCount > 0) onPilotCount?.(pilotCount);
-  }, [pilotCount, onPilotCount]);
+    if (autoPilotCount > 0) onPilotCount?.(autoPilotCount);
+  }, [autoPilotCount, onPilotCount]);
 
   useEffect(() => {
     if (roundCount > 0) onSaveResults({ gonzalesRoundCount: roundCount });
@@ -338,14 +347,34 @@ export default function GonzalesResults({
       if (slots[i].kart !== null) kartToSlotIdx.set(slots[i].kart!, i);
     }
 
-    // Assign: pilot's startSlot = (index of their qualifying kart + 1) % totalSlots
+    // Assign: pilot's startSlot = (index of their qualifying kart + 1) % totalSlots.
+    // Якщо слот зайнятий іншим пілотом (колізія через "Карт N" vs реальне ім'я
+    // на тому ж карті) — беремо наступний вільний. Пілоти без квалі-карта теж
+    // отримують перший вільний слот, щоб ЖОДЕН пілот не лишився без прив'язки.
     const next: Record<string, number> = {};
-    for (const pilot of activePilots) {
-      const qKart = pilotKart.get(pilot);
-      if (qKart == null) continue;
-      const kartIdx = kartToSlotIdx.get(qKart);
-      if (kartIdx == null) continue;
-      next[pilot] = (kartIdx + 1) % slots.length;
+    const taken = new Set<number>();
+
+    const claimSlot = (preferred: number | null): number => {
+      if (preferred != null && !taken.has(preferred) && preferred < slots.length) {
+        taken.add(preferred);
+        return preferred;
+      }
+      for (let i = 0; i < slots.length; i++) {
+        if (!taken.has(i)) { taken.add(i); return i; }
+      }
+      return preferred ?? 0;
+    };
+
+    // 1) Спочатку пілоти з квалі-картом — у бажаний слот (з обходом колізій)
+    const withKart = activePilots.filter(p => pilotKart.get(p) != null && kartToSlotIdx.get(pilotKart.get(p)!) != null);
+    const withoutKart = activePilots.filter(p => !withKart.includes(p));
+    for (const pilot of withKart) {
+      const kartIdx = kartToSlotIdx.get(pilotKart.get(pilot)!)!;
+      next[pilot] = claimSlot((kartIdx + 1) % slots.length);
+    }
+    // 2) Пілоти без квалі-карта — у перші вільні слоти
+    for (const pilot of withoutKart) {
+      next[pilot] = claimSlot(null);
     }
 
     if (Object.keys(next).length > 0) {
@@ -594,7 +623,7 @@ export default function GonzalesResults({
                     <td className={`table-cell text-center font-mono font-bold ${
                       avg !== null ? 'text-white' : 'text-dark-700'
                     } ${sortKey === 'average' ? SORT_HL : ''}`}>
-                      {avg !== null ? avg.toFixed(2) : '—'}
+                      {avg !== null ? avg.toFixed(3) : '—'}
                       {showPos && avg !== null && bestAverage !== null && (() => {
                         const d = avg - bestAverage;
                         return (
@@ -789,6 +818,8 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
   const [replTo, setReplTo] = useState('');
   const [dragSlotIdx, setDragSlotIdx] = useState<number | null>(null);
   const [dragPilot, setDragPilot] = useState<string | null>(null);
+  const [renamingPilot, setRenamingPilot] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   // Touch drag support (HTML5 drag doesn't work on mobile)
   const slotRowRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -1101,18 +1132,30 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
                         <button onClick={() => !isLast && movePilot(si, si + 1)} disabled={isLast}
                           className={`text-sm leading-none px-0.5 ${isLast ? 'text-dark-800' : 'text-dark-500 hover:text-white active:text-white'}`}>▼</button>
                       </div>
-                      <span className="text-white cursor-grab flex-1 text-xs truncate touch-none"
-                        draggable
-                        onDragStart={(e) => { e.stopPropagation(); setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
-                        onDragEnd={() => setDragPilot(null)}
-                        onTouchStart={(e) => { e.stopPropagation(); handleTouchStart('pilot', pilot)(e); }}
-                        onTouchMove={handleTouchMove}
-                        onTouchEnd={handleTouchEnd}
-                      >{pilot}</span>
-                      <button onClick={() => {
-                          const newName = window.prompt(`Перейменувати "${pilot}" на:`, pilot);
-                          if (newName && newName.trim() && newName.trim() !== pilot) onRenamePilot(pilot, newName.trim());
-                        }}
+                      {renamingPilot === pilot ? (
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          const newName = renameValue.trim();
+                          if (newName && newName !== pilot) onRenamePilot(pilot, newName);
+                          else setRenamingPilot(null);
+                        }} className="flex-1">
+                          <input autoFocus type="text" value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Escape') setRenamingPilot(null); }}
+                            onBlur={() => setRenamingPilot(null)}
+                            className="w-full bg-dark-800 border border-primary-500 text-white text-xs rounded px-1.5 py-0.5 outline-none" />
+                        </form>
+                      ) : (
+                        <span className="text-white cursor-grab flex-1 text-xs truncate touch-none"
+                          draggable
+                          onDragStart={(e) => { e.stopPropagation(); setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
+                          onDragEnd={() => setDragPilot(null)}
+                          onTouchStart={(e) => { e.stopPropagation(); handleTouchStart('pilot', pilot)(e); }}
+                          onTouchMove={handleTouchMove}
+                          onTouchEnd={handleTouchEnd}
+                        >{pilot}</span>
+                      )}
+                      <button onClick={(e) => { e.stopPropagation(); setRenamingPilot(pilot); setRenameValue(pilot); }}
                         className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-dark-700/50 text-dark-500 hover:bg-dark-700 hover:text-primary-400 text-sm"
                         title="Перейменувати пілота">✎</button>
                       <button onClick={() => unassignPilot(pilot)}
@@ -1154,18 +1197,30 @@ function PilotKartAssignment({ autoKarts, kartList, setKartList, kartReplacement
             {unassignedPilots.map((pilot, ui) => (
               <div key={pilot} ref={el => { unassignedRefs.current[ui] = el; }}
                 className="flex items-center gap-1 px-2 py-0.5 rounded bg-dark-800 cursor-grab touch-none"
-                draggable
-                onDragStart={(e) => { setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
+                draggable={renamingPilot !== pilot}
+                onDragStart={(e) => { if (renamingPilot === pilot) { e.preventDefault(); return; } setDragPilot(pilot); e.dataTransfer.effectAllowed = 'move'; }}
                 onDragEnd={() => setDragPilot(null)}
-                onTouchStart={handleTouchStart('pilot', pilot)}
+                onTouchStart={renamingPilot === pilot ? undefined : handleTouchStart('pilot', pilot)}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
               >
-                <span className="text-white text-[10px]">{pilot}</span>
-                <button onClick={() => {
-                    const newName = window.prompt(`Перейменувати "${pilot}" на:`, pilot);
-                    if (newName && newName.trim() && newName.trim() !== pilot) onRenamePilot(pilot, newName.trim());
-                  }}
+                {renamingPilot === pilot ? (
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    const newName = renameValue.trim();
+                    if (newName && newName !== pilot) onRenamePilot(pilot, newName);
+                    else setRenamingPilot(null);
+                  }}>
+                    <input autoFocus type="text" value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') setRenamingPilot(null); }}
+                      onBlur={() => setRenamingPilot(null)}
+                      className="w-24 bg-dark-900 border border-primary-500 text-white text-[10px] rounded px-1 py-0.5 outline-none" />
+                  </form>
+                ) : (
+                  <span className="text-white text-[10px]">{pilot}</span>
+                )}
+                <button onClick={(e) => { e.stopPropagation(); setRenamingPilot(pilot); setRenameValue(pilot); }}
                   className="text-[9px] text-dark-600 hover:text-primary-400" title="Перейменувати">✎</button>
                 <button onClick={() => onExcludePilot(pilot)}
                   className="text-[9px] text-dark-600 hover:text-red-400" title="Виключити">✕</button>

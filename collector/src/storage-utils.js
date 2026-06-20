@@ -51,12 +51,14 @@ export function remapKartNamesToPilots(laps) {
     }
   }
 
-  if (remap.size === 0) return laps;
+  if (remap.size === 0) return laps.map(lap => ({ ...lap, resolved_pilot: null }));
 
   return laps.map(lap => {
     const key = `${lap.session_id ?? ''}|${lap.kart}|${lap.pilot}`;
     const realName = remap.get(key);
-    return realName ? { ...lap, pilot: realName } : lap;
+    // Недеструктивно: `pilot` лишається raw (як у таймінгу), а знайдене
+    // реальне ім'я кладемо в `resolved_pilot` (null якщо нічого не змінилось).
+    return { ...lap, resolved_pilot: realName ?? null };
   });
 }
 
@@ -161,30 +163,40 @@ export function mergeSessions(sessions) {
  *  - lap_time/lap_sec + s1/s2 — найшвидше реальне коло та його сектори
  *  - tb_s1/tb_s2/tb_sec — theoretical best (найкращий S1 + найкращий S2 окремо)
  *
- * Input: rows with { kart, pilot, lap_time, s1, s2, lap_sec, ts }.
+ * Input: rows with { session_id, kart, pilot, lap_time, s1, s2, lap_sec, ts }.
+ * @param {Iterable<string>} [excludedLaps] keys "sessionId|pilot|ts" to skip
  * Output: [{ kart, top5: [{pilot, lap_time, lap_sec, s1, s2, tb_s1, tb_s2, tb_sec, ts}, ...] }]
  */
-export function buildKartStats(rows) {
+export function buildKartStats(rows, excludedLaps) {
+  const excluded = excludedLaps instanceof Set ? excludedLaps : new Set(excludedLaps || []);
   const byKart = new Map();
   for (const r of rows) {
+    if (excluded.size > 0 && r.session_id != null && r.ts != null
+        && excluded.has(`${r.session_id}|${r.pilot}|${r.ts}`)) continue;
     if (!byKart.has(r.kart)) byKart.set(r.kart, new Map());
     const pilots = byKart.get(r.kart);
-    let agg = pilots.get(r.pilot);
+    // Агрегуємо за канонічним іменем (resolved_pilot ?? pilot), щоб лапи
+    // "Карт 5" і "Іванов" на одному карті злились у одного пілота.
+    const canonical = r.resolved_pilot ?? r.pilot;
+    let agg = pilots.get(canonical);
     if (!agg) {
       agg = {
-        pilot: r.pilot,
-        lap_time: null, lap_sec: Infinity, s1: null, s2: null, ts: null,
+        pilot: r.pilot, resolved_pilot: r.resolved_pilot ?? null,
+        lap_time: null, lap_sec: Infinity, s1: null, s2: null, ts: null, session_id: null,
         bestS1: null, bestS1Sec: Infinity, bestS2: null, bestS2Sec: Infinity,
       };
-      pilots.set(r.pilot, agg);
+      pilots.set(canonical, agg);
     }
-    // Найшвидше коло (+ його сектори)
+    // Найшвидше коло (+ його сектори) — запам'ятовуємо raw pilot саме цього кола
     if (r.lap_sec != null && r.lap_sec < agg.lap_sec) {
       agg.lap_sec = r.lap_sec;
       agg.lap_time = r.lap_time;
       agg.s1 = r.s1 || null;
       agg.s2 = r.s2 || null;
       agg.ts = r.ts || null;
+      agg.session_id = r.session_id ?? null;
+      agg.pilot = r.pilot;
+      agg.resolved_pilot = r.resolved_pilot ?? null;
     }
     // Найкращі сектори окремо → theoretical best
     const s1sec = parseLapTimeSec(r.s1);
@@ -199,11 +211,13 @@ export function buildKartStats(rows) {
         const hasTB = a.bestS1Sec < Infinity && a.bestS2Sec < Infinity;
         return {
           pilot: a.pilot,
+          resolved_pilot: a.resolved_pilot,
           lap_time: a.lap_time,
           lap_sec: a.lap_sec === Infinity ? null : a.lap_sec,
           s1: a.s1,
           s2: a.s2,
           ts: a.ts,
+          session_id: a.session_id,
           tb_s1: a.bestS1,
           tb_s2: a.bestS2,
           tb_sec: hasTB ? a.bestS1Sec + a.bestS2Sec : null,

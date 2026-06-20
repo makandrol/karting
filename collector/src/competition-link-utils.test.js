@@ -81,16 +81,19 @@ describe('buildFullPhases', () => {
     expect(r1).toEqual(['race_1_group_3', 'race_1_group_2', 'race_1_group_1']);
   });
 
-  it('Gonzales: 2 quali + 12 раундів × 2 групи (default) = 26', () => {
+  it('Gonzales: 2 quali + 12 раундів (1 фаза на раунд, без груп) = 14', () => {
     const phases = buildFullPhases('gonzales');
-    expect(phases).toHaveLength(2 + 12 * 2);
-    expect(phases[2]).toBe('round_1_group_2');
-    expect(phases[3]).toBe('round_1_group_1');
+    expect(phases).toHaveLength(2 + 12);
+    expect(phases[2]).toBe('round_1');
+    expect(phases[3]).toBe('round_2');
+    expect(phases).not.toContain('round_1_group_1');
+    expect(phases).not.toContain('round_1_group_2');
   });
 
-  it('Gonzales: кастомний roundCount', () => {
-    const phases = buildFullPhases('gonzales', { gonzalesRoundCount: 5 });
-    expect(phases).toHaveLength(2 + 5 * 2);
+  it('Gonzales: кастомний roundCount (більше пілотів → більше раундів)', () => {
+    const phases = buildFullPhases('gonzales', { gonzalesRoundCount: 18 });
+    expect(phases).toHaveLength(2 + 18);
+    expect(phases[phases.length - 1]).toBe('round_18');
   });
 
   it('Marathon: 1 фаза', () => {
@@ -170,13 +173,24 @@ describe('filterPhases', () => {
     const rounds = filtered.filter(p => p.startsWith('round_'));
     const rounds6plus = rounds.filter(p => parseInt(p.match(/round_(\d+)/)[1]) > 5);
     expect(rounds6plus).toHaveLength(0);
+    expect(rounds).toHaveLength(5);
   });
 
-  it('Gonzales з 1 групою: дропає qualifying_2 і round_*_group_2', () => {
+  it('Gonzales з 1 групою: дропає qualifying_2, раунди залишаються (без груп)', () => {
     const filtered = filterPhases(buildFullPhases('gonzales'), 1, 'gonzales');
     expect(filtered).toContain('qualifying_1');
     expect(filtered).not.toContain('qualifying_2');
-    expect(filtered.filter(p => p.endsWith('_group_2'))).toHaveLength(0);
+    expect(filtered).toContain('round_1');
+    expect(filtered.filter(p => p.startsWith('round_'))).toHaveLength(12);
+    expect(filtered.filter(p => p.includes('group_'))).toHaveLength(0);
+  });
+
+  it('Gonzales з 2 групами: 2 квали + 12 раундів = 14 фаз', () => {
+    const filtered = filterPhases(buildFullPhases('gonzales'), 2, 'gonzales');
+    expect(filtered).toContain('qualifying_1');
+    expect(filtered).toContain('qualifying_2');
+    expect(filtered.filter(p => p.startsWith('round_'))).toHaveLength(12);
+    expect(filtered).toHaveLength(14);
   });
 
   it('groupCount=null для не-gonzales: повертає всі фази без змін', () => {
@@ -456,9 +470,9 @@ describe('COMPETITION_SCHEDULE constants', () => {
     expect(COMPETITION_SCHEDULE[6]).toBeUndefined();
   });
 
-  it('старт о 19:30 Kyiv', () => {
+  it('старт о 19:45 Kyiv', () => {
     expect(COMPETITION_AUTO_START_HOUR_KYIV).toBe(19);
-    expect(COMPETITION_AUTO_START_MIN_KYIV).toBe(30);
+    expect(COMPETITION_AUTO_START_MIN_KYIV).toBe(45);
   });
 });
 
@@ -508,12 +522,24 @@ describe('getScheduledFormat', () => {
 });
 
 describe('isCompetitionTime', () => {
-  it('Понеділок 19:30 Kyiv → true', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 30))).toBe(true);
+  it('Понеділок 20:05 Kyiv → true (Гонзалес старт)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 20, 5))).toBe(true);
   });
 
-  it('Понеділок 19:29 → false', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 29))).toBe(false);
+  it('Понеділок 20:04 → false (Гонзалес ще не почався)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 20, 4))).toBe(false);
+  });
+
+  it('Понеділок 19:45 → false (Гонзалес о 20:05, не 19:45)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 45))).toBe(false);
+  });
+
+  it('Вівторок 19:45 Kyiv → true (ЛЛ дефолтний поріг)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 45))).toBe(true);
+  });
+
+  it('Вівторок 19:44 → false', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 44))).toBe(false);
   });
 
   it('Понеділок 18:00 → false (зарано)', () => {

@@ -109,9 +109,11 @@ interface SessionReplayProps {
   showTable?: boolean;
   renderContent?: (parts: { scrubber: React.ReactNode; table: React.ReactNode }) => React.ReactNode;
   pilotSuffix?: Map<string, string>;
+  /** Use real lap timestamps for completion timeline (marathon: one race, reliable ts, pit gaps). */
+  useRealLapTimes?: boolean;
 }
 
-export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, competitionFormat, hidePoints, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent, pilotSuffix }: SessionReplayProps) {
+export default function SessionReplay({ laps, durationSec, sessionStartTime, isLive, raceNumber, autoPlay, liveEntries, s1Events, snapshots, startPositions, raceGroup, totalQualifiedPilots, competitionFormat, hidePoints, defaultSortMode, sortMode: controlledSortMode, onSortModeChange, columnFilter: controlledColumnFilter, onColumnFilterChange, onTimeUpdate, onEntriesUpdate, renderScrubber, showScrubber = true, showTable = true, renderContent, pilotSuffix, useRealLapTimes }: SessionReplayProps) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [currentTime, setCurrentTime] = useState(durationSec);
   const [speed, setSpeed] = useState(() => {
@@ -179,7 +181,14 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
     for (const pilot of pilots) {
       const pLaps = laps.filter(l => l.pilot === pilot);
       if (pLaps.length === 0) continue;
-      
+
+      // Marathon: lap ts is reliable (single race, simultaneous polling) and pit
+      // stops create gaps that lap durations don't capture — use real ts directly.
+      if (useRealLapTimes) {
+        timelines.set(pilot, pLaps.map(l => l.ts ?? 0).filter(ts => ts > 0));
+        continue;
+      }
+
       const firstTs = pLaps[0].ts;
       const firstLapSec = parseTime(pLaps[0].lapTime) || 42;
       const pilotStartMs = firstTs ? (firstTs - firstLapSec * 1000) : sessionStartTime;
@@ -194,7 +203,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       timelines.set(pilot, completionTimes);
     }
     return timelines;
-  }, [laps, pilots, sessionStartTime]);
+  }, [laps, pilots, sessionStartTime, useRealLapTimes]);
 
   // Get entries at a given time point with best S1/S2 tracking
   const getEntriesAtTime = useCallback((timeSec: number): TimingEntry[] => {
@@ -357,7 +366,7 @@ export default function SessionReplay({ laps, durationSec, sessionStartTime, isL
       }
 
       const liveLapNumber = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.lapNumber : completedLaps;
-      const liveKart = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.kart : (pilotLaps[0]?.kart || 0);
+      const liveKart = (onCurrentUnrecordedLap && liveEntry) ? liveEntry.kart : (prevLapData?.kart || pilotLaps[0]?.kart || 0);
 
       // Position from last recorded lap — used for sorting after all laps done
       const lastRecordedPos = prevLapData?.position ?? 99;

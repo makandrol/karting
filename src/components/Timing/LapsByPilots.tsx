@@ -11,6 +11,8 @@ export interface LapData {
   s2?: string | null;
   ts?: number;
   position?: number | null;
+  /** Marathon: actual driver of this lap (pilotName at that moment). */
+  driver?: string;
 }
 
 interface PilotLaps {
@@ -19,6 +21,8 @@ interface PilotLaps {
   bestLap: number;
   bestS1: number;
   bestS2: number;
+  /** Marathon: header label (team name) overriding `name`. */
+  headerLabel?: string;
 }
 
 interface LapsByPilotsProps {
@@ -30,6 +34,10 @@ interface LapsByPilotsProps {
   onToggleLap?: (key: string) => void;
   sessionId?: string;
   startPositions?: Map<string, number>;
+  /** Опційний трансформер відображуваного імені (raw timing + наше в дужках). Не впливає на rename/ключі. */
+  pilotDisplayName?: (name: string, kart: number) => string;
+  /** Marathon mode: columns = teams; show per-lap kart/driver change badges. */
+  marathon?: boolean;
 }
 
 export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sessionId?: string): PilotLaps[] {
@@ -60,6 +68,8 @@ export function buildPilotLaps(laps: LapData[], excludedLaps?: Set<string>, sess
 
 function compactName(name: string): string {
   if (!name || name.length <= 10) return name;
+  // Декороване ім'я "Карт 16 (X)" не вкорочуємо — показуємо повністю.
+  if (name.includes('(')) return name;
   const parts = name.trim().split(' ').filter(Boolean);
   if (parts.length < 2) return name.slice(0, 10);
   const surname = parts[0];
@@ -67,7 +77,7 @@ function compactName(name: string): string {
   return `${surname} ${parts[1][0]}.`;
 }
 
-export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId, startPositions }: LapsByPilotsProps) {
+export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId, startPositions, pilotDisplayName, marathon }: LapsByPilotsProps) {
   const [viewMode, setViewMode] = useState<'all' | 'main'>('main');
   const [sortMode, setSortMode] = useState<'time' | 'position'>('time');
   const isRace = startPositions != null && startPositions.size > 0;
@@ -121,18 +131,22 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
           </div>
         )}
       </div>
-      <div className="overflow-x-auto">
-        <table className="text-[10px]">
+      <div className="overflow-auto max-h-[75vh]">
+        <table className="text-[10px] border-separate border-spacing-0">
           <thead>
             <tr className="table-header">
-              <th className="table-cell text-center w-8">Коло</th>
+              <th className="table-cell text-center w-8 sticky top-0 left-0 z-30 bg-dark-800">Коло</th>
               {sortedPilots.map(p => (
-                <th key={p.name} className="table-cell text-left min-w-[100px]">
-                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.name}>
-                    {compactName(p.name)}
+                <th key={p.name} className="table-cell text-left min-w-[100px] sticky top-0 z-20 bg-dark-800">
+                  <Link to={`/pilots/${encodeURIComponent(p.name)}`} className="text-white hover:text-primary-400 transition-colors text-[9px]" title={p.headerLabel ?? (pilotDisplayName ? pilotDisplayName(p.name, p.laps[0]?.kart ?? 0) : p.name)}>
+                    {compactName(p.headerLabel ?? (pilotDisplayName ? pilotDisplayName(p.name, p.laps[0]?.kart ?? 0) : p.name))}
                   </Link>
                   <div className="flex items-center gap-1 font-normal">
-                    <span className={`${KART_COLOR} text-[11px]`}>Карт {p.laps[0]?.kart}</span>
+                    {marathon ? (
+                      <span className="text-dark-500 text-[9px]">старт #{p.laps[0]?.kart}</span>
+                    ) : (
+                      <span className={`${KART_COLOR} text-[11px]`}>Карт {p.laps[0]?.kart}</span>
+                    )}
                     {onRenamePilot && (() => {
                       const pilotName = p.name;
                       const rename = onRenamePilot;
@@ -159,7 +173,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
           <tbody>
             {Array.from({ length: maxLaps }, (_, lapIdx) => (
               <tr key={lapIdx} className="table-row">
-                <td className="table-cell text-center font-mono text-dark-500">{lapIdx + 1}</td>
+                <td className="table-cell text-center font-mono text-dark-500 sticky left-0 z-10 bg-dark-900">{lapIdx + 1}</td>
                 {sortedPilots.map(p => {
                   const lap = p.laps[lapIdx];
                   const completed = completedLapsMap.get(p.name) ?? 0;
@@ -180,6 +194,15 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   const s1Color = s1Val !== null && s1Val >= 10 ? getTimeColor(lap.s1!, s1Str, overallBestS1 < Infinity ? overallBestS1 : null) : 'none';
                   const s2Color = s2Val !== null && s2Val >= 10 ? getTimeColor(lap.s2!, s2Str, overallBestS2 < Infinity ? overallBestS2 : null) : 'none';
 
+                  // Marathon: detect kart/driver change vs previous lap in this column.
+                  let stintChange: { kart: number; driver?: string } | null = null;
+                  if (marathon) {
+                    const prevLap = p.laps[lapIdx - 1];
+                    const kartChanged = !prevLap || prevLap.kart !== lap.kart;
+                    const driverChanged = !prevLap || prevLap.driver !== lap.driver;
+                    if (kartChanged || driverChanged) stintChange = { kart: lap.kart, driver: lap.driver };
+                  }
+
                   let posDelta = 0;
                   if (startPositions && startPositions.size > 0 && lap.position != null && lap.position > 0) {
                     const prevPos = lapIdx === 0
@@ -194,7 +217,15 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                     <td key={p.name} className={`table-cell text-left font-mono ${
                       isExcluded ? 'opacity-40' :
                       isOverall ? 'text-purple-400 font-bold' : isPB ? 'text-green-400 font-bold' : 'text-dark-300'
-                    } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''}`}>
+                    } ${isCurrent ? 'ring-1 ring-primary-500/60 bg-primary-500/10 rounded' : ''} ${stintChange ? 'border-t-2 border-yellow-600/40' : ''}`}>
+                      {stintChange && (
+                        <div className="flex items-center gap-1 mb-0.5 -mt-0.5">
+                          <span className={`${KART_COLOR} text-[10px] font-bold`} title="Новий карт після піт-стопу">↻{stintChange.kart}</span>
+                          {stintChange.driver && !stintChange.driver.startsWith('Карт') && (
+                            <span className="text-dark-400 text-[8px] truncate max-w-[70px]">{compactName(stintChange.driver)}</span>
+                          )}
+                        </div>
+                      )}
                       <div className={`relative group ${isExcluded ? 'line-through decoration-red-400' : ''}`}>
                         {toSeconds(lap.lap_time)}
                         {posDelta !== 0 && (

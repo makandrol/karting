@@ -86,6 +86,9 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_laps_session ON laps(session_id);
   CREATE INDEX IF NOT EXISTS idx_laps_pilot ON laps(pilot);
+  CREATE INDEX IF NOT EXISTS idx_laps_kart ON laps(kart);
+  CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(date);
+  CREATE INDEX IF NOT EXISTS idx_sessions_date_race ON sessions(date, race_number);
 
   CREATE TABLE IF NOT EXISTS db_stats (
     key TEXT PRIMARY KEY,
@@ -147,16 +150,22 @@ try {
   if (row?.value) _currentTrackId = parseInt(row.value) || 1;
 } catch {}
 
+// Кеш Set виключених кіл (lazy, інвалідовується при toggle).
+let _excludedLapsCache = null;
+
+// Кеш розпарсених змагань (lazy). parseCompetitionRow важкий (JSON.parse
+// results.standings), а getAllCompetitions викликається у багатьох гарячих
+// шляхах. Інвалідовується при будь-якому write у competitions.
+let _competitionsCache = null;
+
 // ============================================================
 // Prepared statements
 // ============================================================
 
 const MIN_LAP_SEC = 38;
 const LAP_SEC_EXPR = `CASE WHEN lap_time LIKE '%:%' THEN CAST(SUBSTR(lap_time, 1, INSTR(lap_time, ':') - 1) AS REAL) * 60 + CAST(SUBSTR(lap_time, INSTR(lap_time, ':') + 1) AS REAL) ELSE CAST(lap_time AS REAL) END`;
-const LAP_SEC_EXPR_L2 = LAP_SEC_EXPR.replace(/lap_time/g, 'l2.lap_time');
 const LAP_SEC_EXPR_L = LAP_SEC_EXPR.replace(/lap_time/g, 'l.lap_time');
 const VALID_LAP = `lap_time IS NOT NULL AND (${LAP_SEC_EXPR}) >= ${MIN_LAP_SEC}`;
-const VALID_LAP_L2 = `l2.lap_time IS NOT NULL AND (${LAP_SEC_EXPR_L2}) >= ${MIN_LAP_SEC}`;
 const VALID_LAP_L = `l.lap_time IS NOT NULL AND (${LAP_SEC_EXPR_L}) >= ${MIN_LAP_SEC}`;
 
 const stmts = {
@@ -166,29 +175,12 @@ const stmts = {
   insertLap: db.prepare('INSERT INTO laps (session_id, pilot, kart, lap_number, lap_time, s1, s2, best_lap, position, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
   getSessions: db.prepare('SELECT * FROM sessions ORDER BY start_time DESC LIMIT ?'),
   getSessionsByDate: db.prepare('SELECT * FROM sessions WHERE date = ? ORDER BY start_time'),
-  getSessionsWithStats: db.prepare(`
-    SELECT s.*,
-      ls.real_pilot_count,
-      ls.best_lap_time
-    FROM sessions s
-    LEFT JOIN (
-      SELECT session_id,
-        COUNT(DISTINCT pilot) as real_pilot_count,
-        (SELECT l2.lap_time FROM laps l2 WHERE l2.session_id = laps.session_id AND ${VALID_LAP_L2}
-          ORDER BY (${LAP_SEC_EXPR_L2}) ASC LIMIT 1
-        ) as best_lap_time
-      FROM laps
-      WHERE ${VALID_LAP}
-      GROUP BY session_id
-    ) ls ON ls.session_id = s.id
-    WHERE s.date = ?
-    ORDER BY s.start_time
+  getLapsByDate: db.prepare(`
+    SELECT l.* FROM laps l JOIN sessions s ON s.id = l.session_id WHERE s.date = ?
   `),
-  getBestLapPilot: db.prepare(`
-    SELECT pilot, kart FROM laps
-    WHERE session_id = ? AND lap_time = ?
-    LIMIT 1
-  `),
+  getSessionTimeRow: db.prepare('SELECT start_time, end_time, race_number, date FROM sessions WHERE id = ?'),
+  getSessionEndTime: db.prepare('SELECT end_time FROM sessions WHERE id = ?'),
+  getSiblingsByRace: db.prepare('SELECT id, start_time, end_time FROM sessions WHERE date = ? AND race_number = ? AND id != ? ORDER BY start_time'),
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
   getSessionCountsByDateRange: db.prepare('SELECT date, COUNT(*) as count FROM sessions WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date'),
   getKartStats: db.prepare(`
@@ -292,22 +284,34 @@ export const storage = {
 
   /** Отримати сесії за дату (з мержем дублікатів по race_number) */
   getSessionsByDate(date) {
-    const rows = stmts.getSessionsWithStats.all(date);
+    const rows = stmts.getSessionsByDate.all(date);
     const compMap = this.getSessionCompetitionMap();
+
+    // Один запит усіх кіл дня (~30ms) замість важкого per-session SQL-підзапиту
+    // з CAST/ORDER BY (раніше ~600ms). real_pilot_count + best_lap рахуємо в JS.
+    const allLaps = remapKartNamesToPilots(stmts.getLapsByDate.all(date));
+    const lapsBySession = new Map();
+    for (const l of allLaps) {
+      if (!lapsBySession.has(l.session_id)) lapsBySession.set(l.session_id, []);
+      lapsBySession.get(l.session_id).push(l);
+    }
+
     const enriched = rows.map(r => {
-      let best_lap_pilot = null;
-      let best_lap_kart = null;
-      if (r.best_lap_time) {
-        // Шукаємо власника найкращого кола серед remap-лених лапів,
-        // щоб "Карт N" правильно перепризначилися на real name.
-        const remappedLaps = remapKartNamesToPilots(stmts.getLaps.all(r.id));
-        const bestLapRow = remappedLaps.find(l => l.lap_time === r.best_lap_time);
-        if (bestLapRow) { best_lap_pilot = bestLapRow.pilot; best_lap_kart = bestLapRow.kart; }
+      const laps = lapsBySession.get(r.id) || [];
+      const pilots = new Set();
+      let best_lap_time = null, best_lap_pilot = null, best_lap_kart = null, bestSec = Infinity;
+      for (const l of laps) {
+        const sec = parseLapTimeSec(l.lap_time);
+        if (sec === null || sec <= 0) continue;
+        const canonical = l.resolved_pilot ?? l.pilot;
+        pilots.add(canonical);
+        if (sec < bestSec) { bestSec = sec; best_lap_time = l.lap_time; best_lap_pilot = canonical; best_lap_kart = l.kart; }
       }
+      const real_pilot_count = pilots.size || null;
       const comp = compMap.get(r.id) || null;
       return {
-        ...r, best_lap_pilot, best_lap_kart,
-        pilot_count: r.real_pilot_count || r.pilot_count,
+        ...r, real_pilot_count, best_lap_time, best_lap_pilot, best_lap_kart,
+        pilot_count: real_pilot_count || r.pilot_count,
         competition_id: comp?.competitionId || null,
         competition_name: comp?.competitionName || null,
         competition_format: comp?.format || null,
@@ -341,20 +345,20 @@ export const storage = {
 
   getKartStats(fromDate, toDate) {
     const rows = stmts.getKartStats.all(fromDate, toDate);
-    return buildKartStats(remapKartNamesToPilots(rows));
+    return buildKartStats(remapKartNamesToPilots(rows), this.getExcludedLaps());
   },
 
   getKartStatsBySessions(sessionIds) {
     if (!sessionIds || sessionIds.length === 0) return [];
     const placeholders = sessionIds.map(() => '?').join(',');
     const rows = db.prepare(`
-      SELECT session_id, kart, pilot, lap_time, ts,
+      SELECT session_id, kart, pilot, lap_time, s1, s2, ts,
         (${LAP_SEC_EXPR}) as lap_sec
       FROM laps
       WHERE session_id IN (${placeholders}) AND ${VALID_LAP}
       ORDER BY kart, lap_sec
     `).all(...sessionIds);
-    return buildKartStats(remapKartNamesToPilots(rows));
+    return buildKartStats(remapKartNamesToPilots(rows), this.getExcludedLaps());
   },
 
   /** Отримати події (враховує merged sessions) */
@@ -393,28 +397,24 @@ export const storage = {
 
   /** Знайти merged_session_ids для батьківської сесії (лёгкий SQL-запит) */
   _getMergedIds(sessionId) {
-    const row = db.prepare('SELECT start_time, end_time, race_number, date FROM sessions WHERE id = ?').get(sessionId);
+    const row = stmts.getSessionTimeRow.get(sessionId);
     if (!row || row.race_number === null) return null;
 
-    const siblings = db.prepare(
-      `SELECT id FROM sessions WHERE date = ? AND race_number = ? AND id != ? ORDER BY start_time`
-    ).all(row.date, row.race_number, sessionId);
-
+    // Сусіди одразу з start_time/end_time — без окремого запиту на кожного.
+    const siblings = stmts.getSiblingsByRace.all(row.date, row.race_number, sessionId);
     if (siblings.length === 0) return null;
 
     const ids = [sessionId];
     const start = row.start_time;
     const end = row.end_time || row.start_time;
 
-    for (const s of siblings) {
-      const sRow = db.prepare('SELECT start_time, end_time FROM sessions WHERE id = ?').get(s.id);
-      if (!sRow) continue;
+    for (const sRow of siblings) {
       const sEnd = sRow.end_time || sRow.start_time;
       const gap = Math.min(
         Math.abs(sRow.start_time - end),
         Math.abs(start - sEnd)
       );
-      if (gap < MERGE_GAP_MS) ids.push(s.id);
+      if (gap < MERGE_GAP_MS) ids.push(sRow.id);
     }
 
     return ids.length > 1 ? ids : null;
@@ -425,21 +425,19 @@ export const storage = {
   },
 
   getKartSessionCounts(kartNumber) {
-    const dates = db.prepare('SELECT DISTINCT date FROM sessions ORDER BY date').all().map(r => r.date);
-    const result = [];
-    for (const date of dates) {
-      const sessions = this.getSessionsByDate(date);
-      let count = 0;
-      for (const s of sessions) {
-        if (!s.end_time || (s.end_time - s.start_time) < 60000) continue;
-        const ids = s.merged_session_ids || [s.id];
-        const placeholders = ids.map(() => '?').join(',');
-        const hasKart = db.prepare(`SELECT 1 FROM laps WHERE kart = ? AND session_id IN (${placeholders}) AND ${VALID_LAP} LIMIT 1`).get(kartNumber, ...ids);
-        if (hasKart) count++;
-      }
-      if (count > 0) result.push({ date, count });
-    }
-    return result;
+    // Скільки сесій за день містили кола цього карта. Один SQL-запит
+    // (раніше тут був getSessionsByDate на кожну дату — ~4.5с для карта).
+    // Рахуємо distinct session_id з валідними колами карта, групуємо по даті.
+    const rows = db.prepare(`
+      SELECT s.date as date, COUNT(DISTINCT l.session_id) as count
+      FROM laps l
+      JOIN sessions s ON s.id = l.session_id
+      WHERE l.kart = ? AND ${VALID_LAP_L}
+      GROUP BY s.date
+      HAVING count > 0
+      ORDER BY s.date
+    `).all(kartNumber);
+    return rows;
   },
 
   /** Статистика БД */
@@ -513,6 +511,12 @@ export const storage = {
     db.close();
   },
 
+  /** Скинути in-memory кеші (для тестів, що чистять БД напряму). */
+  _clearCaches() {
+    _competitionsCache = null;
+    _excludedLapsCache = null;
+  },
+
   /** Отримати системний стан */
   getSystemState(key) {
     const row = stmts.getState.get(key);
@@ -522,6 +526,32 @@ export const storage = {
   /** Зберегти системний стан */
   setSystemState(key, value) {
     stmts.setState.run(key, value, Date.now());
+  },
+
+  // ============================================================
+  // Excluded laps (глобально — для karts/гонки/прокату)
+  // ============================================================
+  // Зберігаються як JSON-масив ключів "sessionId|pilot|ts" у system_state.
+  // Кешуємо Set в пам'яті для O(1) перевірки без парсингу JSON щоразу.
+
+  getExcludedLaps() {
+    if (_excludedLapsCache === null) {
+      const raw = this.getSystemState('excluded_laps');
+      let arr = [];
+      try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
+      _excludedLapsCache = new Set(arr);
+    }
+    return _excludedLapsCache;
+  },
+
+  /** Toggle одного кола за ключем "sessionId|pilot|ts". @returns {boolean} excluded after toggle */
+  toggleExcludedLap(lapKey) {
+    const set = this.getExcludedLaps();
+    let excluded;
+    if (set.has(lapKey)) { set.delete(lapKey); excluded = false; }
+    else { set.add(lapKey); excluded = true; }
+    this.setSystemState('excluded_laps', JSON.stringify([...set]));
+    return excluded;
   },
 
   // ============================================================
@@ -536,6 +566,7 @@ export const storage = {
       uploaded_results ? JSON.stringify(uploaded_results) : null,
       status || 'live',
     );
+    _competitionsCache = null;
   },
 
   updateCompetition(id, fields) {
@@ -552,27 +583,56 @@ export const storage = {
       fields.status !== undefined ? fields.status : (parsed.status || 'live'),
       id,
     );
+    _competitionsCache = null;
     return true;
   },
 
+  /**
+   * Усі змагання, розпарсені, з кешу. parseCompetitionRow важкий (JSON.parse
+   * results), тож кешуємо результат і повторно використовуємо у всіх гарячих
+   * шляхах (getSessionsByDate, auto-link, finalize, ...). Кеш скидається при
+   * будь-якому write у competitions.
+   */
+  getAllCompetitionsParsed() {
+    if (_competitionsCache === null) {
+      _competitionsCache = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    }
+    return _competitionsCache;
+  },
+
   getCompetition(id) {
-    const row = stmts.getCompetition.get(id);
-    return row ? parseCompetitionRow(row) : null;
+    const comp = this.getAllCompetitionsParsed().find(c => c.id === id);
+    return comp ? this._withGlobalExcludedLaps(comp) : null;
   },
 
   getCompetitions(format) {
-    const rows = format ? stmts.getCompetitionsByFormat.all(format) : stmts.getAllCompetitions.all();
-    return rows.map(parseCompetitionRow);
+    const all = this.getAllCompetitionsParsed();
+    const filtered = format ? all.filter(c => c.format === format) : all;
+    return filtered.map(c => this._withGlobalExcludedLaps(c));
+  },
+
+  /**
+   * Домішує глобально виключені кола у results.excludedLaps змагання, щоб
+   * фронт (гонка/standings) враховував їх без окремого запиту. Глобальне
+   * сховище — джерело правди; legacy comp.results.excludedLaps зберігається.
+   */
+  _withGlobalExcludedLaps(comp) {
+    if (!comp) return comp;
+    const global = this.getExcludedLaps();
+    if (global.size === 0) return comp;
+    const results = comp.results || {};
+    const merged = new Set([...(results.excludedLaps || []), ...global]);
+    return { ...comp, results: { ...results, excludedLaps: [...merged] } };
   },
 
   deleteCompetition(id) {
-    return stmts.deleteCompetition.run(id).changes > 0;
+    const changed = stmts.deleteCompetition.run(id).changes > 0;
+    if (changed) _competitionsCache = null;
+    return changed;
   },
 
   getSessionCompetition(sessionId) {
-    const comps = stmts.getAllCompetitions.all();
-    for (const row of comps) {
-      const comp = parseCompetitionRow(row);
+    for (const comp of this.getAllCompetitionsParsed()) {
       const entry = comp.sessions.find(s => s.sessionId === sessionId);
       if (entry) return { competitionId: comp.id, competitionName: comp.name, format: comp.format, phase: entry.phase, status: comp.status };
     }
@@ -580,9 +640,8 @@ export const storage = {
   },
 
   getSessionCompetitionMap() {
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
     const map = new Map();
-    for (const comp of comps) {
+    for (const comp of this.getAllCompetitionsParsed()) {
       for (const s of comp.sessions) {
         map.set(s.sessionId, { competitionId: comp.id, competitionName: comp.name, format: comp.format, phase: s.phase, status: comp.status });
       }
@@ -606,9 +665,8 @@ export const storage = {
     if (!isCompetitionTime(now)) return null;
 
     const date = getKyivIsoDate(now);
-    const sameDay = stmts.getCompetitionsByFormat.all(format)
-      .map(parseCompetitionRow)
-      .find(c => c.date === date);
+    const sameDay = this.getAllCompetitionsParsed()
+      .find(c => c.format === format && c.date === date);
     if (sameDay) return sameDay;
 
     const id = buildAutoCompetitionId(format, now);
@@ -627,6 +685,42 @@ export const storage = {
   },
 
   /**
+   * Recompute `gonzalesRoundCount` for a Gonzales competition from the number
+   * of distinct pilots across ALL its qualifying sessions.
+   *
+   * Кількість раундів = MAX(12, пілотів). Карти завжди 12; зайві пілоти додають
+   * раунди для повної ротації. "Карт N" рахуються як валідні пілоти (timing
+   * іноді не виставляє реальні імена, але це справжні учасники).
+   *
+   * Зберігає лише якщо нове значення БІЛЬШЕ за поточне — щоб не "вкорочувати"
+   * змагання, якщо в пізнішій сесії менше пілотів (хтось зійшов).
+   *
+   * @param {object} comp parsed competition row
+   * @returns {number|null} the round count now stored, or null if not gonzales
+   */
+  recomputeGonzalesRoundCount(comp) {
+    if (!comp || comp.format !== 'gonzales') return null;
+
+    const qualiSessions = comp.sessions.filter(s => s.phase?.startsWith('qualifying'));
+    if (qualiSessions.length === 0) return null;
+
+    const pilots = new Set();
+    for (const qs of qualiSessions) {
+      const laps = this.getLaps(qs.sessionId);
+      for (const l of laps) pilots.add(l.pilot);
+    }
+    if (pilots.size === 0) return null;
+
+    const roundCount = Math.max(12, pilots.size);
+    const current = comp.results?.gonzalesRoundCount ?? 12;
+    if (roundCount > current) {
+      this.updateCompetition(comp.id, { results: { ...(comp.results || {}), gonzalesRoundCount: roundCount } });
+      console.log(`🔢 recomputeGonzalesRoundCount: comp ${comp.id} → ${roundCount} rounds (${pilots.size} quali pilots, was ${current})`);
+    }
+    return Math.max(roundCount, current);
+  },
+
+  /**
    * Lightweight auto-link на момент створення нової сесії.
    *
    * На цей момент в БД ще нема `laps` для нової сесії, тому overlap-аналіз
@@ -640,10 +734,10 @@ export const storage = {
    * @returns {{competitionId: string, phase: string}|null}
    */
   autoLinkSessionToActiveCompetition(sessionId) {
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comps = this.getAllCompetitionsParsed();
     let liveComp = comps.find(c => c.status === 'live');
 
-    // No live comp yet — try auto-start (Mon=Гонз, Tue=ЛЛ, Wed=ЛЧ, ≥19:30 Kyiv)
+    // No live comp yet — try auto-start (Mon=Гонз, Tue=ЛЛ, Wed=ЛЧ, ≥19:45 Kyiv)
     if (!liveComp) {
       const sessionTs = parseInt(sessionId.replace('session-', '')) || Date.now();
       const created = this.autoStartCompetitionIfTime(sessionTs);
@@ -659,7 +753,14 @@ export const storage = {
     }
 
     const results = liveComp.results || {};
-    const gonzalesRoundCount = results.gonzalesRoundCount ?? 12;
+    // Гонзалес: перерахувати кількість раундів з квалі-пілотів ПЕРЕД фільтром фаз,
+    // щоб нові заїзди не блокувались дефолтним roundCount=12 (інакше all-phases-filled
+    // спрацює зарано і змагання передчасно "завершиться").
+    let gonzalesRoundCount = results.gonzalesRoundCount ?? 12;
+    if (liveComp.format === 'gonzales') {
+      const recomputed = this.recomputeGonzalesRoundCount(liveComp);
+      if (recomputed != null) gonzalesRoundCount = recomputed;
+    }
     const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? null;
 
     const allPhases = buildFullPhases(liveComp.format, { gonzalesRoundCount });
@@ -700,7 +801,7 @@ export const storage = {
    * @returns {number|null} groupCount that was detected and stored, or null
    */
   detectGroupCountIfNeeded(sessionId) {
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comps = this.getAllCompetitionsParsed();
     const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
     if (!comp || comp.status !== 'live') return null;
 
@@ -776,7 +877,7 @@ export const storage = {
    * Викликається з poller.js при першому колі.
    */
   finalizeSessionPhaseOnFirstLap(sessionId) {
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comps = this.getAllCompetitionsParsed();
     const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
     if (!comp || comp.status !== 'live') return;
     if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint' && comp.format !== 'gonzales') return;
@@ -896,14 +997,14 @@ export const storage = {
     const FINISH_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour after last session
     const finishedIds = [];
 
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comps = this.getAllCompetitionsParsed();
     const live = comps.filter(c => c.status === 'live');
 
     for (const comp of live) {
       if (comp.sessions.length === 0) continue;
 
       const sessionMeta = comp.sessions
-        .map(s => db.prepare('SELECT end_time FROM sessions WHERE id = ?').get(s.sessionId))
+        .map(s => stmts.getSessionEndTime.get(s.sessionId))
         .filter(Boolean);
       if (sessionMeta.length === 0) continue;
 
@@ -933,7 +1034,7 @@ export const storage = {
   },
 
   autoUnlinkSession(sessionId) {
-    const comps = stmts.getAllCompetitions.all().map(parseCompetitionRow);
+    const comps = this.getAllCompetitionsParsed();
     for (const comp of comps) {
       const entry = comp.sessions.find(s => s.sessionId === sessionId);
       if (entry) {
@@ -1002,7 +1103,16 @@ export const storage = {
     const toUpdate = allOnDate.filter(s => !compMap.has(s.id)).map(s => s.id);
     if (toUpdate.length === 0) return 0;
 
-    return this.updateSessionsTrack(toUpdate, trackId);
+    const changes = this.updateSessionsTrack(toUpdate, trackId);
+    // Якщо міняємо трасу сьогоднішнього (останнього) прокату — оновлюємо й
+    // поточну трасу колектора, щоб live-poller створював нові sub-сесії вже
+    // на правильній трасі (інакше вони перетягують merge назад на стару).
+    const todayDate = new Date().toISOString().split('T')[0];
+    if (date === todayDate) {
+      this.setCurrentTrackId(trackId);
+      console.log(`🏁 propagateTrack ${sessionId} → ${trackId}; current track updated (today)`);
+    }
+    return changes;
   },
 
   renamePilot(sessionId, oldName, newName) {

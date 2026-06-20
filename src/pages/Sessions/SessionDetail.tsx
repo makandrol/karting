@@ -1,13 +1,15 @@
 import { useParams, Link } from 'react-router-dom';
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../../services/api';
-import { toSeconds, mergePilotNames, parseTime, KART_COLOR } from '../../utils/timing';
+import { toSeconds, parseTime, KART_COLOR } from '../../utils/timing';
+import { buildGonzalesKartPilotMap } from '../../utils/gonzalesPilotResolver';
 import { fmtTime, fmtDuration } from '../../utils/datetime';
 import { LoadingState } from '../../components/States';
 import { useAuth } from '../../services/auth';
 import SessionReplay, { type ReplaySortMode } from '../../components/Timing/SessionReplay';
 import LapsByPilots, { buildPilotLaps } from '../../components/Timing/LapsByPilots';
+import MarathonResults from '../../components/Results/MarathonResults';
 import SessionTypeChanger from '../../components/Timing/SessionTypeChanger';
 import { TrackMap } from '../../components/Track';
 import { useTrack } from '../../services/trackContext';
@@ -16,6 +18,7 @@ import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import type { TimingEntry } from '../../types';
 import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
+import { parseMarathon, buildMarathonLapColumns, buildMarathonStartPositions, buildMarathonReplayLaps, buildMarathonReplayStartPositions } from '../../utils/marathon';
 import { lazy, Suspense } from 'react';
 import { useSessionData } from './useSessionData';
 
@@ -30,7 +33,7 @@ export default function SessionDetail() {
   const {
     session: dbSession, setSession: setDbSession,
     daySessions, laps: dbLaps,
-    s1Events, snapshots: replaySnapshots,
+    s1Events, snapshots: replaySnapshots, rawEvents,
     startPositions, totalQualifiedPilots,
     sessionFormat, liveEntries,
     excludedLaps, setExcludedLaps,
@@ -39,9 +42,70 @@ export default function SessionDetail() {
 
   const [trackEntries, setTrackEntries] = useState<TimingEntry[]>([]);
   const [onboardOpen, setOnboardOpen] = useState(false);
+  const [replayTimeSec, setReplayTimeSec] = useState<number | undefined>(undefined);
+  const [pitRowOverrides, setPitRowOverrides] = useState<Record<string, 'L' | 'R'>>({});
+
+  // Гонзалес: мапа (kart) → реальне ім'я з ротації змагання, щоб показувати
+  // "Карт 16 (Апанасенко)" — raw timing + наше відоме ім'я в дужках.
+  const compFormat = (dbSession as any)?.competition_format as string | null;
+  const compPhaseRaw = (dbSession as any)?.competition_phase as string | null;
+  const compIdRaw = (dbSession as any)?.competition_id as string | null;
+  const isGonzalesRound = compFormat === 'gonzales' && !!compPhaseRaw && /^round_\d+/.test(compPhaseRaw);
+  const [gonzKartPilot, setGonzKartPilot] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    if (!isGonzalesRound || !compIdRaw || !sessionId) { setGonzKartPilot(new Map()); return; }
+    let active = true;
+    (async () => {
+      try {
+        const comp: any = await api.competitions.getNormalized(compIdRaw);
+        const cfg = comp?.results?.gonzalesConfig;
+        if (!cfg?.pilotStartSlots || !active) return;
+        const pilotCount = Object.keys(cfg.pilotStartSlots).length;
+        const karts = cfg.kartList && cfg.kartList.length > 0 ? cfg.kartList : Array.from({ length: 12 }, (_, i) => i + 1);
+        const map = buildGonzalesKartPilotMap([{ sessionId, phase: compPhaseRaw }], cfg, karts, pilotCount);
+        // Ключі мапи — `${sessionId}|${kart}`; зведемо до kart→pilot для цієї сесії.
+        const byKart = new Map<string, string>();
+        for (const [k, v] of map) { const kart = k.split('|')[1]; if (kart) byKart.set(kart, v); }
+        if (active) setGonzKartPilot(byKart);
+      } catch { /* ignore */ }
+    })();
+    return () => { active = false; };
+  }, [isGonzalesRound, compIdRaw, sessionId, compPhaseRaw]);
+
+  /** kart → resolved name з ремапу колектора (resolved_pilot на лапах). */
+  const kartResolvedFromLapsMemo = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const l of dbLaps) {
+      if (l.resolved_pilot && !m.has(l.kart)) m.set(l.kart, l.resolved_pilot);
+    }
+    return m;
+  }, [dbLaps]);
+
+  /** Display-ім'я пілота: raw timing + наше ім'я в дужках. */
+  const displayPilot = useMemo(() => (pilot: string, kart: number): string => {
+    // Для Гонзалес-round беремо ім'я з ротації; інакше — з ремапу колектора (resolved_pilot).
+    const resolved = isGonzalesRound
+      ? gonzKartPilot.get(String(kart))
+      : kartResolvedFromLapsMemo.get(kart);
+    return resolved && resolved !== pilot ? `${pilot} (${resolved})` : pilot;
+  }, [isGonzalesRound, gonzKartPilot, kartResolvedFromLapsMemo]);
 
   const { isSectionVisible, getPageLayout } = useLayoutPrefs();
   const sessionLayout = getPageLayout('sessionDetail');
+
+  // Marathon: parse events once → per-team lap columns + start positions (race mode).
+  const marathonLapData = useMemo(() => {
+    if (compFormat !== 'marathon' || rawEvents.length === 0) return null;
+    const model = parseMarathon(rawEvents);
+    return {
+      columns: buildMarathonLapColumns(model),
+      startPositions: buildMarathonStartPositions(model),
+      replayLaps: buildMarathonReplayLaps(model),
+      replayStartPositions: buildMarathonReplayStartPositions(model),
+      teamCount: model.teams.length,
+    };
+  }, [compFormat, rawEvents]);
 
   const handleRenamePilot = async (oldName: string, newName: string) => {
     if (!sessionId) return;
@@ -66,16 +130,12 @@ export default function SessionDetail() {
     } catch { /* ignore */ }
   };
 
-  const compId = (dbSession as any)?.competition_id;
   const handleToggleLap = async (lapKey: string) => {
-    if (!compId) return;
     const next = new Set(excludedLaps);
     next.has(lapKey) ? next.delete(lapKey) : next.add(lapKey);
     setExcludedLaps(next);
     try {
-      const comp = await api.competitions.getNormalized(compId);
-      const results = comp.results;
-      await api.competitions.update(compId, { results: { ...results, excludedLaps: [...next] } });
+      await api.laps.toggleExcluded(lapKey);
     } catch {}
   };
 
@@ -93,7 +153,7 @@ export default function SessionDetail() {
     );
   }
 
-  const mergedLaps = mergePilotNames(dbLaps);
+  const mergedLaps = dbLaps;
   const pilots = buildPilotLaps(
     mergedLaps.filter(l => l.lap_time).map(l => ({ pilot: l.pilot, kart: l.kart, lap_time: l.lap_time, s1: l.s1, s2: l.s2, ts: l.ts, position: l.position })),
     excludedLaps.size > 0 ? excludedLaps : undefined,
@@ -110,6 +170,7 @@ export default function SessionDetail() {
 
   const compPhaseStr = (dbSession as any).competition_phase as string | null;
   const { raceGroup, isRace } = extractCompetitionReplayProps(compPhaseStr);
+  const isMarathon = compFormat === 'marathon';
 
   return (
     <div className="space-y-6">
@@ -197,7 +258,105 @@ export default function SessionDetail() {
         </div>
       </div>
 
-      {pilots.length === 0 && liveEntries.length === 0 ? (
+      {isMarathon ? (
+        <>
+          {!dbSession.end_time && (
+            <div className="flex items-center gap-2 text-green-400 text-xs">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              Гонка активна — дані оновлюються кожні 3 секунди
+            </div>
+          )}
+          {(() => {
+            const replayLaps = marathonLapData?.replayLaps ?? [];
+            const realDurationSec = dbSession.end_time
+              ? Math.round((dbSession.end_time - dbSession.start_time) / 1000)
+              : Math.round((Date.now() - dbSession.start_time) / 1000);
+            const track = allTracks.find(t => t.id === dbSession.track_id) || allTracks[0];
+            const lapsByPilotsEl = (
+              <LapsByPilots key="lapsByPilots"
+                pilots={(marathonLapData?.columns ?? []) as any}
+                currentEntries={trackEntries}
+                isLive={!dbSession.end_time}
+                sessionId={sessionId}
+                startPositions={marathonLapData?.startPositions}
+                marathon />
+            );
+            const marathonPitEl = (
+              <MarathonResults key="marathonPit"
+                events={rawEvents}
+                sessionStartTime={dbSession.start_time}
+                currentTimeSec={replayTimeSec}
+                sections={['marathonPit']}
+                pitRowOverrides={pitRowOverrides}
+                onPitRowOverridesChange={isOwner ? setPitRowOverrides : undefined} />
+            );
+            const marathonTeamsEl = (
+              <MarathonResults key="marathonTeams"
+                events={rawEvents}
+                sessionStartTime={dbSession.start_time}
+                currentTimeSec={replayTimeSec}
+                sections={['marathonTeams']} />
+            );
+            const marathonKartsEl = (
+              <MarathonResults key="marathonKarts"
+                events={rawEvents}
+                sessionStartTime={dbSession.start_time}
+                sections={['marathonKarts']} />
+            );
+
+            if (replayLaps.length === 0) {
+              return (
+                <>
+                  {marathonPitEl}
+                  {marathonTeamsEl}
+                  {marathonKartsEl}
+                </>
+              );
+            }
+
+            return (
+              <SessionReplay
+                laps={replayLaps}
+                durationSec={realDurationSec}
+                sessionStartTime={dbSession.start_time}
+                isLive={!dbSession.end_time}
+                raceNumber={dbSession.race_number}
+                autoPlay={true}
+                startPositions={marathonLapData?.replayStartPositions}
+                hidePoints
+                defaultSortMode={'race' as ReplaySortMode}
+                onEntriesUpdate={setTrackEntries}
+                onTimeUpdate={setReplayTimeSec}
+                useRealLapTimes
+                renderScrubber={(scrubber) => (
+                  <div className="sticky top-0 z-10 bg-dark-900/95 backdrop-blur-sm border border-dark-700 px-4 py-2.5 rounded-xl mb-2">
+                    {scrubber}
+                  </div>
+                )}
+                renderContent={({ scrubber, table }) => {
+                  const sectionMap: Record<string, ReactNode> = {
+                    replay: scrubber,
+                    timingTable: table,
+                    track: track?.svgPath ? <TrackMap track={track} entries={trackEntries} static /> : null,
+                    lapsByPilots: lapsByPilotsEl,
+                    marathonPit: marathonPitEl,
+                    marathonTeams: marathonTeamsEl,
+                    marathonKarts: marathonKartsEl,
+                  };
+                  return (
+                    <>
+                      {sessionLayout.map(s => {
+                        if (!s.visible || !sectionMap[s.id]) return null;
+                        return <div key={s.id}>{sectionMap[s.id]}</div>;
+                      })}
+                    </>
+                  );
+                }}
+              />
+            );
+          })()}
+        </>
+      ) : pilots.length === 0 && liveEntries.length === 0 ? (
         <div className="card text-center py-8 text-dark-500 text-sm">
           {!dbSession.end_time ? 'Заїзд активний, кола ще не зафіксовані' : 'Немає даних кіл для цього заїзду'}
         </div>
@@ -229,7 +388,7 @@ export default function SessionDetail() {
                   {liveEntries.map((e: any, i: number) => (
                     <tr key={e.pilot} className="table-row">
                       <td className="table-cell text-center font-mono font-bold text-white">{e.position || i + 1}</td>
-                      <td className="table-cell text-left text-white">{e.pilot}</td>
+                      <td className="table-cell text-left text-white">{displayPilot(e.pilot, e.kart)}</td>
                       <td className={`table-cell text-center font-mono ${KART_COLOR}`}>{e.kart}</td>
                       <td className="table-cell text-center font-mono text-dark-300">{e.lapNumber || 0}</td>
                       <td className="table-cell text-right font-mono text-dark-300">{toSeconds(e.lastLap)}</td>
@@ -260,8 +419,9 @@ export default function SessionDetail() {
             const lapsByPilotsEl = (
               <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
                 excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
-                onToggleLap={isOwner && compId ? handleToggleLap : undefined}
+                onToggleLap={isOwner ? handleToggleLap : undefined}
                 sessionId={sessionId}
+                pilotDisplayName={displayPilot}
                 startPositions={isRace ? startPositions : undefined} />
             );
 
@@ -308,8 +468,9 @@ export default function SessionDetail() {
           {!(dbSession.end_time && dbLaps.length > 0) && (
             <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
               excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
-              onToggleLap={isOwner && compId ? handleToggleLap : undefined}
+              onToggleLap={isOwner ? handleToggleLap : undefined}
               sessionId={sessionId}
+              pilotDisplayName={displayPilot}
               startPositions={isRace ? startPositions : undefined} />
           )}
         </>

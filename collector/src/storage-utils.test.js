@@ -160,6 +160,23 @@ describe('buildKartStats', () => {
     const result = buildKartStats(rows);
     expect(result[0].top5[0].tb_sec).toBeNull();
   });
+
+  it('пропускає глобально виключені кола (excludedLaps)', () => {
+    const rows = [
+      { session_id: 's1', kart: 1, pilot: 'A', lap_time: '40.0', lap_sec: 40.0, s1: '19.0', s2: '21.0', ts: 100 },
+      { session_id: 's1', kart: 1, pilot: 'A', lap_time: '41.0', lap_sec: 41.0, s1: '19.5', s2: '21.5', ts: 200 },
+    ];
+    // Без виключень — best 40.0
+    expect(buildKartStats(rows).find(r => r.kart === 1).top5[0].lap_time).toBe('40.0');
+    // Виключаємо найшвидше коло (ts=100) → best стає 41.0
+    const excluded = new Set(['s1|A|100']);
+    const res = buildKartStats(rows, excluded);
+    const a = res.find(r => r.kart === 1).top5[0];
+    expect(a.lap_time).toBe('41.0');
+    // TB рахується тільки з невиключених кіл: S1 19.5 + S2 21.5
+    expect(a.tb_s1).toBe('19.5');
+    expect(a.tb_s2).toBe('21.5');
+  });
 });
 
 describe('remapKartNamesToPilots', () => {
@@ -168,17 +185,17 @@ describe('remapKartNamesToPilots', () => {
     expect(remapKartNamesToPilots(null)).toBe(null);
   });
 
-  it('замінює "Карт N" на real name коли в групі рівно 1 real', () => {
+  it('замінює "Карт N" на real name коли в групі рівно 1 real (через resolved_pilot)', () => {
     const laps = [
       { session_id: 's1', kart: 3, pilot: 'Карт 3', lap_time: '42.0' },
       { session_id: 's1', kart: 3, pilot: 'Карт 3', lap_time: '42.5' },
       { session_id: 's1', kart: 3, pilot: 'Шевченко Владислав', lap_time: '41.8' },
     ];
     const result = remapKartNamesToPilots(laps);
-    expect(result.map(l => l.pilot)).toEqual([
-      'Шевченко Владислав',
-      'Шевченко Владислав',
-      'Шевченко Владислав',
+    // pilot лишається raw, resolved_pilot — реальне ім'я для "Карт N"
+    expect(result.map(l => l.pilot)).toEqual(['Карт 3', 'Карт 3', 'Шевченко Владислав']);
+    expect(result.map(l => l.resolved_pilot)).toEqual([
+      'Шевченко Владислав', 'Шевченко Владислав', null,
     ]);
   });
 
@@ -192,23 +209,26 @@ describe('remapKartNamesToPilots', () => {
     expect(laps).toEqual(original);
   });
 
-  it('case-insensitive для "Карт"', () => {
+  it('case-insensitive для "Карт" (resolved_pilot)', () => {
     const laps = [
       { session_id: 's1', kart: 5, pilot: 'карт 5' },
       { session_id: 's1', kart: 5, pilot: 'КАРТ 5' },
       { session_id: 's1', kart: 5, pilot: 'Іван' },
     ];
     const result = remapKartNamesToPilots(laps);
-    expect(result.every(l => l.pilot === 'Іван')).toBe(true);
+    expect(result[0].resolved_pilot).toBe('Іван');
+    expect(result[1].resolved_pilot).toBe('Іван');
+    expect(result[2].resolved_pilot).toBe(null);
   });
 
-  it('лишає "Карт N" якщо нема real name на цьому карті', () => {
+  it('лишає "Карт N" без resolved якщо нема real name на цьому карті', () => {
     const laps = [
       { session_id: 's1', kart: 5, pilot: 'Карт 5' },
       { session_id: 's1', kart: 5, pilot: 'Карт 5' },
     ];
     const result = remapKartNamesToPilots(laps);
     expect(result.every(l => l.pilot === 'Карт 5')).toBe(true);
+    expect(result.every(l => l.resolved_pilot === null)).toBe(true);
   });
 
   it('лишає "Карт N" якщо є 2+ real names на одному карті (edge case 2 пілоти)', () => {
@@ -218,12 +238,11 @@ describe('remapKartNamesToPilots', () => {
       { session_id: 's1', kart: 3, pilot: 'Петро' },
     ];
     const result = remapKartNamesToPilots(laps);
-    expect(result[0].pilot).toBe('Карт 3');
-    expect(result[1].pilot).toBe('Іван');
-    expect(result[2].pilot).toBe('Петро');
+    expect(result.map(l => l.pilot)).toEqual(['Карт 3', 'Іван', 'Петро']);
+    expect(result.every(l => l.resolved_pilot === null)).toBe(true);
   });
 
-  it('кожен карт ремапиться окремо в одній сесії', () => {
+  it('кожен карт резолвиться окремо в одній сесії', () => {
     const laps = [
       { session_id: 's1', kart: 3, pilot: 'Карт 3' },
       { session_id: 's1', kart: 3, pilot: 'Іван' },
@@ -231,7 +250,7 @@ describe('remapKartNamesToPilots', () => {
       { session_id: 's1', kart: 5, pilot: 'Петро' },
     ];
     const result = remapKartNamesToPilots(laps);
-    expect(result.map(l => l.pilot)).toEqual(['Іван', 'Іван', 'Петро', 'Петро']);
+    expect(result.map(l => l.resolved_pilot)).toEqual(['Іван', null, 'Петро', null]);
   });
 
   it('різні session_id з тим же kart — ізольовані', () => {
@@ -242,7 +261,7 @@ describe('remapKartNamesToPilots', () => {
       { session_id: 's2', kart: 3, pilot: 'Петро' },
     ];
     const result = remapKartNamesToPilots(laps);
-    expect(result.map(l => `${l.session_id}|${l.pilot}`)).toEqual([
+    expect(result.map(l => `${l.session_id}|${l.resolved_pilot ?? l.pilot}`)).toEqual([
       's1|Іван', 's1|Іван', 's2|Петро', 's2|Петро',
     ]);
   });
@@ -254,20 +273,20 @@ describe('remapKartNamesToPilots', () => {
       { session_id: 's2', kart: 3, pilot: 'Іван' },
     ];
     const result = remapKartNamesToPilots(laps);
-    // s1 → лишається "Карт 3" (нема real name); s2 → "Іван"
-    expect(result[0].pilot).toBe('Карт 3');
-    expect(result[1].pilot).toBe('Іван');
-    expect(result[2].pilot).toBe('Іван');
+    // s1 → лишається "Карт 3" (нема real name); s2 → resolved "Іван"
+    expect(result[0].resolved_pilot).toBe(null);
+    expect(result[1].resolved_pilot).toBe('Іван');
+    expect(result[2].resolved_pilot).toBe(null);
   });
 
-  it('зберігає інші поля лапу', () => {
+  it('зберігає інші поля лапу (pilot raw + resolved_pilot)', () => {
     const laps = [
       { session_id: 's1', kart: 3, pilot: 'Карт 3', lap_time: '42.0', ts: 1000, lap_number: 1 },
       { session_id: 's1', kart: 3, pilot: 'Іван', lap_time: '41.5', ts: 1500, lap_number: 2 },
     ];
     const result = remapKartNamesToPilots(laps);
     expect(result[0]).toEqual({
-      session_id: 's1', kart: 3, pilot: 'Іван', lap_time: '42.0', ts: 1000, lap_number: 1,
+      session_id: 's1', kart: 3, pilot: 'Карт 3', resolved_pilot: 'Іван', lap_time: '42.0', ts: 1000, lap_number: 1,
     });
   });
 
@@ -277,6 +296,7 @@ describe('remapKartNamesToPilots', () => {
       { kart: 3, pilot: 'Іван' },
     ];
     const result = remapKartNamesToPilots(laps);
-    expect(result.every(l => l.pilot === 'Іван')).toBe(true);
+    expect(result[0].resolved_pilot).toBe('Іван');
+    expect(result[1].resolved_pilot).toBe(null);
   });
 });

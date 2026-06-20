@@ -275,6 +275,25 @@ describe('getPhasesForFormat', () => {
     expect(ids).toContain('final_group_1');
     expect(ids).toContain('final_group_2');
   });
+
+  it('Gonzales: 1 квала + N раундів без груп (roundCount=14)', () => {
+    const phases = getPhasesForFormat('gonzales', 1, 14);
+    const ids = phases.map(p => p.id);
+    expect(ids).toContain('qualifying_1');
+    expect(ids).not.toContain('qualifying_2');
+    expect(ids).toContain('round_1');
+    expect(ids).toContain('round_14');
+    expect(ids.filter(id => id.startsWith('round_'))).toHaveLength(14);
+    expect(ids.some(id => id.includes('group_'))).toBe(false);
+    // labels: round_1 → Гонка 1
+    expect(phases.find(p => p.id === 'round_1')?.label).toBe('Гонка 1');
+  });
+
+  it('Gonzales: 2 квали + 12 раундів (default roundCount) = 14 фаз', () => {
+    const phases = getPhasesForFormat('gonzales', 2, 12);
+    expect(phases).toHaveLength(14);
+    expect(phases.map(p => p.id).filter(id => id.startsWith('round_'))).toHaveLength(12);
+  });
 });
 
 // ============================================================
@@ -287,7 +306,11 @@ describe('getPhaseLabel', () => {
     expect(getPhaseLabel('light_league', 'race_1_group_1')).toBe('Гонка 1 · Група 1');
   });
 
-  it('returns "Гонка N" for gonzales rounds', () => {
+  it('returns "Гонка N" for gonzales rounds (новий формат round_N)', () => {
+    expect(getPhaseLabel('gonzales', 'round_5', 1)).toBe('Гонка 5');
+  });
+
+  it('returns "Гонка N" for legacy gonzales round_N_group_Y', () => {
     expect(getPhaseLabel('gonzales', 'round_5_group_1', 1)).toBe('Гонка 5');
   });
 });

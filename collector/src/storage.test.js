@@ -28,6 +28,7 @@ function clean() {
     DELETE FROM events;
     DELETE FROM sessions;
   `);
+  storage._clearCaches();
 }
 
 function insertSession(id, opts = {}) {
@@ -183,6 +184,96 @@ describe('storage.autoLinkSessionToActiveCompetition', () => {
 });
 
 // ============================================================
+// recomputeGonzalesRoundCount
+// ============================================================
+
+describe('storage.recomputeGonzalesRoundCount', () => {
+  it('рахує MAX(12, пілотів) з квалі-сесій ("Карт N" як валідні пілоти)', () => {
+    insertSession('session-1000');
+    insertSession('session-2000');
+    insertLaps('session-1000', { 'Іванов': 3, 'Петров': 3, 'Сидоров': 3 }); // 3 реальних
+    insertLaps('session-2000', {
+      'Карт 1': 3, 'Карт 2': 3, 'Карт 3': 3, 'Карт 4': 3, 'Карт 5': 3,
+      'Карт 6': 3, 'Карт 7': 3, 'Карт 8': 3, 'Карт 9': 3, 'Карт 10': 3,
+      'Карт 11': 3, 'Карт 12': 3, 'Карт 13': 3, 'Карт 14': 3, 'Карт 15': 3,
+      'Карт 16': 3,
+    }); // 16 "Карт N" — рахуються як пілоти
+    makeCompetition({
+      id: 'g1', format: 'gonzales',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-2000', phase: 'qualifying_2' },
+      ],
+    });
+
+    const comp = storage.getCompetition('g1');
+    const rc = storage.recomputeGonzalesRoundCount(comp);
+    expect(rc).toBe(19); // 3 + 16 = 19 distinct → MAX(12, 19) = 19
+    expect(storage.getCompetition('g1').results.gonzalesRoundCount).toBe(19);
+  });
+
+  it('повертає 12 коли пілотів менше за 12', () => {
+    insertSession('session-1000');
+    insertLaps('session-1000', { 'A': 3, 'B': 3, 'C': 3, 'D': 3 });
+    makeCompetition({
+      id: 'g1', format: 'gonzales',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+    });
+    const comp = storage.getCompetition('g1');
+    expect(storage.recomputeGonzalesRoundCount(comp)).toBe(12);
+  });
+
+  it('не зменшує вже збережений roundCount', () => {
+    insertSession('session-1000');
+    insertLaps('session-1000', { 'A': 3, 'B': 3 });
+    makeCompetition({
+      id: 'g1', format: 'gonzales',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+      results: { gonzalesRoundCount: 18 },
+    });
+    const comp = storage.getCompetition('g1');
+    expect(storage.recomputeGonzalesRoundCount(comp)).toBe(18);
+    expect(storage.getCompetition('g1').results.gonzalesRoundCount).toBe(18);
+  });
+
+  it('ігнорує не-gonzales формати', () => {
+    makeCompetition({ id: 'c1', format: 'light_league' });
+    const comp = storage.getCompetition('c1');
+    expect(storage.recomputeGonzalesRoundCount(comp)).toBe(null);
+  });
+});
+
+// ============================================================
+// gonzales auto-link: не блокується дефолтним roundCount=12
+// ============================================================
+
+describe('storage.autoLinkSessionToActiveCompetition (gonzales rounds)', () => {
+  it('лінкує 13-й раунд коли пілотів >12 (roundCount перераховано)', () => {
+    // 2 квали з 15 пілотами сумарно → roundCount має стати 15
+    insertSession('session-100');
+    insertSession('session-200');
+    insertLaps('session-100', {
+      'P1': 3, 'P2': 3, 'P3': 3, 'P4': 3, 'P5': 3, 'P6': 3, 'P7': 3, 'P8': 3,
+    });
+    insertLaps('session-200', {
+      'P9': 3, 'P10': 3, 'P11': 3, 'P12': 3, 'P13': 3, 'P14': 3, 'P15': 3,
+    });
+
+    const sessions = [
+      { sessionId: 'session-100', phase: 'qualifying_1' },
+      { sessionId: 'session-200', phase: 'qualifying_2' },
+    ];
+    for (let r = 1; r <= 12; r++) sessions.push({ sessionId: `session-${1000 + r}`, phase: `round_${r}` });
+    makeCompetition({ id: 'g1', format: 'gonzales', sessions });
+
+    insertSession('session-1013'); // 13-й раунд
+    const result = storage.autoLinkSessionToActiveCompetition('session-1013');
+    expect(result?.phase).toBe('round_13');
+    expect(storage.getCompetition('g1').results.gonzalesRoundCount).toBe(15);
+  });
+});
+
+// ============================================================
 // recheckSessionPhase
 // ============================================================
 
@@ -322,8 +413,8 @@ function kyivTs(year, month, day, hour = 0, minute = 0) {
 }
 
 describe('storage.autoStartCompetitionIfTime', () => {
-  it('створює gonzales у понеділок ≥19:30 Kyiv', () => {
-    const ts = kyivTs(2026, 6, 1, 20, 0); // Mon 20:00
+  it('створює gonzales у понеділок ≥20:05 Kyiv', () => {
+    const ts = kyivTs(2026, 6, 1, 20, 10); // Mon 20:10
     const created = storage.autoStartCompetitionIfTime(ts);
     expect(created).not.toBeNull();
     expect(created.format).toBe('gonzales');
@@ -342,9 +433,9 @@ describe('storage.autoStartCompetitionIfTime', () => {
     expect(created.format).toBe('champions_league');
   });
 
-  it('повертає null до 19:30 Kyiv', () => {
+  it('повертає null до 20:05 Kyiv (понеділок, Гонзалес)', () => {
     expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 0))).toBe(null);
-    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 29))).toBe(null);
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 20, 4))).toBe(null);
   });
 
   it('повертає null у дні поза розкладом (Чт, Пт, Сб, Нд)', () => {
@@ -355,7 +446,7 @@ describe('storage.autoStartCompetitionIfTime', () => {
   });
 
   it('повертає існуюче змагання якщо вже є того дня (idempotent)', () => {
-    const ts = kyivTs(2026, 6, 1, 20, 0);
+    const ts = kyivTs(2026, 6, 1, 20, 10);
     const a = storage.autoStartCompetitionIfTime(ts);
     const b = storage.autoStartCompetitionIfTime(ts);
     expect(b.id).toBe(a.id);
@@ -370,7 +461,7 @@ describe('storage.autoStartCompetitionIfTime', () => {
     // Hack: вручну виставляю date через update
     storage.updateCompetition('gonzales-existing', { date: '2026-06-01' });
 
-    const result = storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 20, 0));
+    const result = storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 20, 10));
     expect(result.id).toBe('gonzales-existing');
     expect(result.status).toBe('finished');
   });
@@ -378,7 +469,7 @@ describe('storage.autoStartCompetitionIfTime', () => {
 
 describe('storage.autoLinkSessionToActiveCompetition (with auto-start)', () => {
   it('створює нове gonzales-змагання + лінкує першу сесію як qualifying_1 у понеділок', () => {
-    const ts = kyivTs(2026, 6, 1, 20, 0);
+    const ts = kyivTs(2026, 6, 1, 20, 10);
     const sessionId = `session-${ts}`;
     insertSession(sessionId, { startTime: ts });
 
@@ -524,7 +615,7 @@ describe('storage.getLaps з ремапом "Карт N" → real names', () => 
     });
   }
 
-  it('перейменовує "Карт N" коли є real name на тому ж карті', () => {
+  it('резолвить "Карт N" коли є real name на тому ж карті (pilot raw + resolved_pilot)', () => {
     insertSession('session-1000');
     insertRawLap('session-1000', 'Карт 3', 3, 1, '42.0', 1000);
     insertRawLap('session-1000', 'Карт 3', 3, 2, '42.5', 2000);
@@ -532,16 +623,22 @@ describe('storage.getLaps з ремапом "Карт N" → real names', () => 
 
     const laps = storage.getLaps('session-1000');
     expect(laps).toHaveLength(3);
-    expect(laps.every(l => l.pilot === 'Шевченко')).toBe(true);
+    // pilot лишається raw; resolved_pilot = "Шевченко" для "Карт 3"
+    const kartLaps = laps.filter(l => l.pilot === 'Карт 3');
+    expect(kartLaps.length).toBe(2);
+    expect(kartLaps.every(l => l.resolved_pilot === 'Шевченко')).toBe(true);
+    const real = laps.find(l => l.pilot === 'Шевченко');
+    expect(real.resolved_pilot).toBe(null);
   });
 
-  it('лишає "Карт N" якщо нема real name', () => {
+  it('лишає "Карт N" без resolved якщо нема real name', () => {
     insertSession('session-1000');
     insertRawLap('session-1000', 'Карт 5', 5, 1, '42.0', 1000);
     insertRawLap('session-1000', 'Карт 5', 5, 2, '42.5', 2000);
 
     const laps = storage.getLaps('session-1000');
     expect(laps.every(l => l.pilot === 'Карт 5')).toBe(true);
+    expect(laps.every(l => l.resolved_pilot === null)).toBe(true);
   });
 
   it('autoLink overlap-аналіз бачить правильні імена після ремапу', () => {

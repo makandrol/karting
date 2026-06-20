@@ -12,7 +12,7 @@
  * Replaces an inline 130-line useEffect that did all of this in SessionDetail.tsx.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { COLLECTOR_URL, api, type DbSession } from '../../services/api';
 import { fetchRaceStartPositions } from '../../utils/timing';
 import { type S1Event, type SnapshotPosition, parseSessionEvents } from '../../components/Timing/SessionReplay';
@@ -31,6 +31,8 @@ export interface SessionDataResult {
   s1Events: S1Event[];
   /** Position snapshots (parsed from all event types). */
   snapshots: SnapshotPosition[];
+  /** Raw events array (needed for marathon parsing). */
+  rawEvents: any[];
   /** Start positions for race/final phases. */
   startPositions: Map<string, number>;
   totalQualifiedPilots: number;
@@ -51,12 +53,15 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
   const [laps, setLaps] = useState<DbLap[]>([]);
   const [s1Events, setS1Events] = useState<S1Event[]>([]);
   const [snapshots, setSnapshots] = useState<SnapshotPosition[]>([]);
+  const [rawEvents, setRawEvents] = useState<any[]>([]);
   const [startPositions, setStartPositions] = useState<Map<string, number>>(new Map());
   const [totalQualifiedPilots, setTotalQualifiedPilots] = useState(0);
   const [sessionFormat, setSessionFormat] = useState<string | null>(null);
   const [liveEntries, setLiveEntries] = useState<any[]>([]);
   const [excludedLaps, setExcludedLaps] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  /** Max event ts seen — for incremental live event fetch (marathon real-time). */
+  const lastEventTsRef = useRef(0);
 
   // ── Initial load ───────────────────────────────────────────
   useEffect(() => {
@@ -90,8 +95,18 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
         setLaps(allLaps);
         setS1Events(parsed.s1Events);
         setSnapshots(parsed.snapshots);
+        setRawEvents(allEvents);
+        lastEventTsRef.current = allEvents.reduce((m, e: any) => Math.max(m, e.ts || 0), 0);
 
-        // Competition data: excluded laps, format, start positions
+        // Excluded laps: глобальне сховище (для всіх заїздів) + legacy
+        // comp.results.excludedLaps (стара схема для змагань) — об'єднуємо.
+        const excludedSet = new Set<string>();
+        try {
+          const globalExcluded = await api.laps.excludedList();
+          for (const k of globalExcluded.laps) excludedSet.add(k);
+        } catch { /* ignore */ }
+
+        // Competition data: format, start positions
         const compPhase = (found as any)?.competition_phase;
         const compId = (found as any)?.competition_id;
         const compFormat = (found as any)?.competition_format;
@@ -101,9 +116,10 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
           try {
             const comp = await api.competitions.getNormalized(compId);
             const results = comp.results;
-            if (active && results.excludedLaps) setExcludedLaps(new Set(results.excludedLaps));
+            if (results.excludedLaps) for (const k of results.excludedLaps) excludedSet.add(k);
           } catch { /* ignore */ }
         }
+        if (active) setExcludedLaps(excludedSet);
 
         if (compId && (compPhase?.startsWith('race_') || compPhase?.startsWith('final_')) && compFormat) {
           const sp = await fetchRaceStartPositions(COLLECTOR_URL, compId, compPhase, compFormat);
@@ -135,13 +151,18 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
     if (!session || session.end_time) return;
     const timer = setInterval(async () => {
       try {
-        const [lapsRes, timingRes] = await Promise.all([
+        const [lapsRes, timingRes, newEvents] = await Promise.all([
           api.laps.bySession(session.id),
           api.timing(),
+          api.events.bySessionSafe(session.id, lastEventTsRef.current + 1),
         ]);
         setLaps(lapsRes as unknown as DbLap[]);
         if (timingRes.sessionId === session.id && timingRes.entries) {
           setLiveEntries(timingRes.entries);
+        }
+        if (newEvents.length > 0) {
+          lastEventTsRef.current = newEvents.reduce((m, e: any) => Math.max(m, e.ts || 0), lastEventTsRef.current);
+          setRawEvents(prev => [...prev, ...newEvents]);
         }
       } catch { /* ignore */ }
     }, 3000);
@@ -151,7 +172,7 @@ export function useSessionData(sessionId: string | undefined): SessionDataResult
   return {
     session, setSession,
     daySessions, laps, setLaps,
-    s1Events, snapshots,
+    s1Events, snapshots, rawEvents,
     startPositions, totalQualifiedPilots, setStartPositions,
     sessionFormat, liveEntries,
     excludedLaps, setExcludedLaps,

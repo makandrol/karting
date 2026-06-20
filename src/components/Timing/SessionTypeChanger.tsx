@@ -146,13 +146,28 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         }
       }
 
-      const { groupCount: detectedGroups } = detectGroupsFromSessionSequence(seqSessions, compFormat);
-      const phases = getPhasesForFormat(compFormat, detectedGroups);
+      const { groupCount: detectedGroups, qualifyingCount } = detectGroupsFromSessionSequence(seqSessions, compFormat);
+
+      // Гонзалес: кількість раундів = MAX(12, унікальних пілотів з усіх квалі-сесій).
+      // Перші `qualifyingCount` сесій у seqSessions — кваліфікаційні.
+      let gonzalesRoundCount: number | undefined;
+      if (compFormat === 'gonzales') {
+        const qualiPilots = new Set<string>();
+        for (let i = 0; i < qualifyingCount && i < seqSessions.length; i++) {
+          for (const p of seqSessions[i].pilots) qualiPilots.add(p);
+        }
+        gonzalesRoundCount = Math.max(12, qualiPilots.size);
+      }
+
+      const phases = getPhasesForFormat(compFormat, detectedGroups, gonzalesRoundCount);
       const currentIdx = phases.findIndex(p => p.id === _phases[currentPhaseIdx]?.id);
       const effectiveIdx = currentIdx >= 0 ? currentIdx : Math.min(currentPhaseIdx, phases.length - 1);
 
       await apiPatch(`/competitions/${encodeURIComponent(compId)}`, {
-        results: { autoDetectedGroups: detectedGroups },
+        results: {
+          autoDetectedGroups: detectedGroups,
+          ...(gonzalesRoundCount != null ? { gonzalesRoundCount } : {}),
+        },
       });
 
       const availableAfter = available
@@ -165,6 +180,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         groupCount: detectedGroups,
         currentPhaseIdx: effectiveIdx,
         availableSessionsAfter: availableAfter,
+        gonzalesRoundCount,
       });
 
       for (const link of plan) {
@@ -347,7 +363,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         {step === 'format' && (
           <>
             <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Тип заїзду</div>
-            {Object.values(COMPETITION_CONFIGS).filter(c => c.format !== 'marathon').map(config => (
+            {Object.values(COMPETITION_CONFIGS).map(config => (
               <button key={config.format} onClick={() => handleFormatSelect(config.format)}
                 className="w-full text-left px-3 py-2 text-sm text-dark-300 hover:text-white hover:bg-dark-800 transition-colors">
                 {config.name}

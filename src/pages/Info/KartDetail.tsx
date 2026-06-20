@@ -1,10 +1,12 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useEffect, useMemo } from 'react';
 import { api, type DbSession } from '../../services/api';
-import { parseTime, toSeconds, mergePilotNames, isValidSession, shortPilot } from '../../utils/timing';
+import { parseTime, toSeconds, mergePilotNames, shortPilot } from '../../utils/timing';
 import { fmtTimeShort as fmtTime, fmtDateDM as fmtDate } from '../../utils/datetime';
+import { COMPETITION_CONFIGS, getPhaseShortLabel } from '../../data/competitions';
+import { buildGonzalesKartPilotMap } from '../../utils/gonzalesPilotResolver';
 import { LoadingState } from '../../components/States';
-import { useKartFilters } from '../../services/useKartFilters';
+import { useKartFilters, useSelectedDateSessions } from '../../services/useKartFilters';
 import DateNavigator from '../../components/Sessions/DateNavigator';
 import SessionsTable from '../../components/Sessions/SessionsTable';
 import TrackFilter from '../../components/Sessions/TrackFilter';
@@ -25,6 +27,16 @@ interface KartLap {
   session_start: number;
 }
 
+
+/** Лейбл типу заїзду: "ЛЧ · Г1", "Прокат 5" тощо. */
+function sessionTypeLabel(format: string | null, phase: string | null, raceNumber: number | null): string {
+  if (format && phase) {
+    const short = COMPETITION_CONFIGS[format as keyof typeof COMPETITION_CONFIGS]?.shortName || format;
+    return `${short} · ${getPhaseShortLabel(format, phase)}`;
+  }
+  if (format) return COMPETITION_CONFIGS[format as keyof typeof COMPETITION_CONFIGS]?.shortName || format;
+  return `Прокат${raceNumber != null ? ` ${raceNumber}` : ''}`;
+}
 
 export default function KartDetail() {
   const { kartId } = useParams<{ kartId: string }>();
@@ -49,6 +61,9 @@ export default function KartDetail() {
       .catch(() => setKartDateCounts(undefined));
   }, [kartNumber]);
 
+  // Сесії вибраних днів на вибраних трасах — спільний хук.
+  const { sessions: allSessions } = useSelectedDateSessions(selectedDates, selectedTracks);
+
   // Fetch session IDs and details for selected dates
   const [statSessionIds, setStatSessionIds] = useState<Set<string>>(new Set());
   const [statSessionDetails, setStatSessionDetails] = useState<DbSession[]>([]);
@@ -56,9 +71,38 @@ export default function KartDetail() {
   const [subIdToMergedMap, setSubIdToMergedMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(false);
 
-  // Fetch sessions + kart laps in one flow, filter to only sessions with this kart
+  // Competitions для резолву пілота Гонзалеса ("Карт N" → реальне ім'я з ротації).
+  const [competitions, setCompetitions] = useState<any[]>([]);
   useEffect(() => {
-    if (selectedDates.size === 0) {
+    api.competitions.list().then(d => setCompetitions(d as any[])).catch(() => setCompetitions([]));
+  }, []);
+
+  // (session_id|kart) → real pilot для round-сесій Гонзалеса.
+  const gonzalesPilotMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of competitions) {
+      if (c.format !== 'gonzales') continue;
+      const cfg = c.results?.gonzalesConfig;
+      if (!cfg?.pilotStartSlots) continue;
+      const roundSessions = (c.sessions || []).filter((s: any) => s.phase && /^round_\d+/.test(s.phase));
+      if (roundSessions.length === 0) continue;
+      const pilotCount = Object.keys(cfg.pilotStartSlots).length;
+      const karts = cfg.kartList && cfg.kartList.length > 0 ? cfg.kartList : Array.from({ length: 12 }, (_, i) => i + 1);
+      const sub = buildGonzalesKartPilotMap(
+        roundSessions.map((s: any) => ({ sessionId: s.sessionId, phase: s.phase })),
+        cfg, karts, pilotCount,
+      );
+      for (const [k, v] of sub) map.set(k, v);
+    }
+    return map;
+  }, [competitions]);
+
+  // Стабільний ключ сесій для deps.
+  const sessionsKey = useMemo(() => allSessions.map(s => s.id).sort().join(','), [allSessions]);
+
+  // Fetch kart laps for the loaded sessions, filter to sessions with this kart
+  useEffect(() => {
+    if (allSessions.length === 0) {
       setStatSessionIds(new Set());
       setStatSessionDetails([]);
       setLaps([]);
@@ -67,22 +111,10 @@ export default function KartDetail() {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      // 1. Fetch all sessions for selected dates (на вибраних трасах), паралельно
-      const perDate = await Promise.all(
-        [...selectedDates].map(date =>
-          api.sessions.byDate(date)
-            .then(data => (data as unknown as DbSession[])
-              .filter(s => s.end_time && isValidSession(s) && selectedTracks.has(s.track_id || 1)))
-            .catch(() => [] as DbSession[]),
-        ),
-      );
-      const allSessions: DbSession[] = perDate.flat();
-      if (cancelled) return;
-
-      // 2. Fetch laps for this kart
-      const sortedDates = [...selectedDates].sort();
-      const from = sortedDates[0];
-      const to = sortedDates[sortedDates.length - 1];
+      // Fetch laps for this kart over the date range
+      const dates = [...selectedDates].sort();
+      const from = dates[0];
+      const to = dates[dates.length - 1];
       let kartLaps: KartLap[] = [];
       try {
         kartLaps = await api.laps.byKart(kartNumber, from, to) as unknown as KartLap[];
@@ -137,25 +169,28 @@ export default function KartDetail() {
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [selectedDates, kartNumber, selectedTracks]);
+  }, [sessionsKey, kartNumber]);
 
   const [sortBy, setSortBy] = useState<'best' | 'date'>('best');
 
-  // Per-session stats for this kart
+  // Per-session stats for this kart (grouped by merged-parent session id).
   const sessionStats = useMemo(() => {
     const bySession = new Map<string, KartLap[]>();
     for (const l of laps) {
       const mergedId = subIdToMergedMap.get(l.session_id) || l.session_id;
       if (excludedSessions.has(mergedId)) continue;
-      if (!bySession.has(l.session_id)) bySession.set(l.session_id, []);
-      bySession.get(l.session_id)!.push(l);
+      if (!bySession.has(mergedId)) bySession.set(mergedId, []);
+      bySession.get(mergedId)!.push(l);
     }
-    const result: { pilot: string; bestLap: string; bestLapSec: number; bestS1: string | null; bestS2: string | null; sessionId: string; date: string; sessionStart: number; raceNumber: number | null; lapCount: number }[] = [];
+    const result: { pilot: string; bestLap: string; bestLapSec: number; bestS1: string | null; bestS2: string | null; sessionId: string; date: string; sessionStart: number; raceNumber: number | null; competitionFormat: string | null; competitionPhase: string | null; lapCount: number }[] = [];
     for (const [sessionId, sessionLaps] of bySession) {
       let bestLap = '', bestLapSec = Infinity, bestS1: string | null = null, bestS1Sec = Infinity, bestS2: string | null = null, bestS2Sec = Infinity;
       const pilots = new Set<string>();
       for (const l of sessionLaps) {
-        pilots.add(l.pilot);
+        // Гонзалес: показуємо raw + резолв з ротації в дужках; інакше resolved_pilot з ремапу.
+        const gonz = gonzalesPilotMap.get(`${sessionId}|${l.kart}`);
+        const resolved = gonz ?? (l as any).resolved_pilot ?? null;
+        pilots.add(resolved && resolved !== l.pilot ? `${l.pilot} (${resolved})` : l.pilot);
         const sec = parseTime(l.lap_time);
         if (sec !== null && sec < bestLapSec) { bestLapSec = sec; bestLap = l.lap_time; }
         const s1sec = parseTime(l.s1);
@@ -169,13 +204,15 @@ export default function KartDetail() {
         bestLap, bestLapSec, bestS1, bestS2,
         sessionId, date: sessionLaps[0].date, sessionStart: sessionLaps[0].session_start,
         raceNumber: detail?.race_number ?? null,
+        competitionFormat: (detail as any)?.competition_format ?? null,
+        competitionPhase: (detail as any)?.competition_phase ?? null,
         lapCount: sessionLaps.length,
       });
     }
     return result.sort((a, b) =>
       sortBy === 'date' ? b.sessionStart - a.sessionStart : a.bestLapSec - b.bestLapSec
     );
-  }, [laps, statSessionDetails, sortBy, excludedSessions, subIdToMergedMap]);
+  }, [laps, statSessionDetails, sortBy, excludedSessions, subIdToMergedMap, gonzalesPilotMap]);
 
   const overallBestSec = sessionStats.length > 0 ? sessionStats[0].bestLapSec : null;
   const overallBestS1 = sessionStats.reduce((best, s) => { const v = parseTime(s.bestS1); return v !== null && v < best ? v : best; }, Infinity);
@@ -267,7 +304,7 @@ export default function KartDetail() {
                   <th className="table-cell text-right">Best</th>
                   <th className="table-cell text-right">B.S1</th>
                   <th className="table-cell text-right">B.S2</th>
-                  <th className="table-cell text-left">Session</th>
+                  <th className="table-cell text-left">Заїзд</th>
                 </tr></thead>
                 <tbody>
                   {sessionStats.map((s, i) => {
@@ -285,7 +322,7 @@ export default function KartDetail() {
                         <td className={`table-cell text-right font-mono text-[11px] ${isBestS2 ? 'text-purple-400' : 'text-dark-400'}`}>{s.bestS2 ? toSeconds(s.bestS2) : '—'}</td>
                         <td className="table-cell text-left">
                           <Link to={`/sessions/${s.sessionId}`} className="text-primary-400 hover:text-primary-300 transition-colors underline underline-offset-2 decoration-primary-400/30">
-                            {s.date.slice(5)} {fmtTime(s.sessionStart)}{s.raceNumber != null ? ` · Заїзд ${s.raceNumber}` : ''} · Прокат
+                            {s.date.slice(5)} {fmtTime(s.sessionStart)} · {sessionTypeLabel(s.competitionFormat, s.competitionPhase, s.raceNumber)}
                           </Link>
                         </td>
                       </tr>

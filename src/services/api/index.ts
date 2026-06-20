@@ -36,6 +36,8 @@ export interface DbSession extends SessionTableRow {
 
 export interface DbLap {
   pilot: string;
+  /** Real pilot name if collector resolved "Карт N" → name (else null). pilot stays raw. */
+  resolved_pilot?: string | null;
   kart: number;
   lap_number: number;
   lap_time: string | null;
@@ -191,6 +193,12 @@ export const api = {
       apiGet<DbLap[]>('/db/laps', { session: sessionId }),
     byKart: (kart: number, from: string, to: string) =>
       apiGet<DbLap[]>('/db/laps', { kart, from, to }),
+    /** Глобально виключені кола (ключі "sessionId|pilot|ts"). */
+    excludedList: () =>
+      apiGet<{ laps: string[] }>('/db/excluded-laps'),
+    /** Toggle глобального виключення кола. */
+    toggleExcluded: (lapKey: string) =>
+      apiPost<{ ok: boolean; lapKey: string; excluded: boolean }>('/db/excluded-laps/toggle', { lapKey }),
   },
 
   // ---- Events ----

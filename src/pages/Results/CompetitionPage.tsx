@@ -10,6 +10,7 @@ import { TRACK_CONFIGS, trackDisplayId, isReverseTrack, baseTrackId } from '../.
 import SessionsTable, { type SessionTableRow } from '../../components/Sessions/SessionsTable';
 import LeagueResults from '../../components/Results/LeagueResults';
 import GonzalesResults from '../../components/Results/GonzalesResults';
+import MarathonResults from '../../components/Results/MarathonResults';
 import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
 import { parseLapSec, getSprintPositionPoints } from '../../utils/scoring';
 import { FORMAT_MAX_GROUPS } from '../../utils/competitionLinking';
@@ -178,7 +179,7 @@ export default function CompetitionPage() {
 
   return (
     <div className="space-y-4">
-      {(competition.format === 'gonzales' || competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint') && (
+      {(competition.format === 'gonzales' || competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint' || competition.format === 'marathon') && (
         <TableLayoutBar pageId="competition" sections={[
           ...PAGE_SECTIONS.competition.filter(s => s.id !== 'kartManager' || competition.format === 'gonzales'),
           { id: 'editLog', label: 'Журнал змін' },
@@ -367,6 +368,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const [liveEnabled, setLiveEnabled] = useState(true);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
   const [onboardEntries, setOnboardEntries] = useState<TimingEntry[]>([]);
+  const [marathonEvents, setMarathonEvents] = useState<any[]>([]);
 
   const resultsRef = useRef(competition.results);
   useEffect(() => { resultsRef.current = competition.results; }, [competition.results]);
@@ -398,6 +400,23 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     if (changeTrackRef) changeTrackRef.current = changeTrack;
     return () => { if (changeTrackRef) changeTrackRef.current = null; };
   }, [changeTrack, changeTrackRef]);
+
+  // Marathon: load raw events (teams/stints/pit stops are reconstructed from them).
+  useEffect(() => {
+    if (competition.format !== 'marathon' || competition.sessions.length === 0) { setMarathonEvents([]); return; }
+    let active = true;
+    (async () => {
+      const all: any[] = [];
+      for (const s of competition.sessions) {
+        try {
+          const evs = await api.events.bySessionSafe(s.sessionId);
+          all.push(...evs);
+        } catch {}
+      }
+      if (active) setMarathonEvents(all);
+    })();
+    return () => { active = false; };
+  }, [competition.format, competition.id, competition.sessions]);
 
   const sessionTimes = useMemo(() => {
     return compSessions
@@ -461,6 +480,17 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   };
 
   const knownSessionCountRef = useRef(initialCompetition.sessions.length);
+
+  const refreshLaps = useCallback(async () => {
+    try {
+      let fresh: Competition;
+      try { fresh = await api.competitions.getNormalized(initialCompetition.id) as unknown as Competition; }
+      catch { fresh = competition; }
+      setCompetition(fresh);
+      const map = await fetchAllLaps(fresh);
+      setSessionLaps(map);
+    } catch {}
+  }, [initialCompetition.id, competition]);
 
   useEffect(() => {
     let cancelled = false;
@@ -543,6 +573,56 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     </div>
   ) : null;
 
+  if (competition.format === 'marathon') {
+    const session = competition.sessions[0];
+    const sessionStart = session ? sessionTimes.find(s => s.sessionId === session.sessionId)?.startTime : undefined;
+    const scrubSec = scrubTime !== null && sessionStart ? Math.max(0, (scrubTime - sessionStart) / 1000) : undefined;
+    const pitRowOverrides = (competition.results?.pitRowOverrides ?? {}) as Record<string, 'L' | 'R'>;
+    const onPitRowOverridesChange = isOwner ? (next: Record<string, 'L' | 'R'>) => saveResults({ pitRowOverrides: next }) : undefined;
+
+    const marathonTeamsEl = (
+      <MarathonResults
+        key="leaguePoints"
+        events={marathonEvents}
+        sessionStartTime={sessionStart ?? 0}
+        currentTimeSec={scrubSec}
+        sections={['marathonPit', 'marathonTeams']}
+        pitRowOverrides={pitRowOverrides}
+        onPitRowOverridesChange={onPitRowOverridesChange}
+      />
+    );
+    const marathonKartsEl = (
+      <MarathonResults
+        key="liveSession"
+        events={marathonEvents}
+        sessionStartTime={sessionStart ?? 0}
+        sections={['marathonKarts']}
+      />
+    );
+
+    const sessionsEl = compSessions.length > 0 ? (
+      <div key="sessions" className="card p-0 overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-dark-800">
+          <h3 className="text-white font-semibold text-sm">Заїзд</h3>
+        </div>
+        <SessionsTable sessions={compSessions} />
+      </div>
+    ) : null;
+
+    const sectionMap: Record<string, ReactNode> = {
+      leaguePoints: marathonTeamsEl,
+      liveSession: marathonKartsEl,
+      sessions: sessionsEl,
+      onboard: onboardEl,
+    };
+
+    return (
+      <CompetitionLayoutWrapper sessionTimes={sessionTimes} competition={competition} scrubTime={scrubTime} setScrubTime={setScrubTime} allSessionsEnded={allSessionsEnded} setLiveEnabled={setLiveEnabled} groupCount={groupCount}>
+        {sectionMap}
+      </CompetitionLayoutWrapper>
+    );
+  }
+
   if (competition.format === 'gonzales') {
     const isScrubbing = scrubTime !== null;
 
@@ -563,6 +643,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         onAutoGroups={onAutoGroups}
         kartManagerPortal={kartManagerPortalEl}
         trackId={competition.results?.trackId ?? null}
+        pilotCountOverride={competition.results?.totalPilotsLocked ? (competition.results?.totalPilotsOverride ?? null) : null}
+        onRefreshLaps={refreshLaps}
       />
     );
 

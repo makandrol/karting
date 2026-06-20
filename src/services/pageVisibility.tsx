@@ -14,8 +14,8 @@ export interface PageConfig {
 
 export const ALL_PAGES: PageConfig[] = [
   { id: 'timing', label: 'Таймінг', path: '/', group: 'main', always: true },
-  { id: 'onboard', label: 'Onboard', path: '/onboard', group: 'main' },
   { id: 'sessions', label: 'Заїзди', path: '/sessions', group: 'main' },
+  { id: 'onboard', label: 'Onboard', path: '/onboard', group: 'main' },
   { id: 'karts', label: 'Карти', path: '/info/karts', group: 'main' },
   { id: 'results', label: 'Змагання', path: '/results', group: 'main' },
 

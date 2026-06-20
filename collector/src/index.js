@@ -397,6 +397,12 @@ const server = http.createServer(async (req, res) => {
         if (!comp) { sendJson(res, 404, { error: 'Competition not found' }); return; }
         const sessionIds = comp.sessions.map(s => s.sessionId);
         const changes = storage.updateSessionsTrack(sessionIds, trackId);
+        // Для live-змагання також оновлюємо поточну трасу колектора, щоб нові
+        // заїзди (які ще пройдуть) лінкувались уже на правильній трасі.
+        if (comp.status === 'live') {
+          storage.setCurrentTrackId(trackId);
+          console.log(`🏁 Competition ${id} track → ${trackId}; current track updated (live)`);
+        }
         sendJson(res, 200, { ok: true, changes });
       } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
       return;
@@ -529,6 +535,25 @@ const server = http.createServer(async (req, res) => {
         if (!sessionId || typeof trackId !== 'number') { sendJson(res, 400, { error: 'sessionId and trackId required' }); return; }
         const changes = storage.propagateTrack(sessionId, trackId);
         sendJson(res, 200, { ok: true, changes });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
+    // GET /db/excluded-laps — глобально виключені кола (ключі "sessionId|pilot|ts")
+    if (req.method === 'GET' && url.pathname === '/db/excluded-laps') {
+      sendJson(res, 200, { laps: [...storage.getExcludedLaps()] });
+      return;
+    }
+
+    // POST /db/excluded-laps/toggle — toggle одного кола (admin only)
+    if (req.method === 'POST' && url.pathname === '/db/excluded-laps/toggle') {
+      if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+      try {
+        const { lapKey } = JSON.parse(await readBody(req));
+        if (!lapKey || typeof lapKey !== 'string') { sendJson(res, 400, { error: 'lapKey required' }); return; }
+        const excluded = storage.toggleExcludedLap(lapKey);
+        console.log(`${excluded ? '🚫' : '↩️'} Lap ${lapKey} ${excluded ? 'excluded' : 'restored'} (global)`);
+        sendJson(res, 200, { ok: true, lapKey, excluded });
       } catch { sendJson(res, 400, { error: 'invalid json' }); }
       return;
     }
