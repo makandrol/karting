@@ -1,1 +1,6 @@
+# Raw SQLite DBs не комітимо (1GB бінарник роздуває репо).
 *.db
+*.db-wal
+*.db-shm
+# Gzipped SQL dump — ЦЕ і є off-machine бекап, його трекаємо.
+!karting.db.dump.gz

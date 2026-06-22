@@ -130,7 +130,7 @@ if (req.method === 'POST' && url.pathname.match(/^\/competitions\/[^/]+\/link-se
 ## Розгортання
 
 `docs/deployment.md` має повні команди. Скіл `karting-deploy-collector` робить:
-1. `scp -i ~/.ssh/id_github collector/src/*.js ubuntu@150.230.157.143:/home/ubuntu/collector/src/`
+1. `scp -i ~/.ssh/id_github collector/src/*.js ubuntu@141.147.32.196:/home/ubuntu/collector/src/`
 2. `ssh ... "pm2 restart collector"`
 3. Verify: `curl localhost:3001/healthz`
 

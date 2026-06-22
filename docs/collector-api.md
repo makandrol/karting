@@ -1,7 +1,7 @@
 # Collector API Reference
 
 Plain Node.js HTTP server. **Base URL**:
-- Production: `http://150.230.157.143:3001`
+- Production: `http://141.147.32.196:3001`
 - Local dev: `http://localhost:3001` (треба `npm install && node src/index.js` у `collector/`)
 
 CORS відкритий: `Access-Control-Allow-Origin: *`. Body limit 512KB.
