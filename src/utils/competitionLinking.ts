@@ -33,6 +33,8 @@ export const GONZALES_DEFAULT_ROUND_COUNT = 12;
 
 export interface BuildPhasesOpts {
   gonzalesRoundCount?: number;
+  /** К-сть кваліфікацій (LL/CL). Якщо не передано — квалі ріжуться по groupCount (стара поведінка). */
+  qualiCount?: number | null;
 }
 
 export function buildFullPhases(format: string, opts: BuildPhasesOpts = {}): string[] {
@@ -85,10 +87,12 @@ export function filterPhases(
   format: string,
   opts: BuildPhasesOpts = {}
 ): string[] {
-  const { gonzalesRoundCount = GONZALES_DEFAULT_ROUND_COUNT } = opts;
+  const { gonzalesRoundCount = GONZALES_DEFAULT_ROUND_COUNT, qualiCount = null } = opts;
   if (groupCount == null && format !== 'gonzales') return phases;
 
   const gc = groupCount ?? 99;
+  // Квалі ріжемо по qualiCount (квалі ≠ race-групи); fallback на gc — стара поведінка.
+  const qc = qualiCount ?? gc;
 
   return phases.filter(p => {
     if (format === 'gonzales') {
@@ -105,7 +109,7 @@ export function filterPhases(
 
     if (format !== 'sprint' && format !== 'gonzales' && p.startsWith('qualifying_')) {
       const num = parseInt(p.split('_')[1]);
-      return num <= gc;
+      return num <= qc;
     }
 
     const gm = p.match(/group_(\d+)/);
@@ -306,6 +310,8 @@ export interface PlanAutoLinkArgs {
   /** Sessions available *after* the current one, chronologically ordered. */
   availableSessionsAfter: { id: string }[];
   gonzalesRoundCount?: number;
+  /** К-сть кваліфікацій (LL/CL). Якщо не передано — як groupCount (стара поведінка). */
+  qualiCount?: number | null;
 }
 
 export interface PlannedLink {
@@ -318,9 +324,9 @@ export interface PlannedLink {
  * "current" linked session. Stops when phases or sessions run out.
  */
 export function planAutoLink(args: PlanAutoLinkArgs): PlannedLink[] {
-  const { format, groupCount, currentPhaseIdx, availableSessionsAfter, gonzalesRoundCount } = args;
+  const { format, groupCount, currentPhaseIdx, availableSessionsAfter, gonzalesRoundCount, qualiCount } = args;
   const allPhases = buildFullPhases(format, { gonzalesRoundCount });
-  const phases = filterPhases(allPhases, groupCount, format, { gonzalesRoundCount });
+  const phases = filterPhases(allPhases, groupCount, format, { gonzalesRoundCount, qualiCount });
 
   const remaining = phases.length - currentPhaseIdx - 1;
   const result: PlannedLink[] = [];

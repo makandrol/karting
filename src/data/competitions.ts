@@ -184,7 +184,7 @@ export const PHASE_CONFIGS: Record<string, { phases: PhaseConfig[] }> = {
   marathon: { phases: [{ id: 'race', label: 'Гонка', shortLabel: 'Гонка' }] },
 };
 
-export function getPhasesForFormat(format: string, groupCount?: number | null, roundCount?: number | null): PhaseConfig[] {
+export function getPhasesForFormat(format: string, groupCount?: number | null, roundCount?: number | null, qualiCount?: number | null): PhaseConfig[] {
   const config = PHASE_CONFIGS[format];
   if (!config) return [];
 
@@ -207,10 +207,15 @@ export function getPhasesForFormat(format: string, groupCount?: number | null, r
     return config.phases;
   }
 
+  // Кількість КВАЛ і кількість race-ГРУП — різні числа (LL може мати 4 квалі-
+  // групи, що зливаються в 3 race-групи). Квалі-фази ріжемо по qualiCount;
+  // якщо він не переданий — лишаємо стару поведінку (по groupCount).
+  const qc = qualiCount ?? groupCount;
+
   const filtered = config.phases.filter(p => {
     if (format !== 'sprint' && p.id.startsWith('qualifying_')) {
       const num = parseInt(p.id.split('_')[1]);
-      return num <= groupCount;
+      return num <= qc;
     }
     const groupMatch = p.id.match(/group_(\d+)/);
     if (groupMatch) return parseInt(groupMatch[1]) <= groupCount;
