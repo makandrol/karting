@@ -27,3 +27,4 @@ Thumbs.db
 # Collector DB
 collector/data/
 racebox/
+.backups/
