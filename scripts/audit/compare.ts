@@ -8,7 +8,7 @@
  */
 import {
   fetchCompetition, fetchScoring, computeOurStandings, fetchSheetCsv,
-  parseLlSheet, llSheetUrl, extractSurname, buildNameMatcher, type PilotRow, type SheetPilotFull,
+  parseLlSheet, llSheetUrl, extractSurname, buildNameMatcher, kyivTime, type PilotRow, type SheetPilotFull,
 } from './lib';
 import { getCsvExportUrl } from '../../src/utils/sheetsCompare';
 
@@ -35,7 +35,7 @@ async function main() {
   console.log('  LINKED SESSIONS:');
   for (const s of sortedSess) {
     const ts = parseInt(s.sessionId.replace('session-', '')) || 0;
-    console.log(`    ${new Date(ts).toISOString().slice(11, 16)}  ${(s.phase || '—').padEnd(18)} ${s.sessionId}`);
+    console.log(`    ${kyivTime(ts)}  ${(s.phase || '—').padEnd(18)} ${s.sessionId}`);
   }
 
   const scoring = await fetchScoring();

@@ -432,6 +432,22 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /competitions/:id/replay-link — re-run live linking over recorded sessions (admin only)
+    // Body: { date: "YYYY-MM-DD", fromTs: <unix-ms> }. Mirrors poller logic.
+    if (req.method === 'POST' && url.pathname.match(/^\/competitions\/[^/]+\/replay-link$/)) {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      const id = decodeURIComponent(url.pathname.split('/')[2]);
+      try {
+        const { date, fromTs } = JSON.parse(await readBody(req));
+        if (!date || typeof fromTs !== 'number') { sendJson(res, 400, { error: 'date and fromTs required' }); return; }
+        const comp = storage.getCompetition(id);
+        if (!comp) { sendJson(res, 404, { error: 'Competition not found' }); return; }
+        const trace = storage.replayLinkingForDate(date, fromTs);
+        sendJson(res, 200, { ok: true, trace, competition: storage.getCompetition(id) });
+      } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
+      return;
+    }
+
     // GET /db/session-competition?session=ID — отримати змагання для сесії
     if (req.method === 'GET' && url.pathname === '/db/session-competition') {
       const sessionId = url.searchParams.get('session');
