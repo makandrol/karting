@@ -7,9 +7,9 @@
  * Higher-level typed wrappers live in `services/api/index.ts`.
  */
 
-import { COLLECTOR_URL } from '../config';
+import { COLLECTOR_URL, viteEnv } from '../config';
 
-const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || '';
+const ADMIN_TOKEN = viteEnv('VITE_ADMIN_TOKEN') || '';
 
 export class CollectorApiError extends Error {
   constructor(public status: number, public path: string, message: string) {

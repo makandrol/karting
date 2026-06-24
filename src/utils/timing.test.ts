@@ -158,6 +158,41 @@ describe('mergePilotNames', () => {
   it('handles empty input', () => {
     expect(mergePilotNames([])).toEqual([]);
   });
+
+  it('merges a normal late-name (continuous lap numbers)', () => {
+    const laps = [
+      { pilot: 'Карт 2', kart: 2, lap_time: '41.4', lap_number: 1, ts: 1000 },
+      { pilot: 'Карт 2', kart: 2, lap_time: '40.9', lap_number: 2, ts: 2000 },
+      { pilot: 'Грант', kart: 2, lap_time: '41.0', lap_number: 3, ts: 3000 },
+    ];
+    const r = mergePilotNames(laps);
+    expect(r.map(l => l.pilot)).toEqual(['Грант', 'Грант', 'Грант']);
+  });
+
+  it('merges a dup-number boundary (timing re-issued same lap) as same driver', () => {
+    // Маляревський-style dup: anon lap7 then named lap7 (same number) → still merge
+    const laps = [
+      { pilot: 'Карт 16', kart: 16, lap_time: '42.7', lap_number: 6, ts: 6000 },
+      { pilot: 'Карт 16', kart: 16, lap_time: '42.6', lap_number: 7, ts: 7000 },
+      { pilot: 'Маляревський', kart: 16, lap_time: '42.6', lap_number: 7, ts: 8000 },
+      { pilot: 'Маляревський', kart: 16, lap_time: '43.9', lap_number: 8, ts: 9000 },
+    ];
+    const r = mergePilotNames(laps);
+    expect(r.map(l => l.pilot)).toEqual(['Маляревський', 'Маляревський', 'Маляревський', 'Маляревський']);
+  });
+
+  it('does NOT merge when the named laps RESET the counter (different driver / new stint)', () => {
+    // Соня/Ільяс-style: anon ran to lap4, then named restarts at lap1 → split
+    const laps = [
+      { pilot: 'Карт 11', kart: 11, lap_time: '40.8', lap_number: 1, ts: 1000 },
+      { pilot: 'Карт 11', kart: 11, lap_time: '40.7', lap_number: 2, ts: 2000 },
+      { pilot: 'Карт 11', kart: 11, lap_time: '40.8', lap_number: 4, ts: 4000 },
+      { pilot: 'Соня', kart: 11, lap_time: '1:26.3', lap_number: 1, ts: 600000 },
+      { pilot: 'Соня', kart: 11, lap_time: '1:18.3', lap_number: 2, ts: 660000 },
+    ];
+    const r = mergePilotNames(laps);
+    expect(r.map(l => l.pilot)).toEqual(['Карт 11', 'Карт 11', 'Карт 11', 'Соня', 'Соня']);
+  });
 });
 
 // ============================================================

@@ -6,6 +6,7 @@ import {
   getPositionPoints,
   getSprintPositionPoints,
   getSprintFinalPoints,
+  byTimeThenTs,
   type ScoringData,
 } from './scoring';
 
@@ -224,3 +225,17 @@ describe('getSprintFinalPoints', () => {
     expect(getSprintFinalPoints(100, 0)).toBe(0);
   });
 });
+
+describe('byTimeThenTs', () => {
+  it('faster time ranks first regardless of timestamp', () => {
+    expect(byTimeThenTs(42.1, 1000, 42.2, 500)).toBeLessThan(0);
+    expect(byTimeThenTs(42.3, 1000, 42.2, 5000)).toBeGreaterThan(0);
+  });
+
+  it('on equal time (to the thousandth), the earlier timestamp ranks first', () => {
+    expect(byTimeThenTs(42.177, 1000, 42.177, 2000)).toBeLessThan(0); // a earlier → a wins
+    expect(byTimeThenTs(42.177, 3000, 42.177, 2000)).toBeGreaterThan(0); // b earlier → b wins
+    expect(byTimeThenTs(42.177, 2000, 42.177, 2000)).toBe(0); // identical
+  });
+});
+
