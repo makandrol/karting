@@ -11,6 +11,7 @@ import { fmtDateISO } from '../../utils/datetime';
 import {
   detectGroupsFromSessionSequence,
   planAutoLink,
+  isKartName,
   type SequentialSession,
 } from '../../utils/competitionLinking';
 
@@ -65,12 +66,15 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
   // (Кваліфікація 1). Без проміжних кроків вибору змагання чи етапу.
   const handleFormatSelect = async (format: CompetitionFormat) => {
     if (!sessionId) return;
-    const now = new Date();
-    const dateStr = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getFullYear()).slice(2)}`;
+    // Дата/id/назва — за timestamp ОБРАНОЇ СЕСІЇ, а не за моментом створення.
+    // Інакше створення змагання для старого дня дає сьогоднішню дату/посилання.
+    const sessionTs = parseInt(sessionId.replace('session-', '')) || Date.now();
+    const sessionDate = new Date(sessionTs);
+    const dateStr = `${String(sessionDate.getDate()).padStart(2, '0')}.${String(sessionDate.getMonth() + 1).padStart(2, '0')}.${String(sessionDate.getFullYear()).slice(2)}`;
     const config = COMPETITION_CONFIGS[format];
     const name = `${config.shortName}, ${dateStr}, Тр. ${trackDisplayId(currentTrack.id)}`;
-    const isoDate = fmtDateISO(now);
-    const id = `${format}-${isoDate}-${Date.now().toString(36)}`;
+    const isoDate = fmtDateISO(sessionDate);
+    const id = `${format}-${isoDate}-${sessionTs.toString(36)}`;
     try {
       const comp = await api.competitions.create({ id, name, format, date: isoDate }) as unknown as Competition;
       setSelectedComp(comp);
@@ -146,7 +150,18 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         }
       }
 
-      const { groupCount: detectedGroups, qualifyingCount } = detectGroupsFromSessionSequence(seqSessions, compFormat);
+      // Відсіяти НЕ-ЗМАГАЛЬНІ сесії: тестові/прогрівні, де всі пілоти "Карт N"
+      // (без жодного реального імені). Напр. 12.05 о 20:30 — 1 пілот "Карт 6".
+      // Поточну сесію (індекс 0) не чіпаємо — її обрав користувач свідомо.
+      const nonCompIds = new Set<string>();
+      for (let i = 1; i < seqSessions.length; i++) {
+        const ss = seqSessions[i];
+        const hasReal = [...ss.pilots].some(p => !isKartName(p));
+        if (!hasReal) nonCompIds.add(ss.id);
+      }
+      const seqForDetection = seqSessions.filter((ss, i) => i === 0 || !nonCompIds.has(ss.id));
+
+      const { groupCount: detectedGroups, qualifyingCount } = detectGroupsFromSessionSequence(seqForDetection, compFormat);
 
       // Гонзалес: кількість раундів = MAX(12, унікальних пілотів з усіх квалі-сесій).
       // Перші `qualifyingCount` сесій у seqSessions — кваліфікаційні.
@@ -159,7 +174,8 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         gonzalesRoundCount = Math.max(12, qualiPilots.size);
       }
 
-      const phases = getPhasesForFormat(compFormat, detectedGroups, gonzalesRoundCount);
+      const qc = compFormat !== 'gonzales' ? qualifyingCount : null;
+      const phases = getPhasesForFormat(compFormat, detectedGroups, gonzalesRoundCount, qc);
       const currentIdx = phases.findIndex(p => p.id === _phases[currentPhaseIdx]?.id);
       const effectiveIdx = currentIdx >= 0 ? currentIdx : Math.min(currentPhaseIdx, phases.length - 1);
 
@@ -173,7 +189,8 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       const availableAfter = available
         .filter(s => s.start_time > currentTime)
         .sort((a, b) => a.start_time - b.start_time)
-        .map(s => ({ id: s.merged_session_ids?.[0] || s.id }));
+        .map(s => ({ id: s.merged_session_ids?.[0] || s.id }))
+        .filter(s => !nonCompIds.has(s.id));
 
       const plan = planAutoLink({
         format: compFormat,
@@ -181,6 +198,7 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
         currentPhaseIdx: effectiveIdx,
         availableSessionsAfter: availableAfter,
         gonzalesRoundCount,
+        qualiCount: qc,
       });
 
       for (const link of plan) {
