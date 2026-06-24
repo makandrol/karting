@@ -65,6 +65,13 @@ function sendUnauthorized(res) {
   sendJson(res, 401, { error: 'Unauthorized' });
 }
 
+// Валідний trackId: базові конфіги 1..20 та реверсні 101..120
+// (реверс кодується як base + REVERSE_OFFSET=100 на фронтенді).
+function isValidTrackId(trackId) {
+  if (typeof trackId !== 'number' || !Number.isFinite(trackId)) return false;
+  return (trackId >= 1 && trackId <= 20) || (trackId >= 101 && trackId <= 120);
+}
+
 // ============================================================
 // HTTP API
 // ============================================================
@@ -119,7 +126,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const body = await readBody(req);
         const { trackId } = JSON.parse(body);
-        if (typeof trackId !== 'number' || trackId < 1 || trackId > 20) {
+        if (!isValidTrackId(trackId)) {
           sendJson(res, 400, { error: 'Invalid trackId' });
           return;
         }
@@ -389,7 +396,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const body = await readBody(req);
         const { trackId } = JSON.parse(body);
-        if (typeof trackId !== 'number' || trackId < 1 || trackId > 20) {
+        if (!isValidTrackId(trackId)) {
           sendJson(res, 400, { error: 'Invalid trackId' });
           return;
         }
