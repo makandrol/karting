@@ -1047,6 +1047,41 @@ export const storage = {
     return false;
   },
 
+  /**
+   * Replay the live poller's competition-linking logic over already-recorded
+   * sessions of a given day, starting at `fromTs`. Mirrors poller.js exactly:
+   * for each session in chronological order — autoLink at start, finalize on
+   * first lap, auto-unlink if < 60s. Used to re-link a freshly recreated
+   * competition without re-running the timing poll.
+   *
+   * @param {string} date "YYYY-MM-DD"
+   * @param {number} fromTs only sessions with start_time >= fromTs
+   * @returns {{sessionId:string, action:string, phase:string|null}[]} trace
+   */
+  replayLinkingForDate(date, fromTs) {
+    const rows = stmts.getSessionsByDate.all(date).filter(s => s.start_time >= fromTs);
+    const trace = [];
+    for (const s of rows) {
+      const linked = this.autoLinkSessionToActiveCompetition(s.id);
+      if (!linked) { trace.push({ sessionId: s.id, action: 'skip-autolink', phase: null }); continue; }
+      // first lap → finalize phase (group detection + quali/race reassign)
+      const laps = this.getLaps(s.id);
+      if (laps.length > 0) this.finalizeSessionPhaseOnFirstLap(s.id);
+      // short session → unlink (mirror poller #tryAutoUnlinkShortSession)
+      if (s.end_time && (s.end_time - s.start_time) < 60000) {
+        this.autoUnlinkSession(s.id);
+        trace.push({ sessionId: s.id, action: 'unlink-short', phase: null });
+        continue;
+      }
+      // re-read final phase
+      const comps = this.getAllCompetitionsParsed();
+      const comp = comps.find(c => c.sessions.some(x => x.sessionId === s.id));
+      const phase = comp?.sessions.find(x => x.sessionId === s.id)?.phase ?? null;
+      trace.push({ sessionId: s.id, action: 'linked', phase });
+    }
+    return trace;
+  },
+
   getScoring() {
     const raw = this.getSystemState('scoring');
     return raw ? JSON.parse(raw) : null;

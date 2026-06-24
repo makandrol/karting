@@ -297,10 +297,15 @@ export function extractSurname(name: string): string {
     .replace(/ё/g, 'е').replace(/ъ/g, '').replace(/'/g, '').replace(/'/g, '').replace(/ʼ/g, '');
 }
 
+/** Format a unix-ms timestamp in Kyiv local time (UTC+3) as HH:mm. */
+export function kyivTime(ts: number): string {
+  return new Date(ts + 3 * 3600 * 1000).toISOString().slice(11, 16);
+}
+
 /** Normalized full name for matching (surname + first name). */
 export function normalizeName(name: string): string {
   return name.toLowerCase().trim().replace(/\s+/g, ' ')
-    .replace(/ё/g, 'е').replace(/ъ/g, '').replace(/'/g, '').replace(/'/g, '').replace(/ʼ/g, '');
+    .replace(/ё/g, 'е').replace(/ъ/g, '').replace(/'/g, '').replace(/ʼ/g, '');
 }
 
 /**
