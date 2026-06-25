@@ -1062,11 +1062,17 @@ export const storage = {
     const rows = stmts.getSessionsByDate.all(date).filter(s => s.start_time >= fromTs);
     const trace = [];
     for (const s of rows) {
+      // Валідність заїзду: сесія БЕЗ жодного валідного кола (laps=0) — це не
+      // змагальний заїзд (порожня/прогрівна, напр. LL 19.05 о 20:37: 251с,
+      // 1 пілот, 0 кіл). Не лінкуємо — інакше вона займає слот квалі/гонки
+      // і зсуває всю структуру (правило "невалідний заїзд НЕ лінкуємо").
+      const laps = this.getLaps(s.id);
+      if (laps.length === 0) { trace.push({ sessionId: s.id, action: 'skip-empty', phase: null }); continue; }
+
       const linked = this.autoLinkSessionToActiveCompetition(s.id);
       if (!linked) { trace.push({ sessionId: s.id, action: 'skip-autolink', phase: null }); continue; }
       // first lap → finalize phase (group detection + quali/race reassign)
-      const laps = this.getLaps(s.id);
-      if (laps.length > 0) this.finalizeSessionPhaseOnFirstLap(s.id);
+      this.finalizeSessionPhaseOnFirstLap(s.id);
       // short session → unlink (mirror poller #tryAutoUnlinkShortSession)
       if (s.end_time && (s.end_time - s.start_time) < 60000) {
         this.autoUnlinkSession(s.id);
