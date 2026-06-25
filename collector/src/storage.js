@@ -763,9 +763,16 @@ export const storage = {
     }
     const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? null;
 
-    const allPhases = buildFullPhases(liveComp.format, { gonzalesRoundCount });
-    const phases = filterPhasesUtil(allPhases, groupCount, liveComp.format, { gonzalesRoundCount });
     const usedPhases = new Set(liveComp.sessions.map(s => s.phase));
+    // Кількість квалі ≠ кількість race-груп. Поки лінкуються квалі — НЕ ріжемо
+    // quali-фази по groupCount (інакше 4-та квала при 3 race-групах обрізалась
+    // би й зсувала всю структуру). qualiCount = вже залінковані квалі + 1
+    // (поточна сесія МОЖЕ бути ще однією квалою — finalize уточнить пізніше).
+    const usedQuali = [...usedPhases].filter(p => p && p.startsWith('qualifying_')).length;
+    const qualiCount = usedQuali + 1;
+
+    const allPhases = buildFullPhases(liveComp.format, { gonzalesRoundCount });
+    const phases = filterPhasesUtil(allPhases, groupCount, liveComp.format, { gonzalesRoundCount, qualiCount });
 
     // All expected phases already filled — competition is effectively complete
     if (allPhasesFilled(phases, usedPhases)) {
@@ -931,7 +938,8 @@ export const storage = {
       // Це гонка, не квала — переназначити
       const finalGroupCount = groupCount ?? capGroupCount(qualiSessions.length, comp.format);
       const allPhases = buildFullPhases(comp.format, { gonzalesRoundCount });
-      const phases = filterPhasesUtil(allPhases, finalGroupCount, comp.format, { gonzalesRoundCount });
+      // qualiCount = фактична к-сть квалі-сесій (поточна стає гонкою, тож не рахується).
+      const phases = filterPhasesUtil(allPhases, finalGroupCount, comp.format, { gonzalesRoundCount, qualiCount: qualiSessions.length });
       const usedPhases = freshComp.sessions.filter(s => s.sessionId !== sessionId).map(s => s.phase);
       const correctPhase = findNextPhase(phases, usedPhases);
 
@@ -952,7 +960,9 @@ export const storage = {
     }
 
     const allPhases = buildFullPhases(comp.format, { gonzalesRoundCount });
-    const phases = filterPhasesUtil(allPhases, groupCount, comp.format, { gonzalesRoundCount });
+    // qualiCount = фактична к-сть залінкованих квалі-сесій (квалі ≠ race-групи).
+    const qualiCount = freshComp.sessions.filter(s => s.phase && s.phase.startsWith('qualifying_')).length;
+    const phases = filterPhasesUtil(allPhases, groupCount, comp.format, { gonzalesRoundCount, qualiCount });
 
     // Знайти яка фаза має бути за порядковим положенням сесії в comp.
     // Сортуємо за timestamp (з sessionId), беремо індекс — це і є phase.
@@ -1019,7 +1029,10 @@ export const storage = {
       if (comp.format !== 'gonzales') {
         const groupCount = comp.results?.groupCountOverride ?? comp.results?.autoDetectedGroups;
         const allPhases = buildFullPhases(comp.format);
-        const phases = filterPhasesUtil(allPhases, groupCount, comp.format);
+        // qualiCount = фактична к-сть залінкованих квалі (квалі ≠ race-групи),
+        // інакше змагання з 4 квалями+3 групами вважалось би завершеним зарано.
+        const qualiCount = comp.sessions.filter(s => s.phase && s.phase.startsWith('qualifying_')).length;
+        const phases = filterPhasesUtil(allPhases, groupCount, comp.format, { qualiCount });
         phasesComplete = phases.length > 0 && comp.sessions.length >= phases.length;
       }
 

@@ -90,7 +90,9 @@ export function buildFullPhases(format, opts = {}) {
  * Filter phases by groupCount.
  *
  * Rules:
- * - LL/CL: drop `qualifying_N` if N > groupCount and any phase with `group_M` if M > groupCount.
+ * - LL/CL: drop `qualifying_N` if N > qualiCount (квалі ≠ race-групи! LL може
+ *   мати 4 квалі-групи, що зливаються в 3 race-групи); fallback на groupCount
+ *   якщо qualiCount не переданий. Будь-яку фазу з `group_M` — якщо M > groupCount.
  * - Sprint: drop `*_group_M` if M > groupCount (qualifying phases теж мають group_M).
  * - Gonzales: drop `qualifying_N` if N > groupCount; drop `round_N` if N > gonzalesRoundCount
  *   (раунди НЕ мають груп — групи стосуються лише кількості кваліфікацій).
@@ -102,13 +104,16 @@ export function buildFullPhases(format, opts = {}) {
  * @param {string} format
  * @param {object} [opts]
  * @param {number} [opts.gonzalesRoundCount=12]
+ * @param {number|null} [opts.qualiCount=null] к-сть кваліфікацій (LL/CL); fallback на groupCount
  * @returns {string[]}
  */
 export function filterPhases(phases, groupCount, format, opts = {}) {
-  const { gonzalesRoundCount = GONZALES_DEFAULT_ROUND_COUNT } = opts;
+  const { gonzalesRoundCount = GONZALES_DEFAULT_ROUND_COUNT, qualiCount = null } = opts;
   if (groupCount == null && format !== 'gonzales') return phases;
 
   const gc = groupCount ?? 99;
+  // Квалі ріжемо по qualiCount (квалі ≠ race-групи); fallback на gc — стара поведінка.
+  const qc = qualiCount ?? gc;
 
   return phases.filter(p => {
     if (format === 'gonzales') {
@@ -123,10 +128,10 @@ export function filterPhases(phases, groupCount, format, opts = {}) {
       }
     }
 
-    // LL/CL: qualifying_N → cap by groupCount
+    // LL/CL: qualifying_N → cap by qualiCount (НЕ groupCount)
     if (format !== 'sprint' && format !== 'gonzales' && p.startsWith('qualifying_')) {
       const num = parseInt(p.split('_')[1]);
-      return num <= gc;
+      return num <= qc;
     }
 
     // Sprint + everywhere: group_M
