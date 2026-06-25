@@ -124,12 +124,17 @@ async function main() {
   const pointMismatches: string[] = [];
   const startMismatches: string[] = [];
   const matched = new Set<string>();
+  // Повна таблиця балів по всіх зматчених пілотах (для друку в кінці).
+  const pointsTable: { pilot: string; ours: number; sheet: number; diff: number; match: boolean }[] = [];
   for (const row of our) {
     const m = matchName(row.pilot);
     const sp = m ? sheetByName.get(m) : undefined;
     if (sp) matched.add(m!);
     if (!sp) continue;
-    if (Math.abs(row.totalPoints - sp.total) > 0.05) {
+    const diff = Math.round((row.totalPoints - sp.total) * 10) / 10;
+    const isMatch = Math.abs(diff) <= 0.05;
+    pointsTable.push({ pilot: row.pilot, ours: row.totalPoints, sheet: sp.total, diff, match: isMatch });
+    if (!isMatch) {
       const reasons: string[] = [];
       for (let r = 0; r < raceCount; r++) {
         const lr = row.races[r], sr = sp.races[r];
@@ -181,6 +186,19 @@ async function main() {
   console.log(`\n⚠️  СТАРТОВІ ПОЗИЦІЇ — розбіжності (${startMismatches.length}) [це сигнал бага, треба фіксити]:`);
   startMismatches.length ? startMismatches.forEach(l => console.log(l)) : console.log('  (немає — старти збігаються ✓)');
   if (startGridWarnings.length) { console.log('  Дублі/пропуски стартів у таблиці:'); startGridWarnings.forEach(l => console.log(l)); }
+
+  console.log(`\n◆ БАЛИ — всі пілоти (${pointsTable.length}):`);
+  const padR = (s: string, n: number) => s.length >= n ? s : ' '.repeat(n - s.length) + s;
+  console.log(`  ${'Пілот'.padEnd(24)}${padR('Бали', 7)}${padR('Табл', 8)}${padR('Δ', 7)}  ✓`);
+  console.log(`  ${'-'.repeat(24)}${padR('----', 7)}${padR('----', 8)}${padR('---', 7)}  -`);
+  for (const t of pointsTable) {
+    const diffStr = t.diff === 0 ? '0' : (t.diff > 0 ? `+${t.diff}` : `${t.diff}`);
+    const mark = t.match ? '✓' : '✗';
+    console.log(`  ${t.pilot.padEnd(24)}${padR(String(t.ours), 7)}${padR(String(t.sheet), 8)}${padR(diffStr, 7)}  ${mark}`);
+  }
+  const okCount = pointsTable.filter(t => t.match).length;
+  console.log(`  ${'-'.repeat(48)}`);
+  console.log(`  Збігається: ${okCount}/${pointsTable.length}`);
 
   console.log(`\n◆ БАЛИ / ФІНІШІ — розбіжності (${pointMismatches.length}):`);
   pointMismatches.length ? pointMismatches.forEach(l => console.log(l)) : console.log('  (немає — бали збігаються ✓)');
