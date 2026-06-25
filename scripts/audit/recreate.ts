@@ -18,7 +18,8 @@
  *
  * Usage: npx tsx scripts/audit/recreate.ts <competitionId> [--apply] [--name=] [--date=]
  */
-import { fetchCompetition, COLLECTOR, kyivTime } from './lib';
+import { fetchCompetition, fetchSessionsByDate, COLLECTOR, kyivTime } from './lib';
+import { isCompetitionTime } from '../../collector/src/competition-link-utils.js';
 
 const APPLY = process.argv.includes('--apply');
 const argVal = (flag: string) => {
@@ -40,9 +41,30 @@ async function main() {
   const fd = new Date(firstTs);
   const date = `${fd.getUTCFullYear()}-${String(fd.getUTCMonth() + 1).padStart(2, '0')}-${String(fd.getUTCDate()).padStart(2, '0')}`;
 
+  // fromTs для replay має дорівнювати РЕАЛЬНОМУ start_time першої ВАЛІДНОЇ
+  // сесії змагання, а не timestamp з sessionId першої *залінкованої* сесії.
+  // Дві причини:
+  //  1) sessionId присвоюється на ~100-200мс ПІЗНІШЕ за start_time → фільтр
+  //     `start_time >= fromTs` у replayLinkingForDate викидав би першу сесію.
+  //  2) Якщо перша квала вже відлінкована (баг), вона зникає зі списку
+  //     comp.sessions — тож firstSession вказує на ДРУГУ квалу. Беремо
+  //     найранішу сесію дня у вікні змагання (≥19:45 Kyiv) з реальними колами.
+  const daySessions = await fetchSessionsByDate(date);
+  const firstValid = [...daySessions]
+    .sort((a, b) => a.start_time - b.start_time)
+    .find(s => isCompetitionTime(s.start_time) && (s.pilot_count ?? 0) > 0);
+  const linkedRow = daySessions.find(s => s.id === firstSession || (s.merged_session_ids || []).includes(firstSession));
+  // Беремо ранішу з двох (валідна у вікні vs перша залінкована) — щоб не
+  // пропустити квалу, яка випала, але й не почати раніше за вікно змагання.
+  const replayFromTs = Math.min(
+    firstValid ? firstValid.start_time : Infinity,
+    linkedRow ? linkedRow.start_time : firstTs,
+  );
+
   console.log(`MODE: ${APPLY ? 'APPLY (will write!)' : 'DRY-RUN'}`);
   console.log(`Competition: ${comp.name} (${comp.format}) ${comp.id}`);
   console.log(`First session: ${kyivTime(firstTs)} (${date}) ${firstSession}`);
+  console.log(`Replay fromTs: ${kyivTime(replayFromTs)} (${replayFromTs})`);
   if (date !== comp.date) console.log(`⚠️  comp.date=${comp.date} but first session is on ${date}`);
   console.log(`Current linked sessions (${comp.sessions.length}):`);
   for (const s of sortedSess) console.log(`  ${kyivTime(parseInt(s.sessionId.replace('session-', '')))}  ${(s.phase || '—').padEnd(18)} ${s.sessionId}`);
@@ -86,7 +108,7 @@ async function main() {
   console.log(`created live competition (name="${newName}", date=${newDate})`);
 
   // replay the real poller linking over the day's recorded sessions
-  const { trace } = await post(`/competitions/${encodeURIComponent(comp.id)}/replay-link`, { date, fromTs: firstTs });
+  const { trace } = await post(`/competitions/${encodeURIComponent(comp.id)}/replay-link`, { date, fromTs: replayFromTs });
   await patch(`/competitions/${encodeURIComponent(comp.id)}`, { status: 'finished' });
 
   // report
