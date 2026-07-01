@@ -24,7 +24,7 @@ export interface ScoringData {
   speedPoints: number[];
 }
 
-export interface PilotQualiData { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; speedPoints: number }
+export interface PilotQualiData { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; speedPoints: number; laps?: number[] }
 export interface PilotRaceData {
   kart: number; bestTime: number; bestTimeStr: string;
   group: number; startPos: number; finishPos: number;
@@ -65,6 +65,24 @@ export function parseLapSec(t: string | null): number | null {
  */
 export function byTimeThenTs(timeA: number, tsA: number, timeB: number, tsB: number): number {
   if (timeA !== timeB) return timeA - timeB;
+  return (tsA ?? Infinity) - (tsB ?? Infinity);
+}
+
+/**
+ * Tiebreak за НАСТУПНИМ найкращим колом (як в офіційній таблиці/автоспорті):
+ * рівний best-lap → порівнюємо 2-ге найкраще коло, потім 3-тє і т.д. Якщо всі
+ * спільні кола рівні — фінальний fallback на timestamp (хто поставив раніше).
+ * `lapsA`/`lapsB` — усі валідні часи кіл пілота (порядок будь-який, сортуємо тут).
+ * Returns <0 if a ranks before b.
+ */
+export function byLapsThenTs(lapsA: number[], tsA: number, lapsB: number[], tsB: number): number {
+  const a = [...lapsA].sort((x, y) => x - y);
+  const b = [...lapsB].sort((x, y) => x - y);
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  // всі спільні кола рівні → раніший ts вище
   return (tsA ?? Infinity) - (tsB ?? Infinity);
 }
 
@@ -125,14 +143,16 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
     for (const l of (sessionLaps.get(qs.sessionId) || [])) {
       const sec = parseLapSec(l.lap_time);
       if (sec === null || sec < 38) continue;
-      const ex = qualiData.get(l.pilot);
-      if (!ex || sec < ex.bestTime) qualiData.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, speedPoints: 0 });
+      let ex = qualiData.get(l.pilot);
+      if (!ex) { ex = { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, speedPoints: 0, laps: [] }; qualiData.set(l.pilot, ex); }
+      ex.laps!.push(sec);
+      if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; ex.bestTs = l.ts; ex.kart = l.kart; }
     }
   }
 
   const qualiSorted = [...qualiData.entries()]
     .filter(([p]) => !excludedPilots.has(p))
-    .sort((a, b) => byTimeThenTs(a[1].bestTime, a[1].bestTs, b[1].bestTime, b[1].bestTs));
+    .sort((a, b) => byLapsThenTs(a[1].laps ?? [a[1].bestTime], a[1].bestTs, b[1].laps ?? [b[1].bestTime], b[1].bestTs));
   const defaultMaxQualified = FORMAT_DEFAULT_RACE_PILOTS[format] ?? 36;
   const maxQualified = racePilotCount ?? defaultMaxQualified;
   const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
@@ -154,7 +174,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
     });
   });
 
-  let prevRaceTimes: { pilot: string; time: number; ts: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime, ts: d.bestTs }));
+  let prevRaceTimes: { pilot: string; time: number; ts: number; laps: number[] }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime, ts: d.bestTs, laps: d.laps ?? [d.bestTime] }));
 
   let activePhase: string | null = null;
   if (liveSessionId) {
@@ -171,7 +191,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
 
     const prevSorted = [...prevRaceTimes]
       .filter(p => !excludedPilots.has(p.pilot) && !disqualifiedPilots.has(p.pilot))
-      .sort((a, b) => byTimeThenTs(a.time, a.ts, b.time, b.ts))
+      .sort((a, b) => byLapsThenTs(a.laps, a.ts, b.laps, b.ts))
       .slice(0, maxQualified);
     const rGroups = splitIntoGroups(prevSorted.map(p => p.pilot), maxGroups);
     const startPositions = new Map<string, { group: number; startPos: number }>();
@@ -195,20 +215,21 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
       shouldShowStartPositions = true;
     }
 
-    const raceTimes: { pilot: string; time: number; ts: number }[] = [];
+    const raceTimes: { pilot: string; time: number; ts: number; laps: number[] }[] = [];
     for (const rs of rSessions) {
       const groupMatch = rs.phase?.match(/group_(\d+)/);
       const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
       const laps = sessionLaps.get(rs.sessionId) || [];
-      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; lapCount: number; lastTs: number; lastPosition: number }>();
+      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; lapCount: number; lastTs: number; lastPosition: number; laps: number[] }>();
       for (const l of laps) {
         const sec = parseLapSec(l.lap_time);
         if (sec === null || sec < 38) continue;
         const ex = pilotStats.get(l.pilot);
         if (!ex) {
-          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, lapCount: 1, lastTs: l.ts, lastPosition: l.position ?? 99 });
+          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, lapCount: 1, lastTs: l.ts, lastPosition: l.position ?? 99, laps: [sec] });
         } else {
           ex.lapCount++;
+          ex.laps.push(sec);
           if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPosition = l.position ?? 99; }
           if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; ex.bestTs = l.ts; }
         }
@@ -250,7 +271,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
           positionPoints: posPoints, overtakePoints: effOvertake, speedPoints: 0, penalties,
           totalRacePoints: Math.round((posPoints + effOvertake - penalties) * 10) / 10,
         });
-        raceTimes.push({ pilot, time: pData.bestTime, ts: pData.bestTs });
+        raceTimes.push({ pilot, time: pData.bestTime, ts: pData.bestTs, laps: pData.laps });
       });
       excludedEntries.forEach(([pilot, pData]) => {
         rData.set(pilot, {
@@ -261,7 +282,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
       });
     }
 
-    raceTimes.sort((a, b) => byTimeThenTs(a.time, a.ts, b.time, b.ts));
+    raceTimes.sort((a, b) => byLapsThenTs(a.laps, a.ts, b.laps, b.ts));
     raceTimes.filter(r => !excludedPilots.has(r.pilot)).slice(0, 5).forEach(({ pilot }, i) => {
       const rd = rData.get(pilot);
       if (rd) {
@@ -276,7 +297,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
       const raceParticipants = new Set(active.map(r => r.pilot));
       const noTimePilots = [...startPositions.keys()]
         .filter(p => !raceParticipants.has(p) && !excludedPilots.has(p) && !disqualifiedPilots.has(p));
-      prevRaceTimes = [...active, ...noTimePilots.map(p => ({ pilot: p, time: Infinity, ts: Infinity }))];
+      prevRaceTimes = [...active, ...noTimePilots.map(p => ({ pilot: p, time: Infinity, ts: Infinity, laps: [Infinity] }))];
     }
 
     if (shouldShowStartPositions) {
