@@ -7,6 +7,7 @@ import {
   getSprintPositionPoints,
   getSprintFinalPoints,
   byTimeThenTs,
+  byLapsThenTs,
   computeStandings,
   type ScoringData,
   type SessionLap,
@@ -238,6 +239,25 @@ describe('byTimeThenTs', () => {
     expect(byTimeThenTs(42.177, 1000, 42.177, 2000)).toBeLessThan(0); // a earlier → a wins
     expect(byTimeThenTs(42.177, 3000, 42.177, 2000)).toBeGreaterThan(0); // b earlier → b wins
     expect(byTimeThenTs(42.177, 2000, 42.177, 2000)).toBe(0); // identical
+  });
+});
+
+describe('byLapsThenTs — тайбрейк за наступним найкращим колом', () => {
+  it('різний best-lap: кращий (менший) виграє', () => {
+    expect(byLapsThenTs([42.1, 43.0], 1000, [42.2, 42.5], 500)).toBeLessThan(0);
+  });
+
+  it('рівний best-lap: виграє кращий за 2-м найкращим колом (кейс Зайцев/Довбиус)', () => {
+    // Зайцев: best 43.022, 2nd 43.067. Довбиус: best 43.022, 2nd 43.185.
+    const zaitsev = [46.654, 47.559, 43.867, 43.089, 43.798, 43.105, 43.022, 45.122, 43.082, 43.067];
+    const dovbius = [46.052, 43.279, 43.022, 43.382, 43.242, 43.847, 43.185, 43.534, 43.241, 44.500];
+    // Зайцев поставив best ПІЗНІШЕ (більший ts), але 2-ге коло краще → має бути вище
+    expect(byLapsThenTs(zaitsev, 5000, dovbius, 1000)).toBeLessThan(0);
+  });
+
+  it('усі спільні кола рівні → fallback на раніший timestamp', () => {
+    expect(byLapsThenTs([42.1, 42.5], 1000, [42.1, 42.5], 2000)).toBeLessThan(0);
+    expect(byLapsThenTs([42.1, 42.5], 3000, [42.1, 42.5], 2000)).toBeGreaterThan(0);
   });
 });
 
