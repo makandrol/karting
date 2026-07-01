@@ -29,6 +29,7 @@ import CompetitionList from './CompetitionList';
 import LiveSessionTable from './LiveSessionTable';
 import CompetitionLayoutWrapper from './CompetitionLayoutWrapper';
 import CompetitionParams from './CompetitionParams';
+import CompetitionEditLog from '../../components/Results/CompetitionEditLog';
 
 const Onboard = lazy(() => import('../Info/Onboard'));
 
@@ -180,10 +181,9 @@ export default function CompetitionPage() {
   return (
     <div className="space-y-4">
       {(competition.format === 'gonzales' || competition.format === 'light_league' || competition.format === 'champions_league' || competition.format === 'sprint' || competition.format === 'marathon') && (
-        <TableLayoutBar pageId="competition" sections={[
-          ...PAGE_SECTIONS.competition.filter(s => s.id !== 'kartManager' || competition.format === 'gonzales'),
-          { id: 'editLog', label: 'Журнал змін' },
-        ]} disabledSections={isOwner ? undefined : new Set(['kartManager', 'editLog', 'onboard'])} />
+        <TableLayoutBar pageId="competition" sections={
+          PAGE_SECTIONS.competition.filter(s => s.id !== 'kartManager' || competition.format === 'gonzales')
+        } disabledSections={isOwner ? undefined : new Set(['kartManager', 'editLog', 'onboard'])} />
       )}
       <div className="flex items-center justify-between">
         <div>
@@ -609,6 +609,10 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     </div>
   ) : null;
 
+  const editLogEl = isOwner && isSectionVisible('competition', 'editLog') ? (
+    <CompetitionEditLog key="editLog" competitionId={competition.id} />
+  ) : null;
+
   if (competition.format === 'marathon') {
     const session = competition.sessions[0];
     const sessionStart = session ? sessionTimes.find(s => s.sessionId === session.sessionId)?.startTime : undefined;
@@ -650,6 +654,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       liveSession: marathonKartsEl,
       sessions: sessionsEl,
       onboard: onboardEl,
+      editLog: editLogEl,
     };
 
     return (
@@ -737,6 +742,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       liveSession: liveSessionEl,
       sessions: sessionsEl,
       onboard: onboardEl,
+      editLog: editLogEl,
     };
 
     return (
@@ -807,6 +813,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       liveSession: liveSessionEl,
       sessions: sessionsEl,
       onboard: onboardEl,
+      editLog: editLogEl,
     };
 
     return (
