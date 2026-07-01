@@ -210,7 +210,7 @@ async function main() {
     const padR2 = (s: string, n: number) => s.length >= n ? s : ' '.repeat(n - s.length) + s;
     for (let r = 0; r < raceCount; r++) {
       const rows = [...startRowsByRace[r]].sort((a, b) =>
-        (a.ourGroup - b.ourGroup) || (b.sheetStart - a.sheetStart) || (b.ourStart - a.ourStart));
+        (a.sheetGroup - b.sheetGroup) || (b.sheetStart - a.sheetStart) || (b.ourStart - a.ourStart));
       if (rows.length === 0) continue;
       const srcLabel = r === 0 ? 'Кв-час' : `Г${r}-грр Г${r}-час`;
       console.log(`\n── ГОНКА ${r + 1}, старт (${rows.length}) — ${r === 0 ? 'джерело: квала' : `джерело: Гонка ${r}`}:`);
@@ -218,7 +218,7 @@ async function main() {
       console.log(`  ${'-'.repeat(22)}${padR2('----', 9)}${padR2('----', 8)}${padR2('----', 11)}${padR2('----', 10)}  -  ${'-'.repeat(14)}`);
       let prevGroup = -1;
       for (const row of rows) {
-        if (row.ourGroup !== prevGroup) { console.log(`  · наша група ${row.ourGroup} ·`); prevGroup = row.ourGroup; }
+        if (row.sheetGroup !== prevGroup) { console.log(`  · група ${row.sheetGroup || '?'} (таблиця) ·`); prevGroup = row.sheetGroup; }
         // збіг = і група, і старт однакові
         const mark = (row.sheetGroup === row.ourGroup && row.sheetStart === row.ourStart) ? '✓' : '✗';
         const sheetGrStr = row.sheetGroup > 0 ? `G${row.sheetGroup}` : '—';
