@@ -24,7 +24,8 @@
  * format + first-session date (LL/CL workbooks).
  */
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import {
   fetchCompetition, fetchScoring, computeOurStandings, fetchSheetCsv,
   parseLlSheet, resolveSheetUrl, llSheetUrl, clSheetUrl, buildNameMatcher,
@@ -39,7 +40,8 @@ const argVal = (flag: string) => {
   return a ? a.slice(flag.length + 1) : undefined;
 };
 const MAX_DELTA = argVal('--max') ? parseInt(argVal('--max')!) : 3;
-const MD_PATH = argVal('--md'); // якщо задано — дублювати таблиці стартів+балів у .md файл (візуально)
+// .md звіт: за замовчуванням у docs/audit/ (папка в .gitignore). Можна перевизначити через --md=<path>.
+const MD_PATH = argVal('--md') ?? `docs/audit/audit-${process.argv[2] || 'competition'}.md`;
 
 // Збирач рядків для .md-звіту (не пушиться нікуди, лише для перегляду).
 const mdLines: string[] = [];
@@ -280,6 +282,7 @@ async function main() {
   console.log('\n' + (APPLY ? '✓ зміни застосовано' : '(dry-run — додай --apply щоб застосувати)'));
 
   if (MD_PATH) {
+    mkdirSync(dirname(MD_PATH), { recursive: true });
     writeFileSync(MD_PATH, mdLines.join('\n') + '\n', 'utf8');
     console.log(`\n📄 .md звіт записано: ${MD_PATH}`);
   }

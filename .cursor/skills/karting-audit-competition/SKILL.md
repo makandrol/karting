@@ -14,9 +14,10 @@ description: Audit a finished LL/CL competition against its official Google Shee
 - `tsx` встановлено (`npm install -D tsx` якщо нема).
 - Колектор доступний (`COLLECTOR_URL`, дефолт прод).
 - **Завжди спершу DRY-RUN, показати користувачу, потім `--apply`.**
-- Перед першим `--apply` на сесії переконайся що є бекап БД. Роби дамп на VPS і **завжди лишай тільки 2 найновіші бекапи** (решту видаляй перед створенням нового — БД ~1GB, забиває пам'ять):
+- Перед першим `--apply` на сесії переконайся що є бекап БД **за сьогодні**. Бекап роби ТІЛЬКИ якщо сьогодні його ще ніхто не робив — спершу перевір наявні бекапи (за датою в імені `karting.db.bak-YYYYMMDD-*`); якщо сьогоднішній уже є, НЕ створюй новий. Роби дамп на VPS і **завжди лишай тільки 2 найновіші бекапи** (решту видаляй перед створенням нового — БД ~1GB, забиває пам'ять):
   ```bash
-  ssh -i ~/.ssh/id_github ubuntu@141.147.32.196 "cd /home/ubuntu/collector/data && cp karting.db karting.db.bak-$(date +%Y%m%d-%H%M%S) && ls -1t karting.db.bak-* | tail -n +3 | xargs -r rm -f"
+  # Створює бекап лише якщо сьогоднішнього ще нема, і лишає 2 найновіші:
+  ssh -i ~/.ssh/id_github ubuntu@141.147.32.196 'cd /home/ubuntu/collector/data && ls -1 karting.db.bak-$(date +%Y%m%d)-* >/dev/null 2>&1 && echo "backup for today already exists, skipping" || { cp karting.db karting.db.bak-$(date +%Y%m%d-%H%M%S) && ls -1t karting.db.bak-* | tail -n +3 | xargs -r rm -f; }; ls -1t karting.db.bak-*'
   ```
 
 ## Один прохід (головна команда)
@@ -31,10 +32,10 @@ npx tsx scripts/audit/audit-competition.ts <competitionId>
 npx tsx scripts/audit/audit-competition.ts <competitionId> --recreate
 
 # ГОЛОВНА команда цього скіла (перестворення + аудит + .md звіт):
-npx tsx scripts/audit/audit-competition.ts <competitionId> --recreate --apply --md=/tmp/audit.md
+npx tsx scripts/audit/audit-competition.ts <competitionId> --recreate --apply
 
 # Аудит БЕЗ перестворення (лише за явним проханням):
-npx tsx scripts/audit/audit-competition.ts <competitionId> --apply --md=/tmp/audit.md
+npx tsx scripts/audit/audit-competition.ts <competitionId> --apply
 
 # З явним gid/url таблиці (якщо авто-резолв не знає вкладку):
 npx tsx scripts/audit/audit-competition.ts <competitionId> <gidOrUrl> --recreate --apply
@@ -43,7 +44,7 @@ npx tsx scripts/audit/audit-competition.ts <competitionId> <gidOrUrl> --recreate
 Опції:
 - `--apply` — записати зміни (без нього — dry-run).
 - `--recreate` — видалити + перестворити змагання з першого заїзду (валідує лінкування). **За замовчуванням у цьому скілі — ВМИКАЙ** (перестворення дефолт); пропускай лише за явним проханням «без перестворення».
-- `--md=<path>` — продублювати таблиці стартів і балів у markdown-файл (візуально зручніше). Пиши в `/tmp/` — **НЕ комітимо**.
+- `--md=<path>` — перевизначити шлях .md-звіту (таблиці стартів і балів). **За замовчуванням звіт ЗАВЖДИ пишеться в `docs/audit/audit-<compId>.md`** (папка в `.gitignore` — **НЕ комітимо**). Прапорець потрібен лише якщо треба інше розташування.
 - `--max=N` — максимальна різниця для імпорту фінішної корекції (дефолт 3).
 - `--name="..."` / `--date=YYYY-MM-DD` — лише з `--recreate`, якщо треба виправити назву/дату (буває, що дата змагання збита, напр. LL 28.04 збережене як 29.04).
 
@@ -79,7 +80,7 @@ npx tsx scripts/audit/audit-competition.ts <competitionId> <gidOrUrl> --recreate
 
 5. **Прочистка «Карт N» у квалі більше НЕ потрібна вручну** — `computeStandings` тепер сам зливає їх через `mergePilotNames` (v0.9.494). Якщо все ж бачиш пілота як голе прізвище / «Карт N» у «Лише в нас» — це або справжній прогрів (0 валідних кіл), або reset lap_number (інший водій) — тоді лишаємо.
 
-6. **Прочитай фінальний звіт** — далі гейт по стартах (крок 3 «Робочий процес»). Для візуального перегляду додай `--md=/tmp/audit-<date>.md`.
+6. **Прочитай фінальний звіт** — далі гейт по стартах (крок 3 «Робочий процес»). Візуальний .md звіт автоматично пишеться в `docs/audit/audit-<compId>.md`.
 
 Одна команда `audit-competition.ts <id> --recreate --apply` покриває майже все. Окремі скрипти — лише для точкового дебагу.
 
@@ -144,7 +145,7 @@ npx tsx scripts/audit/audit-competition.ts <competitionId> <gidOrUrl> --recreate
 
 2. **Перестворення** (дефолт): dry-run recreate → перевір `Replay fromTs` (перша валідна квала) → `--recreate --apply`. Перевір структуру (квалі + 6 гонок LL). Деталі — «Повний flow» нижче.
 
-3. **Гейт по СТАРТАХ.** Запусти аудит з `--md=/tmp/audit-<date>.md` і подивись стартові розбіжності:
+3. **Гейт по СТАРТАХ.** Запусти аудит (звіт сам пишеться в `docs/audit/audit-<compId>.md`) і подивись стартові розбіжності:
    - **Старти збігаються (0 розбіжностей)** → переходь до кроку 4 (бали).
    - **Не збігаються** → покажи користувачу таблицю стартів (і скажи що повний розклад у `.md` файлі — його НЕ пушимо, суто візуально). **Аналізуй причину разом з користувачем** (він паралельно дивиться офіційну таблицю). Використай діагностику по джерелу (нижче). Якщо причина — **баг логіки** (впливає на всі змагання): зроби фікс, і **почни спочатку з перестворення** (крок 2). Якщо причина — разова (ручний перекид організатора / дощ-ротація) → познач і йди далі.
 
@@ -154,7 +155,7 @@ npx tsx scripts/audit/audit-competition.ts <competitionId> <gidOrUrl> --recreate
 
 5. Видай фінальний звіт: `Збігається: N/M` балів + стартові діфи + ручні зміни.
 
-`--md=<path>` дублює таблиці стартів і балів у markdown-файл (візуально зручніше за термінал). Пиши в `/tmp/` або корінь — **НЕ комітимо** цей файл.
+`.md` звіт (таблиці стартів і балів) автоматично пишеться в `docs/audit/audit-<compId>.md` — візуально зручніше за термінал. Папка `docs/audit/` у `.gitignore` — **НЕ комітимо** ці файли. Перевизначити шлях можна через `--md=<path>`.
 
 ## НЕ роби
 
@@ -165,4 +166,4 @@ npx tsx scripts/audit/audit-competition.ts <competitionId> <gidOrUrl> --recreate
 - НЕ застосовуй на проді без dry-run і підтвердження.
 - НЕ міняй `scoring.ts` щоб "підігнати" одне змагання — спершу переконайся що це системний баг на кількох. Базовий scoring крихкий — обговорюй зміни з користувачем.
 - Backup БД — завжди лишай ТІЛЬКИ 2 останніх (див. Передумови).
-- НЕ комітуй `.md` звіти (`--md`) — вони суто для візуального перегляду, пиши в `/tmp/`.
+- НЕ комітуй `.md` звіти — вони суто для візуального перегляду, пишуться в `docs/audit/` (папка в `.gitignore`).
