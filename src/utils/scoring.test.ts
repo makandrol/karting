@@ -7,7 +7,9 @@ import {
   getSprintPositionPoints,
   getSprintFinalPoints,
   byTimeThenTs,
+  computeStandings,
   type ScoringData,
+  type SessionLap,
 } from './scoring';
 
 const mockScoring: ScoringData = {
@@ -236,6 +238,37 @@ describe('byTimeThenTs', () => {
     expect(byTimeThenTs(42.177, 1000, 42.177, 2000)).toBeLessThan(0); // a earlier → a wins
     expect(byTimeThenTs(42.177, 3000, 42.177, 2000)).toBeGreaterThan(0); // b earlier → b wins
     expect(byTimeThenTs(42.177, 2000, 42.177, 2000)).toBe(0); // identical
+  });
+});
+
+describe('computeStandings — злиття "Карт N" кіл у квалі', () => {
+  const mkLap = (pilot: string, kart: number, lap_number: number, lap_time: string, ts: number): SessionLap =>
+    ({ pilot, kart, lap_number, lap_time, s1: null, s2: null, position: null, ts });
+
+  it('best-lap квалі враховує кола, записані як "Карт N" (той самий карт, неперервний lap_number)', () => {
+    // Пілот на карті 69: спершу timing пише "Карт 69" (кращий час 42.7), потім
+    // підтягує ім'я (гірший час 42.9). Без злиття best-lap був би 42.9.
+    const sessionLaps = new Map<string, SessionLap[]>([
+      ['session-q1', [
+        mkLap('Карт 69', 69, 1, '42.700', 1000),
+        mkLap('Карт 69', 69, 2, '43.100', 2000),
+        mkLap('Колєсніков Дмитро', 69, 3, '42.900', 3000),
+        // другий пілот, щоб була група
+        mkLap('Інший Пілот', 12, 1, '44.000', 1100),
+        mkLap('Інший Пілот', 12, 2, '43.800', 2100),
+      ]],
+    ]);
+    const rows = computeStandings({
+      format: 'light_league',
+      sessions: [{ sessionId: 'session-q1', phase: 'qualifying_1' }],
+      sessionLaps, scoring: mockScoring, edits: {},
+      excludedPilots: new Set(['Карт 69']), // як робить UI/аудит — але злиття має перекрити
+      maxGroups: 1,
+    });
+    const kol = rows.find(r => r.pilot === 'Колєсніков Дмитро');
+    expect(kol).toBeDefined();
+    // best-lap = 42.700 (з "Карт 69" кола), а не 42.900
+    expect(kol!.quali!.bestTimeStr).toBe('42.700');
   });
 });
 

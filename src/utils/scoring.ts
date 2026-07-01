@@ -38,6 +38,17 @@ export interface PilotRow {
 
 export type ManualEdits = Record<string, { startPos?: number; finishPos?: number; penalties?: number }>;
 
+/**
+ * Злити "Карт N"-кола з іменем пілота в кожній сесії мапи (через mergePilotNames,
+ * з reset-захистом для іншого водія). Потрібно, бо timing на початку сесії часто
+ * пише "Карт N" поки не підтягне ім'я — без злиття best-lap квалі рахувався б
+ * лише по частині кіл, що зсуває групи та стартові позиції.
+ * Gonzales вже робить це у своїй гілці; тут — те саме для LL/CL/Sprint.
+ */
+function mergeKartLapsPerSession(sessionLaps: Map<string, SessionLap[]>): Map<string, SessionLap[]> {
+  return new Map([...sessionLaps].map(([sid, laps]) => [sid, mergePilotNames(laps)]));
+}
+
 export function parseLapSec(t: string | null): number | null {
   if (!t) return null;
   const m = t.match(/^(\d+):(\d+\.\d+)$/);
@@ -102,7 +113,8 @@ export interface ComputeStandingsParams {
 }
 
 export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
-  const { format, sessions, sessionLaps, scoring, edits, excludedPilots, maxGroups, pilotsOverride, pilotsLocked, racePilotCount, liveSessionId, livePhase, livePositions } = params;
+  const { format, sessions, scoring, edits, excludedPilots, maxGroups, pilotsOverride, pilotsLocked, racePilotCount, liveSessionId, livePhase, livePositions } = params;
+  const sessionLaps = mergeKartLapsPerSession(params.sessionLaps);
   const raceCount = format === 'champions_league' ? 3 : 2;
   const qualiSessions = sessions.filter(s => s.phase?.startsWith('qualifying'));
 
@@ -309,7 +321,8 @@ export function getSprintFinalPoints(finishPos: number, precedingPilots: number)
 }
 
 export function computeSprintStandings(params: ComputeStandingsParams): PilotRow[] {
-  const { sessions, sessionLaps, scoring, edits, excludedPilots, maxGroups, pilotsOverride, pilotsLocked, liveSessionId, livePhase, livePositions } = params;
+  const { sessions, scoring, edits, excludedPilots, maxGroups, pilotsOverride, pilotsLocked, liveSessionId, livePhase, livePositions } = params;
+  const sessionLaps = mergeKartLapsPerSession(params.sessionLaps);
 
   const getQualiSessions = (n: number) => sessions.filter(s => s.phase?.startsWith(`qualifying_${n}_`));
   const getRaceSessions = (key: string) => sessions.filter(s => s.phase?.startsWith(`${key}_`));
