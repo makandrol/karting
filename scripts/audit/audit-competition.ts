@@ -128,7 +128,7 @@ async function main() {
   const pointsTable: { pilot: string; ours: number; sheet: number; diff: number; match: boolean }[] = [];
   // Деталі стартів по гонках (для діагностичних табличок при розбіжностях).
   // Г1: джерело старту — квала (bestTime квалі). Г2: джерело — результат Г1 (bestTime Г1).
-  type StartRow = { pilot: string; ourGroup: number; ourStart: number; sheetStart: number; srcGroup: number | null; srcTime: string };
+  type StartRow = { pilot: string; ourGroup: number; ourStart: number; sheetGroup: number; sheetStart: number; srcGroup: number | null; srcTime: string };
   const startRowsByRace: StartRow[][] = Array.from({ length: raceCount }, () => []);
   for (const row of our) {
     const m = matchName(row.pilot);
@@ -164,7 +164,7 @@ async function main() {
           : (row.races[r - 1]?.bestTimeStr ?? '·');
         startRowsByRace[r].push({
           pilot: row.pilot, ourGroup: lr.group, ourStart: lr.startPos,
-          sheetStart: sr?.startPos ?? 0, srcGroup, srcTime,
+          sheetGroup: sr?.group ?? 0, sheetStart: sr?.startPos ?? 0, srcGroup, srcTime,
         });
       }
     }
@@ -214,15 +214,17 @@ async function main() {
       if (rows.length === 0) continue;
       const srcLabel = r === 0 ? 'Кв-час' : `Г${r}-грр Г${r}-час`;
       console.log(`\n── ГОНКА ${r + 1}, старт (${rows.length}) — ${r === 0 ? 'джерело: квала' : `джерело: Гонка ${r}`}:`);
-      console.log(`  ${'Пілот'.padEnd(22)}${padR2('стрт-табл', 10)}${padR2('стрт-наш', 9)}  ✓  ${srcLabel}`);
-      console.log(`  ${'-'.repeat(22)}${padR2('----', 10)}${padR2('----', 9)}  -  ${'-'.repeat(14)}`);
+      console.log(`  ${'Пілот'.padEnd(22)}${padR2('гр-табл', 9)}${padR2('гр-наш', 8)}${padR2('стрт-табл', 11)}${padR2('стрт-наш', 10)}  ✓  ${srcLabel}`);
+      console.log(`  ${'-'.repeat(22)}${padR2('----', 9)}${padR2('----', 8)}${padR2('----', 11)}${padR2('----', 10)}  -  ${'-'.repeat(14)}`);
       let prevGroup = -1;
       for (const row of rows) {
-        if (row.ourGroup !== prevGroup) { console.log(`  · група ${row.ourGroup} ·`); prevGroup = row.ourGroup; }
-        const mark = row.sheetStart === row.ourStart ? '✓' : '✗';
+        if (row.ourGroup !== prevGroup) { console.log(`  · наша група ${row.ourGroup} ·`); prevGroup = row.ourGroup; }
+        // збіг = і група, і старт однакові
+        const mark = (row.sheetGroup === row.ourGroup && row.sheetStart === row.ourStart) ? '✓' : '✗';
+        const sheetGrStr = row.sheetGroup > 0 ? `G${row.sheetGroup}` : '—';
         const sheetStr = row.sheetStart > 0 ? String(row.sheetStart) : '—';
         const src = r === 0 ? row.srcTime : `Гр${row.srcGroup ?? '?'}  ${row.srcTime}`;
-        console.log(`  ${row.pilot.padEnd(22)}${padR2(sheetStr, 10)}${padR2(String(row.ourStart), 9)}  ${mark}  ${src}`);
+        console.log(`  ${row.pilot.padEnd(22)}${padR2(sheetGrStr, 9)}${padR2('G' + row.ourGroup, 8)}${padR2(sheetStr, 11)}${padR2(String(row.ourStart), 10)}  ${mark}  ${src}`);
       }
     }
   }
