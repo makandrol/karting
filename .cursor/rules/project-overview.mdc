@@ -11,7 +11,7 @@ Real-time timing dashboard для картодрому "Жага швидкос�
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS, Firebase Auth, react-router-dom v6
 - **Collector** (backend): Node.js 20, plain `http` (НЕ Express), `better-sqlite3`, PM2 на Oracle VPS
 - **Tests**: Vitest (`npm test`)
-- **Hosting**: Netlify (frontend, auto-deploy from `main`), Oracle VPS `150.230.157.143:3001` (collector)
+- **Hosting**: Netlify (frontend, auto-deploy from `main`), Oracle VPS `141.147.32.196:3001` (collector)
 - **Timing source**: `nfs.playwar.com:3333/getmaininfo.json` (адаптивний полінг 1s/10s/60s)
 
 ## Версії та гілки

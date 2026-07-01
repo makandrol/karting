@@ -105,17 +105,54 @@ export function displayPilotName(rawPilot: string, resolved?: string | null): st
  * Merge laps where pilot name is "Карт X" with subsequent laps from a named pilot on the same kart.
  * The timing system sometimes shows "Карт X" for the first few laps before the real name appears.
  */
-export function mergePilotNames<T extends { pilot: string; kart: number }>(laps: T[]): T[] {
+/**
+ * Merge "Карт N" placeholder names into the real pilot who drove that kart.
+ *
+ * Edge case (driver swap / marshal): when the named laps RESTART the lap
+ * counter on a kart that the timing system had been numbering anonymously
+ * (named.lap_number < the kart's last anonymous lap_number), the anonymous run
+ * belongs to a DIFFERENT driver (e.g. a marshal testing the kart, or a new
+ * stint after a long break). In that case the anonymous laps are NOT merged
+ * into the named pilot — only laps from the restart onward keep the name.
+ *
+ * Requires `lap_number` to detect resets; without it, falls back to the simple
+ * kart→name mapping (merge everything).
+ */
+export function mergePilotNames<T extends { pilot: string; kart: number; lap_number?: number; ts?: number }>(laps: T[]): T[] {
   const kartToPilot = new Map<number, string>();
-
   for (const l of laps) {
-    if (!l.pilot.startsWith('Карт ')) {
-      kartToPilot.set(l.kart, l.pilot);
+    if (!l.pilot.startsWith('Карт ')) kartToPilot.set(l.kart, l.pilot);
+  }
+
+  // For each kart, find a reset boundary: the timestamp from which the named
+  // pilot's lap counter restarts below the anonymous laps' last number.
+  // Anonymous laps before that boundary are left as "Карт N" (different driver).
+  const resetTsByKart = new Map<number, number>();
+  const byKart = new Map<number, T[]>();
+  for (const l of laps) {
+    if (!byKart.has(l.kart)) byKart.set(l.kart, []);
+    byKart.get(l.kart)!.push(l);
+  }
+  for (const [kart, kartLaps] of byKart) {
+    if (kartLaps.some(l => l.lap_number == null)) continue; // no lap numbers → skip reset detection
+    const sorted = [...kartLaps].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
+    let lastAnonLap = -1;
+    for (const l of sorted) {
+      const isAnon = l.pilot.startsWith('Карт ');
+      if (isAnon) { lastAnonLap = Math.max(lastAnonLap, l.lap_number!); continue; }
+      // named lap: if its number restarts below the anonymous run, it's a new driver
+      if (lastAnonLap > 0 && l.lap_number! < lastAnonLap) {
+        resetTsByKart.set(kart, l.ts ?? 0);
+        break;
+      }
     }
   }
 
   return laps.map(l => {
     if (l.pilot.startsWith('Карт ') && kartToPilot.has(l.kart)) {
+      const resetTs = resetTsByKart.get(l.kart);
+      // keep anonymous identity for laps before a reset boundary (different driver)
+      if (resetTs != null && (l.ts ?? 0) < resetTs) return l;
       return { ...l, pilot: kartToPilot.get(l.kart)! };
     }
     return l;

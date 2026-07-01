@@ -10,7 +10,7 @@ Three-tier app:
 - **Collector** (`collector/`) — Node.js 20, plain `http`, `better-sqlite3`, без фреймворків
 - **Tools** (`tools/path-editor.html`) — окремий SVG-редактор шляхів треків (vanilla HTML+JS)
 
-Frontend деплоїться на Netlify з `main` автоматично. Collector — на Oracle VPS `150.230.157.143`, керується PM2, ходить за даними на `nfs.playwar.com:3333` адаптивним полінгом (1s/10s/60s).
+Frontend деплоїться на Netlify з `main` автоматично. Collector — на Oracle VPS `141.147.32.196`, керується PM2, ходить за даними на `nfs.playwar.com:3333` адаптивним полінгом (1s/10s/60s).
 
 Дві окремі версії:
 - Frontend: `package.json` → `0.9.x` (зараз 0.9.433)

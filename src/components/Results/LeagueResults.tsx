@@ -1,6 +1,5 @@
 import { useMemo, Fragment, useState, useEffect, useCallback, useRef } from 'react';
 import { toSeconds, KART_COLOR, isKartName } from '../../utils/timing';
-import { useLayoutPrefs } from '../../services/layoutPrefs';
 import { useAuth } from '../../services/auth';
 import { COLLECTOR_URL, api } from '../../services/api';
 import { LoadingState } from '../States';
@@ -66,7 +65,6 @@ function EditableCell({ value, onChange, colorClass, prefix, editingRef }: {
 }
 
 export default function LeagueResults({ format, competitionId, sessions, sessionLaps, liveSessionId, livePhase, livePositions, livePilots, liveEnabled, onToggleLive, initialExcludedPilots, initialEdits, allSessionsEnded, totalPilotsOverride, totalPilotsLocked: initialLocked, groupCountOverride, racePilotCount, officialResultsUrl, onSaveResults, onPilotCount, onAutoGroups, excludedLapKeys }: LeagueResultsProps) {
-  const { isSectionVisible } = useLayoutPrefs();
   const { isOwner, hasPermission, user } = useAuth();
   const canManage = isOwner || hasPermission('manage_results');
   const raceCount = format === 'champions_league' ? 3 : format === 'sprint' ? 3 : 2;
@@ -1360,49 +1358,6 @@ export default function LeagueResults({ format, competitionId, sessions, session
             );
           })()}
         </div>
-      )}
-
-      {isOwner && isSectionVisible('competition', 'editLog') && (
-        <EditLog competitionId={competitionId} />
-      )}
-    </div>
-  );
-}
-
-function EditLog({ competitionId }: { competitionId: string }) {
-  const [log, setLog] = useState<{ pilot: string; action: string; detail: string; user: string; ts: number }[]>([]);
-
-  useEffect(() => {
-    api.competitions.getNormalized(competitionId)
-      .then(c => {
-        setLog((c.results.editLog || []).slice().reverse());
-      })
-      .catch(() => {});
-  }, [competitionId]);
-
-  return (
-    <div className="card p-0 overflow-hidden max-h-60 overflow-y-auto">
-      {log.length === 0 ? (
-        <div className="px-4 py-3 text-dark-600 text-[10px]">Немає записів</div>
-      ) : (
-        <table className="text-[10px]" style={{ tableLayout: 'auto', width: 'auto' }}>
-          <thead><tr className="bg-dark-800/50 sticky top-0">
-            <th className="px-2 py-1 text-left text-dark-400">Час</th>
-            <th className="px-2 py-1 text-left text-dark-400">Користувач</th>
-            <th className="px-2 py-1 text-left text-dark-400">Пілот</th>
-            <th className="px-2 py-1 text-left text-dark-400">Дія</th>
-          </tr></thead>
-          <tbody>
-            {log.map((entry, i) => (
-              <tr key={i} className="border-b border-dark-800/50">
-                <td className="px-2 py-1 text-dark-500 whitespace-nowrap">{new Date(entry.ts).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
-                <td className="px-2 py-1 text-dark-400">{entry.user.split('@')[0]}</td>
-                <td className="px-2 py-1 text-white">{entry.pilot}</td>
-                <td className="px-2 py-1 text-dark-300">{entry.detail}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       )}
     </div>
   );

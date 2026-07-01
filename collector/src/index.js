@@ -65,6 +65,13 @@ function sendUnauthorized(res) {
   sendJson(res, 401, { error: 'Unauthorized' });
 }
 
+// Валідний trackId: базові конфіги 1..20 та реверсні 101..120
+// (реверс кодується як base + REVERSE_OFFSET=100 на фронтенді).
+function isValidTrackId(trackId) {
+  if (typeof trackId !== 'number' || !Number.isFinite(trackId)) return false;
+  return (trackId >= 1 && trackId <= 20) || (trackId >= 101 && trackId <= 120);
+}
+
 // ============================================================
 // HTTP API
 // ============================================================
@@ -119,7 +126,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const body = await readBody(req);
         const { trackId } = JSON.parse(body);
-        if (typeof trackId !== 'number' || trackId < 1 || trackId > 20) {
+        if (!isValidTrackId(trackId)) {
           sendJson(res, 400, { error: 'Invalid trackId' });
           return;
         }
@@ -389,7 +396,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const body = await readBody(req);
         const { trackId } = JSON.parse(body);
-        if (typeof trackId !== 'number' || trackId < 1 || trackId > 20) {
+        if (!isValidTrackId(trackId)) {
           sendJson(res, 400, { error: 'Invalid trackId' });
           return;
         }
@@ -421,6 +428,22 @@ const server = http.createServer(async (req, res) => {
         const sessions = comp.sessions.filter(s => s.sessionId !== sessionId);
         storage.updateCompetition(id, { sessions });
         sendJson(res, 200, storage.getCompetition(id));
+      } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
+      return;
+    }
+
+    // POST /competitions/:id/replay-link — re-run live linking over recorded sessions (admin only)
+    // Body: { date: "YYYY-MM-DD", fromTs: <unix-ms> }. Mirrors poller logic.
+    if (req.method === 'POST' && url.pathname.match(/^\/competitions\/[^/]+\/replay-link$/)) {
+      if (!isAuthorized(req)) { sendUnauthorized(res); return; }
+      const id = decodeURIComponent(url.pathname.split('/')[2]);
+      try {
+        const { date, fromTs } = JSON.parse(await readBody(req));
+        if (!date || typeof fromTs !== 'number') { sendJson(res, 400, { error: 'date and fromTs required' }); return; }
+        const comp = storage.getCompetition(id);
+        if (!comp) { sendJson(res, 404, { error: 'Competition not found' }); return; }
+        const trace = storage.replayLinkingForDate(date, fromTs);
+        sendJson(res, 200, { ok: true, trace, competition: storage.getCompetition(id) });
       } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
       return;
     }
@@ -554,6 +577,41 @@ const server = http.createServer(async (req, res) => {
         const excluded = storage.toggleExcludedLap(lapKey);
         console.log(`${excluded ? '🚫' : '↩️'} Lap ${lapKey} ${excluded ? 'excluded' : 'restored'} (global)`);
         sendJson(res, 200, { ok: true, lapKey, excluded });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
+    // GET /db/edited-laps — глобально відредаговані кола
+    // (мапа "sessionId|pilot|ts" → { lapTime, original, user, editedTs })
+    if (req.method === 'GET' && url.pathname === '/db/edited-laps') {
+      sendJson(res, 200, { laps: Object.fromEntries(storage.getEditedLaps()) });
+      return;
+    }
+
+    // POST /db/edited-laps/set — встановити відредагований час кола (admin only)
+    if (req.method === 'POST' && url.pathname === '/db/edited-laps/set') {
+      if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+      try {
+        const { lapKey, lapTime, originalLapTime, user } = JSON.parse(await readBody(req));
+        if (!lapKey || typeof lapKey !== 'string' || !lapTime || typeof lapTime !== 'string') {
+          sendJson(res, 400, { error: 'lapKey and lapTime required' }); return;
+        }
+        const entry = storage.setEditedLap(lapKey, lapTime, originalLapTime ?? null, user ?? null);
+        console.log(`✏️ Lap ${lapKey} edited: ${entry.original ?? '—'} → ${lapTime} (global)`);
+        sendJson(res, 200, { ok: true, lapKey, ...entry });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
+    // POST /db/edited-laps/revert — скасувати редагування кола (admin only)
+    if (req.method === 'POST' && url.pathname === '/db/edited-laps/revert') {
+      if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+      try {
+        const { lapKey } = JSON.parse(await readBody(req));
+        if (!lapKey || typeof lapKey !== 'string') { sendJson(res, 400, { error: 'lapKey required' }); return; }
+        const reverted = storage.revertEditedLap(lapKey);
+        console.log(`↩️ Lap ${lapKey} edit reverted (global): ${reverted ? 'ok' : 'not found'}`);
+        sendJson(res, 200, { ok: true, lapKey, reverted });
       } catch { sendJson(res, 400, { error: 'invalid json' }); }
       return;
     }

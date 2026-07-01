@@ -1,7 +1,7 @@
 # Collector API Reference
 
 Plain Node.js HTTP server. **Base URL**:
-- Production: `http://150.230.157.143:3001`
+- Production: `http://141.147.32.196:3001`
 - Local dev: `http://localhost:3001` (треба `npm install && node src/index.js` у `collector/`)
 
 CORS відкритий: `Access-Control-Allow-Origin: *`. Body limit 512KB.
@@ -49,6 +49,11 @@ Read-ендпоінти переважно публічні (без auth). Ви�
 | POST 🔒 | `/db/update-sessions-track` | `{sessionIds, trackId}` — batch update |
 | POST 🔒 | `/db/propagate-track` | `{sessionId, trackId}` — оновити сесію + усі наступні non-competition того ж дня |
 | POST 🔒 | `/db/rename-pilot` | `{sessionId, oldName, newName}` — перейменувати пілота |
+| GET | `/db/excluded-laps` | Глобально виключені кола (`{laps: ["sessionId\|pilot\|ts", ...]}`) |
+| POST 🔒 | `/db/excluded-laps/toggle` | `{lapKey}` — toggle виключення кола |
+| GET | `/db/edited-laps` | Глобально відредаговані кола (`{laps: {"sessionId\|pilot\|ts": {lapTime, original, user, editedTs}}}`) |
+| POST 🔒 | `/db/edited-laps/set` | `{lapKey, lapTime, originalLapTime?, user?}` — встановити відредагований час кола |
+| POST 🔒 | `/db/edited-laps/revert` | `{lapKey}` — скасувати редагування кола |
 
 ## Track config
 

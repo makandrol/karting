@@ -139,6 +139,27 @@ describe('filterPhases', () => {
     expect(filtered).toContain('race_2_group_3');
   });
 
+  it('LL з 3 race-групами + 4 квалі (qualiCount=4): quali_4 НЕ ріжеться, 10 фаз', () => {
+    // Реальний кейс LL 19.05: 4 квалі-групи зливаються в 3 race-групи.
+    // Без qualiCount quali_4 обрізалась би → 6-та гонка (race_2_group_1) не
+    // влазила б у список фаз і не лінкувалась.
+    const filtered = filterPhases(buildFullPhases('light_league'), 3, 'light_league', { qualiCount: 4 });
+    expect(filtered).toHaveLength(10);
+    expect(filtered).toContain('qualifying_4');
+    // race-групи все одно обмежені 3 (group_4 не існує в шаблоні LL)
+    expect(filtered).toContain('race_1_group_1');
+    expect(filtered).toContain('race_2_group_1');
+    expect(filtered.filter(p => p.startsWith('qualifying_'))).toHaveLength(4);
+    expect(filtered.filter(p => p.includes('group_'))).toHaveLength(6);
+  });
+
+  it('qualiCount fallback на groupCount коли не переданий (стара поведінка)', () => {
+    const a = filterPhases(buildFullPhases('light_league'), 3, 'light_league');
+    const b = filterPhases(buildFullPhases('light_league'), 3, 'light_league', { qualiCount: null });
+    expect(a).toEqual(b);
+    expect(a).not.toContain('qualifying_4');
+  });
+
   it('CL з 2 групами: 8 фаз (нічого не фільтрується)', () => {
     const filtered = filterPhases(buildFullPhases('champions_league'), 2, 'champions_league');
     expect(filtered).toHaveLength(8);

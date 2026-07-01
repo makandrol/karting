@@ -46,6 +46,10 @@ export interface DbLap {
   best_lap: string | null;
   position: number | null;
   ts: number;
+  /** true якщо час кола відредаговано вручну (глобально). */
+  edited?: boolean;
+  /** Вихідний (до редагування) час кола — для показу/revert. */
+  original_lap_time?: string | null;
 }
 
 export interface CollectorEvent {
@@ -199,6 +203,15 @@ export const api = {
     /** Toggle глобального виключення кола. */
     toggleExcluded: (lapKey: string) =>
       apiPost<{ ok: boolean; lapKey: string; excluded: boolean }>('/db/excluded-laps/toggle', { lapKey }),
+    /** Глобально відредаговані кола (мапа "sessionId|pilot|ts" → {lapTime, original, user, editedTs}). */
+    editedList: () =>
+      apiGet<{ laps: Record<string, { lapTime: string; original: string | null; user: string | null; editedTs: number }> }>('/db/edited-laps'),
+    /** Встановити відредагований час кола. */
+    setEdited: (lapKey: string, lapTime: string, originalLapTime?: string | null, user?: string | null) =>
+      apiPost<{ ok: boolean; lapKey: string; lapTime: string; original: string | null }>('/db/edited-laps/set', { lapKey, lapTime, originalLapTime, user }),
+    /** Скасувати редагування кола (revert). */
+    revertEdited: (lapKey: string) =>
+      apiPost<{ ok: boolean; lapKey: string; reverted: boolean }>('/db/edited-laps/revert', { lapKey }),
   },
 
   // ---- Events ----

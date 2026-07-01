@@ -14,6 +14,10 @@ export interface DbLap {
   best_lap?: string | null;
   position: number | null;
   ts: number;
+  /** true якщо час кола відредаговано вручну (глобально). */
+  edited?: boolean;
+  /** Вихідний час кола до редагування. */
+  original_lap_time?: string | null;
 }
 
 export interface ReplayLap {

@@ -177,6 +177,46 @@ describe('buildKartStats', () => {
     expect(a.tb_s1).toBe('19.5');
     expect(a.tb_s2).toBe('21.5');
   });
+
+  it('застосовує відредаговані кола (editedLaps) — новий час і перерахований lap_sec', () => {
+    const rows = [
+      { session_id: 's1', kart: 1, pilot: 'A', lap_time: '40.0', lap_sec: 40.0, ts: 100 },
+      { session_id: 's1', kart: 1, pilot: 'A', lap_time: '41.0', lap_sec: 41.0, ts: 200 },
+    ];
+    // Редагуємо швидке коло 40.0 → 45.0 → best стає 41.0
+    const edited = new Map([['s1|A|100', { lapTime: '45.0', original: '40.0' }]]);
+    const res = buildKartStats(rows, undefined, edited);
+    const a = res.find(r => r.kart === 1).top5[0];
+    expect(a.lap_time).toBe('41.0');
+  });
+
+  it('відредаговане коло, що стало найшвидшим, підхоплюється', () => {
+    const rows = [
+      { session_id: 's1', kart: 1, pilot: 'A', lap_time: '42.0', lap_sec: 42.0, ts: 100 },
+    ];
+    const edited = new Map([['s1|A|100', { lapTime: '39.5', original: '42.0' }]]);
+    const res = buildKartStats(rows, undefined, edited);
+    expect(res.find(r => r.kart === 1).top5[0].lap_time).toBe('39.5');
+  });
+
+  it('відредаговане коло <38с відкидається як невалідне', () => {
+    const rows = [
+      { session_id: 's1', kart: 1, pilot: 'A', lap_time: '40.0', lap_sec: 40.0, ts: 100 },
+      { session_id: 's1', kart: 1, pilot: 'A', lap_time: '41.0', lap_sec: 41.0, ts: 200 },
+    ];
+    // Робимо швидке коло невалідним (10с) → лишається 41.0
+    const edited = new Map([['s1|A|100', { lapTime: '10.0', original: '40.0' }]]);
+    const res = buildKartStats(rows, undefined, edited);
+    expect(res.find(r => r.kart === 1).top5[0].lap_time).toBe('41.0');
+  });
+
+  it('editedLaps приймає і plain-обʼєкт (не лише Map)', () => {
+    const rows = [
+      { session_id: 's1', kart: 1, pilot: 'A', lap_time: '40.0', lap_sec: 40.0, ts: 100 },
+    ];
+    const res = buildKartStats(rows, undefined, { 's1|A|100': { lapTime: '39.0' } });
+    expect(res.find(r => r.kart === 1).top5[0].lap_time).toBe('39.0');
+  });
 });
 
 describe('remapKartNamesToPilots', () => {
