@@ -126,6 +126,10 @@ async function main() {
   const matched = new Set<string>();
   // Повна таблиця балів по всіх зматчених пілотах (для друку в кінці).
   const pointsTable: { pilot: string; ours: number; sheet: number; diff: number; match: boolean }[] = [];
+  // Деталі стартів по гонках (для діагностичних табличок при розбіжностях).
+  // Г1: джерело старту — квала (bestTime квалі). Г2: джерело — результат Г1 (bestTime Г1).
+  type StartRow = { pilot: string; ourGroup: number; ourStart: number; sheetStart: number; srcGroup: number | null; srcTime: string };
+  const startRowsByRace: StartRow[][] = Array.from({ length: raceCount }, () => []);
   for (const row of our) {
     const m = matchName(row.pilot);
     const sp = m ? sheetByName.get(m) : undefined;
@@ -150,6 +154,18 @@ async function main() {
       const lr = row.races[r], sr = sp.races[r];
       if (lr && sr && lr.startPos > 0 && sr.startPos > 0 && lr.startPos !== sr.startPos) {
         startMismatches.push(`  ${row.pilot.padEnd(22)} Г${r + 1} старт наш ${lr.startPos} vs табл ${sr.startPos}`);
+      }
+      // Збираємо деталі старту для табличок (усі пілоти, що стартували в гонці).
+      if (lr && lr.startPos > 0) {
+        // Джерело старту: Г1 — час квалі; Г2+ — час/група попередньої гонки.
+        const srcGroup = r === 0 ? null : (row.races[r - 1]?.group ?? null);
+        const srcTime = r === 0
+          ? (row.quali?.bestTimeStr ?? '·')
+          : (row.races[r - 1]?.bestTimeStr ?? '·');
+        startRowsByRace[r].push({
+          pilot: row.pilot, ourGroup: lr.group, ourStart: lr.startPos,
+          sheetStart: sr?.startPos ?? 0, srcGroup, srcTime,
+        });
       }
     }
   }
@@ -186,6 +202,30 @@ async function main() {
   console.log(`\n⚠️  СТАРТОВІ ПОЗИЦІЇ — розбіжності (${startMismatches.length}) [це сигнал бага, треба фіксити]:`);
   startMismatches.length ? startMismatches.forEach(l => console.log(l)) : console.log('  (немає — старти збігаються ✓)');
   if (startGridWarnings.length) { console.log('  Дублі/пропуски стартів у таблиці:'); startGridWarnings.forEach(l => console.log(l)); }
+
+  // Детальні таблички стартів — тільки коли є розбіжності. Одна таблиця на гонку,
+  // усі пілоти, сортування за (група, старт у таблиці). Джерело старту:
+  // Г1 — квала (час кола квалі); Г2+ — попередня гонка (група + час кола там).
+  if (startMismatches.length) {
+    const padR2 = (s: string, n: number) => s.length >= n ? s : ' '.repeat(n - s.length) + s;
+    for (let r = 0; r < raceCount; r++) {
+      const rows = [...startRowsByRace[r]].sort((a, b) =>
+        (a.ourGroup - b.ourGroup) || (a.sheetStart - b.sheetStart) || (a.ourStart - b.ourStart));
+      if (rows.length === 0) continue;
+      const srcLabel = r === 0 ? 'Кв-час' : `Г${r}-грр Г${r}-час`;
+      console.log(`\n── ГОНКА ${r + 1}, старт (${rows.length}) — ${r === 0 ? 'джерело: квала' : `джерело: Гонка ${r}`}:`);
+      console.log(`  ${'Пілот'.padEnd(22)}${padR2('стрт-табл', 10)}${padR2('стрт-наш', 9)}  ✓  ${srcLabel}`);
+      console.log(`  ${'-'.repeat(22)}${padR2('----', 10)}${padR2('----', 9)}  -  ${'-'.repeat(14)}`);
+      let prevGroup = -1;
+      for (const row of rows) {
+        if (row.ourGroup !== prevGroup) { console.log(`  · група ${row.ourGroup} ·`); prevGroup = row.ourGroup; }
+        const mark = row.sheetStart === row.ourStart ? '✓' : '✗';
+        const sheetStr = row.sheetStart > 0 ? String(row.sheetStart) : '—';
+        const src = r === 0 ? row.srcTime : `Гр${row.srcGroup ?? '?'}  ${row.srcTime}`;
+        console.log(`  ${row.pilot.padEnd(22)}${padR2(sheetStr, 10)}${padR2(String(row.ourStart), 9)}  ${mark}  ${src}`);
+      }
+    }
+  }
 
   console.log(`\n◆ БАЛИ — всі пілоти (${pointsTable.length}):`);
   const padR = (s: string, n: number) => s.length >= n ? s : ' '.repeat(n - s.length) + s;
