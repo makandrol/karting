@@ -210,7 +210,7 @@ async function main() {
     const padR2 = (s: string, n: number) => s.length >= n ? s : ' '.repeat(n - s.length) + s;
     for (let r = 0; r < raceCount; r++) {
       const rows = [...startRowsByRace[r]].sort((a, b) =>
-        (a.ourGroup - b.ourGroup) || (a.sheetStart - b.sheetStart) || (a.ourStart - b.ourStart));
+        (a.ourGroup - b.ourGroup) || (b.sheetStart - a.sheetStart) || (b.ourStart - a.ourStart));
       if (rows.length === 0) continue;
       const srcLabel = r === 0 ? 'Кв-час' : `Г${r}-грр Г${r}-час`;
       console.log(`\n── ГОНКА ${r + 1}, старт (${rows.length}) — ${r === 0 ? 'джерело: квала' : `джерело: Гонка ${r}`}:`);
