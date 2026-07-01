@@ -10,6 +10,8 @@ export interface SessionLap {
   s2: string | null;
   position: number | null;
   ts: number;
+  /** Номер кола в сесії — для злиття "Карт N" кіл (mergeKartLapsPerSession). */
+  lap_number?: number;
 }
 
 export interface CompSession {

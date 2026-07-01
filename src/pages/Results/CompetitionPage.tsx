@@ -430,6 +430,25 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       }).sort((a, b) => a.startTime - b.startTime);
   }, [compSessions, competition.sessions, sessionLaps]);
 
+  // Сесії змагання для scoring/таблиці. Якщо колектор ще не встиг залінкувати
+  // поточну live-сесію (є liveSessionId + її кола вже підтягнуті у sessionLaps,
+  // але її немає у competition.sessions) — інжектимо її з обчисленою наступною
+  // вільною фазою, щоб таблиця результатів оновлювалась одразу в лайві, не
+  // чекаючи колектора. Це лише локальне відображення (без запису в колектор).
+  const effectiveSessions = useMemo(() => {
+    if (!liveSessionId) return competition.sessions;
+    if (competition.sessions.some(s => s.sessionId === liveSessionId)) return competition.sessions;
+    const hasLaps = (sessionLaps.get(liveSessionId)?.length ?? 0) > 0;
+    if (!hasLaps) return competition.sessions;
+    const results = competition.results || {};
+    const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? null;
+    const gonzRoundCount = competition.format === 'gonzales' ? (results.gonzalesRoundCount ?? null) : null;
+    const allPhases = getPhasesForFormat(competition.format, groupCount, gonzRoundCount);
+    const usedPhases = new Set(competition.sessions.map(s => s.phase));
+    const nextFree = allPhases.find(p => !usedPhases.has(p.id));
+    return [...competition.sessions, { sessionId: liveSessionId, phase: nextFree?.id ?? null }];
+  }, [competition.sessions, competition.results, competition.format, liveSessionId, sessionLaps]);
+
   const filteredSessionLaps = useMemo(() => {
     if (scrubTime === null) return sessionLaps;
     const filtered = new Map<string, SessionLap[]>();
@@ -533,6 +552,23 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         // finalizeSessionPhaseOnFirstLap). Це уникає race condition між
         // двома мозками. Якщо колектор пропустить — admin може лінкнути
         // вручну через SessionTypeChanger на сторінці заїзду.
+        //
+        // Але щоб таблиця результатів оновлювалась ПРЯМО в лайві (не чекаючи
+        // повільного 3s-поллінгу competition + laps), ми самі підтягуємо кола
+        // поточної live-сесії щодва секунди і зливаємо їх у sessionLaps.
+        if (currentLiveId) {
+          try {
+            const liveLaps = await api.laps.bySession(currentLiveId);
+            if (!cancelled && Array.isArray(liveLaps)) {
+              setSessionLaps(prev => {
+                const next = new Map(prev);
+                next.set(currentLiveId, liveLaps as any);
+                return next;
+              });
+            }
+          } catch {}
+        }
+
         if (timingRes.entries?.length > 0) {
           setLivePositions(timingRes.entries.map((e: any) => ({
             pilot: e.pilot,
@@ -630,7 +666,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       <GonzalesResults
         key="leaguePoints"
         competitionId={competition.id}
-        sessions={competition.sessions}
+        sessions={effectiveSessions}
         sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
         liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
         liveEnabled={!isScrubbing && liveEnabled}
@@ -652,6 +688,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       <LiveSessionTable
         key="liveSession"
         competition={competition}
+        sessions={effectiveSessions}
         liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
         liveEntries={isScrubbing ? [] : liveEntries}
         liveTeams={isScrubbing ? [] : liveTeams}
@@ -717,7 +754,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         key="leaguePoints"
         format={competition.format}
         competitionId={competition.id}
-        sessions={competition.sessions}
+        sessions={effectiveSessions}
         sessionLaps={isScrubbing ? filteredSessionLaps : sessionLaps}
         liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
         livePhase={isScrubbing ? scrubActivePhase : undefined}
@@ -744,6 +781,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       <LiveSessionTable
         key="liveSession"
         competition={competition}
+        sessions={effectiveSessions}
         liveSessionId={isScrubbing ? scrubSessionId : liveSessionId}
         liveEntries={isScrubbing ? [] : liveEntries}
         liveTeams={isScrubbing ? [] : liveTeams}

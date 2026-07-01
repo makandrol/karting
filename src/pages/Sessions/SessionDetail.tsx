@@ -32,7 +32,7 @@ export default function SessionDetail() {
 
   const {
     session: dbSession, setSession: setDbSession,
-    daySessions, laps: dbLaps,
+    daySessions, laps: dbLaps, setLaps: setDbLaps,
     s1Events, snapshots: replaySnapshots, rawEvents,
     startPositions, totalQualifiedPilots,
     sessionFormat, liveEntries,
@@ -136,6 +136,36 @@ export default function SessionDetail() {
     setExcludedLaps(next);
     try {
       await api.laps.toggleExcluded(lapKey);
+    } catch {}
+  };
+
+  // Редагування часу кола: ключ "sessionId|pilot|ts". Оптимістично оновлюємо
+  // локальні laps (edited + original_lap_time), потім пишемо в колектор.
+  const handleEditLap = async (lapKey: string, newLapTime: string, originalLapTime: string | null) => {
+    const parts = lapKey.split('|');
+    const ts = Number(parts[parts.length - 1]);
+    const pilot = parts.slice(1, -1).join('|');
+    setDbLaps(prev => prev.map(l =>
+      l.ts === ts && l.pilot === pilot
+        ? { ...l, lap_time: newLapTime, edited: true, original_lap_time: l.edited ? (l.original_lap_time ?? originalLapTime) : (originalLapTime ?? l.lap_time) }
+        : l,
+    ));
+    try {
+      await api.laps.setEdited(lapKey, newLapTime, originalLapTime);
+    } catch {}
+  };
+
+  const handleRevertLap = async (lapKey: string) => {
+    const parts = lapKey.split('|');
+    const ts = Number(parts[parts.length - 1]);
+    const pilot = parts.slice(1, -1).join('|');
+    setDbLaps(prev => prev.map(l =>
+      l.ts === ts && l.pilot === pilot
+        ? { ...l, lap_time: l.original_lap_time ?? l.lap_time, edited: false, original_lap_time: null }
+        : l,
+    ));
+    try {
+      await api.laps.revertEdited(lapKey);
     } catch {}
   };
 
@@ -420,6 +450,8 @@ export default function SessionDetail() {
               <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
                 excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
                 onToggleLap={isOwner ? handleToggleLap : undefined}
+                onEditLap={isOwner ? handleEditLap : undefined}
+                onRevertLap={isOwner ? handleRevertLap : undefined}
                 sessionId={sessionId}
                 pilotDisplayName={displayPilot}
                 startPositions={isRace ? startPositions : undefined} />
@@ -469,6 +501,8 @@ export default function SessionDetail() {
             <LapsByPilots key="lapsByPilots" pilots={pilots} currentEntries={trackEntries} onRenamePilot={isOwner ? handleRenamePilot : undefined}
               excludedLaps={excludedLaps.size > 0 ? excludedLaps : undefined}
               onToggleLap={isOwner ? handleToggleLap : undefined}
+              onEditLap={isOwner ? handleEditLap : undefined}
+              onRevertLap={isOwner ? handleRevertLap : undefined}
               sessionId={sessionId}
               pilotDisplayName={displayPilot}
               startPositions={isRace ? startPositions : undefined} />

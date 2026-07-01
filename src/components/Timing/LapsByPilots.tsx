@@ -13,6 +13,10 @@ export interface LapData {
   position?: number | null;
   /** Marathon: actual driver of this lap (pilotName at that moment). */
   driver?: string;
+  /** true якщо час кола відредаговано вручну. */
+  edited?: boolean;
+  /** Вихідний час кола до редагування. */
+  original_lap_time?: string | null;
 }
 
 interface PilotLaps {
@@ -32,6 +36,10 @@ interface LapsByPilotsProps {
   onRenamePilot?: (oldName: string, newName: string) => void;
   excludedLaps?: Set<string>;
   onToggleLap?: (key: string) => void;
+  /** Редагувати час кола (owner). Отримує ключ, новий час і вихідний час. */
+  onEditLap?: (key: string, newLapTime: string, originalLapTime: string | null) => void;
+  /** Скасувати редагування кола (revert). */
+  onRevertLap?: (key: string) => void;
   sessionId?: string;
   startPositions?: Map<string, number>;
   /** Опційний трансформер відображуваного імені (raw timing + наше в дужках). Не впливає на rename/ключі. */
@@ -77,7 +85,7 @@ function compactName(name: string): string {
   return `${surname} ${parts[1][0]}.`;
 }
 
-export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, sessionId, startPositions, pilotDisplayName, marathon }: LapsByPilotsProps) {
+export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRenamePilot, excludedLaps, onToggleLap, onEditLap, onRevertLap, sessionId, startPositions, pilotDisplayName, marathon }: LapsByPilotsProps) {
   const [viewMode, setViewMode] = useState<'all' | 'main'>('main');
   const [sortMode, setSortMode] = useState<'time' | 'position'>('time');
   const isRace = startPositions != null && startPositions.size > 0;
@@ -183,6 +191,7 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                   );
                   const lapKey = sessionId && lap.ts ? `${sessionId}|${p.name}|${lap.ts}` : '';
                   const isExcluded = lapKey ? excludedLaps?.has(lapKey) : false;
+                  const isEdited = !!lap.edited;
                   const sec = parseTime(lap.lap_time);
                   const isPB = !isExcluded && sec !== null && Math.abs(sec - p.bestLap) < 0.002;
                   const isOverall = !isExcluded && sec !== null && Math.abs(sec - overallBest) < 0.002;
@@ -226,18 +235,51 @@ export default function LapsByPilots({ pilots, currentEntries = [], isLive, onRe
                           )}
                         </div>
                       )}
-                      <div className={`relative group ${isExcluded ? 'line-through decoration-red-400' : ''}`}>
+                      <div className={`relative group ${isExcluded ? 'line-through decoration-red-400' : ''} ${isEdited && !isExcluded ? 'underline decoration-dotted decoration-amber-400 underline-offset-2' : ''}`}
+                        title={isEdited ? `Відредаговано${lap.original_lap_time ? ` (було ${toSeconds(lap.original_lap_time)})` : ''}` : undefined}>
                         {toSeconds(lap.lap_time)}
+                        {isEdited && <span className="text-amber-400 text-[8px] align-super ml-0.5">✎</span>}
                         {posDelta !== 0 && (
                           <span className={`ml-1 text-[8px] font-bold ${posDelta > 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {posDelta > 0 ? `▲${posDelta}` : `▼${Math.abs(posDelta)}`}
                           </span>
                         )}
-                        {onToggleLap && lapKey && (
-                          <button onClick={(e) => { e.stopPropagation(); onToggleLap(lapKey); }}
-                            className={`absolute -right-1 -top-1 w-3.5 h-3.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none opacity-0 group-hover:opacity-100 transition-all ${isExcluded ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30 !opacity-100' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}`}>
-                            {isExcluded ? '↩' : '✕'}
-                          </button>
+                        {(onToggleLap || onEditLap) && lapKey && (
+                          <div className="absolute -right-1 -top-1 flex gap-0.5">
+                            {onEditLap && !isExcluded && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const current = lap.lap_time || '';
+                                  const input = window.prompt(
+                                    `Час кола для "${p.name}" (напр. 42.574 або 1:02.222):`,
+                                    current,
+                                  );
+                                  if (input === null) return;
+                                  const trimmed = input.trim();
+                                  if (trimmed === '' || trimmed === current) return;
+                                  onEditLap(lapKey, trimmed, isEdited ? (lap.original_lap_time ?? null) : (lap.lap_time ?? null));
+                                }}
+                                title="Редагувати час кола"
+                                className="w-3.5 h-3.5 flex items-center justify-center rounded-full text-[8px] font-bold leading-none opacity-0 group-hover:opacity-100 transition-all bg-amber-500/20 text-amber-400 hover:bg-amber-500/30">
+                                ✎
+                              </button>
+                            )}
+                            {onEditLap && isEdited && onRevertLap && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onRevertLap(lapKey); }}
+                                title="Скасувати редагування"
+                                className="w-3.5 h-3.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none opacity-100 transition-all bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">
+                                ↺
+                              </button>
+                            )}
+                            {onToggleLap && (
+                              <button onClick={(e) => { e.stopPropagation(); onToggleLap(lapKey); }}
+                                className={`w-3.5 h-3.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none transition-all ${isExcluded ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30 opacity-100' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30 opacity-0 group-hover:opacity-100'}`}>
+                                {isExcluded ? '↩' : '✕'}
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                       {viewMode === 'all' && !isExcluded && ((s1Val !== null && s1Val >= 10) || (s2Val !== null && s2Val >= 10)) ? (

@@ -12,9 +12,11 @@ import SessionReplay, { parseSessionEvents } from "../../components/Timing/Sessi
 import { buildReplayLaps, extractCompetitionReplayProps } from "../../utils/session";
 import type { TimingEntry } from "../../types";
 import type { Competition, SessionLap } from "./competition-types";
+import type { CompSession } from "../../utils/scoring";
 
-export default function LiveSessionTable({ competition, liveSessionId, liveEntries, liveTeams, sessionLaps, compSessions, isScrubbing, scrubTime, onEntriesUpdate }: {
+export default function LiveSessionTable({ competition, sessions: sessionsProp, liveSessionId, liveEntries, liveTeams, sessionLaps, compSessions, isScrubbing, scrubTime, onEntriesUpdate }: {
   competition: Competition;
+  sessions?: CompSession[];
   liveSessionId: string | null;
   liveEntries: any[];
   liveTeams: any[];
@@ -24,6 +26,7 @@ export default function LiveSessionTable({ competition, liveSessionId, liveEntri
   scrubTime: number | null;
   onEntriesUpdate?: (entries: TimingEntry[]) => void;
 }) {
+  const sessions = sessionsProp ?? competition.sessions;
   const excludedLapSet = useMemo(() => new Set(competition.results?.excludedLaps || []), [competition.results?.excludedLaps]);
   const effectiveLaps = useMemo(() => {
     if (excludedLapSet.size === 0) return sessionLaps;
@@ -35,9 +38,9 @@ export default function LiveSessionTable({ competition, liveSessionId, liveEntri
   }, [sessionLaps, excludedLapSet]);
   const currentPhase = useMemo(() => {
     if (!liveSessionId) return null;
-    const s = competition.sessions.find(cs => cs.sessionId === liveSessionId);
+    const s = sessions.find(cs => cs.sessionId === liveSessionId);
     return s?.phase ?? null;
-  }, [competition.sessions, liveSessionId]);
+  }, [sessions, liveSessionId]);
 
   const isQualifying = currentPhase?.startsWith('qualifying') ?? false;
   const isRace = (currentPhase?.startsWith('race_') || currentPhase?.startsWith('final_') || currentPhase?.startsWith('round_')) ?? false;
@@ -126,7 +129,7 @@ export default function LiveSessionTable({ competition, liveSessionId, liveEntri
     const isSprint = competition.format === 'sprint';
 
     const qualiPhasePrefix = isSprint ? `qualifying_${raceNum}_` : 'qualifying';
-    const qualiSessions = competition.sessions.filter(s => s.phase?.startsWith(qualiPhasePrefix));
+    const qualiSessions = sessions.filter(s => s.phase?.startsWith(qualiPhasePrefix));
     const qualiData = new Map<string, { bestTime: number; pilot: string }>();
     for (const qs of qualiSessions) {
       for (const l of (effectiveLaps.get(qs.sessionId) || [])) {
@@ -144,10 +147,10 @@ export default function LiveSessionTable({ competition, liveSessionId, liveEntri
 
     if (isSprint) {
       if (finalMatch) {
-        const qualiSessions1 = competition.sessions.filter(s => s.phase?.startsWith('qualifying_1_'));
-        const qualiSessions2 = competition.sessions.filter(s => s.phase?.startsWith('qualifying_2_'));
-        const raceSessions1 = competition.sessions.filter(s => s.phase?.startsWith('race_1_'));
-        const raceSessions2 = competition.sessions.filter(s => s.phase?.startsWith('race_2_'));
+        const qualiSessions1 = sessions.filter(s => s.phase?.startsWith('qualifying_1_'));
+        const qualiSessions2 = sessions.filter(s => s.phase?.startsWith('qualifying_2_'));
+        const raceSessions1 = sessions.filter(s => s.phase?.startsWith('race_1_'));
+        const raceSessions2 = sessions.filter(s => s.phase?.startsWith('race_2_'));
 
         const bestTimeMap = (sessions: typeof qualiSessions1) => {
           const map = new Map<string, number>();
@@ -286,7 +289,7 @@ export default function LiveSessionTable({ competition, liveSessionId, liveEntri
 
     let prevRaceTimes: { pilot: string; time: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime }));
     for (let r = 1; r < raceNum; r++) {
-      const rSessions = competition.sessions.filter(s => s.phase?.startsWith(`race_${r}_`));
+      const rSessions = sessions.filter(s => s.phase?.startsWith(`race_${r}_`));
       const raceTimes: { pilot: string; time: number }[] = [];
       for (const rs of rSessions) {
         for (const l of (effectiveLaps.get(rs.sessionId) || [])) {
@@ -316,7 +319,7 @@ export default function LiveSessionTable({ competition, liveSessionId, liveEntri
     const total = (pilotsLocked && totalPilotsOverride !== null) ? totalPilotsOverride : qualifiedPilots.length;
 
     return { startPositions: sp.size > 0 ? sp : undefined, totalPilots: total };
-  }, [competition, effectiveLaps, currentPhase, excludedPilots, isCL]);
+  }, [competition, sessions, effectiveLaps, currentPhase, excludedPilots, isCL]);
 
   const gonzalesPilotSuffix = useMemo<Map<string, string>>(() => {
     if (competition.format !== 'gonzales' || !currentPhase?.startsWith('round_')) return new Map();
