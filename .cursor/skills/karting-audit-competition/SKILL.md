@@ -14,7 +14,10 @@ description: Audit a finished LL/CL competition against its official Google Shee
 - `tsx` встановлено (`npm install -D tsx` якщо нема).
 - Колектор доступний (`COLLECTOR_URL`, дефолт прод).
 - **Завжди спершу DRY-RUN, показати користувачу, потім `--apply`.**
-- Перед першим `--apply` на сесії переконайся що є бекап БД (скіл уже робив дамп на VPS; якщо ні — зроби).
+- Перед першим `--apply` на сесії переконайся що є бекап БД. Роби дамп на VPS і **завжди лишай тільки 2 найновіші бекапи** (решту видаляй перед створенням нового — БД ~1GB, забиває пам'ять):
+  ```bash
+  ssh -i ~/.ssh/id_github ubuntu@141.147.32.196 "cd /home/ubuntu/collector/data && cp karting.db karting.db.bak-$(date +%Y%m%d-%H%M%S) && ls -1t karting.db.bak-* | tail -n +3 | xargs -r rm -f"
+  ```
 
 ## Один прохід (головна команда)
 
