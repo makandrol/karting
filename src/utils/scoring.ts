@@ -36,7 +36,7 @@ export interface PilotRow {
   totalPoints: number;
 }
 
-export type ManualEdits = Record<string, { startPos?: number; finishPos?: number; penalties?: number }>;
+export type ManualEdits = Record<string, { startPos?: number; finishPos?: number; penalties?: number; group?: number }>;
 
 /**
  * Злити "Карт N"-кола з іменем пілота в кожній сесії мапи (через mergePilotNames,
@@ -236,7 +236,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
         const isDisqualified = disqualifiedPilots.has(pilot);
         const startPos = isDisqualified ? -1 : (edit?.startPos ?? sp?.startPos ?? 0);
         const finishPos = edit?.finishPos ?? (i + 1);
-        const group = isDisqualified ? 0 : (sp?.group ?? groupNum);
+        const group = isDisqualified ? 0 : (edit?.group ?? sp?.group ?? groupNum);
         const penalties = edit?.penalties ?? 0;
 
         const overtakePoints = isDisqualified ? 0 : calcOvertakePoints(scoring, group, startPos, finishPos, format === 'champions_league');
