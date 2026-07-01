@@ -28,3 +28,6 @@ Thumbs.db
 collector/data/
 racebox/
 .backups/
+
+# Audit reports (visual only, not committed)
+docs/audit/
