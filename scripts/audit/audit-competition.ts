@@ -24,6 +24,7 @@
  * format + first-session date (LL/CL workbooks).
  */
 import { execFileSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import {
   fetchCompetition, fetchScoring, computeOurStandings, fetchSheetCsv,
   parseLlSheet, resolveSheetUrl, llSheetUrl, clSheetUrl, buildNameMatcher,
@@ -38,6 +39,11 @@ const argVal = (flag: string) => {
   return a ? a.slice(flag.length + 1) : undefined;
 };
 const MAX_DELTA = argVal('--max') ? parseInt(argVal('--max')!) : 3;
+const MD_PATH = argVal('--md'); // якщо задано — дублювати таблиці стартів+балів у .md файл (візуально)
+
+// Збирач рядків для .md-звіту (не пушиться нікуди, лише для перегляду).
+const mdLines: string[] = [];
+function md(line = '') { if (MD_PATH) mdLines.push(line); }
 
 function runScript(script: string, args: string[]) {
   const all = [script, ...args];
@@ -199,9 +205,13 @@ async function main() {
   console.log(`FINAL REPORT — ${comp.name}`);
   console.log('='.repeat(90));
 
+  md(`# Аудит — ${comp.name}`);
+  md(`\n_id: ${comp.id} · ${APPLY ? 'APPLY' : 'DRY-RUN'} · recreate=${RECREATE}_`);
+
   console.log(`\n⚠️  СТАРТОВІ ПОЗИЦІЇ — розбіжності (${startMismatches.length}) [це сигнал бага, треба фіксити]:`);
   startMismatches.length ? startMismatches.forEach(l => console.log(l)) : console.log('  (немає — старти збігаються ✓)');
   if (startGridWarnings.length) { console.log('  Дублі/пропуски стартів у таблиці:'); startGridWarnings.forEach(l => console.log(l)); }
+  md(`\n## Стартові позиції — розбіжності: ${startMismatches.length}`);
 
   // Детальні таблички стартів — тільки коли є розбіжності. Одна таблиця на гонку,
   // усі пілоти, сортування за (група, старт у таблиці). Джерело старту:
@@ -216,6 +226,9 @@ async function main() {
       console.log(`\n── ГОНКА ${r + 1}, старт (${rows.length}) — ${r === 0 ? 'джерело: квала' : `джерело: Гонка ${r}`}:`);
       console.log(`  ${'Пілот'.padEnd(22)}${padR2('гр-табл', 9)}${padR2('гр-наш', 8)}${padR2('стрт-табл', 11)}${padR2('стрт-наш', 10)}  ✓  ${srcLabel}`);
       console.log(`  ${'-'.repeat(22)}${padR2('----', 9)}${padR2('----', 8)}${padR2('----', 11)}${padR2('----', 10)}  -  ${'-'.repeat(14)}`);
+      md(`\n### Гонка ${r + 1}, старт — джерело: ${r === 0 ? 'квала' : `Гонка ${r}`}`);
+      md(`\n| Пілот | гр-табл | гр-наш | стрт-табл | стрт-наш | ✓ | ${srcLabel} |`);
+      md(`|---|---|---|---|---|:-:|---|`);
       let prevGroup = -1;
       for (const row of rows) {
         if (row.sheetGroup !== prevGroup) { console.log(`  · група ${row.sheetGroup || '?'} (таблиця) ·`); prevGroup = row.sheetGroup; }
@@ -225,6 +238,7 @@ async function main() {
         const sheetStr = row.sheetStart > 0 ? String(row.sheetStart) : '—';
         const src = r === 0 ? row.srcTime : `Гр${row.srcGroup ?? '?'}  ${row.srcTime}`;
         console.log(`  ${row.pilot.padEnd(22)}${padR2(sheetGrStr, 9)}${padR2('G' + row.ourGroup, 8)}${padR2(sheetStr, 11)}${padR2(String(row.ourStart), 10)}  ${mark}  ${src}`);
+        md(`| ${row.pilot} | ${sheetGrStr} | G${row.ourGroup} | ${sheetStr} | ${row.ourStart} | ${mark} | ${src} |`);
       }
     }
   }
@@ -233,10 +247,15 @@ async function main() {
   const padR = (s: string, n: number) => s.length >= n ? s : ' '.repeat(n - s.length) + s;
   console.log(`  ${'Пілот'.padEnd(24)}${padR('Бали', 7)}${padR('Табл', 8)}${padR('Δ', 7)}  ✓`);
   console.log(`  ${'-'.repeat(24)}${padR('----', 7)}${padR('----', 8)}${padR('---', 7)}  -`);
+  const okCount0 = pointsTable.filter(t => t.match).length;
+  md(`\n## Бали — всі пілоти (збігається ${okCount0}/${pointsTable.length})`);
+  md(`\n| Пілот | Бали | Табл | Δ | ✓ |`);
+  md(`|---|--:|--:|--:|:-:|`);
   for (const t of pointsTable) {
     const diffStr = t.diff === 0 ? '0' : (t.diff > 0 ? `+${t.diff}` : `${t.diff}`);
     const mark = t.match ? '✓' : '✗';
     console.log(`  ${t.pilot.padEnd(24)}${padR(String(t.ours), 7)}${padR(String(t.sheet), 8)}${padR(diffStr, 7)}  ${mark}`);
+    md(`| ${t.pilot} | ${t.ours} | ${t.sheet} | ${diffStr} | ${mark} |`);
   }
   const okCount = pointsTable.filter(t => t.match).length;
   console.log(`  ${'-'.repeat(48)}`);
@@ -250,7 +269,7 @@ async function main() {
 
   console.log(`\n✎ РУЧНІ ЗМІНИ (results.edits, ${Object.keys(edits).length}):`);
   Object.entries(edits).sort().forEach(([k, v]: [string, any]) => {
-    const parts = [];
+    const parts: string[] = [];
     if (v.startPos != null) parts.push(`старт→${v.startPos}`);
     if (v.finishPos != null) parts.push(`фініш→${v.finishPos}`);
     if (v.penalties != null && v.penalties !== 0) parts.push(`штраф ${v.penalties}`);
@@ -259,5 +278,10 @@ async function main() {
   if (Object.keys(edits).length === 0) console.log('  (немає)');
 
   console.log('\n' + (APPLY ? '✓ зміни застосовано' : '(dry-run — додай --apply щоб застосувати)'));
+
+  if (MD_PATH) {
+    writeFileSync(MD_PATH, mdLines.join('\n') + '\n', 'utf8');
+    console.log(`\n📄 .md звіт записано: ${MD_PATH}`);
+  }
 }
 main().catch(e => { console.error(e); process.exit(1); });
