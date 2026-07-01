@@ -167,12 +167,24 @@ export function mergeSessions(sessions) {
  * @param {Iterable<string>} [excludedLaps] keys "sessionId|pilot|ts" to skip
  * Output: [{ kart, top5: [{pilot, lap_time, lap_sec, s1, s2, tb_s1, tb_s2, tb_sec, ts}, ...] }]
  */
-export function buildKartStats(rows, excludedLaps) {
+export function buildKartStats(rows, excludedLaps, editedLaps) {
   const excluded = excludedLaps instanceof Set ? excludedLaps : new Set(excludedLaps || []);
+  const edited = editedLaps instanceof Map ? editedLaps : new Map(Object.entries(editedLaps || {}));
   const byKart = new Map();
   for (const r of rows) {
     if (excluded.size > 0 && r.session_id != null && r.ts != null
         && excluded.has(`${r.session_id}|${r.pilot}|${r.ts}`)) continue;
+    // Відредаговане коло: підміняємо час і перераховуємо lap_sec. Якщо
+    // редагування зробило коло невалідним (<38с або непарситься) — пропускаємо.
+    if (edited.size > 0 && r.session_id != null && r.ts != null) {
+      const edit = edited.get(`${r.session_id}|${r.pilot}|${r.ts}`);
+      if (edit) {
+        const sec = parseLapTimeSec(edit.lapTime);
+        if (sec === null || sec < 38) continue;
+        r.lap_time = edit.lapTime;
+        r.lap_sec = sec;
+      }
+    }
     if (!byKart.has(r.kart)) byKart.set(r.kart, new Map());
     const pilots = byKart.get(r.kart);
     // Агрегуємо за канонічним іменем (resolved_pilot ?? pilot), щоб лапи

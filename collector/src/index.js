@@ -581,6 +581,41 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /db/edited-laps — глобально відредаговані кола
+    // (мапа "sessionId|pilot|ts" → { lapTime, original, user, editedTs })
+    if (req.method === 'GET' && url.pathname === '/db/edited-laps') {
+      sendJson(res, 200, { laps: Object.fromEntries(storage.getEditedLaps()) });
+      return;
+    }
+
+    // POST /db/edited-laps/set — встановити відредагований час кола (admin only)
+    if (req.method === 'POST' && url.pathname === '/db/edited-laps/set') {
+      if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+      try {
+        const { lapKey, lapTime, originalLapTime, user } = JSON.parse(await readBody(req));
+        if (!lapKey || typeof lapKey !== 'string' || !lapTime || typeof lapTime !== 'string') {
+          sendJson(res, 400, { error: 'lapKey and lapTime required' }); return;
+        }
+        const entry = storage.setEditedLap(lapKey, lapTime, originalLapTime ?? null, user ?? null);
+        console.log(`✏️ Lap ${lapKey} edited: ${entry.original ?? '—'} → ${lapTime} (global)`);
+        sendJson(res, 200, { ok: true, lapKey, ...entry });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
+    // POST /db/edited-laps/revert — скасувати редагування кола (admin only)
+    if (req.method === 'POST' && url.pathname === '/db/edited-laps/revert') {
+      if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+      try {
+        const { lapKey } = JSON.parse(await readBody(req));
+        if (!lapKey || typeof lapKey !== 'string') { sendJson(res, 400, { error: 'lapKey required' }); return; }
+        const reverted = storage.revertEditedLap(lapKey);
+        console.log(`↩️ Lap ${lapKey} edit reverted (global): ${reverted ? 'ok' : 'not found'}`);
+        sendJson(res, 200, { ok: true, lapKey, reverted });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
     // POST /db/rename-pilot — перейменувати пілота в заїзді (admin only)
     if (req.method === 'POST' && url.pathname === '/db/rename-pilot') {
       if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }

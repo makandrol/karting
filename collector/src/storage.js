@@ -153,6 +153,9 @@ try {
 // Кеш Set виключених кіл (lazy, інвалідовується при toggle).
 let _excludedLapsCache = null;
 
+// Кеш Map відредагованих кіл (lazy, key "sessionId|pilot|ts" → {lapTime, original, user, editedTs}).
+let _editedLapsCache = null;
+
 // Кеш розпарсених змагань (lazy). parseCompetitionRow важкий (JSON.parse
 // results.standings), а getAllCompetitions викликається у багатьох гарячих
 // шляхах. Інвалідовується при будь-якому write у competitions.
@@ -345,7 +348,7 @@ export const storage = {
 
   getKartStats(fromDate, toDate) {
     const rows = stmts.getKartStats.all(fromDate, toDate);
-    return buildKartStats(remapKartNamesToPilots(rows), this.getExcludedLaps());
+    return buildKartStats(remapKartNamesToPilots(rows), this.getExcludedLaps(), this.getEditedLaps());
   },
 
   getKartStatsBySessions(sessionIds) {
@@ -358,7 +361,7 @@ export const storage = {
       WHERE session_id IN (${placeholders}) AND ${VALID_LAP}
       ORDER BY kart, lap_sec
     `).all(...sessionIds);
-    return buildKartStats(remapKartNamesToPilots(rows), this.getExcludedLaps());
+    return buildKartStats(remapKartNamesToPilots(rows), this.getExcludedLaps(), this.getEditedLaps());
   },
 
   /** Отримати події (враховує merged sessions) */
@@ -385,14 +388,14 @@ export const storage = {
   /** Отримати кола за сесію (враховує merged sessions, ремапить "Карт N" → real names) */
   getLaps(sessionId) {
     const ids = this._getMergedIds(sessionId);
-    if (!ids) return remapKartNamesToPilots(stmts.getLaps.all(sessionId));
+    if (!ids) return this._applyEditedLaps(remapKartNamesToPilots(stmts.getLaps.all(sessionId)));
 
     const allLaps = [];
     for (const subId of ids) {
       allLaps.push(...stmts.getLaps.all(subId));
     }
     allLaps.sort((a, b) => a.ts - b.ts);
-    return remapKartNamesToPilots(allLaps);
+    return this._applyEditedLaps(remapKartNamesToPilots(allLaps));
   },
 
   /** Знайти merged_session_ids для батьківської сесії (лёгкий SQL-запит) */
@@ -421,7 +424,7 @@ export const storage = {
   },
 
   getLapsByKart(kartNumber, fromDate, toDate) {
-    return remapKartNamesToPilots(stmts.getLapsByKart.all(kartNumber, fromDate, toDate));
+    return this._applyEditedLaps(remapKartNamesToPilots(stmts.getLapsByKart.all(kartNumber, fromDate, toDate)));
   },
 
   getKartSessionCounts(kartNumber) {
@@ -506,6 +509,53 @@ export const storage = {
     stmts.setState.run('current_track_id', String(trackId), Date.now());
   },
 
+  /**
+   * Чи є трек прокатним (Траса 1 / Траса 2, включно з реверсами 101/102).
+   * Прокатні дні завжди їздять на цих трасах; решта (3..11) — лише змагання.
+   */
+  isRentalTrack(trackId) {
+    const base = trackId > 100 ? trackId - 100 : trackId;
+    return base === 1 || base === 2;
+  },
+
+  /**
+   * Трек останнього прокатного (не-змагального) заїзду. Fallback — 1.
+   * Використовується для скидання траси на початку нового дня, якщо
+   * попередній день закінчився на змагальній трасі.
+   */
+  getLastRentalTrackId() {
+    const compMap = this.getSessionCompetitionMap();
+    const recent = stmts.getRecentSessions.all(200);
+    for (const s of recent) {
+      if (compMap.has(s.id)) continue;
+      const tid = s.track_id || 1;
+      if (this.isRentalTrack(tid)) return tid;
+    }
+    return 1;
+  },
+
+  /**
+   * На старті нового дня повертає прокатну трасу, якщо поточна глобальна
+   * траса — змагальна (залишок від зміни траси змагання). Прокатні дні
+   * мають починатись з Траси 1/2. Викликається перед створенням першої
+   * сесії нового дня.
+   *
+   * @param {number} startTime unix-ms майбутньої сесії
+   * @returns {number|null} нова трасa, якщо скинули; інакше null
+   */
+  maybeResetTrackForNewDay(startTime) {
+    if (this.isRentalTrack(_currentTrackId)) return null;
+    const newDate = new Date(startTime).toISOString().split('T')[0];
+    const lastSession = stmts.getRecentSessions.all(1)[0];
+    const lastDate = lastSession?.date ?? null;
+    // Той самий день — не чіпаємо (змагання може тривати).
+    if (lastDate === newDate) return null;
+    const rentalTrack = this.getLastRentalTrackId();
+    this.setCurrentTrackId(rentalTrack);
+    console.log(`🔁 New day ${newDate}: current track ${_currentTrackId} was non-rental → reset to rental Траса ${rentalTrack}`);
+    return rentalTrack;
+  },
+
   /** Закрити БД */
   close() {
     db.close();
@@ -515,6 +565,7 @@ export const storage = {
   _clearCaches() {
     _competitionsCache = null;
     _excludedLapsCache = null;
+    _editedLapsCache = null;
   },
 
   /** Отримати системний стан */
@@ -552,6 +603,78 @@ export const storage = {
     else { set.add(lapKey); excluded = true; }
     this.setSystemState('excluded_laps', JSON.stringify([...set]));
     return excluded;
+  },
+
+  // ============================================================
+  // Edited laps (глобально — редагування часу кола)
+  // ============================================================
+  // Зберігаються як JSON-об'єкт { "sessionId|pilot|ts": { lapTime, original,
+  //   user, editedTs } } у system_state.edited_laps. Кешуємо Map у пам'яті.
+  // Джерело правди — глобальне (як excluded), щоб редагування впливало і на
+  // статистику Карт (buildKartStats), і на scoring/гонку (getLaps).
+
+  getEditedLaps() {
+    if (_editedLapsCache === null) {
+      const raw = this.getSystemState('edited_laps');
+      let obj = {};
+      try { obj = raw ? JSON.parse(raw) : {}; } catch { obj = {}; }
+      _editedLapsCache = new Map(Object.entries(obj));
+    }
+    return _editedLapsCache;
+  },
+
+  _persistEditedLaps() {
+    const obj = Object.fromEntries(_editedLapsCache);
+    this.setSystemState('edited_laps', JSON.stringify(obj));
+  },
+
+  /**
+   * Встановити відредагований час кола. `original` фіксується один раз (при
+   * першому редагуванні), щоб revert повертав істинне вихідне значення навіть
+   * після кількох правок.
+   * @param {string} lapKey "sessionId|pilot|ts"
+   * @param {string} lapTime новий час, напр. "42.574" або "1:02.222"
+   * @param {string|null} originalLapTime вихідний час (з БД) — для першої правки
+   * @param {string|null} user хто редагував
+   * @returns {object} запис редагування
+   */
+  setEditedLap(lapKey, lapTime, originalLapTime = null, user = null) {
+    const map = this.getEditedLaps();
+    const existing = map.get(lapKey);
+    const original = existing?.original ?? originalLapTime ?? null;
+    const entry = { lapTime, original, user: user ?? existing?.user ?? null, editedTs: Date.now() };
+    map.set(lapKey, entry);
+    this._persistEditedLaps();
+    return entry;
+  },
+
+  /** Скасувати редагування кола (revert). @returns {boolean} чи було видалено */
+  revertEditedLap(lapKey) {
+    const map = this.getEditedLaps();
+    if (!map.has(lapKey)) return false;
+    map.delete(lapKey);
+    this._persistEditedLaps();
+    return true;
+  },
+
+  /**
+   * Застосувати редагування до масиву lap-рядків (з БД, вже ремапнутих).
+   * Мутує `lap_time` та додає `edited: true` + `original_lap_time` для UI.
+   * Ключ — за raw pilot того кола ("sessionId|pilot|ts").
+   */
+  _applyEditedLaps(laps) {
+    const map = this.getEditedLaps();
+    if (map.size === 0) return laps;
+    for (const l of laps) {
+      if (l.session_id == null || l.ts == null) continue;
+      const key = `${l.session_id}|${l.pilot}|${l.ts}`;
+      const edit = map.get(key);
+      if (!edit) continue;
+      l.original_lap_time = edit.original ?? l.lap_time;
+      l.lap_time = edit.lapTime;
+      l.edited = true;
+    }
+    return laps;
   },
 
   // ============================================================

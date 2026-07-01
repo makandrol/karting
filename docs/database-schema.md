@@ -135,6 +135,8 @@ CREATE TABLE db_stats (
 - `view_defaults` — layout prefs з версіонуванням
 - `page_visibility` — server-side page visibility
 - `moderators` — список модераторів
+- `excluded_laps` — глобально виключені кола (JSON-масив ключів `"sessionId|pilot|ts"`)
+- `edited_laps` — глобально відредаговані кола (JSON-об'єкт `"sessionId|pilot|ts"` → `{lapTime, original, user, editedTs}`); застосовується в `getLaps`/`getKartStats`, тож впливає і на scoring змагань, і на статистику Карт
 
 ## Analytics
 

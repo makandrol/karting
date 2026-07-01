@@ -199,6 +199,10 @@ export class TimingPoller {
         isRace: meta.isRace,
         totalRaceTime: meta.totalRaceTime,
       });
+      // Новий день має починатися з прокатної траси (Траса 1/2). Якщо
+      // поточна глобальна траса лишилась змагальною (після зміни траси
+      // змагання минулого дня) — скидаємо перед створенням сесії.
+      try { storage.maybeResetTrackForNewDay(now); } catch (err) { console.error('maybeResetTrackForNewDay error:', err.message); }
       storage.createSession(this.#sessionId, now, entries.length, {
         trackId: storage.getCurrentTrackId(),
         raceNumber: meta.raceNumber,

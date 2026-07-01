@@ -85,7 +85,9 @@ export function useKartFilters() {
 }
 
 /**
- * Завантажує валідні завершені сесії для набору дат (паралельно).
+ * Завантажує валідні сесії для набору дат (паралельно).
+ * Включає й незавершені (live / "завислі" без end_time) — щоб їх можна було
+ * вибрати у фільтрах Карт. Дуже короткі завершені (<60с) відсіює isValidSession.
  * Спільне для сторінки всіх картів і конкретного карта.
  *
  * @param selectedDates set дат "YYYY-MM-DD"
@@ -110,7 +112,7 @@ export function useSelectedDateSessions(
       const results = await Promise.all(
         dates.map(date =>
           api.sessions.byDate(date)
-            .then(data => (data as unknown as DbSession[]).filter(s => s.end_time && isValidSession(s)))
+            .then(data => (data as unknown as DbSession[]).filter(s => isValidSession(s)))
             .catch(() => [] as DbSession[]),
         ),
       );

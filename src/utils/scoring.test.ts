@@ -263,7 +263,7 @@ describe('computeStandings — злиття "Карт N" кіл у квалі', 
       sessions: [{ sessionId: 'session-q1', phase: 'qualifying_1' }],
       sessionLaps, scoring: mockScoring, edits: {},
       excludedPilots: new Set(['Карт 69']), // як робить UI/аудит — але злиття має перекрити
-      maxGroups: 1,
+      maxGroups: 1, pilotsOverride: null, pilotsLocked: false,
     });
     const kol = rows.find(r => r.pilot === 'Колєсніков Дмитро');
     expect(kol).toBeDefined();
