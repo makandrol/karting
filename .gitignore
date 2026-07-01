@@ -31,3 +31,9 @@ racebox/
 
 # Audit reports (visual only, not committed)
 docs/audit/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
