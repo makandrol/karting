@@ -653,7 +653,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         <div className="px-4 py-2.5 border-b border-dark-800">
           <h3 className="text-white font-semibold text-sm">Заїзд</h3>
         </div>
-        <SessionsTable sessions={compSessions} />
+        <SessionsTable sessions={compSessions} newestFirst />
       </div>
     ) : null;
 
@@ -740,7 +740,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
             </div>
           )}
         </div>
-        <SessionsTable sessions={compSessions} />
+        <SessionsTable sessions={compSessions} newestFirst />
       </div>
     ) : null;
 
@@ -812,7 +812,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         <div className="px-4 py-2.5 border-b border-dark-800">
           <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
         </div>
-        <SessionsTable sessions={compSessions} />
+        <SessionsTable sessions={compSessions} newestFirst />
       </div>
     ) : null;
 

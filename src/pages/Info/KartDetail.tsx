@@ -274,6 +274,7 @@ export default function KartDetail() {
             <SessionsTable
               sessions={statSessionDetails}
               showDate
+              newestFirst
               excludedIds={excludedSessions}
               onToggleExclude={toggleExcludeSession}
             />
