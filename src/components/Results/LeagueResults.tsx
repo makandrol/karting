@@ -862,7 +862,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         const isOnTrack = livePilots?.includes(row.pilot);
                         const currentIncIdx = isExcluded ? -1 : includedIdx++;
                         const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
-                        const stickyBg = isOnTrack ? 'bg-[#3c443f]' : selectedPilot === row.pilot ? 'bg-[#444444]' : 'bg-dark-900';
+                        const stickyBg = isOnTrack ? 'bg-[#3c443f]' : selectedPilot === row.pilot ? 'bg-primary-500/25' : 'bg-dark-900';
                         const cellForCol = (col: string): React.ReactNode => {
                           const hl = isSortCol(col) ? ` ${SORT_HL}` : '';
                           if (col === 'q_kart') return <td key={col} className={`px-1 py-1 text-center font-mono ${KART_COLOR} border-r border-dark-700/30${hl}`}>{row.quali?.kart || '—'}</td>;
@@ -905,7 +905,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         };
                         return (
                           <tr key={row.pilot} onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
-                            className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'hover:bg-dark-700/30'}`}>
+                            className={`border-b cursor-pointer ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-primary-500/20 ring-1 ring-inset ring-primary-500/40' : 'hover:bg-dark-700/30'}`}>
                             <td className={`px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700 ${stickyBg} ${STICKY_NUM}`}>{isExcluded ? '—' : i + 1}</td>
                             <td className={`px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap ${stickyBg} ${STICKY_PILOT}`}>
                               {renamingPilot === row.pilot ? (
@@ -1104,10 +1104,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     const isOnTrack = livePilots?.includes(row.pilot);
                     const currentIncIdx = isExcluded ? -1 : includedIdx++;
                     const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
-                    const stickyBg = isOnTrack ? 'bg-[#3c443f]' : selectedPilot === row.pilot ? 'bg-[#444444]' : 'bg-dark-900';
+                    const stickyBg = isOnTrack ? 'bg-[#3c443f]' : selectedPilot === row.pilot ? 'bg-primary-500/25' : 'bg-dark-900';
                     return (
                     <tr key={row.pilot} onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
-                      className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'hover:bg-dark-700/30'}`}>
+                      className={`border-b cursor-pointer ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-primary-500/20 ring-1 ring-inset ring-primary-500/40' : 'hover:bg-dark-700/30'}`}>
                       <td className={`px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700 ${stickyBg} ${STICKY_NUM}`}>{isExcluded ? '—' : i + 1}</td>
                       <td className={`px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap ${stickyBg} ${STICKY_PILOT}`}>
                         {renamingPilot === row.pilot ? (
