@@ -30,17 +30,21 @@ interface SessionsTableProps {
   /** Якщо задано — показує кнопку виключення заїзду зі статистики. */
   excludedIds?: Set<string>;
   onToggleExclude?: (id: string) => void;
+  /** Сортувати найновіший заїзд першим (за start_time спадаюче). */
+  newestFirst?: boolean;
 }
 
-export default function SessionsTable({ sessions, maxHeight, showDate, excludedIds, onToggleExclude }: SessionsTableProps) {
+export default function SessionsTable({ sessions, maxHeight, showDate, excludedIds, onToggleExclude, newestFirst }: SessionsTableProps) {
   const navigate = useNavigate();
   const showExclude = !!onToggleExclude;
+
+  const orderedSessions = newestFirst ? [...sessions].sort((a, b) => b.start_time - a.start_time) : sessions;
 
   return (
     <div className={`overflow-x-auto ${maxHeight ? `max-h-[${maxHeight}] overflow-y-auto` : ''}`}>
       <table className="w-full text-xs">
         <tbody>
-          {sessions.map((s) => {
+          {orderedSessions.map((s) => {
             const isActive = !s.end_time;
             const pilots = s.real_pilot_count ?? s.pilot_count;
             const sessionType = s.competition_format && s.competition_phase
