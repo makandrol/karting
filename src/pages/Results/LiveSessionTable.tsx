@@ -171,9 +171,13 @@ export default function LiveSessionTable({ competition, sessions: sessionsProp, 
 
         const raceFinishOrder = (sessions: typeof raceSessions1) => {
           const byGroup = new Map<number, { pilot: string; lapCount: number; lastPos: number; lastTs: number; bestTime: number }[]>();
+          // is_race per group: коли false — timing був у режимі квалі, position
+          // ненадійне → фініш за порядком перетину (lastTs).
+          const groupIsRace = new Map<number, boolean>();
           for (const rs of sessions) {
             const gMatch = rs.phase?.match(/group_(\d+)/);
             const gNum = gMatch ? parseInt(gMatch[1]) : 0;
+            if ((rs as { isRace?: boolean }).isRace != null) groupIsRace.set(gNum, (rs as { isRace?: boolean }).isRace!);
             for (const l of (effectiveLaps.get(rs.sessionId) || [])) {
               if (excludedPilots.has(l.pilot)) continue;
               const sec = parseLapSec(l.lap_time);
@@ -192,9 +196,10 @@ export default function LiveSessionTable({ competition, sessions: sessionsProp, 
           }
           const finishMap = new Map<string, { finishPos: number; group: number; bestTime: number }>();
           for (const [group, pilots] of byGroup) {
+            const finishByTs = groupIsRace.get(group) === false;
             pilots.sort((a, b) => {
               if (a.lapCount !== b.lapCount) return b.lapCount - a.lapCount;
-              if (a.lastPos !== b.lastPos) return a.lastPos - b.lastPos;
+              if (!finishByTs && a.lastPos !== b.lastPos) return a.lastPos - b.lastPos;
               return a.lastTs - b.lastTs;
             });
             pilots.forEach((p, i) => finishMap.set(p.pilot, { finishPos: i + 1, group, bestTime: p.bestTime }));

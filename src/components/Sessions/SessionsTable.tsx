@@ -20,6 +20,7 @@ export interface SessionTableRow {
   competition_name?: string | null;
   competition_format?: string | null;
   competition_phase?: string | null;
+  is_race?: number;
 }
 
 interface SessionsTableProps {
