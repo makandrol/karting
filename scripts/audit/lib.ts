@@ -104,6 +104,7 @@ export async function computeOurStandings(comp: CompetitionDto, scoring: Scoring
 const LL_BOOK = '13gTJE8CnyPiqWXqJfbheLfcM-qEt9jo-';
 // Tab gid → date label (DD.MM) as discovered from htmlview.
 export const LL_TABS: Record<string, string> = {
+  '852661659': '30.06',
   '167172796': '23.06', '825455551': '16.06', '1701121524': '09.06', '293139356': '02.06',
   '317261337': '26.05', '981616053': '19.05', '837503233': '12.05', '799321164': '05.05',
   '1256054450': '28.04', '1823523717': '21.04', '1075022841': '14.04', '1595427980': '07.04',
