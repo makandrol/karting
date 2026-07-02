@@ -362,8 +362,11 @@ export class TimingPoller {
       if (type === 'lap' && data) {
         storage.addLap(this.#sessionId, { ...data, ts });
         if (!this.#groupChecked) {
-          this.#groupChecked = true;
-          storage.finalizeSessionPhaseOnFirstLap(this.#sessionId);
+          // Зводимо guard лише коли рішення прийнято надійно (достатньо
+          // реальних імен). На старті гонки timing показує "Карт N" — тоді
+          // finalize повертає false і ми перевіряємо знову на наступних колах.
+          const decided = storage.finalizeSessionPhaseOnFirstLap(this.#sessionId);
+          if (decided) this.#groupChecked = true;
         }
       }
     }
