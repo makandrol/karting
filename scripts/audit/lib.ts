@@ -53,6 +53,7 @@ export interface DaySession {
   pilot_count: number;
   best_lap_time: string | null;
   track_id: number;
+  is_race?: number;
   competition_id?: string | null;
   merged_session_ids?: string[] | null;
 }
@@ -67,6 +68,26 @@ export async function computeOurStandings(comp: CompetitionDto, scoring: Scoring
   for (const s of comp.sessions) {
     try { sessionLaps.set(s.sessionId, await fetchLaps(s.sessionId)); } catch { sessionLaps.set(s.sessionId, []); }
   }
+
+  // is_race per session (з БД). Коли явно 0 — timing був у режимі кваліфікації
+  // під час гонки → фініш визначаємо за порядком перетину, не за position.
+  const raceFlag = new Map<string, boolean>();
+  {
+    const dates = new Set<string>();
+    for (const s of comp.sessions) {
+      const ts = parseInt(s.sessionId.replace('session-', ''));
+      if (ts) dates.add(new Date(ts).toISOString().slice(0, 10));
+    }
+    for (const d of dates) {
+      try {
+        for (const row of await fetchSessionsByDate(d)) {
+          if (row.is_race != null) raceFlag.set(row.id, row.is_race === 1);
+        }
+      } catch {}
+    }
+  }
+  const sessionsWithRace = comp.sessions.map(s =>
+    raceFlag.has(s.sessionId) ? { ...s, isRace: raceFlag.get(s.sessionId) } : s);
 
   const results = comp.results || {};
   const excludedLapSet = new Set<string>(results.excludedLaps || []);
@@ -87,7 +108,7 @@ export async function computeOurStandings(comp: CompetitionDto, scoring: Scoring
 
   return computeStandings({
     format: comp.format,
-    sessions: comp.sessions,
+    sessions: sessionsWithRace,
     sessionLaps: effectiveLaps,
     scoring,
     edits: (results.edits || {}) as ManualEdits,
