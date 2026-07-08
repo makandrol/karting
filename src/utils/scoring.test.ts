@@ -272,3 +272,53 @@ describe('computeStandings — злиття "Карт N" кіл у квалі', 
   });
 });
 
+describe('computeStandings — фініш гонки при timing у режимі кваліфікації (isRace=false)', () => {
+  const mkLap = (pilot: string, lap_number: number, lap_time: string, ts: number, position: number): SessionLap =>
+    ({ pilot, kart: 1, lap_number, lap_time, s1: null, s2: null, position, ts });
+
+  // Дві сесії: квала (для груп/старту) + гонка, де timing був у режимі квалі.
+  // У гонці position ранжує за best-lap (A найшвидший), але реальний порядок
+  // перетину фінішу (ts останнього кола) — B раніше за A.
+  const buildRace = (isRace: boolean | undefined) => {
+    const sessionLaps = new Map<string, SessionLap[]>([
+      ['q1', [
+        mkLap('A', 1, '42.000', 1000, 1),
+        mkLap('B', 1, '43.000', 1100, 2),
+      ]],
+      ['r1', [
+        // A: швидший best-lap (42.0) → position=1 у режимі квалі, але фініш пізніше (ts 5000)
+        mkLap('A', 1, '42.000', 3000, 1),
+        mkLap('A', 2, '42.500', 5000, 1),
+        // B: повільніший best-lap (43.0) → position=2, але перетнув фініш РАНІШЕ (ts 4800)
+        mkLap('B', 1, '43.000', 3100, 2),
+        mkLap('B', 2, '43.200', 4800, 2),
+      ]],
+    ]);
+    return computeStandings({
+      format: 'light_league',
+      sessions: [
+        { sessionId: 'q1', phase: 'qualifying_1' },
+        { sessionId: 'r1', phase: 'race_1_group_1', isRace },
+      ],
+      sessionLaps, scoring: mockScoring, edits: {},
+      excludedPilots: new Set(), maxGroups: 1, pilotsOverride: null, pilotsLocked: false,
+    });
+  };
+
+  it('isRace=false → фініш за порядком перетину (B фінішував раніше → B перший)', () => {
+    const rows = buildRace(false);
+    const b = rows.find(r => r.pilot === 'B');
+    const a = rows.find(r => r.pilot === 'A');
+    expect(b!.races[0]!.finishPos).toBe(1); // B перетнув фініш раніше
+    expect(a!.races[0]!.finishPos).toBe(2);
+  });
+
+  it('isRace=true → фініш за timing position (A position=1 → A перший)', () => {
+    const rows = buildRace(true);
+    const a = rows.find(r => r.pilot === 'A');
+    const b = rows.find(r => r.pilot === 'B');
+    expect(a!.races[0]!.finishPos).toBe(1); // довіряємо timing position
+    expect(b!.races[0]!.finishPos).toBe(2);
+  });
+});
+

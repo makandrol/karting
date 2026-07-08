@@ -436,18 +436,26 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   // вільною фазою, щоб таблиця результатів оновлювалась одразу в лайві, не
   // чекаючи колектора. Це лише локальне відображення (без запису в колектор).
   const effectiveSessions = useMemo(() => {
-    if (!liveSessionId) return competition.sessions;
-    if (competition.sessions.some(s => s.sessionId === liveSessionId)) return competition.sessions;
+    // Мапа is_race per-session з БД (compSessions). Коли явно 0 — timing був у
+    // режимі кваліфікації під час гонки → scoring визначить фініш за порядком
+    // перетину, а не за timing-полем position.
+    const raceFlag = new Map<string, boolean>();
+    for (const cs of compSessions) if (cs.is_race != null) raceFlag.set(cs.id, cs.is_race === 1);
+    const withRace = (arr: { sessionId: string; phase: string | null }[]) =>
+      arr.map(s => raceFlag.has(s.sessionId) ? { ...s, isRace: raceFlag.get(s.sessionId) } : s);
+
+    if (!liveSessionId) return withRace(competition.sessions);
+    if (competition.sessions.some(s => s.sessionId === liveSessionId)) return withRace(competition.sessions);
     const hasLaps = (sessionLaps.get(liveSessionId)?.length ?? 0) > 0;
-    if (!hasLaps) return competition.sessions;
+    if (!hasLaps) return withRace(competition.sessions);
     const results = competition.results || {};
     const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? null;
     const gonzRoundCount = competition.format === 'gonzales' ? (results.gonzalesRoundCount ?? null) : null;
     const allPhases = getPhasesForFormat(competition.format, groupCount, gonzRoundCount);
     const usedPhases = new Set(competition.sessions.map(s => s.phase));
     const nextFree = allPhases.find(p => !usedPhases.has(p.id));
-    return [...competition.sessions, { sessionId: liveSessionId, phase: nextFree?.id ?? null }];
-  }, [competition.sessions, competition.results, competition.format, liveSessionId, sessionLaps]);
+    return withRace([...competition.sessions, { sessionId: liveSessionId, phase: nextFree?.id ?? null }]);
+  }, [competition.sessions, competition.results, competition.format, liveSessionId, sessionLaps, compSessions]);
 
   const filteredSessionLaps = useMemo(() => {
     if (scrubTime === null) return sessionLaps;
@@ -645,7 +653,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         <div className="px-4 py-2.5 border-b border-dark-800">
           <h3 className="text-white font-semibold text-sm">Заїзд</h3>
         </div>
-        <SessionsTable sessions={compSessions} />
+        <SessionsTable sessions={compSessions} newestFirst />
       </div>
     ) : null;
 
@@ -732,7 +740,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
             </div>
           )}
         </div>
-        <SessionsTable sessions={compSessions} />
+        <SessionsTable sessions={compSessions} newestFirst />
       </div>
     ) : null;
 
@@ -804,7 +812,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         <div className="px-4 py-2.5 border-b border-dark-800">
           <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
         </div>
-        <SessionsTable sessions={compSessions} />
+        <SessionsTable sessions={compSessions} newestFirst />
       </div>
     ) : null;
 

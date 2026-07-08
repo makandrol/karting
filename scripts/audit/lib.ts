@@ -53,6 +53,7 @@ export interface DaySession {
   pilot_count: number;
   best_lap_time: string | null;
   track_id: number;
+  is_race?: number;
   competition_id?: string | null;
   merged_session_ids?: string[] | null;
 }
@@ -67,6 +68,26 @@ export async function computeOurStandings(comp: CompetitionDto, scoring: Scoring
   for (const s of comp.sessions) {
     try { sessionLaps.set(s.sessionId, await fetchLaps(s.sessionId)); } catch { sessionLaps.set(s.sessionId, []); }
   }
+
+  // is_race per session (з БД). Коли явно 0 — timing був у режимі кваліфікації
+  // під час гонки → фініш визначаємо за порядком перетину, не за position.
+  const raceFlag = new Map<string, boolean>();
+  {
+    const dates = new Set<string>();
+    for (const s of comp.sessions) {
+      const ts = parseInt(s.sessionId.replace('session-', ''));
+      if (ts) dates.add(new Date(ts).toISOString().slice(0, 10));
+    }
+    for (const d of dates) {
+      try {
+        for (const row of await fetchSessionsByDate(d)) {
+          if (row.is_race != null) raceFlag.set(row.id, row.is_race === 1);
+        }
+      } catch {}
+    }
+  }
+  const sessionsWithRace = comp.sessions.map(s =>
+    raceFlag.has(s.sessionId) ? { ...s, isRace: raceFlag.get(s.sessionId) } : s);
 
   const results = comp.results || {};
   const excludedLapSet = new Set<string>(results.excludedLaps || []);
@@ -87,7 +108,7 @@ export async function computeOurStandings(comp: CompetitionDto, scoring: Scoring
 
   return computeStandings({
     format: comp.format,
-    sessions: comp.sessions,
+    sessions: sessionsWithRace,
     sessionLaps: effectiveLaps,
     scoring,
     edits: (results.edits || {}) as ManualEdits,
@@ -104,6 +125,7 @@ export async function computeOurStandings(comp: CompetitionDto, scoring: Scoring
 const LL_BOOK = '13gTJE8CnyPiqWXqJfbheLfcM-qEt9jo-';
 // Tab gid → date label (DD.MM) as discovered from htmlview.
 export const LL_TABS: Record<string, string> = {
+  '852661659': '30.06',
   '167172796': '23.06', '825455551': '16.06', '1701121524': '09.06', '293139356': '02.06',
   '317261337': '26.05', '981616053': '19.05', '837503233': '12.05', '799321164': '05.05',
   '1256054450': '28.04', '1823523717': '21.04', '1075022841': '14.04', '1595427980': '07.04',

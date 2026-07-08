@@ -862,7 +862,7 @@ export default function LeagueResults({ format, competitionId, sessions, session
                         const isOnTrack = livePilots?.includes(row.pilot);
                         const currentIncIdx = isExcluded ? -1 : includedIdx++;
                         const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
-                        const stickyBg = isOnTrack ? 'bg-[#3c443f]' : selectedPilot === row.pilot ? 'bg-[#444444]' : 'bg-dark-900';
+                        const stickyBg = isOnTrack ? 'bg-[#3c443f]' : selectedPilot === row.pilot ? 'bg-primary-500/25' : 'bg-dark-900';
                         const cellForCol = (col: string): React.ReactNode => {
                           const hl = isSortCol(col) ? ` ${SORT_HL}` : '';
                           if (col === 'q_kart') return <td key={col} className={`px-1 py-1 text-center font-mono ${KART_COLOR} border-r border-dark-700/30${hl}`}>{row.quali?.kart || '—'}</td>;
@@ -904,8 +904,8 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           return <td key={col} className="px-1 py-1 text-center border-r border-dark-700/30">—</td>;
                         };
                         return (
-                          <tr key={row.pilot} onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
-                            className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'hover:bg-dark-700/30'}`}>
+                          <tr key={row.pilot}
+                            className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-primary-500/20 ring-1 ring-inset ring-primary-500/40' : 'hover:bg-dark-700/30'}`}>
                             <td className={`px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700 ${stickyBg} ${STICKY_NUM}`}>{isExcluded ? '—' : i + 1}</td>
                             <td className={`px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap ${stickyBg} ${STICKY_PILOT}`}>
                               {renamingPilot === row.pilot ? (
@@ -931,12 +931,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
                                 </form>
                               ) : (
                                 <>
-                                  <span className="text-white">{row.pilot}</span>
+                                  <span onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
+                                    className="text-white cursor-pointer">{row.pilot}</span>
                                   {canManage && (
                                     <>
-                                      <button onClick={() => { setRenamingPilot(row.pilot); setRenameValue(row.pilot); }}
+                                      <button onClick={(e) => { e.stopPropagation(); setRenamingPilot(row.pilot); setRenameValue(row.pilot); }}
                                         className="ml-1 text-[9px] px-0.5 rounded text-dark-600 hover:text-primary-400 transition-colors">✎</button>
-                                      <button onClick={() => toggleExclude(row.pilot)}
+                                      <button onClick={(e) => { e.stopPropagation(); toggleExclude(row.pilot); }}
                                         className={`text-[9px] px-0.5 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-600 hover:text-red-400'}`}>
                                         {isExcluded ? '↩' : '✕'}
                                       </button>
@@ -1104,10 +1105,10 @@ export default function LeagueResults({ format, competitionId, sessions, session
                     const isOnTrack = livePilots?.includes(row.pilot);
                     const currentIncIdx = isExcluded ? -1 : includedIdx++;
                     const isGroupEnd = currentIncIdx >= 0 && groupSeparators.has(currentIncIdx);
-                    const stickyBg = isOnTrack ? 'bg-[#3c443f]' : selectedPilot === row.pilot ? 'bg-[#444444]' : 'bg-dark-900';
+                    const stickyBg = isOnTrack ? 'bg-[#3c443f]' : selectedPilot === row.pilot ? 'bg-primary-500/25' : 'bg-dark-900';
                     return (
-                    <tr key={row.pilot} onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
-                      className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-dark-700/40' : 'hover:bg-dark-700/30'}`}>
+                    <tr key={row.pilot}
+                      className={`border-b ${isGroupEnd ? 'border-b-2 border-dark-600' : 'border-dark-800/50'} ${isExcluded ? 'opacity-30' : isOnTrack ? 'bg-green-500/5' : selectedPilot === row.pilot ? 'bg-primary-500/20 ring-1 ring-inset ring-primary-500/40' : 'hover:bg-dark-700/30'}`}>
                       <td className={`px-2 py-1 text-center font-mono text-white font-bold border-r border-dark-700 ${stickyBg} ${STICKY_NUM}`}>{isExcluded ? '—' : i + 1}</td>
                       <td className={`px-2 py-1 text-left border-r border-dark-700 whitespace-nowrap ${stickyBg} ${STICKY_PILOT}`}>
                         {renamingPilot === row.pilot ? (
@@ -1133,12 +1134,13 @@ export default function LeagueResults({ format, competitionId, sessions, session
                           </form>
                         ) : (
                           <>
-                            <span className="text-white">{row.pilot}</span>
+                            <span onClick={() => setSelectedPilot(prev => prev === row.pilot ? null : row.pilot)}
+                              className="text-white cursor-pointer">{row.pilot}</span>
                             {canManage && (
                               <>
-                                <button onClick={() => { setRenamingPilot(row.pilot); setRenameValue(row.pilot); }}
+                                <button onClick={(e) => { e.stopPropagation(); setRenamingPilot(row.pilot); setRenameValue(row.pilot); }}
                                   className="ml-1 text-[9px] px-0.5 rounded text-dark-600 hover:text-primary-400 transition-colors">✎</button>
-                                <button onClick={() => toggleExclude(row.pilot)}
+                                <button onClick={(e) => { e.stopPropagation(); toggleExclude(row.pilot); }}
                                   className={`text-[9px] px-0.5 rounded transition-colors ${isExcluded ? 'text-green-400/60 hover:text-green-400' : 'text-dark-600 hover:text-red-400'}`}>
                                   {isExcluded ? '↩' : '✕'}
                                 </button>

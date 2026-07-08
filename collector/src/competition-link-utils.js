@@ -252,19 +252,28 @@ export function detectGroupCountFromOverlap(args) {
     : new Set(newPilots);
 
   if (fresh.size === 0 || cumulative.size === 0) {
+    if (process.env.LINK_DEBUG) console.log(`[LINK_DEBUG] overlap: fresh=${fresh.size} cumulative=${cumulative.size} → unknown (not enough data)`);
     return { groupCount: null, action: 'unknown' };
   }
 
   let overlap = 0;
-  for (const p of fresh) if (cumulative.has(p)) overlap++;
+  const missing = [];
+  for (const p of fresh) { if (cumulative.has(p)) overlap++; else missing.push(p); }
   const ratio = overlap / fresh.size;
+
+  if (process.env.LINK_DEBUG) {
+    console.log(`[LINK_DEBUG] overlap: fresh=${fresh.size} cumulative=${cumulative.size} overlap=${overlap} ratio=${ratio.toFixed(3)} threshold=${threshold} qualifyingCount=${qualifyingCount}`);
+    if (missing.length) console.log(`[LINK_DEBUG]   fresh NOT in cumulative (${missing.length}): ${JSON.stringify(missing)}`);
+  }
 
   if (ratio >= threshold) {
     const max = FORMAT_MAX_GROUPS[format] ?? 3;
     const gc = Math.min(Math.max(qualifyingCount, 1), max);
+    if (process.env.LINK_DEBUG) console.log(`[LINK_DEBUG]   → RACE (groupCount=${gc})`);
     return { groupCount: gc, action: 'race' };
   }
 
+  if (process.env.LINK_DEBUG) console.log(`[LINK_DEBUG]   → QUALIFYING (ratio ${ratio.toFixed(3)} < ${threshold})`);
   return { groupCount: null, action: 'qualifying' };
 }
 
@@ -294,8 +303,8 @@ export function capGroupCount(desired, format) {
  */
 export const COMPETITION_SCHEDULE = {
   1: { format: 'gonzales',         shortName: 'Гонз', startHour: 20, startMin: 5 },  // Понеділок 20:05
-  2: { format: 'light_league',     shortName: 'ЛЛ' },    // Вівторок
-  3: { format: 'champions_league', shortName: 'ЛЧ' },    // Середа
+  2: { format: 'light_league',     shortName: 'ЛЛ', startHour: 19, startMin: 40 },   // Вівторок (перша квала інколи о 19:40)
+  3: { format: 'champions_league', shortName: 'ЛЧ', startHour: 19, startMin: 40 },   // Середа
 };
 
 /** Hour (Kyiv local time) at which competition window opens. */

@@ -160,8 +160,9 @@ async function main() {
     }
     for (let r = 0; r < raceCount; r++) {
       const lr = row.races[r], sr = sp.races[r];
-      if (lr && sr && lr.startPos > 0 && sr.startPos > 0 && lr.startPos !== sr.startPos) {
-        startMismatches.push(`  ${row.pilot.padEnd(22)} Г${r + 1} старт наш ${lr.startPos} vs табл ${sr.startPos}`);
+      if (lr && sr && lr.startPos > 0 && sr.startPos > 0 && (lr.startPos !== sr.startPos || lr.group !== sr.group)) {
+        const grPart = lr.group !== sr.group ? ` [група наш G${lr.group} vs табл G${sr.group}]` : '';
+        startMismatches.push(`  ${row.pilot.padEnd(22)} Г${r + 1} старт наш ${lr.startPos} vs табл ${sr.startPos}${grPart}`);
       }
       // Збираємо деталі старту для табличок (усі пілоти, що стартували в гонці).
       if (lr && lr.startPos > 0) {

@@ -17,6 +17,13 @@ export interface SessionLap {
 export interface CompSession {
   sessionId: string;
   phase: string | null;
+  /**
+   * Чи timing був у режимі ГОНКИ (`onTablo.isRace`, збережено як sessions.is_race).
+   * Коли явно false — оператор проводив гонку з табло в режимі кваліфікації, тож
+   * timing-поле `position` = ранжування за best-lap, а не за фінішем. Тоді фініш
+   * визначаємо за порядком перетину лінії (lastTs). undefined → стара поведінка.
+   */
+  isRace?: boolean;
 }
 
 export interface ScoringData {
@@ -223,11 +230,16 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
         }
       }
 
+      // Коли timing був у режимі кваліфікації (rs.isRace === false), поле position
+      // ранжує за best-lap, а не за фінішем → визначаємо фініш за порядком перетину
+      // фінішної лінії на останньому колі (lastTs). Для активної live-сесії
+      // довіряємо real-time position (livePositions вище).
+      const finishByTs = rs.isRace === false && !isActiveSession;
       const sorted = [...pilotStats.entries()]
         .filter(([p]) => !excludedPilots.has(p))
         .sort((a, b) => {
           if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
-          if (a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
+          if (!finishByTs && a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
           return a[1].lastTs - b[1].lastTs;
         });
       const excludedEntries = [...pilotStats.entries()].filter(([p]) => excludedPilots.has(p));
@@ -403,11 +415,16 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
         }
       }
 
+      // Коли timing був у режимі кваліфікації (rs.isRace === false), поле position
+      // ранжує за best-lap, а не за фінішем → визначаємо фініш за порядком перетину
+      // фінішної лінії на останньому колі (lastTs). Для активної live-сесії
+      // довіряємо real-time position (livePositions вище).
+      const finishByTs = rs.isRace === false && !isActiveSession;
       const sorted = [...pilotStats.entries()]
         .filter(([p]) => !excludedPilots.has(p))
         .sort((a, b) => {
           if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
-          if (a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
+          if (!finishByTs && a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
           return a[1].lastTs - b[1].lastTs;
         });
 

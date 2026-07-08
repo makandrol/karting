@@ -17,6 +17,7 @@ import {
   findNextPhase,
   allPhasesFilled,
   isGonzalesQualifying,
+  isKartName,
   detectGroupCountFromOverlap,
   capGroupCount,
   getScheduledFormat,
@@ -971,9 +972,10 @@ export const storage = {
         ? capGroupCount(qualiSessions.length + 1, comp.format)
         : qualiSessions.length;
     } else {
+      const realPilots = new Set([...newPilots].filter(p => !isKartName(p)));
       const detection = detectGroupCountFromOverlap({
         cumulativeQualifyingPilots: cumulativePilots,
-        newPilots,
+        newPilots: realPilots.size >= 3 ? realPilots : newPilots,
         qualifyingCount: qualiSessions.length,
         format: comp.format,
       });
@@ -1006,14 +1008,22 @@ export const storage = {
    * Це **єдиний** шлях для встановлення остаточної фази race-сесій.
    * Викликається з poller.js при першому колі.
    */
+  /**
+   * @returns {boolean} true — рішення прийнято остаточно (poller може звести
+   *   guard і більше не перевіряти); false — ще замало даних (мало пілотів /
+   *   переважно "Карт N" placeholders), poller має викликати знову на
+   *   наступних колах. Без цього гонка G3, де пілоти виїжджають з піту по
+   *   черзі (на 1-му колі 1-2 пілоти, решта ще "Карт N"), назавжди лишалась
+   *   квалою (див. bug LL 30.06 — 20:38 стала qualifying_4).
+   */
   finalizeSessionPhaseOnFirstLap(sessionId) {
     const comps = this.getAllCompetitionsParsed();
     const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
-    if (!comp || comp.status !== 'live') return;
-    if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint' && comp.format !== 'gonzales') return;
+    if (!comp || comp.status !== 'live') return true;
+    if (comp.format !== 'light_league' && comp.format !== 'champions_league' && comp.format !== 'sprint' && comp.format !== 'gonzales') return true;
 
     const entry = comp.sessions.find(s => s.sessionId === sessionId);
-    if (!entry || !entry.phase) return;
+    if (!entry || !entry.phase) return true;
 
     // Спочатку детектимо groupCount (якщо ще не визначено) — це
     // допомагає і qualifying-, і race-сценарію.
@@ -1030,11 +1040,15 @@ export const storage = {
     if (isQualiPhase) {
       // ── Quali-сценарій: можливо це гонка, не квала ──
       const qualiSessions = freshComp.sessions.filter(s => s.phase?.startsWith('qualifying_') && s.sessionId !== sessionId);
-      if (qualiSessions.length === 0) return;
+      if (qualiSessions.length === 0) return true;
 
       const newLaps = this.getLaps(sessionId);
       const newPilots = new Set(newLaps.map(l => l.pilot));
-      if (newPilots.size < 3) return;
+      // Рахуємо лише РЕАЛЬНІ імена (без "Карт N" placeholders): на старті
+      // гонки timing показує "Карт N" поки не підтягне ім'я. Поки реальних
+      // імен замало — рішення ненадійне, просимо poller перевірити ще раз.
+      const realPilots = new Set([...newPilots].filter(p => !isKartName(p)));
+      if (realPilots.size < 3) return false;
 
       if (comp.format === 'gonzales') {
         const sessionRow = stmts.getSessionsByDate.all(new Date(parseInt(sessionId.replace('session-', ''))).toISOString().slice(0, 10))
@@ -1042,20 +1056,28 @@ export const storage = {
         const isFinished = !!sessionRow?.end_time;
         const lapCounts = new Map();
         for (const l of newLaps) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
-        if (isGonzalesQualifying([...newPilots], lapCounts, isFinished)) return;
+        if (isGonzalesQualifying([...newPilots], lapCounts, isFinished)) return true;
       } else {
         const cumulativePilots = new Set();
         for (const qs of qualiSessions) {
           const laps = this.getLaps(qs.sessionId);
           for (const l of laps) cumulativePilots.add(l.pilot);
         }
+        if (process.env.LINK_DEBUG) {
+          console.log(`[LINK_DEBUG] finalize ${sessionId} (phase=${entry.phase}): quali-сценарій`);
+          console.log(`[LINK_DEBUG]   qualiSessions враховано (${qualiSessions.length}): ${JSON.stringify(qualiSessions.map(q => `${q.sessionId}:${q.phase}`))}`);
+          console.log(`[LINK_DEBUG]   realPilots (${realPilots.size}/${newPilots.size}): ${JSON.stringify([...realPilots])}`);
+        }
         const detection = detectGroupCountFromOverlap({
           cumulativeQualifyingPilots: cumulativePilots,
-          newPilots,
+          newPilots: realPilots,
           qualifyingCount: qualiSessions.length,
           format: comp.format,
         });
-        if (detection.action !== 'race') return;
+        if (detection.action !== 'race') {
+          if (process.env.LINK_DEBUG) console.log(`[LINK_DEBUG]   finalize ${sessionId}: action=${detection.action} → лишається квалою`);
+          return true;
+        }
       }
 
       // Це гонка, не квала — переназначити
@@ -1073,13 +1095,13 @@ export const storage = {
       } else {
         console.log(`🔍 Finalize ${sessionId}: detected race but phase already correct (${entry.phase}), groupCount=${finalGroupCount} → no change`);
       }
-      return;
+      return true;
     }
 
     // ── Race-сценарій: перевіряємо чи фаза правильна за позицією у comp ──
     if (groupCount == null) {
       console.log(`🔍 Finalize ${sessionId}: race phase ${entry.phase} but groupCount unknown → cannot verify, leaving as-is`);
-      return;  // groupCount не визначено → не чіпаємо
+      return true;  // groupCount не визначено → не чіпаємо
     }
 
     const allPhases = buildFullPhases(comp.format, { gonzalesRoundCount });
@@ -1097,7 +1119,7 @@ export const storage = {
     const indexInComp = sessionsSorted.findIndex(s => s.sessionId === sessionId);
     if (indexInComp < 0 || indexInComp >= phases.length) {
       console.warn(`⚠️ Finalize ${sessionId}: position ${indexInComp} out of phases range (${phases.length} phases for groupCount=${groupCount}) → cannot map to phase`);
-      return;
+      return true;
     }
     const expectedPhase = phases[indexInComp];
 
@@ -1108,6 +1130,7 @@ export const storage = {
     } else {
       console.log(`🔍 Finalize ${sessionId}: race phase ${entry.phase} correct for position ${indexInComp} (groupCount=${groupCount}) → no change`);
     }
+    return true;
   },
 
   /** @deprecated використовуйте finalizeSessionPhaseOnFirstLap. */
@@ -1205,8 +1228,28 @@ export const storage = {
       const laps = this.getLaps(s.id);
       if (laps.length === 0) { trace.push({ sessionId: s.id, action: 'skip-empty', phase: null }); continue; }
 
+      // ЛЛ/ЛЧ: заїзд без ЖОДНОГО реального пілота (усі кола під "Карт N" — timing
+      // не підтягнув імена) — це не змагальний заїзд (тест/маршал викотився).
+      // Напр. LL 07.07 20:23: 1 пілот "Карт 14". Не лінкуємо — інакше він займає
+      // слот квалі/гонки і зсуває нумерацію. (Прокат/Гонзалес можуть легітимно
+      // мати "Карт N", тож умова лише для ЛЛ/ЛЧ.)
+      const liveComp = this.getAllCompetitionsParsed().find(c => c.status === 'live');
+      if (liveComp && (liveComp.format === 'light_league' || liveComp.format === 'champions_league')) {
+        const realPilots = new Set(laps.map(l => l.pilot).filter(p => !isKartName(p)));
+        if (realPilots.size === 0) {
+          if (process.env.LINK_DEBUG) console.log(`[LINK_DEBUG] replay ${s.id}: 0 реальних пілотів (усі "Карт N") → skip`);
+          trace.push({ sessionId: s.id, action: 'skip-no-real-pilots', phase: null });
+          continue;
+        }
+      }
+
       const linked = this.autoLinkSessionToActiveCompetition(s.id);
       if (!linked) { trace.push({ sessionId: s.id, action: 'skip-autolink', phase: null }); continue; }
+      if (process.env.LINK_DEBUG) {
+        const c0 = this.getAllCompetitionsParsed().find(c => c.sessions.some(x => x.sessionId === s.id));
+        const ph0 = c0?.sessions.find(x => x.sessionId === s.id)?.phase ?? null;
+        console.log(`[LINK_DEBUG] replay ${s.id} (${new Date(s.start_time + 3*3600*1000).toISOString().slice(11,16)}): autoLink → phase=${ph0}, laps=${laps.length}`);
+      }
       // first lap → finalize phase (group detection + quali/race reassign)
       this.finalizeSessionPhaseOnFirstLap(s.id);
       // short session → unlink (mirror poller #tryAutoUnlinkShortSession)
