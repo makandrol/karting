@@ -555,12 +555,16 @@ describe('isCompetitionTime', () => {
     expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 45))).toBe(false);
   });
 
-  it('Вівторок 19:45 Kyiv → true (ЛЛ дефолтний поріг)', () => {
+  it('Вівторок 19:45 Kyiv → true (ЛЛ)', () => {
     expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 45))).toBe(true);
   });
 
-  it('Вівторок 19:44 → false', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 44))).toBe(false);
+  it('Вівторок 19:40 → true (ЛЛ поріг зсунуто на 19:40 — перша квала інколи о 19:40)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 40))).toBe(true);
+  });
+
+  it('Вівторок 19:39 → false', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 39))).toBe(false);
   });
 
   it('Понеділок 18:00 → false (зарано)', () => {

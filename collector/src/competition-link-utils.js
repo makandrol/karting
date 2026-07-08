@@ -303,8 +303,8 @@ export function capGroupCount(desired, format) {
  */
 export const COMPETITION_SCHEDULE = {
   1: { format: 'gonzales',         shortName: 'Гонз', startHour: 20, startMin: 5 },  // Понеділок 20:05
-  2: { format: 'light_league',     shortName: 'ЛЛ' },    // Вівторок
-  3: { format: 'champions_league', shortName: 'ЛЧ' },    // Середа
+  2: { format: 'light_league',     shortName: 'ЛЛ', startHour: 19, startMin: 40 },   // Вівторок (перша квала інколи о 19:40)
+  3: { format: 'champions_league', shortName: 'ЛЧ', startHour: 19, startMin: 40 },   // Середа
 };
 
 /** Hour (Kyiv local time) at which competition window opens. */

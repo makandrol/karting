@@ -1228,6 +1228,21 @@ export const storage = {
       const laps = this.getLaps(s.id);
       if (laps.length === 0) { trace.push({ sessionId: s.id, action: 'skip-empty', phase: null }); continue; }
 
+      // ЛЛ/ЛЧ: заїзд без ЖОДНОГО реального пілота (усі кола під "Карт N" — timing
+      // не підтягнув імена) — це не змагальний заїзд (тест/маршал викотився).
+      // Напр. LL 07.07 20:23: 1 пілот "Карт 14". Не лінкуємо — інакше він займає
+      // слот квалі/гонки і зсуває нумерацію. (Прокат/Гонзалес можуть легітимно
+      // мати "Карт N", тож умова лише для ЛЛ/ЛЧ.)
+      const liveComp = this.getAllCompetitionsParsed().find(c => c.status === 'live');
+      if (liveComp && (liveComp.format === 'light_league' || liveComp.format === 'champions_league')) {
+        const realPilots = new Set(laps.map(l => l.pilot).filter(p => !isKartName(p)));
+        if (realPilots.size === 0) {
+          if (process.env.LINK_DEBUG) console.log(`[LINK_DEBUG] replay ${s.id}: 0 реальних пілотів (усі "Карт N") → skip`);
+          trace.push({ sessionId: s.id, action: 'skip-no-real-pilots', phase: null });
+          continue;
+        }
+      }
+
       const linked = this.autoLinkSessionToActiveCompetition(s.id);
       if (!linked) { trace.push({ sessionId: s.id, action: 'skip-autolink', phase: null }); continue; }
       if (process.env.LINK_DEBUG) {
