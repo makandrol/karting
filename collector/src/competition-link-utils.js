@@ -314,22 +314,61 @@ export const COMPETITION_AUTO_START_HOUR_KYIV = 19;
 export const COMPETITION_AUTO_START_MIN_KYIV = 45;
 
 /**
- * Kyiv UTC offset in hours.
+ * Kyiv UTC offset in hours — DEPRECATED fallback only.
  *
- * NOTE: this is currently hardcoded. Kyiv is UTC+3 in summer (EEST, last Sun
- * of March → last Sun of October) and UTC+2 in winter (EET). Adjust manually
- * on DST transitions, or replace with `Intl.DateTimeFormat` lookup.
+ * Kyiv is UTC+3 in summer (EEST, last Sun of March → last Sun of October) and
+ * UTC+2 in winter (EET). Раніше було захардкожено =3, через що зимові змагання
+ * (напр. 24.03, 25.03 — до переходу на літній час 29.03) отримували зсунуте на
+ * годину вікно `isCompetitionTime` → лінкування хапало вечірній прокат.
+ *
+ * Тепер `getKyivLocalParts` рахує офсет динамічно через Intl (`Europe/Kyiv`),
+ * а ця константа лишається лише як fallback, якщо Intl tz-дані недоступні.
  */
 export const KYIV_UTC_OFFSET_HOURS = 3;
 
+// Форматер для київської зони — рахує локальні компоненти з урахуванням DST.
+// Кешуємо, бо створення Intl.DateTimeFormat відносно дороге.
+let _kyivFmt = null;
+function getKyivFormatter() {
+  if (_kyivFmt) return _kyivFmt;
+  try {
+    _kyivFmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Kyiv',
+      year: 'numeric', month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: 'numeric', weekday: 'short', hour12: false,
+    });
+  } catch {
+    _kyivFmt = null;
+  }
+  return _kyivFmt;
+}
+
+const _WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
 /**
- * Convert UTC unix-ms to Kyiv local Date components.
+ * Convert UTC unix-ms to Kyiv local Date components (DST-aware via Intl).
  *
  * @param {number} timestampMs
  * @returns {{ year: number, month: number, day: number, hour: number, minute: number, dayOfWeek: number }}
  *   month is 1-12 (NOT 0-indexed); dayOfWeek is 0=Sunday..6=Saturday
  */
 export function getKyivLocalParts(timestampMs) {
+  const fmt = getKyivFormatter();
+  if (fmt) {
+    const parts = {};
+    for (const p of fmt.formatToParts(new Date(timestampMs))) parts[p.type] = p.value;
+    let hour = parseInt(parts.hour, 10);
+    if (hour === 24) hour = 0; // Intl інколи віддає "24" для півночі
+    return {
+      year: parseInt(parts.year, 10),
+      month: parseInt(parts.month, 10),
+      day: parseInt(parts.day, 10),
+      hour,
+      minute: parseInt(parts.minute, 10),
+      dayOfWeek: _WEEKDAY_INDEX[parts.weekday] ?? 0,
+    };
+  }
+  // Fallback (Intl tz-дані недоступні): фіксований офсет.
   const shifted = new Date(timestampMs + KYIV_UTC_OFFSET_HOURS * 3600 * 1000);
   return {
     year: shifted.getUTCFullYear(),

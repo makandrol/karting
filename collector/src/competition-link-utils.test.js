@@ -473,6 +473,8 @@ describe('capGroupCount', () => {
 // Helpers to build timestamps in Kyiv time (UTC+3) for tests
 // `Date.UTC(year, month-1, day, hour, minute) - offset_ms` gives unix-ms that,
 // when shifted by +3h, lands exactly at the requested Kyiv time.
+// УВАГА: -3 = літній час (EEST). Валідно лише для дат у літньому вікні
+// (кінець березня — кінець жовтня), які й використовують усі кейси нижче.
 function kyivTs(year, month, day, hour = 0, minute = 0) {
   return Date.UTC(year, month - 1, day, hour - 3, minute);
 }
@@ -513,6 +515,26 @@ describe('getKyivLocalParts', () => {
     expect(parts.hour).toBe(2);
     expect(parts.minute).toBe(30);
     expect(parts.dayOfWeek).toBe(4);
+  });
+
+  it('зимовий час (EET, UTC+2): 24.03.2026 18:05 UTC = 20:05 Kyiv', () => {
+    // 24.03.2026 — до переходу на літній час (29.03) → Kyiv = UTC+2.
+    // session-1774375513395 (справжній старт ЛЛ 24.03) має бути 20:05 Kyiv.
+    const parts = getKyivLocalParts(1774375513395);
+    expect(parts.year).toBe(2026);
+    expect(parts.month).toBe(3);
+    expect(parts.day).toBe(24);
+    expect(parts.hour).toBe(20);
+    expect(parts.minute).toBe(5);
+    expect(parts.dayOfWeek).toBe(2); // вівторок
+  });
+
+  it('літній час (EEST, UTC+3): 08.07.2026 старт 20:06 Kyiv', () => {
+    const parts = getKyivLocalParts(1783530416642);
+    expect(parts.month).toBe(7);
+    expect(parts.day).toBe(8);
+    expect(parts.hour).toBe(20);
+    expect(parts.minute).toBe(6);
   });
 });
 
