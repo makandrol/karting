@@ -148,6 +148,16 @@ export function clSheetUrl(gid: string): string {
   return `https://docs.google.com/spreadsheets/d/${CL_BOOK}/export?format=csv&gid=${gid}`;
 }
 
+// CL 2-й сезон — окрема книга (з липня 2026). Tab gid → date label (DD.MM).
+const CL2_BOOK = '1nLvILuqfmx3A8JF8pJXOQv1bggOxoVyZ';
+export const CL2_TABS: Record<string, string> = {
+  '893766289': '01.07', '262017472': '08.07', '2116051621': '15.07',
+};
+
+export function cl2SheetUrl(gid: string): string {
+  return `https://docs.google.com/spreadsheets/d/${CL2_BOOK}/export?format=csv&gid=${gid}`;
+}
+
 /**
  * Resolve a sheet CSV URL automatically for a competition by matching its
  * Kyiv-local date (from first session) to the LL/CL workbook tab. Returns null
@@ -163,7 +173,9 @@ export function resolveSheetUrl(format: string, firstSessionTs: number): string 
   }
   if (format === 'champions_league') {
     const gid = Object.entries(CL_TABS).find(([, l]) => l === label)?.[0];
-    return gid ? clSheetUrl(gid) : null;
+    if (gid) return clSheetUrl(gid);
+    const gid2 = Object.entries(CL2_TABS).find(([, l]) => l === label)?.[0];
+    return gid2 ? cl2SheetUrl(gid2) : null;
   }
   return null;
 }
