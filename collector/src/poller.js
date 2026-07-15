@@ -267,16 +267,9 @@ export class TimingPoller {
   }
 
   #tryAutoUnlinkShortSession(sessionId, startTime, endTime) {
-    if (!sessionId || !startTime || !endTime) return;
-    const durationMs = endTime - startTime;
-    // Невалідний заїзд: надто короткий (<60с) АБО без жодного кола взагалі
-    // (прогрівний/порожній, напр. LL 19.05 о 20:37 — 251с але 0 кіл).
-    // Такий заїзд НЕ повинен утримувати фазу змагання — інакше наступні
-    // заїзди зсуваються (гонка1група2 прогоряє на невалідному заїзді).
-    const tooShort = durationMs < 60000;
-    const hasLaps = storage.getLaps(sessionId).length > 0;
-    if (!tooShort && hasLaps) return;
-    storage.autoUnlinkSession(sessionId);
+    // Спільний код із replay: відлінкувати короткий/порожній заїзд, інакше
+    // фінальний finalize (який відлінкує ЛЛ/ЛЧ-заїзд без реальних імен).
+    storage.finalizeSessionOnEnd(sessionId, startTime, endTime);
   }
 
   #diff(prevTeams, currentTeams, prevEntries, currentEntries, meta) {

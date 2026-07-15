@@ -1016,6 +1016,30 @@ export const storage = {
    *   черзі (на 1-му колі 1-2 пілоти, решта ще "Карт N"), назавжди лишалась
    *   квалою (див. bug LL 30.06 — 20:38 стала qualifying_4).
    */
+  /**
+   * Чи є заїзд НЕВАЛІДНИМ для лінкування до змагання (спільна перевірка для
+   * live-поллінгу і replay — щоб обидва шляхи поводились ІДЕНТИЧНО).
+   *
+   * Невалідний заїзд:
+   * 1. без жодного кола (`laps.length === 0`) — прогрівний/порожній;
+   * 2. для ЛЛ/ЛЧ — без ЖОДНОГО реального пілота (усі кола під "Карт N", timing
+   *    не підтягнув імена: тест/маршал викотився). Прокат/Гонзалес можуть
+   *    легітимно мати "Карт N", тож умова лише для ЛЛ/ЛЧ.
+   *
+   * @param {string} sessionId
+   * @param {string} format формат активного змагання
+   * @returns {{ skip: boolean, reason: string|null }}
+   */
+  sessionLinkingValidity(sessionId, format) {
+    const laps = this.getLaps(sessionId);
+    if (laps.length === 0) return { skip: true, reason: 'empty' };
+    if (format === 'light_league' || format === 'champions_league') {
+      const realPilots = new Set(laps.map(l => l.pilot).filter(p => !isKartName(p)));
+      if (realPilots.size === 0) return { skip: true, reason: 'no-real-pilots' };
+    }
+    return { skip: false, reason: null };
+  },
+
   finalizeSessionPhaseOnFirstLap(sessionId) {
     const comps = this.getAllCompetitionsParsed();
     const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
@@ -1024,6 +1048,26 @@ export const storage = {
 
     const entry = comp.sessions.find(s => s.sessionId === sessionId);
     if (!entry || !entry.phase) return true;
+
+    // Спільна перевірка валідності — ідентична для live і replay. Невалідний
+    // заїзд (0 кіл або ЛЛ/ЛЧ без реальних імен) відлінковуємо, щоб він не
+    // утримував слот квалі/гонки і не зсував структуру фаз.
+    const validity = this.sessionLinkingValidity(sessionId, comp.format);
+    if (validity.skip) {
+      // no-real-pilots поки сесія ЖИВА → рішення ще ненадійне (на старті гонки
+      // timing показує "Карт N", реальні імена підтягуються згодом). Повертаємо
+      // false, щоб poller перевірив на наступних колах. Відлінковуємо лише коли
+      // сесія завершена (final) — тоді вже точно тест/прогрів, не гонка.
+      const sessionRow = stmts.getSessionEndTime.get(sessionId);
+      const ended = sessionRow?.end_time != null;
+      if (validity.reason === 'no-real-pilots' && !ended) {
+        if (process.env.LINK_DEBUG) console.log(`[LINK_DEBUG] finalize ${sessionId}: no-real-pilots, сесія жива → retry`);
+        return false;
+      }
+      this.autoUnlinkSession(sessionId);
+      console.log(`🗑️ Finalize ${sessionId}: невалідний заїзд (${validity.reason}) → відлінковано від ${comp.name} · ${entry.phase}`);
+      return true;
+    }
 
     // Спочатку детектимо groupCount (якщо ще не визначено) — це
     // допомагає і qualifying-, і race-сценарію.
@@ -1207,11 +1251,33 @@ export const storage = {
   },
 
   /**
+   * Обробка завершення сесії — спільна для live-поллінгу і replay (ІДЕНТИЧНИЙ
+   * код). Викликається коли сесія завершилась (end_time вже виставлено):
+   *  - надто короткий (<60с) АБО без жодного кола → відлінкувати;
+   *  - інакше фінальний прогін finalize (тепер він відлінкує ЛЛ/ЛЧ-заїзд без
+   *    реальних імен, бо сесія вже завершена → рішення остаточне).
+   *
+   * @param {string} sessionId
+   * @param {number} startTime
+   * @param {number} endTime
+   */
+  finalizeSessionOnEnd(sessionId, startTime, endTime) {
+    if (!sessionId || !startTime || !endTime) return;
+    const tooShort = (endTime - startTime) < 60000;
+    const hasLaps = this.getLaps(sessionId).length > 0;
+    if (tooShort || !hasLaps) {
+      this.autoUnlinkSession(sessionId);
+      return;
+    }
+    this.finalizeSessionPhaseOnFirstLap(sessionId);
+  },
+
+  /**
    * Replay the live poller's competition-linking logic over already-recorded
-   * sessions of a given day, starting at `fromTs`. Mirrors poller.js exactly:
-   * for each session in chronological order — autoLink at start, finalize on
-   * first lap, auto-unlink if < 60s. Used to re-link a freshly recreated
-   * competition without re-running the timing poll.
+   * sessions of a given day, starting at `fromTs`. Викликає ТІ САМІ storage-методи
+   * у тому самому порядку, що й poller.js (autoLink → finalize → auto-unlink),
+   * тож поведінка ідентична live-поллінгу. Уся валідність (skip-empty,
+   * skip-no-real-pilots, unlink-short) — усередині цих методів.
    *
    * @param {string} date "YYYY-MM-DD"
    * @param {number} fromTs only sessions with start_time >= fromTs
@@ -1221,48 +1287,25 @@ export const storage = {
     const rows = stmts.getSessionsByDate.all(date).filter(s => s.start_time >= fromTs);
     const trace = [];
     for (const s of rows) {
-      // Валідність заїзду: сесія БЕЗ жодного валідного кола (laps=0) — це не
-      // змагальний заїзд (порожня/прогрівна, напр. LL 19.05 о 20:37: 251с,
-      // 1 пілот, 0 кіл). Не лінкуємо — інакше вона займає слот квалі/гонки
-      // і зсуває всю структуру (правило "невалідний заїзд НЕ лінкуємо").
-      const laps = this.getLaps(s.id);
-      if (laps.length === 0) { trace.push({ sessionId: s.id, action: 'skip-empty', phase: null }); continue; }
-
-      // ЛЛ/ЛЧ: заїзд без ЖОДНОГО реального пілота (усі кола під "Карт N" — timing
-      // не підтягнув імена) — це не змагальний заїзд (тест/маршал викотився).
-      // Напр. LL 07.07 20:23: 1 пілот "Карт 14". Не лінкуємо — інакше він займає
-      // слот квалі/гонки і зсуває нумерацію. (Прокат/Гонзалес можуть легітимно
-      // мати "Карт N", тож умова лише для ЛЛ/ЛЧ.)
-      const liveComp = this.getAllCompetitionsParsed().find(c => c.status === 'live');
-      if (liveComp && (liveComp.format === 'light_league' || liveComp.format === 'champions_league')) {
-        const realPilots = new Set(laps.map(l => l.pilot).filter(p => !isKartName(p)));
-        if (realPilots.size === 0) {
-          if (process.env.LINK_DEBUG) console.log(`[LINK_DEBUG] replay ${s.id}: 0 реальних пілотів (усі "Карт N") → skip`);
-          trace.push({ sessionId: s.id, action: 'skip-no-real-pilots', phase: null });
-          continue;
-        }
-      }
-
+      // 1. autoLink на старті сесії (дзеркалить poller: createSession → autoLink).
       const linked = this.autoLinkSessionToActiveCompetition(s.id);
       if (!linked) { trace.push({ sessionId: s.id, action: 'skip-autolink', phase: null }); continue; }
       if (process.env.LINK_DEBUG) {
         const c0 = this.getAllCompetitionsParsed().find(c => c.sessions.some(x => x.sessionId === s.id));
         const ph0 = c0?.sessions.find(x => x.sessionId === s.id)?.phase ?? null;
-        console.log(`[LINK_DEBUG] replay ${s.id} (${new Date(s.start_time + 3*3600*1000).toISOString().slice(11,16)}): autoLink → phase=${ph0}, laps=${laps.length}`);
+        console.log(`[LINK_DEBUG] replay ${s.id} (${new Date(s.start_time + 3*3600*1000).toISOString().slice(11,16)}): autoLink → phase=${ph0}, laps=${this.getLaps(s.id).length}`);
       }
-      // first lap → finalize phase (group detection + quali/race reassign)
+      // 2. Перше коло → finalize (group detection + quali/race + валідність:
+      //    skip-empty / skip-no-real-pilots всередині finalize, ідентично live).
       this.finalizeSessionPhaseOnFirstLap(s.id);
-      // short session → unlink (mirror poller #tryAutoUnlinkShortSession)
-      if (s.end_time && (s.end_time - s.start_time) < 60000) {
-        this.autoUnlinkSession(s.id);
-        trace.push({ sessionId: s.id, action: 'unlink-short', phase: null });
-        continue;
-      }
-      // re-read final phase
+      // 3. Кінець сесії → той самий код, що poller (#tryAutoUnlinkShortSession):
+      //    відлінкувати короткий/порожній, інакше фінальний finalize.
+      this.finalizeSessionOnEnd(s.id, s.start_time, s.end_time);
+      // re-read final phase (finalize міг відлінкувати невалідний заїзд)
       const comps = this.getAllCompetitionsParsed();
       const comp = comps.find(c => c.sessions.some(x => x.sessionId === s.id));
       const phase = comp?.sessions.find(x => x.sessionId === s.id)?.phase ?? null;
-      trace.push({ sessionId: s.id, action: 'linked', phase });
+      trace.push({ sessionId: s.id, action: comp ? 'linked' : 'unlinked', phase });
     }
     return trace;
   },
