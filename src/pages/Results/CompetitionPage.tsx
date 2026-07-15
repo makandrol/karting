@@ -15,6 +15,7 @@ import CompetitionTimeline from '../../components/Results/CompetitionTimeline';
 import { parseLapSec, getSprintPositionPoints } from '../../utils/scoring';
 import { FORMAT_MAX_GROUPS } from '../../utils/competitionLinking';
 import { useLayoutPrefs, PAGE_SECTIONS } from '../../services/layoutPrefs';
+import { useLocalStorage } from '../../services/useLocalStorage';
 import TableLayoutBar from '../../components/TableLayoutBar';
 import SessionReplay, { parseSessionEvents } from '../../components/Timing/SessionReplay';
 import { buildReplayLaps, extractCompetitionReplayProps } from '../../utils/session';
@@ -369,6 +370,8 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   const [scrubTime, setScrubTime] = useState<number | null>(null);
   const [onboardEntries, setOnboardEntries] = useState<TimingEntry[]>([]);
   const [marathonEvents, setMarathonEvents] = useState<any[]>([]);
+  const [showDaySessions, setShowDaySessions] = useLocalStorage(`karting_comp_day_sessions_${competition.id}`, false);
+  const [daySessions, setDaySessions] = useState<SessionTableRow[]>([]);
 
   const resultsRef = useRef(competition.results);
   useEffect(() => { resultsRef.current = competition.results; }, [competition.results]);
@@ -417,6 +420,40 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
     })();
     return () => { active = false; };
   }, [competition.format, competition.id, competition.sessions]);
+
+  // Заїзди всього дня — для тогла "показати всі заїзди дня". Вантажимо ліниво,
+  // лише коли тогл увімкнено. День беремо з першої сесії змагання.
+  useEffect(() => {
+    if (!showDaySessions) { setDaySessions([]); return; }
+    if (compSessions.length === 0) return;
+    let active = true;
+    const firstStart = Math.min(...compSessions.map(s => s.start_time));
+    const dateStr = fmtDateISO(new Date(firstStart));
+    (async () => {
+      try {
+        const data = await api.sessions.byDate(dateStr);
+        if (active) setDaySessions(data as unknown as SessionTableRow[]);
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, [showDaySessions, competition.id, compSessions]);
+
+  // Заїзди для відображення в списку: або лише сесії змагання, або вікно
+  // від останнього заїзду перед змаганням до останнього заїзду дня.
+  const displaySessions = useMemo(() => {
+    if (!showDaySessions || daySessions.length === 0) return compSessions;
+    const compIds = new Set(compSessions.map(s => s.id));
+    const firstCompStart = compSessions.length > 0
+      ? Math.min(...compSessions.map(s => s.start_time))
+      : Infinity;
+    const sorted = [...daySessions].sort((a, b) => a.start_time - b.start_time);
+    // Останній заїзд, що почався перед першим заїздом змагання.
+    const before = sorted.filter(s => s.start_time < firstCompStart);
+    const startTs = before.length > 0 ? before[before.length - 1].start_time : firstCompStart;
+    const windowed = sorted.filter(s => s.start_time >= startTs || compIds.has(s.id));
+    return windowed.length > 0 ? windowed : compSessions;
+  }, [showDaySessions, daySessions, compSessions]);
+
 
   const sessionTimes = useMemo(() => {
     return compSessions
@@ -726,8 +763,15 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
 
     const sessionsEl = compSessions.length > 0 ? (
       <div key="sessions" className="card p-0 overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between">
-          <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
+        <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h3 className="text-white font-semibold text-sm">Список заїздів ({displaySessions.length})</h3>
+            <label className="flex items-center gap-1.5 text-[11px] text-dark-400 cursor-pointer select-none">
+              <input type="checkbox" checked={showDaySessions} onChange={e => setShowDaySessions(e.target.checked)}
+                className="accent-primary-500 cursor-pointer" />
+              Усі заїзди дня
+            </label>
+          </div>
           {gonzalesTop3 && (
             <div className="flex items-center gap-3 text-xs font-mono">
               {gonzalesTop3.map((p, i) => (
@@ -740,7 +784,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
             </div>
           )}
         </div>
-        <SessionsTable sessions={compSessions} newestFirst />
+        <SessionsTable sessions={displaySessions} newestFirst />
       </div>
     ) : null;
 
@@ -809,10 +853,17 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
 
     const sessionsEl = compSessions.length > 0 ? (
       <div key="sessions" className="card p-0 overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-dark-800">
-          <h3 className="text-white font-semibold text-sm">Список заїздів ({compSessions.length})</h3>
+        <div className="px-4 py-2.5 border-b border-dark-800 flex items-center justify-between gap-3">
+          <h3 className="text-white font-semibold text-sm">Список заїздів ({displaySessions.length})</h3>
+          {competition.format !== 'sprint' && (
+            <label className="flex items-center gap-1.5 text-[11px] text-dark-400 cursor-pointer select-none">
+              <input type="checkbox" checked={showDaySessions} onChange={e => setShowDaySessions(e.target.checked)}
+                className="accent-primary-500 cursor-pointer" />
+              Усі заїзди дня
+            </label>
+          )}
         </div>
-        <SessionsTable sessions={compSessions} newestFirst />
+        <SessionsTable sessions={displaySessions} newestFirst />
       </div>
     ) : null;
 
