@@ -876,6 +876,30 @@ export const storage = {
       return null;
     }
 
+    // Merge-continuation guard: timing інколи коротко падає посеред гонки, і
+    // одна гонка стає ДВОМА DB-сесіями з однаковим race_number (у межах 5хв).
+    // getSessionsByDate зливає їх лише для відображення, але в
+    // competition.sessions лишались ОБИДВІ — друга половинка займала зайвий
+    // фазовий слот і зсувала всю структуру (напр. гонка2гр1 → гонка3гр2).
+    // Тут: якщо нова сесія — продовження вже залінкованої гонки того ж
+    // змагання (той самий race_number, розрив < MERGE_GAP_MS), успадковуємо
+    // її фазу замість того, щоб брати новий слот.
+    const newRow = stmts.getSessionTimeRow.get(sessionId);
+    if (newRow && newRow.race_number != null) {
+      for (const linked of liveComp.sessions) {
+        const lr = stmts.getSessionTimeRow.get(linked.sessionId);
+        if (!lr || lr.race_number !== newRow.race_number) continue;
+        const prevEnd = lr.end_time || lr.start_time;
+        const gap = newRow.start_time - prevEnd;
+        if (gap >= 0 && gap < MERGE_GAP_MS) {
+          const sessions = [...liveComp.sessions, { sessionId, phase: linked.phase }];
+          this.updateCompetition(liveComp.id, { sessions });
+          console.log(`🔗 autoLink ${sessionId}: merge-continuation of ${linked.sessionId} (race #${newRow.race_number}, gap ${Math.round(gap / 1000)}s) → успадковано фазу ${linked.phase}`);
+          return { competitionId: liveComp.id, phase: linked.phase };
+        }
+      }
+    }
+
     const results = liveComp.results || {};
     // Гонзалес: перерахувати кількість раундів з квалі-пілотів ПЕРЕД фільтром фаз,
     // щоб нові заїзди не блокувались дефолтним roundCount=12 (інакше all-phases-filled
@@ -1067,6 +1091,26 @@ export const storage = {
       this.autoUnlinkSession(sessionId);
       console.log(`🗑️ Finalize ${sessionId}: невалідний заїзд (${validity.reason}) → відлінковано від ${comp.name} · ${entry.phase}`);
       return true;
+    }
+
+    // Merge-continuation: якщо ця сесія — продовження вже залінкованої гонки
+    // (той самий race_number, розрив < MERGE_GAP_MS, і фаза співпадає з
+    // сесією-донором), НЕ переприсвоюємо фазу за індексом (інакше duplicate
+    // phase знову зсунув би структуру). Успадкована фаза лишається.
+    const thisRow = stmts.getSessionTimeRow.get(sessionId);
+    if (thisRow && thisRow.race_number != null) {
+      const donor = comp.sessions.find(s => {
+        if (s.sessionId === sessionId || s.phase !== entry.phase) return false;
+        const dr = stmts.getSessionTimeRow.get(s.sessionId);
+        if (!dr || dr.race_number !== thisRow.race_number) return false;
+        const prevEnd = dr.end_time || dr.start_time;
+        const gap = thisRow.start_time - prevEnd;
+        return gap >= 0 && gap < MERGE_GAP_MS;
+      });
+      if (donor) {
+        console.log(`🔗 Finalize ${sessionId}: merge-continuation of ${donor.sessionId} (phase ${entry.phase}) → лишаємо як є`);
+        return true;
+      }
     }
 
     // Спочатку детектимо groupCount (якщо ще не визначено) — це
