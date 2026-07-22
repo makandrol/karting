@@ -28,6 +28,10 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 
 const poller = new TimingPoller();
 
+// HTTP-таймаути: жоден повільний/зависаючий запит не має тримати з'єднання
+// нескінченно (інакше сокети течуть і сервер перестає відповідати). Значення
+// консервативні — усі легітимні запити виконуються за мілісекунди.
+
 // ============================================================
 // Helpers
 // ============================================================
@@ -649,17 +653,44 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+server.requestTimeout = 30_000;      // весь запит має завершитись за 30с
+server.headersTimeout = 15_000;      // заголовки — за 15с
+server.keepAliveTimeout = 20_000;    // idle keep-alive закривається за 20с
+server.timeout = 45_000;             // hard socket timeout
+
 server.listen(PORT, () => {
   console.log(`🏎️  Karting Collector running on port ${PORT}`);
   console.log(`   Status: http://localhost:${PORT}/status`);
   console.log(`   Timing: http://localhost:${PORT}/timing`);
   console.log(`   Health: http://localhost:${PORT}/healthz`);
   poller.start();
+  startWatchdog();
 });
+
+// Watchdog: незалежний таймер, що ловить зависання event loop / poll-циклу.
+// Якщо poller не робив жодного poll-у понад WATCHDOG_MAX_STALL_MS — процес,
+// найімовірніше, завис (HTTP не відповідає). Тоді робимо process.exit(1),
+// і PM2 автоматично перезапускає колектор. Це остання лінія захисту від
+// будь-якого зависання, яке PM2 сам не ловить (процес технічно "online").
+const WATCHDOG_MAX_STALL_MS = 5 * 60 * 1000; // 5 хв без poll-у → рестарт
+const WATCHDOG_CHECK_MS = 60 * 1000;
+let _watchdogTimer = null;
+function startWatchdog() {
+  _watchdogTimer = setInterval(() => {
+    const last = poller.getLastPollTime();
+    const stall = Date.now() - last;
+    if (stall > WATCHDOG_MAX_STALL_MS) {
+      console.error(`🚨 Watchdog: poll stalled ${Math.round(stall / 1000)}s (>${WATCHDOG_MAX_STALL_MS / 1000}s) — exiting for PM2 restart`);
+      process.exit(1);
+    }
+  }, WATCHDOG_CHECK_MS);
+  if (_watchdogTimer.unref) _watchdogTimer.unref();
+}
 
 // Graceful shutdown
 function shutdown(signal) {
   console.log(`\n${signal} received — shutting down gracefully`);
+  if (_watchdogTimer) clearInterval(_watchdogTimer);
   poller.stop();
   storage.close();
   server.close(() => {

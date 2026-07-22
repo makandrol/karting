@@ -33,6 +33,7 @@ export class TimingPoller {
   #lastSnapshot = 0;
   #pollCount = 0;
   #errorCount = 0;
+  #lastPollAt = Date.now();
   #sessionId = null;
   #groupChecked = false;
   #currentRaceNumber = null;
@@ -65,6 +66,7 @@ export class TimingPoller {
   }
 
   isOnline() { return this.#online; }
+  getLastPollTime() { return this.#lastPollAt; }
   getCurrentEntries() { return this.#entries; }
   getCurrentTeams() { return this.#teams; }
   getMeta() { return this.#meta; }
@@ -126,6 +128,7 @@ export class TimingPoller {
 
   async #poll() {
     this.#pollCount++;
+    this.#lastPollAt = Date.now();
     const now = Date.now();
 
     try {
@@ -171,15 +174,18 @@ export class TimingPoller {
       this.#errorCount++;
       this.#siteReachable = false;
       this.#siteReachableSince = null;
-      this.#goOffline(now);
+      try { this.#goOffline(now); } catch (e) { console.error('goOffline error:', e.message); }
 
       if (this.#errorCount <= 3 || this.#errorCount % 60 === 0) {
         console.log(`⚠️  Poll error (${this.#errorCount}): ${err.message}`);
       }
+    } finally {
+      // Перепланування ЗАВЖДИ — навіть якщо синхронний storage-виклик кинув
+      // виняток. Без finally один throw у goOnline/goOffline назавжди спиняв
+      // би poll-цикл (процес живий, але дані не оновлюються → "зависання").
+      const interval = this.#online ? POLL_INTERVAL_ONLINE : this.#siteReachable ? POLL_INTERVAL_IDLE : POLL_INTERVAL_OFFLINE;
+      this.#timer = setTimeout(() => this.#poll(), interval);
     }
-
-    const interval = this.#online ? POLL_INTERVAL_ONLINE : this.#siteReachable ? POLL_INTERVAL_IDLE : POLL_INTERVAL_OFFLINE;
-    this.#timer = setTimeout(() => this.#poll(), interval);
   }
 
   #goOnline(entries, teams, meta, now, raw) {
