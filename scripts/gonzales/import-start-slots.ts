@@ -63,14 +63,16 @@ function parseLapTime(s: unknown): number | null {
 }
 
 /** Найкращі кола по картах для однієї сесії. */
-async function bestByKart(sessionId: string): Promise<Map<number, number>> {
+async function bestByKart(sessionId: string, kartReplacements: Record<number, number> = {}): Promise<Map<number, number>> {
   const raw = await getJson<any>(`/db/laps?session=${encodeURIComponent(sessionId)}`);
   const laps: any[] = Array.isArray(raw) ? raw : (raw.laps || []);
   const best = new Map<number, number>();
   for (const l of laps) {
     const t = parseLapTime(l.lap_time ?? l.lapTime);
     if (t == null || t < MIN_LAP_SEC) continue;
-    const k = Number(l.kart);
+    // Підмінений карт зводимо до номера колонки в таблиці (як `effectiveKart`).
+    const raw_k = Number(l.kart);
+    const k = kartReplacements[raw_k] ?? raw_k;
     if (!best.has(k) || t < best.get(k)!) best.set(k, t);
   }
   return best;
@@ -122,7 +124,7 @@ async function validate(data: GonzalesSheetData, comp: CompetitionDto): Promise<
   const accuracies: number[] = [];
 
   for (let ri = 0; ri < rounds.length; ri++) {
-    const best = await bestByKart(rounds[ri].sessionId).catch(() => new Map<number, number>());
+    const best = await bestByKart(rounds[ri].sessionId, data.kartReplacements).catch(() => new Map<number, number>());
 
     let bestFit: { step: number; score: number } | null = null;
     for (let step = 0; step < total; step++) {
@@ -202,6 +204,10 @@ async function main() {
     console.log(`Вкладка "${sheet.name}"  ${data.title || ''}`);
     console.log(`  пілотів=${data.pilots.length}  картів=${data.karts.length}  пропусків=${skips}  слотів=${data.slotOrder.length}`);
     console.log(`  ротація: ${data.slotOrder.map(v => v === null ? '·' : v).join(' → ')}`);
+    const repl = Object.entries(data.kartReplacements);
+    if (repl.length) {
+      console.log(`  заміни картів: ${repl.map(([nw, old]) => `${nw} замінив ${old}`).join(', ')}`);
+    }
     if (data.unmarked.length) console.log(`  ⚠️  без жовтої мітки: ${data.unmarked.join(', ')}`);
     if (data.multiMarked.length) console.log(`  ⚠️  кілька міток: ${data.multiMarked.join(', ')}`);
 
@@ -264,6 +270,8 @@ async function main() {
       kartList: data.karts,
       slotOrder: data.slotOrder,
       pilotStartSlots: data.pilotStartSlots,
+      // Заміни зливаємо з наявними — вручну виставлені в UI не губимо.
+      kartReplacements: { ...(existing.kartReplacements || {}), ...data.kartReplacements },
       // фіксуємо, щоб авто-призначення в UI не перезатерло імпорт
       configLocked: true,
     };

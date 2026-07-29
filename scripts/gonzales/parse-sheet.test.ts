@@ -15,6 +15,8 @@ function makeSheet(opts: {
   title?: string;
   karts: number[];
   pilots: { name: string; kart?: number; skipAfterKart?: number }[];
+  /** Надпис над колонкою карта: карт-у-таблиці → номер заміни. */
+  replacements?: Record<number, number>;
 }): XlsxSheet {
   const cells = new Map<string, XlsxCell>();
   const set = (col: number, row: number, value: string | null, fill: string | null = null) => {
@@ -30,7 +32,12 @@ function makeSheet(opts: {
   opts.karts.forEach((k, i) => {
     set(kartColOf(i), headerRow, String(k));
     set(kartColOf(i) + 1, headerRow, 'Місце');
+    const r = opts.replacements?.[k];
+    if (r != null) set(kartColOf(i), 2, String(r));
   });
+
+  // Службове число в колонці C (к-сть пілотів) — не має читатись як заміна.
+  set(3, 2, String(opts.pilots.length));
 
   opts.pilots.forEach((p, pi) => {
     const row = headerRow + 1 + pi;
@@ -144,6 +151,30 @@ describe('parseGonzalesSheet', () => {
     const cells = new Map<string, XlsxCell>();
     cells.set('A1', { row: 1, col: 1, value: 'Порожній шаблон', fill: null });
     expect(() => parseGonzalesSheet({ name: 'форма', cells })).toThrow(/Місце/);
+  });
+
+  it('читає заміну карта з надпису над колонкою (27.07: 69 замінив 18)', () => {
+    const sheet = makeSheet({
+      karts: [15, 18, 20],
+      pilots: [{ name: 'A', kart: 15 }, { name: 'B', kart: 18 }, { name: 'C', kart: 20 }],
+      replacements: { 18: 69 },
+    });
+    const d = parseGonzalesSheet(sheet);
+
+    // ключ — карт у БД (новий), значення — колонка в таблиці (старий),
+    // як очікує effectiveKart: kartReplacements[lap.kart] ?? lap.kart
+    expect(d.kartReplacements).toEqual({ 69: 18 });
+    // сам список картів лишається за заголовком
+    expect(d.karts).toEqual([15, 18, 20]);
+  });
+
+  it('не вважає замінами службові числа поза колонками картів', () => {
+    const sheet = makeSheet({
+      karts: [15, 18],
+      pilots: [{ name: 'A', kart: 15 }, { name: 'B', kart: 18 }],
+    });
+    // у C2 лежить к-сть пілотів (2) — не карт
+    expect(parseGonzalesSheet(sheet).kartReplacements).toEqual({});
   });
 });
 

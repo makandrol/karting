@@ -39,6 +39,16 @@ export interface GonzalesSheetData {
   pilotStartSlots: Record<string, number>;
   /** Пілот → карт → час кола з таблиці (для валідації). */
   sheetTimes: Map<string, Map<number, number>>;
+  /**
+   * Заміни картів: карт у БД (новий) → карт у таблиці (старий).
+   *
+   * Організатор інколи посеред змагання підміняє зламаний карт іншим, а в
+   * таблиці лишає стару колонку, надписавши новий номер у рядку над
+   * заголовком (напр. 27.07: над колонкою карта 18 стоїть 69 — з 18-го
+   * раунду їздили на 69-му). Формат навмисне такий, як очікує
+   * `effectiveKart` у `scoring.ts`: `kartReplacements[lap.kart] ?? lap.kart`.
+   */
+  kartReplacements: Record<number, number>;
   /** Пілоти без жовтої мітки (аномалія — треба глянути вручну). */
   unmarked: string[];
   /** Пілоти з більш ніж однією жовтою міткою (аномалія). */
@@ -177,6 +187,19 @@ export function parseGonzalesSheet(sheet: XlsxSheet): GonzalesSheetData {
     sheetTimes.set(p.name, row);
   }
 
+  // 7. Заміни картів — число в колонці карта, у рядках МІЖ титулом і заголовком.
+  //    Колонки поза картами (напр. C — к-сть пілотів) навмисно ігноруємо.
+  const kartReplacements: Record<number, number> = {};
+  for (let row = 2; row < headerRow; row++) {
+    for (let i = 0; i < kartCols.length; i++) {
+      const c = cells.get(`${colNameOf(kartCols[i])}${row}`);
+      if (!c || c.value == null) continue;
+      const replacement = Math.round(parseFloat(c.value));
+      if (Number.isNaN(replacement) || replacement === karts[i]) continue;
+      kartReplacements[replacement] = karts[i];
+    }
+  }
+
   const title = (cells.get('A1')?.value ?? null) as string | null;
   return {
     title,
@@ -186,6 +209,7 @@ export function parseGonzalesSheet(sheet: XlsxSheet): GonzalesSheetData {
     slotOrder,
     pilotStartSlots,
     sheetTimes,
+    kartReplacements,
     unmarked,
     multiMarked,
   };
