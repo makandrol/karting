@@ -1132,20 +1132,30 @@ export const storage = {
 
       const newLaps = this.getLaps(sessionId);
       const newPilots = new Set(newLaps.map(l => l.pilot));
-      // Рахуємо лише РЕАЛЬНІ імена (без "Карт N" placeholders): на старті
-      // гонки timing показує "Карт N" поки не підтягне ім'я. Поки реальних
-      // імен замало — рішення ненадійне, просимо poller перевірити ще раз.
       const realPilots = new Set([...newPilots].filter(p => !isKartName(p)));
-      if (realPilots.size < 3) return false;
 
       if (comp.format === 'gonzales') {
+        // У Гонзалесі timing показує "Карт N" протягом УСЬОГО раунду — реальні
+        // імена підтягуються лише в кваліфікаціях (перевірено на 90+ раундах).
+        // Тому guard на к-сті реальних імен, потрібний ЛЛ/ЛЧ, тут НЕ вживаємо:
+        // саме ВІДСУТНІСТЬ імен і є сигналом, що це раунд, а не ще одна квала.
         const sessionRow = stmts.getSessionsByDate.all(new Date(parseInt(sessionId.replace('session-', ''))).toISOString().slice(0, 10))
           .find(s => s.id === sessionId);
         const isFinished = !!sessionRow?.end_time;
         const lapCounts = new Map();
         for (const l of newLaps) lapCounts.set(l.pilot, (lapCounts.get(l.pilot) || 0) + 1);
         if (isGonzalesQualifying([...newPilots], lapCounts, isFinished)) return true;
+        // Імен ще немає, але заїзд ТРИВАЄ — у квалі timing інколи підтягує
+        // імена дуже пізно (Гонз 27.07: перше ім'я лише на 49-му колі).
+        // Тому остаточне рішення відкладаємо до finalizeSessionOnEnd, де вже
+        // відома тривалість і к-сть кіл (квала ≥5 кіл, раунд 2-3).
+        if (!isFinished) return false;
       } else {
+        // Рахуємо лише РЕАЛЬНІ імена (без "Карт N" placeholders): на старті
+        // гонки timing показує "Карт N" поки не підтягне ім'я. Поки реальних
+        // імен замало — рішення ненадійне, просимо poller перевірити ще раз.
+        if (realPilots.size < 3) return false;
+
         const cumulativePilots = new Set();
         for (const qs of qualiSessions) {
           const laps = this.getLaps(qs.sessionId);

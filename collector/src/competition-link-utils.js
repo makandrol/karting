@@ -187,14 +187,18 @@ export function isKartName(name) {
  * Decide if a Gonzales session should be treated as a "qualifying"
  * (collector incrementing groupCount) or a "round" (groupCount stays).
  *
- * Mirrors current `storage.js` behaviour — see the original
- * `isRealNames || isHighLapCount` branch at lines 632-642:
- * - real names ratio > 0.5  → qualifying
- * - max lap count >= 5 (when finished) → qualifying
+ * Ключовий сигнал — чи підтягнув timing реальні імена:
+ * - у кваліфікації пілот весь заїзд в одному карті → імена з'являються;
+ * - у раунді пілоти ротуються і timing лишає "Карт N" до кінця заїзду.
  *
- * NOTE: the docs/competition-detection.md description ("kart names + many laps = rounds")
- * is *inverted* relative to the actual code. We keep the code-truth here
- * and address the doc/code mismatch separately if needed.
+ * Правила:
+ * - real names ratio > 0.5  → qualifying
+ * - max lap count >= 5 (when finished) → qualifying (страховка для квал, де
+ *   timing підтягнув імена дуже пізно — Гонз 27.07: перше ім'я на 49-му колі)
+ *
+ * Виклик на ЩЕ НЕ ЗАВЕРШЕНОМУ заїзді без імен ненадійний (імена можуть
+ * підтягнутись пізніше), тому `storage.finalizeSessionPhaseOnFirstLap`
+ * відкладає рішення до `finalizeSessionOnEnd`.
  *
  * @param {string[]} pilots distinct pilot names
  * @param {Map<string,number>|object} lapCounts pilot → lap count

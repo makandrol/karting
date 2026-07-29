@@ -854,3 +854,136 @@ describe('storage.recheckSessionPhase для race-фаз', () => {
     expect(comp.results?.autoDetectedGroups).toBeUndefined();
   });
 });
+
+// ============================================================
+// Gonzales: 1-й раунд не має ставати другою квалою
+//
+// Реальний баг (Гонз 20.07, 06.07, 13.07, 08.06): у Гонзалесі timing показує
+// "Карт N" замість імен протягом усього раунду — імена підтягуються лише в
+// кваліфікаціях. Через це `finalizeSessionPhaseOnFirstLap` не міг довести, що
+// заїзд є раундом, і 1-й раунд лишався залінкованим як `qualifying_2`. Усі
+// наступні раунди зсувались на -1 (round_1 отримував дані 2-го раунду), через
+// що ротація картів у результатах їхала.
+// ============================================================
+
+describe('storage.finalizeSessionPhaseOnFirstLap (gonzales: "Карт N" раунди)', () => {
+  function insertRawLap(sessionId, pilot, kart, lapNumber, lapTime, ts) {
+    storage.addLap(sessionId, {
+      pilot, kart, lapNumber,
+      lastLap: lapTime, s1: '20', s2: '22', bestLap: lapTime,
+      position: 1, ts,
+    });
+  }
+
+  /** Квала з реальними іменами (timing підтягнув імена) + раунд під "Карт N". */
+  function setupTwoQualisAndRound({ roundPilotsAreKartNames = true, roundLapsPerPilot = 2 } = {}) {
+    insertSession('session-1000', { startTime: 1000, endTime: 100000 });
+    insertSession('session-200000', { startTime: 200000, endTime: 300000 });
+    // Раунд ще ТРИВАЄ (без endTime) — завершуємо його вже в самому тесті.
+    insertSession('session-400000', { startTime: 400000 });
+
+    // Квала 1 + квала 2 — реальні імена
+    for (const [i, p] of ['Овчарук', 'Ковшар', 'Маніло', 'Дулін'].entries()) {
+      insertRawLap('session-1000', p, i + 1, 1, '42.0', 1000 + i);
+      insertRawLap('session-200000', p, i + 1, 1, '41.9', 200000 + i);
+    }
+
+    // Раунд: timing показує "Карт N" (реальних імен немає взагалі)
+    const roundPilots = roundPilotsAreKartNames
+      ? ['Карт 1', 'Карт 2', 'Карт 3', 'Карт 4']
+      : ['Овчарук', 'Ковшар', 'Маніло', 'Дулін'];
+    for (const [i, p] of roundPilots.entries()) {
+      for (let n = 1; n <= roundLapsPerPilot; n++) {
+        insertRawLap('session-400000', p, i + 1, n, '42.3', 400000 + i * 10 + n);
+      }
+    }
+
+    makeCompetition({
+      id: 'g1', format: 'gonzales',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-200000', phase: 'qualifying_2' },
+        // Колектор залінкував 1-й раунд як 3-тю квалу — має стати round_1
+        { sessionId: 'session-400000', phase: 'qualifying_3' },
+      ],
+    });
+  }
+
+  /** Закриває заїзд так само, як poller: endSession + finalizeSessionOnEnd. */
+  function endRound(sessionId, startTime, endTime) {
+    storage.endSession(sessionId, endTime);
+    storage.finalizeSessionOnEnd(sessionId, startTime, endTime);
+  }
+
+  it('поки заїзд ТРИВАЄ і імен немає — рішення відкладається (імена можуть підтягнутись)', () => {
+    setupTwoQualisAndRound();
+
+    const decided = storage.finalizeSessionPhaseOnFirstLap('session-400000');
+
+    expect(decided).toBe(false);
+    const comp = storage.getCompetition('g1');
+    expect(comp.sessions.find(s => s.sessionId === 'session-400000').phase).toBe('qualifying_3');
+  });
+
+  it('завершений заїзд під "Карт N" з малою к-стю кіл → round_1, а не qualifying_3', () => {
+    setupTwoQualisAndRound();
+    storage.finalizeSessionPhaseOnFirstLap('session-400000');
+
+    endRound('session-400000', 400000, 500000);
+
+    const comp = storage.getCompetition('g1');
+    expect(comp.sessions.find(s => s.sessionId === 'session-400000').phase).toBe('round_1');
+  });
+
+  it('раунди нумеруються послідовно (round_1 → round_2), без зсуву', () => {
+    setupTwoQualisAndRound();
+    endRound('session-400000', 400000, 500000);
+
+    // Другий раунд — теж під "Карт N"
+    insertSession('session-600000', { startTime: 600000 });
+    for (let i = 0; i < 4; i++) {
+      for (let n = 1; n <= 2; n++) insertRawLap('session-600000', `Карт ${i + 1}`, i + 1, n, '42.4', 600000 + i * 10 + n);
+    }
+    const linked = storage.autoLinkSessionToActiveCompetition('session-600000');
+    expect(linked?.phase).toBe('round_2');
+
+    endRound('session-600000', 600000, 700000);
+    const comp = storage.getCompetition('g1');
+    expect(comp.sessions.find(s => s.sessionId === 'session-600000').phase).toBe('round_2');
+  });
+
+  it('завершений заїзд з РЕАЛЬНИМИ іменами лишається квалою', () => {
+    setupTwoQualisAndRound({ roundPilotsAreKartNames: false });
+
+    endRound('session-400000', 400000, 500000);
+
+    const comp = storage.getCompetition('g1');
+    expect(comp.sessions.find(s => s.sessionId === 'session-400000').phase).toBe('qualifying_3');
+  });
+
+  it('квала без імен, але з ≥5 колами на пілота, лишається квалою (Гонз 27.07)', () => {
+    // Реальний кейс: у квалі timing підтягнув перше ім'я лише на 49-му колі,
+    // тож на момент завершення імен майже немає — врятовує к-сть кіл.
+    setupTwoQualisAndRound({ roundLapsPerPilot: 6 });
+
+    endRound('session-400000', 400000, 500000);
+
+    const comp = storage.getCompetition('g1');
+    expect(comp.sessions.find(s => s.sessionId === 'session-400000').phase).toBe('qualifying_3');
+  });
+
+  it('перша квала (єдина сесія) не перетворюється на раунд', () => {
+    insertSession('session-1000', { startTime: 1000 });
+    for (let i = 0; i < 4; i++) insertRawLap('session-1000', `Карт ${i + 1}`, i + 1, 1, '42.0', 1000 + i);
+
+    makeCompetition({
+      id: 'g1', format: 'gonzales',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+    });
+
+    endRound('session-1000', 1000, 100000);
+
+    const comp = storage.getCompetition('g1');
+    expect(comp.sessions.find(s => s.sessionId === 'session-1000').phase).toBe('qualifying_1');
+  });
+});
