@@ -242,6 +242,7 @@ export default function SessionDetail() {
               currentFormat={(dbSession as any).competition_format || null}
               currentPhase={compPhaseStr}
               currentCompetitionId={(dbSession as any).competition_id || null}
+              isRace={(dbSession as any).is_race != null ? (dbSession as any).is_race === 1 : null}
               onChanged={() => window.location.reload()}
             />
           </div>

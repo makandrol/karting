@@ -544,6 +544,28 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
   };
 
   const knownSessionCountRef = useRef(initialCompetition.sessions.length);
+  // liveSessionId у ref — щоб таймери читали свіже значення без перепідписки.
+  const liveSessionIdRef = useRef<string | null>(null);
+
+  /**
+   * Зливає свіжу мапу кіл із попередньою, ЗБЕРІГАЮЧИ кола активного заїзду.
+   *
+   * `fetchAllLaps` тягне кола лише для `competition.sessions`. Поки колектор не
+   * залінкував поточний заїзд (перші секунди/хвилини), його там немає — і
+   * 3-секундний полінг затирав кола, які щодві секунди кладе швидкий полінг.
+   * Через це поточні кола мигали і зникали.
+   */
+  const mergeLiveLaps = useCallback((fresh: Map<string, SessionLap[]>) => {
+    setSessionLaps(prev => {
+      const liveId = liveSessionIdRef.current;
+      if (!liveId || fresh.has(liveId)) return fresh;
+      const prevLive = prev.get(liveId);
+      if (!prevLive || prevLive.length === 0) return fresh;
+      const next = new Map(fresh);
+      next.set(liveId, prevLive);
+      return next;
+    });
+  }, []);
 
   const refreshLaps = useCallback(async () => {
     try {
@@ -552,14 +574,14 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
       catch { fresh = competition; }
       setCompetition(fresh);
       const map = await fetchAllLaps(fresh);
-      setSessionLaps(map);
+      mergeLiveLaps(map);
     } catch {}
-  }, [initialCompetition.id, competition]);
+  }, [initialCompetition.id, competition, mergeLiveLaps]);
 
   useEffect(() => {
     let cancelled = false;
     fetchAllLaps(initialCompetition).then(map => {
-      if (!cancelled) { setSessionLaps(map); setLoading(false); }
+      if (!cancelled) { mergeLiveLaps(map); setLoading(false); }
     });
 
     if (initialCompetition.status !== 'live') return () => { cancelled = true; };
@@ -577,7 +599,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
           onRefreshSessions?.(fresh.sessions);
         }
         const map = await fetchAllLaps(fresh);
-        if (!cancelled) setSessionLaps(map);
+        if (!cancelled) mergeLiveLaps(map);
       } catch {}
     }, 3000);
 
@@ -591,6 +613,7 @@ function LiveResults({ competition: initialCompetition, allSessionsEnded, compSe
         if (cancelled) return;
         const currentLiveId = statusRes.sessionId || null;
         setLiveSessionId(currentLiveId);
+        liveSessionIdRef.current = currentLiveId;
 
         // ВАЖЛИВО: frontend більше не лінкує live-сесії. Усе лінкування
         // виконує колектор (storage.autoLinkSessionToActiveCompetition +

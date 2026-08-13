@@ -30,6 +30,8 @@ interface SessionTypeChangerProps {
   currentFormat?: string | null;
   currentPhase?: string | null;
   currentCompetitionId?: string | null;
+  /** Поточний режим заїзду з БД (`is_race`). Показує активний стан у меню. */
+  isRace?: boolean | null;
   onChanged?: () => void;
 }
 
@@ -45,7 +47,7 @@ async function apiPatch(path: string, body: object) {
 
 type Step = 'closed' | 'format' | 'change_phase_all' | 'change_phase_single';
 
-export default function SessionTypeChanger({ sessionId, currentFormat, currentPhase, currentCompetitionId, onChanged }: SessionTypeChangerProps) {
+export default function SessionTypeChanger({ sessionId, currentFormat, currentPhase, currentCompetitionId, isRace, onChanged }: SessionTypeChangerProps) {
   const { hasPermission } = useAuth();
   const { currentTrack } = useTrack();
   const canManage = hasPermission('manage_results');
@@ -293,6 +295,42 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
 
   if (!canManage) return null;
 
+  /** Перемкнути квала/гонка. Доступно для БУДЬ-ЯКОГО заїзду, і в змаганні, і в прокаті. */
+  const handleSetRaceMode = async (nextIsRace: boolean) => {
+    if (!sessionId) return;
+    try { await api.sessions.setRaceMode(sessionId, nextIsRace); } catch {}
+    setStep('closed');
+    onChanged?.();
+  };
+
+  /**
+   * Пункти "Квала / Гонка" — спільні для залінкованого і прокатного меню.
+   * Впливають на `is_race`: у гонці фініш визначається за порядком перетину
+   * лінії, у квалі — за найкращим колом. Оператор інколи забуває перемкнути
+   * режим на пульті, тому потрібне ручне виправлення.
+   */
+  const renderRaceModeItems = () => (
+    <>
+      <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Режим заїзду</div>
+      <div className="flex gap-1 px-2 pb-1.5">
+        <button
+          onClick={() => handleSetRaceMode(false)}
+          className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            isRace === false ? 'bg-primary-500/20 text-primary-400' : 'bg-dark-800 text-dark-400 hover:text-white'
+          }`}>
+          Квала{isRace === false && ' ✓'}
+        </button>
+        <button
+          onClick={() => handleSetRaceMode(true)}
+          className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            isRace === true ? 'bg-primary-500/20 text-primary-400' : 'bg-dark-800 text-dark-400 hover:text-white'
+          }`}>
+          Гонка{isRace === true && ' ✓'}
+        </button>
+      </div>
+    </>
+  );
+
   const isLinked = !!currentCompetitionId;
   const compConfig = currentFormat ? COMPETITION_CONFIGS[currentFormat as CompetitionFormat] : null;
   const phaseConfig = currentFormat && currentPhase ? PHASE_CONFIGS[currentFormat]?.phases.find(p => p.id === currentPhase) : null;
@@ -344,6 +382,8 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       <>
         {step === 'format' && (
           <>
+            {renderRaceModeItems()}
+            <div className="h-px bg-dark-800 my-1" />
             <button
               onClick={() => {
                 setSelectedComp({ id: currentCompetitionId!, name: '', format: currentFormat!, date: '', status: 'live', sessions: [] });
@@ -380,6 +420,8 @@ export default function SessionTypeChanger({ sessionId, currentFormat, currentPh
       <>
         {step === 'format' && (
           <>
+            {renderRaceModeItems()}
+            <div className="h-px bg-dark-800 my-1" />
             <div className="px-3 py-1.5 text-[10px] text-dark-500 uppercase tracking-wider">Тип заїзду</div>
             {Object.values(COMPETITION_CONFIGS).map(config => (
               <button key={config.format} onClick={() => handleFormatSelect(config.format)}

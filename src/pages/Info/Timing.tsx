@@ -36,11 +36,11 @@ export default function Timing() {
   const currentSessionId = (collectorStatus as any)?.sessionId || null;
   const currentRaceNumber = (collectorStatus as any)?.raceNumber ?? null;
 
-  const [liveSessionComp, setLiveSessionComp] = useState<{ competitionId: string | null; format: string | null; phase: string | null }>({ competitionId: null, format: null, phase: null });
+  const [liveSessionComp, setLiveSessionComp] = useState<{ competitionId: string | null; format: string | null; phase: string | null; isRace: boolean | null }>({ competitionId: null, format: null, phase: null, isRace: null });
   useEffect(() => {
-    if (!currentSessionId) { setLiveSessionComp({ competitionId: null, format: null, phase: null }); return; }
+    if (!currentSessionId) { setLiveSessionComp({ competitionId: null, format: null, phase: null, isRace: null }); return; }
     api.sessions.competitionInfo(currentSessionId)
-      .then(data => setLiveSessionComp({ competitionId: data.competitionId || null, format: data.format || null, phase: data.phase || null }))
+      .then(data => setLiveSessionComp({ competitionId: data.competitionId || null, format: data.format || null, phase: data.phase || null, isRace: data.isRace ?? null }))
       .catch(() => {});
   }, [currentSessionId]);
 
@@ -182,10 +182,11 @@ export default function Timing() {
             currentFormat={liveSessionComp.format}
             currentPhase={liveSessionComp.phase}
             currentCompetitionId={liveSessionComp.competitionId}
+            isRace={liveSessionComp.isRace}
             onChanged={() => {
               if (currentSessionId) {
                 api.sessions.competitionInfo(currentSessionId)
-                  .then(data => setLiveSessionComp({ competitionId: data.competitionId || null, format: data.format || null, phase: data.phase || null }))
+                  .then(data => setLiveSessionComp({ competitionId: data.competitionId || null, format: data.format || null, phase: data.phase || null, isRace: data.isRace ?? null }))
                   .catch(() => {});
               }
             }}

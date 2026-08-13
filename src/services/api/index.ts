@@ -164,6 +164,8 @@ export interface SessionCompetitionInfo {
   competitionId: string | null;
   format: string | null;
   phase: string | null;
+  /** Режим заїзду з БД: true=гонка, false=квала, null=невідомо. */
+  isRace?: boolean | null;
 }
 
 // ============================================================
@@ -189,6 +191,9 @@ export const api = {
       apiPost('/db/propagate-track', { sessionId, trackId }),
     renamePilot: (sessionId: string, oldName: string, newName: string) =>
       apiPost('/db/rename-pilot', { sessionId, oldName, newName }),
+    /** Перемкнути режим заїзду квала/гонка (впливає на визначення фінішу). */
+    setRaceMode: (sessionId: string, isRace: boolean) =>
+      apiPost('/db/session-race-mode', { sessionId, isRace }),
   },
 
   // ---- Laps (DB) ----
@@ -257,7 +262,12 @@ export const api = {
       return normalizeCompetition(dto);
     },
     create: (data: Partial<CompetitionDto>) => apiPost<CompetitionDto>('/competitions', data),
-    update: (id: string, fields: Partial<CompetitionDto>) =>
+    /**
+     * Часткове оновлення. `sessions` на колекторі МЕРДЖИТЬСЯ з наявним —
+     * захист від lost-update у лайві. Передай `replaceSessions: true`, коли
+     * список заїздів редагується вручну і видалення має зберегтись.
+     */
+    update: (id: string, fields: Partial<CompetitionDto> & { replaceSessions?: boolean }) =>
       apiPatch(`/competitions/${encodeURIComponent(id)}`, fields),
     remove: (id: string) => apiDelete(`/competitions/${encodeURIComponent(id)}`),
     linkSession: (id: string, sessionId: string, phase: string) =>

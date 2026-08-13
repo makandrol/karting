@@ -339,6 +339,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     // PATCH /competitions/:id — оновити змагання (admin only)
+    //
+    // `sessions` мерджиться з наявним (записи, відсутні у вхідному масиві,
+    // зберігаються) — захист від lost-update, коли UI надсилає застарілий
+    // масив і затирає заїзд, щойно залінкований колектором. Щоб ВИДАЛИТИ
+    // заїзд (відлінкувати), передай `replaceSessions: true`.
     if (req.method === 'PATCH' && url.pathname.match(/^\/competitions\/[^/]+$/)) {
       if (!isAuthorized(req)) { sendUnauthorized(res); return; }
       const id = decodeURIComponent(url.pathname.split('/')[2]);
@@ -356,7 +361,7 @@ const server = http.createServer(async (req, res) => {
             console.log(`✏️ PATCH ${id} from ${origin}: status ${prev?.status}→${fields.status ?? prev?.status} | phases [${prevPhases}] → [${nextPhases}]`);
           }
         }
-        const ok = storage.updateCompetition(id, fields);
+        const ok = storage.updateCompetition(id, fields, { mergeSessions: fields.replaceSessions !== true });
         if (!ok) { sendJson(res, 404, { error: 'Not found' }); return; }
         sendJson(res, 200, storage.getCompetition(id));
       } catch (err) { sendJson(res, 400, { error: err.message || 'invalid json' }); }
@@ -457,7 +462,10 @@ const server = http.createServer(async (req, res) => {
       const sessionId = url.searchParams.get('session');
       if (!sessionId) { sendJson(res, 400, { error: 'session required' }); return; }
       const comp = storage.getSessionCompetition(sessionId);
-      sendJson(res, 200, comp || { competitionId: null });
+      // isRace — поточний режим заїзду (`is_race`); потрібен UI, щоб показати
+      // активний стан перемикача квала/гонка навіть для прокату.
+      const row = storage.getSessionRaceMode(sessionId);
+      sendJson(res, 200, { ...(comp || { competitionId: null }), isRace: row });
       return;
     }
 
@@ -550,6 +558,19 @@ const server = http.createServer(async (req, res) => {
         if (!Array.isArray(sessionIds) || typeof trackId !== 'number') { sendJson(res, 400, { error: 'sessionIds and trackId required' }); return; }
         const changes = storage.updateSessionsTrack(sessionIds, trackId);
         sendJson(res, 200, { ok: true, changes });
+      } catch { sendJson(res, 400, { error: 'invalid json' }); }
+      return;
+    }
+
+    // POST /db/session-race-mode — перемкнути квала/гонка для заїзду (admin only)
+    if (req.method === 'POST' && url.pathname === '/db/session-race-mode') {
+      if (!isAuthorized(req)) { sendJson(res, 403, { error: 'Forbidden' }); return; }
+      try {
+        const { sessionId, isRace } = JSON.parse(await readBody(req));
+        if (!sessionId || typeof isRace !== 'boolean') { sendJson(res, 400, { error: 'sessionId and isRace (boolean) required' }); return; }
+        const ok = storage.setSessionRaceMode(sessionId, isRace);
+        if (!ok) { sendJson(res, 404, { error: 'Session not found' }); return; }
+        sendJson(res, 200, { ok: true, sessionId, isRace });
       } catch { sendJson(res, 400, { error: 'invalid json' }); }
       return;
     }

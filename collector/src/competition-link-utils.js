@@ -184,6 +184,47 @@ export function isKartName(name) {
 }
 
 /**
+ * Частка пілотів, записаних як "Прізвище Ім'я" (два+ слова).
+ *
+ * Найнадійніший сигнал "заїзд змагання vs прокат", який ми маємо. На реальних
+ * даних (ЛЧ 12.08) різниця бінарна:
+ *   - квала/гонка змагання → 100% ("Овчарук Антон", "Васильчук Назар")
+ *   - прокат               → 0-8% ("Саша", "Ваня", "Влада", "Тімур")
+ *
+ * Кількість пілотів для цього НЕ годиться: вечірній прокат буває на 12-14
+ * машин, тобто рівно стільки ж, скільки квала.
+ *
+ * "Карт N" не рахуються — це timing-плейсхолдери, а не імена.
+ *
+ * @param {string[]} pilots
+ * @returns {number} 0..1; 0 якщо реальних імен немає взагалі
+ */
+export function fullNameRatio(pilots) {
+  const real = (pilots || []).map(p => (p || '').trim()).filter(p => p && !isKartName(p));
+  if (real.length === 0) return 0;
+  const withSurname = real.filter(p => p.split(/\s+/).length >= 2).length;
+  return withSurname / real.length;
+}
+
+/** Мінімальна частка "Прізвище Ім'я", щоб вважати заїзд частиною змагання. */
+export const COMPETITION_NAME_RATIO_THRESHOLD = 0.5;
+
+/**
+ * Чи схожий заїзд на ПРОКАТ (а не на квалу/гонку змагання) за форматом імен.
+ *
+ * Застосовується лише до ЛЛ/ЛЧ/Спринту: у Гонзалесі раунди легітимно йдуть під
+ * "Карт N", тож там сигнал не працює і є окрема логіка (`isGonzalesQualifying`).
+ *
+ * @param {string[]} pilots
+ * @param {string} format
+ * @returns {boolean}
+ */
+export function looksLikeRentalSession(pilots, format) {
+  if (format !== 'light_league' && format !== 'champions_league' && format !== 'sprint') return false;
+  return fullNameRatio(pilots) < COMPETITION_NAME_RATIO_THRESHOLD;
+}
+
+/**
  * Decide if a Gonzales session should be treated as a "qualifying"
  * (collector incrementing groupCount) or a "round" (groupCount stays).
  *

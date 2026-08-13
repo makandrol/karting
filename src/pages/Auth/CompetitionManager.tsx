@@ -66,7 +66,8 @@ export default function CompetitionManager() {
   };
 
   const updateSessions = async (id: string, sessions: string[]) => {
-    await api.competitions.update(id, { sessions: sessions as any });
+    // Ручне редагування списку — видалення мусить зберегтись, тож без мерджу.
+    await api.competitions.update(id, { sessions: sessions as any, replaceSessions: true });
     fetchAll();
   };
 

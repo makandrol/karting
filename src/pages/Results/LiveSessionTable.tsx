@@ -75,10 +75,18 @@ export default function LiveSessionTable({ competition, sessions: sessionsProp, 
 
   const replayLaps = useMemo(() => buildReplayLaps(laps as any), [laps]);
 
+  /**
+   * Старт заїзду. `compSessions` містить лише заїзди, ВЖЕ залінковані до
+   * змагання — поки колектор не залінкував поточний, його там немає.
+   * Тоді беремо час зі самого sessionId (`session-<unix_ms>`), інакше
+   * `durationSec` лишався 0 і таблиця не показувала жодного кола.
+   */
   const sessionStartTime = useMemo(() => {
     if (!liveSessionId) return undefined;
     const cs = compSessions.find(s => s.id === liveSessionId);
-    return cs?.start_time ?? undefined;
+    if (cs?.start_time != null) return cs.start_time;
+    const m = liveSessionId.match(/session-(\d+)/);
+    return m ? parseInt(m[1]) : undefined;
   }, [liveSessionId, compSessions]);
 
   const durationSec = useMemo(() => {

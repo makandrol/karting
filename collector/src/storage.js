@@ -18,6 +18,7 @@ import {
   allPhasesFilled,
   isGonzalesQualifying,
   isKartName,
+  looksLikeRentalSession,
   detectGroupCountFromOverlap,
   capGroupCount,
   getScheduledFormat,
@@ -31,6 +32,15 @@ import { parseCompetitionRow, mergeSessions, parseLapTimeSec, buildKartStats, ME
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_DIR = join(__dirname, '..', 'data');
+
+/**
+ * Максимальний розрив між заїздами одного змагання.
+ *
+ * Заїзди змагання йдуть кожні 10-20 хв; 3 години з запасом покривають навіть
+ * довгу технічну паузу, але відсікають прокат наступного дня, який раніше
+ * прилипав до змагання, що лишилось `live`.
+ */
+const MAX_LINK_GAP_MS = 3 * 60 * 60 * 1000;
 const DB_PATH = join(DB_DIR, 'karting.db');
 
 // Ensure data directory exists
@@ -182,7 +192,7 @@ const stmts = {
   getLapsByDate: db.prepare(`
     SELECT l.* FROM laps l JOIN sessions s ON s.id = l.session_id WHERE s.date = ?
   `),
-  getSessionTimeRow: db.prepare('SELECT start_time, end_time, race_number, date FROM sessions WHERE id = ?'),
+  getSessionTimeRow: db.prepare('SELECT start_time, end_time, race_number, date, is_race FROM sessions WHERE id = ?'),
   getSessionEndTime: db.prepare('SELECT end_time FROM sessions WHERE id = ?'),
   getSiblingsByRace: db.prepare('SELECT id, start_time, end_time FROM sessions WHERE date = ? AND race_number = ? AND id != ? ORDER BY start_time'),
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
@@ -693,15 +703,45 @@ export const storage = {
     _competitionsCache = null;
   },
 
-  updateCompetition(id, fields) {
+  /**
+   * Оновити змагання.
+   *
+   * @param {string} id
+   * @param {object} fields часткові поля (name/format/date/sessions/results/status)
+   * @param {object} [opts]
+   * @param {boolean} [opts.mergeSessions=false] злити `fields.sessions` з тим, що
+   *   вже в БД: записи, яких немає у вхідному масиві, ЗБЕРІГАЮТЬСЯ.
+   *
+   *   Потрібно для HTTP PATCH з фронтенду: сторінка змагання надсилає ПОВНИЙ
+   *   масив `sessions`, зібраний зі стану, прочитаного кілька секунд тому. Якщо
+   *   за цей час колектор залінкував новий заїзд (а в лайві це саме так і
+   *   буває — заїзди йдуть кожні 10-15 хв), PATCH затирав його → заїзд зникав
+   *   зі змагання, а вільна фаза лишалась і її згодом хапав прокат.
+   *   Це і був "деякі заїзди пропускаються".
+   *
+   *   Внутрішні виклики (autoLink / autoUnlinkSession / finalize) працюють БЕЗ
+   *   мерджу — їм потрібна точна заміна, інакше відлінкування не працювало б.
+   */
+  updateCompetition(id, fields, opts = {}) {
     const existing = stmts.getCompetition.get(id);
     if (!existing) return false;
     const parsed = parseCompetitionRow(existing);
+
+    let nextSessions = fields.sessions !== undefined ? fields.sessions : parsed.sessions;
+    if (opts.mergeSessions && fields.sessions !== undefined) {
+      const incoming = new Set(fields.sessions.map(s => s.sessionId));
+      const preserved = parsed.sessions.filter(s => !incoming.has(s.sessionId));
+      if (preserved.length > 0) {
+        nextSessions = [...fields.sessions, ...preserved];
+        console.log(`🛡️ PATCH ${id}: збережено ${preserved.length} заїзд(ів), відсутніх у запиті (${preserved.map(s => `${s.sessionId}=${s.phase}`).join(', ')}) — захист від lost-update`);
+      }
+    }
+
     stmts.updateCompetition.run(
       fields.name ?? parsed.name,
       fields.format !== undefined ? fields.format : parsed.format,
       fields.date !== undefined ? fields.date : parsed.date,
-      fields.sessions !== undefined ? JSON.stringify(fields.sessions) : JSON.stringify(parsed.sessions),
+      JSON.stringify(nextSessions),
       fields.results !== undefined ? JSON.stringify(fields.results) : (parsed.results ? JSON.stringify(parsed.results) : null),
       fields.uploaded_results !== undefined ? JSON.stringify(fields.uploaded_results) : (parsed.uploaded_results ? JSON.stringify(parsed.uploaded_results) : null),
       fields.status !== undefined ? fields.status : (parsed.status || 'live'),
@@ -860,10 +900,10 @@ export const storage = {
   autoLinkSessionToActiveCompetition(sessionId) {
     const comps = this.getAllCompetitionsParsed();
     let liveComp = comps.find(c => c.status === 'live');
+    const sessionTs = parseInt(sessionId.replace('session-', '')) || Date.now();
 
     // No live comp yet — try auto-start (Mon=Гонз, Tue=ЛЛ, Wed=ЛЧ, ≥19:45 Kyiv)
     if (!liveComp) {
-      const sessionTs = parseInt(sessionId.replace('session-', '')) || Date.now();
       const created = this.autoStartCompetitionIfTime(sessionTs);
       if (!created) {
         console.log(`🔗 autoLink ${sessionId}: no live competition and not auto-start time → skip`);
@@ -874,6 +914,28 @@ export const storage = {
     if (!liveComp) {
       console.log(`🔗 autoLink ${sessionId}: live competition lookup failed after auto-start → skip`);
       return null;
+    }
+
+    // Змагання — це щільна послідовність заїздів (кожні ~10-20 хв). Якщо між
+    // новим заїздом і останнім залінкованим пройшло надто багато часу — це вже
+    // інша подія, а не продовження змагання.
+    //
+    // Реальний кейс: ЛЧ 12.08 лишився `live` з незаповненою останньою фазою
+    // (auto-finish чекає години), і перший же прокат наступного ранку
+    // (13.08 12:11) отримав `race_3_group_1`.
+    //
+    // Обмежуємо саме РОЗРИВОМ, а не датою: змагання, що починається пізно,
+    // легітимно перетікає за північ і тоді дата заїзду вже інша.
+    if (liveComp.sessions.length > 0) {
+      const lastLinkedTs = Math.max(...liveComp.sessions.map(s => {
+        const row = stmts.getSessionTimeRow.get(s.sessionId);
+        return row?.end_time || row?.start_time || parseInt(s.sessionId.replace('session-', '')) || 0;
+      }));
+      const gap = sessionTs - lastLinkedTs;
+      if (lastLinkedTs > 0 && gap > MAX_LINK_GAP_MS) {
+        console.log(`🔗 autoLink ${sessionId}: розрив ${Math.round(gap / 60000)} хв від останнього заїзду ${liveComp.name} (ліміт ${MAX_LINK_GAP_MS / 60000} хв) → не лінкую`);
+        return null;
+      }
     }
 
     // Merge-continuation guard: timing інколи коротко падає посеред гонки, і
@@ -901,6 +963,7 @@ export const storage = {
     }
 
     const results = liveComp.results || {};
+
     // Гонзалес: перерахувати кількість раундів з квалі-пілотів ПЕРЕД фільтром фаз,
     // щоб нові заїзди не блокувались дефолтним roundCount=12 (інакше all-phases-filled
     // спрацює зарано і змагання передчасно "завершиться").
@@ -1050,6 +1113,10 @@ export const storage = {
    *    не підтягнув імена: тест/маршал викотився). Прокат/Гонзалес можуть
    *    легітимно мати "Карт N", тож умова лише для ЛЛ/ЛЧ.
    *
+   * Прокат, що зайняв квалі-слот, відсіюється ОКРЕМО — у
+   * `pruneMislinkedSessions` (за перетином пілотів із гонкою), бо на момент
+   * цієї перевірки надійного сигналу ще немає.
+   *
    * @param {string} sessionId
    * @param {string} format формат активного змагання
    * @returns {{ skip: boolean, reason: string|null }}
@@ -1062,6 +1129,102 @@ export const storage = {
       if (realPilots.size === 0) return { skip: true, reason: 'no-real-pilots' };
     }
     return { skip: false, reason: null };
+  },
+
+  /**
+   * Відлінкувати прокатні заїзди, що помилково зайняли квалі-слоти.
+   *
+   * Тригериться на першому колі кожного заїзду змагання, але працює лише коли
+   * timing уже позначив ≥2 заїзди як гонки (`is_race=1`).
+   *
+   * Чому ≥2: пілоти однієї гонки — це ОДНА група, і квала іншої групи з нею
+   * законно не перетинається. Після двох гонок (обидві групи проїхали)
+   * об'єднання їхніх пілотів ≈ усі учасники змагання, тож заїзд, який не
+   * перетинається з НІМ, справді не належить змаганню.
+   *
+   * Чому класифікація за `is_race` з БД, а не за нашою фазою: якщо прокат уже
+   * зайняв слоти, наші фази зсунуті і на них покладатись не можна.
+   *
+   * Чому не за форматом імен: на реальних даних 3% заїздів справжніх змагань
+   * записані одними прізвищами ("Рубан", "Юревич") — за іменами вони
+   * невідрізненні від прокату. Перетин пілотів надійніший.
+   *
+   * Реальний кейс ЛЧ 12.08: прокат 19:41 і 19:57 зайняли `qualifying_1/2`, і вся
+   * структура зсунулась — справжні квали стали гонками, а останній слот дістався
+   * прокату наступного дня.
+   *
+   * @param {string} sessionId заїзд-гонка, який щойно фіналізується
+   * @returns {number} скільки заїздів відлінковано
+   */
+  pruneMislinkedSessions(sessionId) {
+    const comps = this.getAllCompetitionsParsed();
+    const comp = comps.find(c => c.sessions.some(s => s.sessionId === sessionId));
+    if (!comp || comp.status !== 'live') return 0;
+    if (comp.format === 'gonzales') return 0; // раунди легітимно під "Карт N"
+
+    const entry = comp.sessions.find(s => s.sessionId === sessionId);
+    if (!entry?.phase) return 0;
+
+    // Класифікуємо заїзди за ПРАПОРЦЕМ timing-у `is_race`, а не за нашою фазою:
+    // якщо прокат уже помилково зайняв слот, наші фази вже зсунуті і на них
+    // покладатись не можна. `is_race` приходить із таймінгу і від нас не
+    // залежить.
+    const isRaceRow = s => stmts.getSessionTimeRow.get(s.sessionId)?.is_race === 1;
+    const realRaces = comp.sessions.filter(isRaceRow);
+    if (realRaces.length < 2) return 0; // ще не всі групи проїхали
+
+    // Об'єднання пілотів усіх справжніх гонок ≈ усі учасники змагання.
+    const racePilots = new Set();
+    for (const r of realRaces) {
+      for (const l of this.getLaps(r.sessionId)) {
+        const name = l.resolved_pilot || l.pilot;
+        if (!isKartName(name)) racePilots.add(name);
+      }
+    }
+    if (racePilots.size < 8) return 0; // замало даних для висновків
+
+    const nonRaces = comp.sessions.filter(s => !isRaceRow(s));
+    if (nonRaces.length === 0) return 0;
+
+    const bad = [];
+    for (const q of nonRaces) {
+      const qp = [...new Set(this.getLaps(q.sessionId).map(l => l.resolved_pilot || l.pilot))]
+        .filter(p => !isKartName(p));
+      if (qp.length === 0) continue;
+      const overlap = qp.filter(p => racePilots.has(p)).length / qp.length;
+      // Поріг свідомо нульовий: відкидаємо лише при ПОВНІЙ відсутності спільних
+      // пілотів — тоді це точно не учасники цього змагання.
+      if (overlap === 0) bad.push(q);
+    }
+    if (bad.length === 0) return 0;
+
+    const badIds = new Set(bad.map(s => s.sessionId));
+    const kept = comp.sessions
+      .filter(s => !badIds.has(s.sessionId))
+      .sort((a, b) => (parseInt(a.sessionId.replace('session-', '')) || 0) - (parseInt(b.sessionId.replace('session-', '')) || 0));
+    if (kept.length === 0) return 0;
+
+    // Перенумеровуємо фази за хронологією: заїзди з `is_race=0` — квалі,
+    // з `is_race=1` — гонки. Так структура відновлюється навіть якщо наші
+    // попередні фази були зсунуті прокатом.
+    const results = comp.results || {};
+    const groupCount = results.groupCountOverride ?? results.autoDetectedGroups ?? null;
+    const keptQualis = kept.filter(s => !isRaceRow(s));
+    const allPhases = filterPhasesUtil(
+      buildFullPhases(comp.format, {}), groupCount, comp.format,
+      { qualiCount: Math.max(1, keptQualis.length) },
+    );
+    const qualiPhases = allPhases.filter(p => p.startsWith('qualifying_'));
+    const racePhases = allPhases.filter(p => !p.startsWith('qualifying_'));
+
+    let qi = 0, ri = 0;
+    const renumbered = kept.map(s => isRaceRow(s)
+      ? { ...s, phase: racePhases[ri++] ?? s.phase }
+      : { ...s, phase: qualiPhases[qi++] ?? s.phase });
+
+    this.updateCompetition(comp.id, { sessions: renumbered });
+    console.log(`🧹 pruneMislinkedSessions: відлінковано ${bad.length} заїзд(ів) без спільних пілотів із гонками ${comp.name} (${bad.map(s => `${s.sessionId}=${s.phase}`).join(', ')}); фази перенумеровано: ${renumbered.map(s => s.phase).join(', ')}`);
+    return bad.length;
   },
 
   finalizeSessionPhaseOnFirstLap(sessionId) {
@@ -1116,6 +1279,15 @@ export const storage = {
     // Спочатку детектимо groupCount (якщо ще не визначено) — це
     // допомагає і qualifying-, і race-сценарію.
     this.detectGroupCountIfNeeded(sessionId);
+
+    // Цьому заїзду ми довіряємо (валідний, з нормальними іменами) → чистимо
+    // змагання від прокату, який міг зайняти слоти раніше. Робимо ДО обчислення
+    // фази, щоб фаза рахувалась уже на очищеній структурі.
+    if (this.pruneMislinkedSessions(sessionId) > 0) {
+      const cleaned = parseCompetitionRow(stmts.getCompetition.get(comp.id));
+      const newEntry = cleaned.sessions.find(s => s.sessionId === sessionId);
+      if (newEntry) entry.phase = newEntry.phase;
+    }
 
     // Перечитуємо comp після можливого update
     const freshComp = parseCompetitionRow(stmts.getCompetition.get(comp.id));
@@ -1406,6 +1578,38 @@ export const storage = {
     const stmt = db.prepare(`UPDATE sessions SET track_id = ? WHERE id IN (${placeholders})`);
     const result = stmt.run(trackId, ...sessionIds);
     return result.changes;
+  },
+
+  /**
+   * Вручну перемкнути режим заїзду квала/гонка (`is_race`).
+   *
+   * Прапорець приходить із таймінгу, але оператор інколи забуває перемкнути
+   * режим на пульті — тоді гонка записується як квала (фініш визначається за
+   * найкращим колом замість порядку перетину) або навпаки. Раніше виправити це
+   * можна було лише для заїзду, залінкованого до змагання; тепер — для
+   * будь-якого, включно з прокатом.
+   *
+   * @param {string} sessionId
+   * @param {boolean} isRace
+   * @returns {boolean} чи знайдено заїзд
+   */
+  setSessionRaceMode(sessionId, isRace) {
+    const res = db.prepare('UPDATE sessions SET is_race = ? WHERE id = ?').run(isRace ? 1 : 0, sessionId);
+    if (res.changes > 0) {
+      console.log(`🏁 setSessionRaceMode ${sessionId} → ${isRace ? 'гонка' : 'квала'}`);
+    }
+    return res.changes > 0;
+  },
+
+  /**
+   * Поточний режим заїзду.
+   *
+   * @param {string} sessionId
+   * @returns {boolean|null} true=гонка, false=квала, null=заїзду немає
+   */
+  getSessionRaceMode(sessionId) {
+    const row = stmts.getSessionTimeRow.get(sessionId);
+    return row ? row.is_race === 1 : null;
   },
 
   propagateTrack(sessionId, trackId) {

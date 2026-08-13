@@ -856,7 +856,202 @@ describe('storage.recheckSessionPhase для race-фаз', () => {
 });
 
 // ============================================================
-// Gonzales: 1-й раунд не має ставати другою квалою
+// pruneMislinkedSessions + захист від lost-update
+//
+// Реальний баг (ЛЧ 12.08): вечірній прокат 19:41 і 19:57 зайняв слоти
+// qualifying_1/2, через що вся структура зсунулась — справжні квали стали
+// гонками, повна гонка 21:14 випала зі змагання, а останній вільний слот
+// (race_3_group_1) дістався прокату НАСТУПНОГО дня.
+// ============================================================
+
+describe('storage.pruneMislinkedSessions', () => {
+  function insertRawLap(sessionId, pilot, kart, lapNumber, ts) {
+    storage.addLap(sessionId, {
+      pilot, kart, lapNumber, lastLap: '42.500', s1: '20', s2: '22',
+      bestLap: '42.500', position: 1, ts,
+    });
+  }
+  const COMP_PILOTS_A = ['Овчарук Антон', 'Ковшар Климентій', 'Маніло Денис', 'Дулін Антон', 'Бубало Микола', 'Лобанов Ярослав'];
+  const COMP_PILOTS_B = ['Цаценко Олексій', 'Гузар Артем', 'Семенець Аліна', 'Савельєв Юрій', 'Кікоть Олександр', 'Яковлєв Ярослав'];
+  const RENTAL = ['Саша', 'Ваня', 'Олег', 'Влада', 'Тімур', 'Кіра'];
+
+  function fill(sessionId, pilots, opts = {}) {
+    insertSession(sessionId, { startTime: opts.startTime, endTime: opts.endTime, isRace: opts.isRace ?? 0 });
+    pilots.forEach((p, i) => insertRawLap(sessionId, p, i + 1, 1, (opts.startTime ?? 0) + i));
+  }
+
+  it('відлінковує прокат, що зайняв квалі-слоти, і перенумеровує фази', () => {
+    // прокат (не перетинається з учасниками) зайняв квалі
+    fill('session-1000', RENTAL, { startTime: 1000, endTime: 100000 });
+    fill('session-200000', RENTAL, { startTime: 200000, endTime: 300000 });
+    // справжні квали
+    fill('session-400000', COMP_PILOTS_A, { startTime: 400000, endTime: 500000 });
+    fill('session-600000', COMP_PILOTS_B, { startTime: 600000, endTime: 700000 });
+    // справжні гонки (is_race=1 від timing-у)
+    fill('session-800000', COMP_PILOTS_B, { startTime: 800000, endTime: 900000, isRace: 1 });
+    fill('session-1000000', COMP_PILOTS_A, { startTime: 1000000, endTime: 1100000, isRace: 1 });
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-200000', phase: 'qualifying_2' },
+        { sessionId: 'session-400000', phase: 'race_1_group_2' },
+        { sessionId: 'session-600000', phase: 'race_1_group_1' },
+        { sessionId: 'session-800000', phase: 'race_2_group_2' },
+        { sessionId: 'session-1000000', phase: 'race_2_group_1' },
+      ],
+      results: { autoDetectedGroups: 2 },
+    });
+
+    const removed = storage.pruneMislinkedSessions('session-1000000');
+    expect(removed).toBe(2);
+
+    const comp = storage.getCompetition('c1');
+    const ids = comp.sessions.map(s => s.sessionId);
+    expect(ids).not.toContain('session-1000');
+    expect(ids).not.toContain('session-200000');
+    // структура відновлена: справжні квали стали квалями, гонки — гонками
+    const byId = new Map(comp.sessions.map(s => [s.sessionId, s.phase]));
+    expect(byId.get('session-400000')).toBe('qualifying_1');
+    expect(byId.get('session-600000')).toBe('qualifying_2');
+    expect(byId.get('session-800000')).toBe('race_1_group_2');
+    expect(byId.get('session-1000000')).toBe('race_1_group_1');
+  });
+
+  it('НЕ чіпає легітимні квали різних груп (0% перетину між собою — це норма)', () => {
+    fill('session-1000', COMP_PILOTS_A, { startTime: 1000, endTime: 100000 });
+    fill('session-200000', COMP_PILOTS_B, { startTime: 200000, endTime: 300000 });
+    fill('session-400000', COMP_PILOTS_B, { startTime: 400000, endTime: 500000, isRace: 1 });
+    fill('session-600000', COMP_PILOTS_A, { startTime: 600000, endTime: 700000, isRace: 1 });
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-200000', phase: 'qualifying_2' },
+        { sessionId: 'session-400000', phase: 'race_1_group_2' },
+        { sessionId: 'session-600000', phase: 'race_1_group_1' },
+      ],
+      results: { autoDetectedGroups: 2 },
+    });
+
+    expect(storage.pruneMislinkedSessions('session-600000')).toBe(0);
+    expect(storage.getCompetition('c1').sessions).toHaveLength(4);
+  });
+
+  it('не чіпає нічого поки гонок менше двох', () => {
+    fill('session-1000', RENTAL, { startTime: 1000, endTime: 100000 });
+    fill('session-200000', COMP_PILOTS_A, { startTime: 200000, endTime: 300000, isRace: 1 });
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-200000', phase: 'race_1_group_1' },
+      ],
+    });
+
+    expect(storage.pruneMislinkedSessions('session-200000')).toBe(0);
+  });
+
+  it('не застосовується до Гонзалеса (там "Карт N" легітимні)', () => {
+    fill('session-1000', RENTAL, { startTime: 1000, endTime: 100000 });
+    fill('session-200000', COMP_PILOTS_A, { startTime: 200000, endTime: 300000, isRace: 1 });
+    fill('session-400000', COMP_PILOTS_A, { startTime: 400000, endTime: 500000, isRace: 1 });
+
+    makeCompetition({
+      id: 'g1', format: 'gonzales',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-200000', phase: 'round_1' },
+        { sessionId: 'session-400000', phase: 'round_2' },
+      ],
+    });
+
+    expect(storage.pruneMislinkedSessions('session-400000')).toBe(0);
+  });
+});
+
+describe('storage.updateCompetition захист від lost-update', () => {
+  it('mergeSessions зберігає заїзди, відсутні у вхідному масиві', () => {
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-2000', phase: 'qualifying_2' },
+      ],
+    });
+
+    // UI надсилає застарілий масив — без session-2000, який щойно залінкував колектор
+    storage.updateCompetition('c1', {
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+    }, { mergeSessions: true });
+
+    const ids = storage.getCompetition('c1').sessions.map(s => s.sessionId);
+    expect(ids).toContain('session-1000');
+    expect(ids).toContain('session-2000');
+  });
+
+  it('без mergeSessions масив замінюється повністю (потрібно для відлінкування)', () => {
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-2000', phase: 'qualifying_2' },
+      ],
+    });
+
+    storage.updateCompetition('c1', {
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+    });
+
+    expect(storage.getCompetition('c1').sessions).toHaveLength(1);
+  });
+
+  it('mergeSessions не мішає, коли sessions не передані взагалі', () => {
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+    });
+
+    storage.updateCompetition('c1', { status: 'finished' }, { mergeSessions: true });
+
+    const comp = storage.getCompetition('c1');
+    expect(comp.status).toBe('finished');
+    expect(comp.sessions).toHaveLength(1);
+  });
+});
+
+describe('storage.autoLinkSessionToActiveCompetition (розрив між заїздами)', () => {
+  it('не лінкує заїзд через багато годин після останнього (прокат наступного дня)', () => {
+    insertSession('session-1000', { startTime: 1000, endTime: 100000 });
+    // наступного дня: +20 годин
+    const nextDay = 100000 + 20 * 60 * 60 * 1000;
+    insertSession(`session-${nextDay}`, { startTime: nextDay });
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+    });
+
+    expect(storage.autoLinkSessionToActiveCompetition(`session-${nextDay}`)).toBe(null);
+    expect(storage.getCompetition('c1').sessions).toHaveLength(1);
+  });
+
+  it('лінкує заїзд у межах звичайної паузи змагання (20 хв)', () => {
+    insertSession('session-1000', { startTime: 1000, endTime: 100000 });
+    const soon = 100000 + 20 * 60 * 1000;
+    insertSession(`session-${soon}`, { startTime: soon });
+
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+    });
+
+    expect(storage.autoLinkSessionToActiveCompetition(`session-${soon}`)?.phase).toBe('qualifying_2');
+  });
+});
 //
 // Реальний баг (Гонз 20.07, 06.07, 13.07, 08.06): у Гонзалесі timing показує
 // "Карт N" замість імен протягом усього раунду — імена підтягуються лише в

@@ -49,6 +49,7 @@ Read-ендпоінти переважно публічні (без auth). Ви�
 | POST 🔒 | `/db/update-sessions-track` | `{sessionIds, trackId}` — batch update |
 | POST 🔒 | `/db/propagate-track` | `{sessionId, trackId}` — оновити сесію + усі наступні non-competition того ж дня |
 | POST 🔒 | `/db/rename-pilot` | `{sessionId, oldName, newName}` — перейменувати пілота |
+| POST 🔒 | `/db/session-race-mode` | `{sessionId, isRace}` — перемкнути квала/гонка для будь-якого заїзду (впливає на визначення фінішу) |
 | GET | `/db/excluded-laps` | Глобально виключені кола (`{laps: ["sessionId\|pilot\|ts", ...]}`) |
 | POST 🔒 | `/db/excluded-laps/toggle` | `{lapKey}` — toggle виключення кола |
 | GET | `/db/edited-laps` | Глобально відредаговані кола (`{laps: {"sessionId\|pilot\|ts": {lapTime, original, user, editedTs}}}`) |
@@ -89,7 +90,7 @@ Read-ендпоінти переважно публічні (без auth). Ви�
 | GET | `/competitions` | Список змагань |
 | GET | `/competitions/:id` | Одне змагання |
 | POST 🔒 | `/competitions` | Створити (body: `{id, name, format, date, sessions, status}`) |
-| PATCH 🔒 | `/competitions/:id` | Оновити (часткові поля, типово `{results, status}`) |
+| PATCH 🔒 | `/competitions/:id` | Оновити (часткові поля, типово `{results, status}`). `sessions` МЕРДЖИТЬСЯ з наявним (захист від lost-update); щоб замінити повністю — додай `replaceSessions: true` |
 | DELETE 🔒 | `/competitions/:id` | Видалити |
 | POST 🔒 | `/competitions/:id/link-session` | `{sessionId, phase}` |
 | POST 🔒 | `/competitions/:id/unlink-session` | `{sessionId}` |
