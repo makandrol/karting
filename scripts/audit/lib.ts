@@ -152,6 +152,8 @@ export function clSheetUrl(gid: string): string {
 const CL2_BOOK = '1nLvILuqfmx3A8JF8pJXOQv1bggOxoVyZ';
 export const CL2_TABS: Record<string, string> = {
   '893766289': '01.07', '262017472': '08.07', '2116051621': '15.07',
+  '1761281677': '22.07', '535278949': '29.07', '143761437': '05.08',
+  '1668925189': '12.08',
 };
 
 export function cl2SheetUrl(gid: string): string {
