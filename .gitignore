@@ -28,6 +28,11 @@ Thumbs.db
 collector/data/
 racebox/
 .backups/
+# Дампи БД (~93MB щодня) НЕ комітимо: вони роздули .git до 4GB і GitHub
+# почав відхиляти push. Історію очищено через git filter-repo.
+# Бекапи зберігаються поза репо / в object storage.
+backups/*.gz
+backups/*.dump
 
 # Audit reports (visual only, not committed)
 docs/audit/
