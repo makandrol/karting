@@ -16,6 +16,8 @@ import {
   getKyivLocalParts,
   getScheduledFormat,
   isCompetitionTime,
+  isAutoStartCandidate,
+  autoStartTimeThresholdMins,
   buildAutoCompetitionId,
   buildAutoCompetitionName,
   getKyivIsoDate,
@@ -493,7 +495,22 @@ describe('COMPETITION_SCHEDULE constants', () => {
     expect(COMPETITION_SCHEDULE[6]).toBeUndefined();
   });
 
-  it('старт о 19:45 Kyiv', () => {
+  it('пороги часу автостарту: Пн 19:45, Вт 19:25, Ср 19:45', () => {
+    expect(COMPETITION_SCHEDULE[1].startHour).toBe(19);
+    expect(COMPETITION_SCHEDULE[1].startMin).toBe(45);
+    expect(COMPETITION_SCHEDULE[2].startHour).toBe(19);
+    expect(COMPETITION_SCHEDULE[2].startMin).toBe(25);
+    expect(COMPETITION_SCHEDULE[3].startHour).toBe(19);
+    expect(COMPETITION_SCHEDULE[3].startMin).toBe(45);
+  });
+
+  it('поріг розриву від прокату — 25хв для всіх трьох днів', () => {
+    expect(COMPETITION_SCHEDULE[1].minGapMin).toBe(25);
+    expect(COMPETITION_SCHEDULE[2].minGapMin).toBe(25);
+    expect(COMPETITION_SCHEDULE[3].minGapMin).toBe(25);
+  });
+
+  it('дефолтний глобальний поріг лишається 19:45', () => {
     expect(COMPETITION_AUTO_START_HOUR_KYIV).toBe(19);
     expect(COMPETITION_AUTO_START_MIN_KYIV).toBe(45);
   });
@@ -564,29 +581,125 @@ describe('getScheduledFormat', () => {
   });
 });
 
+describe('isAutoStartCandidate', () => {
+  // Правило: перший заїзд після порогу часу дня, що починається через
+  // ≥25хв після ПОЧАТКУ останнього прокату з людьми.
+  it('Ср 20:26 з розривом 29хв → перший заїзд змагання (реальний ЛЧ 12.08)', () => {
+    const r = isAutoStartCandidate({
+      sessionStartTs: kyivTs(2026, 8, 12, 20, 26),
+      prevRentalStartTs: kyivTs(2026, 8, 12, 19, 57),
+    });
+    expect(r.ok).toBe(true);
+    expect(r.gapMin).toBe(29);
+  });
+
+  it('Ср 19:55 з розривом 24хв → відхиляє (на хвилину менше порогу; ЛЧ 13.05)', () => {
+    const r = isAutoStartCandidate({
+      sessionStartTs: kyivTs(2026, 5, 13, 19, 55),
+      prevRentalStartTs: kyivTs(2026, 5, 13, 19, 31),
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('gap-too-small');
+    expect(r.gapMin).toBe(24);
+  });
+
+  it('типовий прокатний ритм (13хв) → відхиляє', () => {
+    const r = isAutoStartCandidate({
+      sessionStartTs: kyivTs(2026, 8, 12, 20, 0),
+      prevRentalStartTs: kyivTs(2026, 8, 12, 19, 47),
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('gap-too-small');
+  });
+
+  it('Вт 19:28 → проходить (поріг Вт = 19:25; реальний ЛЛ 04.08)', () => {
+    const r = isAutoStartCandidate({
+      sessionStartTs: kyivTs(2026, 8, 4, 19, 28),
+      prevRentalStartTs: kyivTs(2026, 8, 4, 18, 40),
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it('Вт 19:24 → зарано навіть із великим розривом', () => {
+    const r = isAutoStartCandidate({
+      sessionStartTs: kyivTs(2026, 8, 4, 19, 24),
+      prevRentalStartTs: kyivTs(2026, 8, 4, 18, 40),
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('too-early');
+  });
+
+  it('Ср 19:30 → зарано (поріг Ср = 19:45), хоч у Вт такий час пройшов би', () => {
+    expect(isAutoStartCandidate({
+      sessionStartTs: kyivTs(2026, 8, 5, 19, 30),
+      prevRentalStartTs: kyivTs(2026, 8, 5, 18, 30),
+    }).reason).toBe('too-early');
+  });
+
+  it('Пн 20:11 з розривом 32хв → проходить (реальний Гонз 10.08)', () => {
+    const r = isAutoStartCandidate({
+      sessionStartTs: kyivTs(2026, 8, 10, 20, 11),
+      prevRentalStartTs: kyivTs(2026, 8, 10, 19, 39),
+    });
+    expect(r.ok).toBe(true);
+    expect(r.gapMin).toBe(32);
+  });
+
+  it('немає попереднього прокату → проходить (поріг часу вже відсік день)', () => {
+    const r = isAutoStartCandidate({
+      sessionStartTs: kyivTs(2026, 8, 12, 20, 0),
+      prevRentalStartTs: null,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.reason).toBe('no-previous-rental');
+  });
+
+  it('день поза розкладом (Чт) → відхиляє', () => {
+    const r = isAutoStartCandidate({
+      sessionStartTs: kyivTs(2026, 8, 13, 20, 0),
+      prevRentalStartTs: null,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('day-off-schedule');
+  });
+});
+
+describe('autoStartTimeThresholdMins', () => {
+  it('віддає поріг у хвилинах від півночі', () => {
+    expect(autoStartTimeThresholdMins(1)).toBe(19 * 60 + 45); // Пн
+    expect(autoStartTimeThresholdMins(2)).toBe(19 * 60 + 25); // Вт
+    expect(autoStartTimeThresholdMins(3)).toBe(19 * 60 + 45); // Ср
+  });
+
+  it('null для дня поза розкладом', () => {
+    expect(autoStartTimeThresholdMins(4)).toBe(null);
+  });
+});
+
 describe('isCompetitionTime', () => {
-  it('Понеділок 20:05 Kyiv → true (Гонзалес старт)', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 1, 20, 5))).toBe(true);
+  it('Понеділок 19:45 Kyiv → true (Гонзалес поріг 19:45)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 45))).toBe(true);
   });
 
-  it('Понеділок 20:04 → false (Гонзалес ще не почався)', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 1, 20, 4))).toBe(false);
-  });
-
-  it('Понеділок 19:45 → false (Гонзалес о 20:05, не 19:45)', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 45))).toBe(false);
+  it('Понеділок 19:44 → false (на хвилину зарано)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 1, 19, 44))).toBe(false);
   });
 
   it('Вівторок 19:45 Kyiv → true (ЛЛ)', () => {
     expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 45))).toBe(true);
   });
 
-  it('Вівторок 19:40 → true (ЛЛ поріг зсунуто на 19:40 — перша квала інколи о 19:40)', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 40))).toBe(true);
+  it('Вівторок 19:25 → true (ЛЛ починається раніше за решту днів)', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 25))).toBe(true);
   });
 
-  it('Вівторок 19:39 → false', () => {
-    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 39))).toBe(false);
+  it('Вівторок 19:24 → false', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 2, 19, 24))).toBe(false);
+  });
+
+  it('Середа 19:45 → true, 19:44 → false', () => {
+    expect(isCompetitionTime(kyivTs(2026, 6, 3, 19, 45))).toBe(true);
+    expect(isCompetitionTime(kyivTs(2026, 6, 3, 19, 44))).toBe(false);
   });
 
   it('Понеділок 18:00 → false (зарано)', () => {

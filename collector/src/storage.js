@@ -19,6 +19,8 @@ import {
   isGonzalesQualifying,
   isKartName,
   looksLikeRentalSession,
+  isAutoStartCandidate,
+  MIN_RENTAL_PILOTS,
   detectGroupCountFromOverlap,
   capGroupCount,
   getScheduledFormat,
@@ -814,24 +816,78 @@ export const storage = {
   },
 
   /**
+   * Початок останнього ПРОКАТУ з людьми перед `beforeTs` того ж дня.
+   *
+   * Заїзди на < MIN_RENTAL_PILOTS пілотів пропускаємо — це механік/маршал
+   * викотився на трасу, а не прокат. Без фільтра розрив рахувався б від нього
+   * і виходив занадто малим (ЛЧ 29.04: заїзд 19:57 на 1 пілота).
+   *
+   * @param {number} beforeTs unix-ms
+   * @param {string} date "YYYY-MM-DD" (Kyiv-локальна дата)
+   * @returns {number|null} unix-ms початку прокату, або null
+   */
+  lastRentalStartBefore(beforeTs, date) {
+    const rows = stmts.getSessionsByDate.all(date)
+      .filter(s => s.start_time < beforeTs)
+      .sort((a, b) => b.start_time - a.start_time);
+    for (const s of rows) {
+      const pilots = this.countRealPilots(s.id);
+      if (pilots >= MIN_RENTAL_PILOTS) return s.start_time;
+    }
+    return null;
+  },
+
+  /**
+   * К-сть різних пілотів у заїзді (за валідними колами, "Карт N" рахуються —
+   * це реальні учасники, яким timing не підтягнув ім'я).
+   *
+   * @param {string} sessionId
+   * @returns {number}
+   */
+  countRealPilots(sessionId) {
+    const laps = this.getLaps(sessionId);
+    return new Set(laps.map(l => l.resolved_pilot || l.pilot)).size;
+  },
+
+  /**
    * If `now` falls inside a scheduled competition window for the day and
    * no live competition exists yet, create a new live competition.
+   *
+   * Автостарт спрацьовує лише коли заїзд виглядає як ПЕРШИЙ заїзд змагання:
+   * не раніше порогу часу дня І через ≥minGapMin хв після початку останнього
+   * прокату (див. `isAutoStartCandidate`). Прокати їздять щільно один за
+   * одним, а перед змаганням міняють трасу і проводять брифінг — саме ця пауза
+   * і є сигналом.
    *
    * Idempotent: if a live (or finished) competition of the scheduled format
    * already exists for the day, returns it untouched.
    *
-   * @param {number} now unix-ms
+   * @param {number} now unix-ms — початок заїзду-кандидата
+   * @param {object} [opts]
+   * @param {boolean} [opts.checkGap=true] перевіряти розрив (false — лише час,
+   *   для ручних сценаріїв і сумісності)
    * @returns {object|null} created/existing competition row, or null
    */
-  autoStartCompetitionIfTime(now) {
+  autoStartCompetitionIfTime(now, opts = {}) {
     const format = getScheduledFormat(now);
     if (!format) return null;
-    if (!isCompetitionTime(now)) return null;
 
     const date = getKyivIsoDate(now);
     const sameDay = this.getAllCompetitionsParsed()
       .find(c => c.format === format && c.date === date);
     if (sameDay) return sameDay;
+
+    if (opts.checkGap === false) {
+      if (!isCompetitionTime(now)) return null;
+    } else {
+      const prevRentalStartTs = this.lastRentalStartBefore(now, date);
+      const verdict = isAutoStartCandidate({ sessionStartTs: now, prevRentalStartTs });
+      if (!verdict.ok) {
+        console.log(`⏳ autoStart: ще не змагання (${verdict.reason}${verdict.gapMin != null ? `, розрив ${verdict.gapMin}хв` : ''}) — ${format} ${date}`);
+        return null;
+      }
+      console.log(`🕒 autoStart: заїзд схожий на перший заїзд змагання (розрив ${verdict.gapMin ?? '—'}хв від прокату) → створюю ${format}`);
+    }
 
     const id = buildAutoCompetitionId(format, now);
     const trackId = _currentTrackId;

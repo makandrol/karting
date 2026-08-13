@@ -413,7 +413,11 @@ function kyivTs(year, month, day, hour = 0, minute = 0) {
 }
 
 describe('storage.autoStartCompetitionIfTime', () => {
-  it('створює gonzales у понеділок ≥20:05 Kyiv', () => {
+  // Автостарт спрацьовує лише коли заїзд схожий на ПЕРШИЙ заїзд змагання:
+  // не раніше порогу часу дня (Пн 19:45, Вт 19:25, Ср 19:45) І через ≥25хв
+  // після початку останнього прокату з людьми. Тести без прокатів у БД
+  // потрапляють у гілку "no-previous-rental" — там достатньо порогу часу.
+  it('створює gonzales у понеділок ≥19:45 Kyiv', () => {
     const ts = kyivTs(2026, 6, 1, 20, 10); // Mon 20:10
     const created = storage.autoStartCompetitionIfTime(ts);
     expect(created).not.toBeNull();
@@ -433,9 +437,60 @@ describe('storage.autoStartCompetitionIfTime', () => {
     expect(created.format).toBe('champions_league');
   });
 
-  it('повертає null до 20:05 Kyiv (понеділок, Гонзалес)', () => {
+  it('повертає null до порогу часу дня (Пн 19:45)', () => {
     expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 0))).toBe(null);
-    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 20, 4))).toBe(null);
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 1, 19, 44))).toBe(null);
+  });
+
+  it('вівторок починається раніше: 19:25 → так, 19:24 → ні', () => {
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 2, 19, 24))).toBe(null);
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 2, 19, 25))?.format).toBe('light_league');
+  });
+
+  it('НЕ створює змагання, якщо прокат щойно їздив (розрив 13хв)', () => {
+    // прокат о 20:00 на 4 пілоти, кандидат о 20:13 → розрив 13хв < 25хв
+    const rental = kyivTs(2026, 6, 3, 20, 0);
+    insertSession(`session-${rental}`, { startTime: rental, endTime: rental + 600000 });
+    insertLaps(`session-${rental}`, { 'Саша': 3, 'Ваня': 3, 'Олег': 3, 'Влада': 3 });
+
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 3, 20, 13))).toBe(null);
+  });
+
+  it('створює змагання, коли після прокату була пауза ≥25хв (зміна траси + брифінг)', () => {
+    const rental = kyivTs(2026, 6, 3, 19, 40);
+    insertSession(`session-${rental}`, { startTime: rental, endTime: rental + 600000 });
+    insertLaps(`session-${rental}`, { 'Саша': 3, 'Ваня': 3, 'Олег': 3, 'Влада': 3 });
+
+    // 20:10 → розрив 30хв
+    const created = storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 3, 20, 10));
+    expect(created).not.toBeNull();
+    expect(created.format).toBe('champions_league');
+  });
+
+  it('заїзд механіка (1 пілот) не рахується прокатом — розрив міряється від справжнього прокату', () => {
+    // прокат 19:40 (реальний), механік 20:05 (1 пілот), кандидат 20:10.
+    // Від механіка розрив 5хв, але від прокату — 30хв → має створити.
+    const rental = kyivTs(2026, 6, 3, 19, 40);
+    insertSession(`session-${rental}`, { startTime: rental, endTime: rental + 600000 });
+    insertLaps(`session-${rental}`, { 'Саша': 3, 'Ваня': 3, 'Олег': 3 });
+
+    const mech = kyivTs(2026, 6, 3, 20, 5);
+    insertSession(`session-${mech}`, { startTime: mech, endTime: mech + 300000 });
+    insertLaps(`session-${mech}`, { 'Механік': 4 });
+
+    const created = storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 3, 20, 10));
+    expect(created).not.toBeNull();
+    expect(created.format).toBe('champions_league');
+  });
+
+  it('checkGap:false обходить перевірку розриву (ручний сценарій)', () => {
+    const rental = kyivTs(2026, 6, 3, 20, 0);
+    insertSession(`session-${rental}`, { startTime: rental, endTime: rental + 600000 });
+    insertLaps(`session-${rental}`, { 'Саша': 3, 'Ваня': 3 });
+
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 3, 20, 13))).toBe(null);
+    expect(storage.autoStartCompetitionIfTime(kyivTs(2026, 6, 3, 20, 13), { checkGap: false })?.format)
+      .toBe('champions_league');
   });
 
   it('повертає null у дні поза розкладом (Чт, Пт, Сб, Нд)', () => {

@@ -341,16 +341,76 @@ export function capGroupCount(desired, format) {
 /**
  * Weekly competition schedule. Day index: 0=Sunday, 1=Monday, ..., 6=Saturday.
  *
- * Reflects the karting club's actual operating pattern (analysed from real
- * sessions Apr-May 2026): Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ. All start ≥19:45 Kyiv.
+ * Mon=Гонзалес, Tue=ЛЛ, Wed=ЛЧ. Sprint/Marathon — лише вручну (рідкі події).
  *
- * Sprint/Marathon — manual only (rare special events, not regular).
+ * Кожен день має ДВА пороги автостарту:
+ *   startHour/startMin — не раніше цього часу (Kyiv);
+ *   minGapMin          — розрив від ПОЧАТКУ останнього прокату (з людьми).
+ *
+ * Логіка розриву: прокати їздять щільно один за одним (заїзд ~10хв + пересадка
+ * ≈ 13хв між старами), а перед змаганням міняють трасу і проводять брифінг —
+ * тому перед першим заїздом змагання виникає велика пауза.
+ *
+ * Числа підібрані на реальних даних (52 змагання, березень-серпень 2026):
+ *   Пн Гонзалес: розрив медіана 36хв (min 15, max 44), старт 19:42-20:24
+ *   Вт ЛЛ:       розрив медіана 50хв (min 1,  max 69), старт 19:28-20:05
+ *   Ср ЛЧ:       розрив медіана 42хв (min 18, max 69), старт 19:34-20:26
+ *
+ * Вівторок починається раніше за решту — звідси нижчий поріг часу.
  */
 export const COMPETITION_SCHEDULE = {
-  1: { format: 'gonzales',         shortName: 'Гонз', startHour: 20, startMin: 5 },  // Понеділок 20:05
-  2: { format: 'light_league',     shortName: 'ЛЛ', startHour: 19, startMin: 40 },   // Вівторок (перша квала інколи о 19:40)
-  3: { format: 'champions_league', shortName: 'ЛЧ', startHour: 19, startMin: 40 },   // Середа
+  1: { format: 'gonzales',         shortName: 'Гонз', startHour: 19, startMin: 45, minGapMin: 25 }, // Понеділок
+  2: { format: 'light_league',     shortName: 'ЛЛ',   startHour: 19, startMin: 25, minGapMin: 25 }, // Вівторок (починається раніше)
+  3: { format: 'champions_league', shortName: 'ЛЧ',   startHour: 19, startMin: 45, minGapMin: 25 }, // Середа
 };
+
+/**
+ * Мінімум пілотів, щоб заїзд вважався прокатом для відліку розриву.
+ *
+ * Заїзд на 1 пілота — це механік/маршал викотився перевірити трасу, а не
+ * прокат. Без цього фільтра розрив рахувався б від нього і виходив занадто
+ * малим (реальні випадки: ЛЧ 29.04 — заїзд 19:57 на 1 пілота, ЛЧ 27.05 — 19:33).
+ */
+export const MIN_RENTAL_PILOTS = 2;
+
+/**
+ * Поріг часу дня для автостарту (Kyiv), у хвилинах від півночі.
+ *
+ * @param {number} dayOfWeek 0=Sunday..6=Saturday
+ * @returns {number|null} хвилини від півночі, або null якщо день не за розкладом
+ */
+export function autoStartTimeThresholdMins(dayOfWeek) {
+  const s = COMPETITION_SCHEDULE[dayOfWeek];
+  if (!s) return null;
+  return (s.startHour ?? COMPETITION_AUTO_START_HOUR_KYIV) * 60 + (s.startMin ?? COMPETITION_AUTO_START_MIN_KYIV);
+}
+
+/**
+ * Чи є заїзд першим заїздом змагання за правилом "час + розрив".
+ *
+ * @param {object} args
+ * @param {number} args.sessionStartTs початок заїзду-кандидата (unix-ms)
+ * @param {number|null} args.prevRentalStartTs початок останнього прокату з
+ *   людьми (unix-ms), або null якщо такого немає
+ * @returns {{ ok: boolean, reason: string, gapMin: number|null }}
+ */
+export function isAutoStartCandidate({ sessionStartTs, prevRentalStartTs }) {
+  const parts = getKyivLocalParts(sessionStartTs);
+  const sched = COMPETITION_SCHEDULE[parts.dayOfWeek];
+  if (!sched) return { ok: false, reason: 'day-off-schedule', gapMin: null };
+
+  const threshold = autoStartTimeThresholdMins(parts.dayOfWeek);
+  const mins = parts.hour * 60 + parts.minute;
+  if (mins < threshold) return { ok: false, reason: 'too-early', gapMin: null };
+
+  // Немає попереднього прокату (перший заїзд дня у вікні) — розрив не рахуємо,
+  // бо порівнювати нема з чим; сам поріг часу вже відсік денний прокат.
+  if (prevRentalStartTs == null) return { ok: true, reason: 'no-previous-rental', gapMin: null };
+
+  const gapMin = Math.round((sessionStartTs - prevRentalStartTs) / 60000);
+  if (gapMin < sched.minGapMin) return { ok: false, reason: 'gap-too-small', gapMin };
+  return { ok: true, reason: 'ok', gapMin };
+}
 
 /** Hour (Kyiv local time) at which competition window opens. */
 export const COMPETITION_AUTO_START_HOUR_KYIV = 19;
