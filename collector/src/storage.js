@@ -1436,13 +1436,36 @@ export const storage = {
     const phases = filterPhasesUtil(allPhases, groupCount, comp.format, { gonzalesRoundCount, qualiCount });
 
     // Знайти яка фаза має бути за порядковим положенням сесії в comp.
-    // Сортуємо за timestamp (з sessionId), беремо індекс — це і є phase.
+    //
+    // Позиція = к-сть УНІКАЛЬНИХ фаз серед заїздів, що йдуть РАНІШЕ за цей.
+    // Рахувати просто індекс у масиві НЕЛЬЗЯ: коли timing падає посеред заїзду,
+    // одна гонка стає ДВОМА DB-сесіями, і merge-continuation дає їм ОДНАКОВУ
+    // фазу. Такий дубль займав зайвий слот і зсував індекс на +1 — через це
+    // перша гонка отримувала фазу другої, і вся структура їхала, а останню
+    // гонку вже не було куди покласти.
+    //
+    // Реальний кейс (ЛЛ 25.08): квала 19:58 розірвалась на 19:58 + 20:01
+    // (обидві qualifying_2), і заїзд 20:50 замість `race_1_group_3` отримав
+    // `race_1_group_2` — гонки 1 групи 3 не стало, а заїзд 22:07 лишився
+    // без фази (`findNextPhase=null`).
     const sessionsSorted = [...freshComp.sessions].sort((a, b) => {
       const ta = parseInt(a.sessionId.replace('session-', '')) || 0;
       const tb = parseInt(b.sessionId.replace('session-', '')) || 0;
       return ta - tb;
     });
-    const indexInComp = sessionsSorted.findIndex(s => s.sessionId === sessionId);
+    const rawIndex = sessionsSorted.findIndex(s => s.sessionId === sessionId);
+    let indexInComp = -1;
+    if (rawIndex >= 0) {
+      const seenPhases = new Set();
+      let slots = 0;
+      for (const s of sessionsSorted.slice(0, rawIndex)) {
+        if (!s.phase) { slots++; continue; }
+        if (seenPhases.has(s.phase)) continue; // merge-continuation — той самий слот
+        seenPhases.add(s.phase);
+        slots++;
+      }
+      indexInComp = slots;
+    }
     if (indexInComp < 0 || indexInComp >= phases.length) {
       console.warn(`⚠️ Finalize ${sessionId}: position ${indexInComp} out of phases range (${phases.length} phases for groupCount=${groupCount}) → cannot map to phase`);
       return true;

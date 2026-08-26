@@ -870,6 +870,42 @@ describe('storage.recheckSessionPhase для race-фаз', () => {
     expect(comp.results?.autoDetectedGroups).toBe(2);
   });
 
+  it('розірваний заїзд (merge-continuation) НЕ зсуває фази наступних гонок', () => {
+    // Реальний баг ЛЛ 25.08: timing упав посеред quali_2, вона стала ДВОМА
+    // сесіями з тією ж фазою. Дубль займав зайвий слот, і перша гонка
+    // отримувала фазу другої (race_1_group_3 → race_1_group_2), через що
+    // гонки 1 групи 3 не існувало, а останній заїзд лишався без фази.
+    const mk = (id, opts) => { insertSession(id, opts); insertRawLap(id, 'A', 1, 1, '42.0', opts.startTime); insertRawLap(id, 'B', 2, 1, '42.5', opts.startTime + 1); insertRawLap(id, 'C', 3, 1, '42.7', opts.startTime + 2); };
+
+    mk('session-1000', { startTime: 1000, endTime: 700000, raceNumber: 1 });
+    // quali_2 розірвана: 800000 + продовження 900000 (той самий race_number, розрив < 5хв)
+    mk('session-800000', { startTime: 800000, endTime: 860000, raceNumber: 2 });
+    mk('session-900000', { startTime: 900000, endTime: 1400000, raceNumber: 2 });
+    mk('session-1500000', { startTime: 1500000, endTime: 2100000, raceNumber: 3 });
+    mk('session-2200000', { startTime: 2200000, endTime: 2800000, raceNumber: 4 });
+    // перша гонка
+    mk('session-2900000', { startTime: 2900000, endTime: 3500000, raceNumber: 5, isRace: 1 });
+
+    makeCompetition({
+      id: 'c1', format: 'light_league',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: 'session-800000', phase: 'qualifying_2' },
+        { sessionId: 'session-900000', phase: 'qualifying_2' }, // дубль-продовження
+        { sessionId: 'session-1500000', phase: 'qualifying_3' },
+        { sessionId: 'session-2200000', phase: 'qualifying_4' },
+        { sessionId: 'session-2900000', phase: 'race_1_group_3' },
+      ],
+      results: { autoDetectedGroups: 3 },
+    });
+
+    storage.finalizeSessionPhaseOnFirstLap('session-2900000');
+
+    const comp = storage.getCompetition('c1');
+    // фаза мусить лишитись race_1_group_3, а не з'їхати на race_1_group_2
+    expect(comp.sessions.find(s => s.sessionId === 'session-2900000').phase).toBe('race_1_group_3');
+  });
+
   it('race-фаза що відповідає groupCount → не чіпає', () => {
     insertSession('session-q1', { startTime: 1000 });
     insertSession('session-r1', { startTime: 2000 });
