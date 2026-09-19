@@ -86,32 +86,56 @@ function median(nums: number[]): number {
 
 /**
  * Скільки кіл насправді містить запис кола. Пропущений сигнал транспондера
- * склеює 2 (рідше 3) кола в одне: час кола виходить кратним типовому. Timing
- * тоді вважає пілота на коло позаду і кидає в кінець протоколу, хоча він
- * фінішував з усіма.
+ * склеює 2 (рідше 3) кола в одне: час кола виходить БЛИЗЬКИМ ДО КРАТНОГО
+ * типовому. Timing тоді вважає пілота на коло позаду і кидає в кінець
+ * протоколу, хоча він фінішував з усіма.
+ *
+ * Допуск навмисно вузький (±12%): просто повільне коло (розворот, виїзд за
+ * межі) дає 1.5-1.8× медіани і НЕ має рахуватись як два кола.
  *
  * @param sec час кола, секунди
  * @param median медіанний час кола цього пілота в сесії
  */
 export function effectiveLapCount(sec: number, median: number): number {
   if (!median) return 1;
-  const k = Math.round(sec / median);
-  return (k > 1 && sec / median >= 1.7) ? k : 1;
+  const ratio = sec / median;
+  const k = Math.round(ratio);
+  return (k >= 2 && Math.abs(ratio - k) <= 0.12) ? k : 1;
 }
 
-interface RankableStats { times: number[]; lapCount: number; effLaps: number; mergedLap: boolean; lastTs: number; lastPosition: number }
+interface RankableStats { times: number[]; positions: number[]; lapCount: number; effLaps: number; mergedLap: boolean; lastTs: number; lastPosition: number }
 
 /**
  * Проставляє `effLaps` / `mergedLap`: скільки кіл пілот реально проїхав з
  * урахуванням склеєних (пропущений транспондер) і чи є в нього таке коло.
+ *
+ * Корекція навмисно вузька — застосовується лише коли всі умови разом:
+ *  - пілот має не менше записів кіл, ніж решта сесії (їхав дистанцію з усіма);
+ *  - одне коло ≈ кратне його медіані (±12%);
+ *  - перед цим колом він ЙШОВ ПЕРШИМ.
+ *
+ * Саме лідера timing відкидає найдраматичніше: втративши сигнал, він вважає
+ * його на коло позаду і кидає в кінець протоколу. Для решти пілотів довге коло
+ * майже завжди означає реальну втрату часу (розворот, аварія), і офіційна
+ * таблиця теж тримає їх позаду — тому там нічого не міняємо.
  */
 function markMergedLaps(stats: Map<string, RankableStats>): void {
+  const maxLaps = Math.max(0, ...[...stats.values()].map(s => s.lapCount));
   for (const st of stats.values()) {
+    st.effLaps = st.lapCount;
+    st.mergedLap = false;
+    if (st.lapCount < maxLaps || st.times.length < 4) continue;
     const med = median(st.times);
-    let eff = 0;
-    for (const t of st.times) eff += effectiveLapCount(t, med);
-    st.effLaps = eff;
-    st.mergedLap = eff > st.lapCount;
+    let eff = 0, wasLeading = false;
+    for (let i = 0; i < st.times.length; i++) {
+      const k = effectiveLapCount(st.times[i], med);
+      eff += k;
+      if (k > 1 && i > 0 && st.positions[i - 1] === 1) wasLeading = true;
+    }
+    if (eff > st.lapCount && wasLeading) {
+      st.effLaps = eff;
+      st.mergedLap = true;
+    }
   }
 }
 
@@ -214,30 +238,37 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
     .filter(([p]) => !excludedPilots.has(p))
     .sort((a, b) => byTimeThenTs(a[1].bestTime, a[1].bestTs, b[1].bestTime, b[1].bestTs));
 
-  // Решітка = ті, хто реально вийшов на старт. Пілот, який відкатав квалу, але
-  // на жодну гонку не вийшов, не займає слот (офіційна таблиця робить так само):
-  // інакше він зсуває стартові позиції, роздуває totalPilots і збиває категорію
-  // балів. Застосовуємо лише для ВІДГАНЯНОГО змагання (усі гонки × групи мають
-  // кола і немає live-сесії) — під час події фільтр зрізав би тих, хто ще не їхав.
+  // Скільки слотів у решітці. Регламент: у гонки проходить топ-N за часом квалі,
+  // де N — константа формату (ЛЧ 24, ЛЛ 36). Для ЛЧ ця константа давно
+  // неактуальна (їздять по 26-27), а пілот, який відкатав квалу й не вийшов на
+  // старт, займає слот і зсуває всю решітку. Тому для ЛЧ решітка = ті, хто
+  // реально стартував: перевірено probe-tier на всіх 26 змаганнях ЛЧ — офіційна
+  // таблиця бере і категорію балів, і решітку саме за стартувальниками.
+  //
+  // ЛЛ лишаємо на константі 36: там у квалі буває 40-51 пілот і трапляються
+  // дублі імен від timing ("Андрій Бойко" / "Андрій Бойкоо"), через які
+  // фільтрація за стартувальниками зсуває решітку сильніше, ніж виправляє.
+  //
+  // Фільтр працює лише для ВІДГАНЯНОГО змагання (усі гонки × групи мають кола,
+  // немає live-сесії) — під час події він зрізав би тих, хто ще не виїжджав.
+  const gridFromStarters = format === 'champions_league';
   const racedPilots = new Set<string>();
-  for (const rs of sessions) {
-    if (!rs.phase?.startsWith('race_')) continue;
-    for (const l of (sessionLaps.get(rs.sessionId) || [])) {
-      const sec = parseLapSec(l.lap_time);
-      if (sec === null || sec < 38) continue;
-      racedPilots.add(l.pilot);
+  if (gridFromStarters) {
+    for (const rs of sessions) {
+      if (!rs.phase?.startsWith('race_')) continue;
+      for (const l of (sessionLaps.get(rs.sessionId) || [])) {
+        const sec = parseLapSec(l.lap_time);
+        if (sec === null || sec < 38) continue;
+        racedPilots.add(l.pilot);
+      }
     }
   }
-  const allRacesRun = !liveSessionId && !livePhase && Array.from({ length: raceCount }, (_, i) => i + 1)
-    .every(r => getRaceSessions(r).filter(s => (sessionLaps.get(s.sessionId) || []).length > 0).length >= maxGroups);
-  const gridSorted = (allRacesRun && racedPilots.size > 0)
-    ? qualiSorted.filter(([p]) => racedPilots.has(p))
-    : qualiSorted;
+  const allRacesRun = racedPilots.size > 0 && !liveSessionId && !livePhase
+    && Array.from({ length: raceCount }, (_, i) => i + 1)
+      .every(r => getRaceSessions(r).filter(s => (sessionLaps.get(s.sessionId) || []).length > 0).length >= maxGroups);
+  const gridSorted = allRacesRun ? qualiSorted.filter(([p]) => racedPilots.has(p)) : qualiSorted;
 
   const defaultMaxQualified = FORMAT_DEFAULT_RACE_PILOTS[format] ?? 36;
-  // Ліміт слотів — лише страховка від сміття в квалі. Коли змагання відгоняне,
-  // фактична кількість стартувальників важливіша за константу формату
-  // (ЛЧ давно їздить по 26-27 при дефолті 24). Явний racePilotCount — пріоритет.
   const maxQualified = racePilotCount ?? (allRacesRun
     ? Math.max(defaultMaxQualified, gridSorted.length)
     : defaultMaxQualified);
@@ -306,16 +337,17 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
       const groupMatch = rs.phase?.match(/group_(\d+)/);
       const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
       const laps = sessionLaps.get(rs.sessionId) || [];
-      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; lapCount: number; effLaps: number; mergedLap: boolean; times: number[]; lastTs: number; lastPosition: number }>();
+      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; lapCount: number; effLaps: number; mergedLap: boolean; times: number[]; positions: number[]; lastTs: number; lastPosition: number }>();
       for (const l of laps) {
         const sec = parseLapSec(l.lap_time);
         if (sec === null || sec < 38) continue;
         const ex = pilotStats.get(l.pilot);
         if (!ex) {
-          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, lapCount: 1, effLaps: 1, mergedLap: false, times: [sec], lastTs: l.ts, lastPosition: l.position ?? 99 });
+          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, lapCount: 1, effLaps: 1, mergedLap: false, times: [sec], positions: [l.position ?? 99], lastTs: l.ts, lastPosition: l.position ?? 99 });
         } else {
           ex.lapCount++;
           ex.times.push(sec);
+          ex.positions.push(l.position ?? 99);
           if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPosition = l.position ?? 99; }
           if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; ex.bestTs = l.ts; }
         }
@@ -487,16 +519,17 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
       const groupMatch = rs.phase?.match(/group_(\d+)/);
       const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
       const laps = sessionLaps.get(rs.sessionId) || [];
-      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; lapCount: number; effLaps: number; mergedLap: boolean; times: number[]; lastTs: number; lastPosition: number }>();
+      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; lapCount: number; effLaps: number; mergedLap: boolean; times: number[]; positions: number[]; lastTs: number; lastPosition: number }>();
       for (const l of laps) {
         const sec = parseLapSec(l.lap_time);
         if (sec === null || sec < 38) continue;
         const ex = pilotStats.get(l.pilot);
         if (!ex) {
-          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, lapCount: 1, effLaps: 1, mergedLap: false, times: [sec], lastTs: l.ts, lastPosition: l.position ?? 99 });
+          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, lapCount: 1, effLaps: 1, mergedLap: false, times: [sec], positions: [l.position ?? 99], lastTs: l.ts, lastPosition: l.position ?? 99 });
         } else {
           ex.lapCount++;
           ex.times.push(sec);
+          ex.positions.push(l.position ?? 99);
           if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPosition = l.position ?? 99; }
           if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; ex.bestTs = l.ts; }
         }

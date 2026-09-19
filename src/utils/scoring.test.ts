@@ -341,8 +341,10 @@ describe('computeStandings — склеєне коло (пропущений т�
       ['r1', [
         mkLap('A', 1, '43.000', 10000, 2), mkLap('A', 2, '43.000', 53000, 2), mkLap('A', 3, '43.000', 96000, 2), mkLap('A', 4, '43.000', 139000, 2),
         mkLap('B', 1, '43.500', 10000, 3), mkLap('B', 2, '43.500', 53000, 3), mkLap('B', 3, '43.500', 96000, 3), mkLap('B', 4, '43.500', 139000, 3),
-        // C: 3 записи, третій = 85с (два кола) → 4 кола дистанції, завершені на 96с
-        mkLap('C', 1, '42.500', 10000, 1), mkLap('C', 2, '42.500', 53000, 1), mkLap('C', 3, '01:25.000', 96000, 4),
+        // C: лідирував (position=1), потім пропав сигнал → одне коло 85с замість
+        // двох по 42.5, і timing кинув його в кінець (position=4)
+        mkLap('C', 1, '42.500', 10000, 1), mkLap('C', 2, '42.500', 53000, 1),
+        mkLap('C', 3, '01:25.000', 96000, 4), mkLap('C', 4, '42.500', 139000, 4),
       ]],
       ['r2', [
         mkLap('A', 1, '43.000', 200000, 1), mkLap('B', 1, '43.500', 200000, 2), mkLap('C', 1, '42.500', 200000, 3),
@@ -363,16 +365,43 @@ describe('computeStandings — склеєне коло (пропущений т�
     expect(a.races[0]!.finishPos).toBe(2);
     expect(b.races[0]!.finishPos).toBe(3);
   });
+
+  it('довге коло НЕ лідера не вважається склеєним (реальна втрата часу)', () => {
+    // B не лідирував — його 85с коло лишається одним колом, і він фінішує
+    // останнім, бо має на коло менше.
+    const laps = new Map<string, SessionLap[]>([
+      ['q1', [mkLap('A', 1, '43.000', 1000, 1), mkLap('B', 1, '43.500', 1000, 2)]],
+      ['r1', [
+        mkLap('A', 1, '43.000', 10000, 1), mkLap('A', 2, '43.000', 53000, 1), mkLap('A', 3, '43.000', 96000, 1), mkLap('A', 4, '43.000', 139000, 1),
+        mkLap('B', 1, '43.500', 10000, 2), mkLap('B', 2, '01:27.000', 97000, 2), mkLap('B', 3, '43.500', 140000, 2), mkLap('B', 4, '43.500', 183000, 2),
+      ]],
+      ['r2', [mkLap('A', 1, '43.000', 200000, 1), mkLap('B', 1, '43.500', 200000, 2)]],
+      ['r3', [mkLap('A', 1, '43.000', 300000, 1), mkLap('B', 1, '43.500', 300000, 2)]],
+    ]);
+    const res = computeStandings({
+      format: 'light_league',
+      sessions: [
+        { sessionId: 'q1', phase: 'qualifying_1' },
+        { sessionId: 'r1', phase: 'race_1_group_1', isRace: true },
+        { sessionId: 'r2', phase: 'race_2_group_1', isRace: true },
+        { sessionId: 'r3', phase: 'race_3_group_1', isRace: true },
+      ],
+      sessionLaps: laps, scoring: mockScoring, edits: {},
+      excludedPilots: new Set(), maxGroups: 1, pilotsOverride: null, pilotsLocked: false,
+    });
+    expect(res.find(r => r.pilot === 'B')!.races[0]!.lapCount).toBe(4);
+    expect(res.find(r => r.pilot === 'A')!.races[0]!.finishPos).toBe(1);
+  });
 });
 
-describe('computeStandings — пілот лише в квалі не займає стартовий слот', () => {
+describe('computeStandings — пілот лише в квалі не займає стартовий слот (ЛЧ)', () => {
   const mkLap = (pilot: string, lap_time: string, ts: number, lap_number = 1): SessionLap =>
     ({ pilot, kart: 1, lap_number, lap_time, s1: null, s2: null, position: null, ts });
 
   // Квала: NoShow має 2-й час → у решітці мав би стояти між A і B.
   // Гонки: NoShow не вийшов. Офіційна таблиця прибирає його з решітки, тож
   // старти решти НЕ зсуваються, а totalPilots рахує лише стартувальників.
-  const build = (opts: { raceRun: boolean; liveSessionId?: string }) => {
+  const build = (opts: { raceRun: boolean; liveSessionId?: string; format?: string }) => {
     const sessionLaps = new Map<string, SessionLap[]>([
       ['q1', [
         mkLap('A', '42.000', 1000),
@@ -390,13 +419,19 @@ describe('computeStandings — пілот лише в квалі не займа
         mkLap('B', '43.150', 5200), mkLap('B', '43.250', 5300, 2),
         mkLap('C', '44.150', 5400), mkLap('C', '44.250', 5500, 2),
       ] : []],
+      ['r3', opts.raceRun ? [
+        mkLap('A', '42.170', 7000), mkLap('A', '42.270', 7100, 2),
+        mkLap('B', '43.170', 7200), mkLap('B', '43.270', 7300, 2),
+        mkLap('C', '44.170', 7400), mkLap('C', '44.270', 7500, 2),
+      ] : []],
     ]);
     return computeStandings({
-      format: 'light_league',
+      format: opts.format ?? 'champions_league',
       sessions: [
         { sessionId: 'q1', phase: 'qualifying_1' },
         { sessionId: 'r1', phase: 'race_1_group_1', isRace: true },
         { sessionId: 'r2', phase: 'race_2_group_1', isRace: true },
+        { sessionId: 'r3', phase: 'race_3_group_1', isRace: true },
       ],
       sessionLaps, scoring: mockScoring, edits: {},
       excludedPilots: new Set(), maxGroups: 1, pilotsOverride: null, pilotsLocked: false,
@@ -422,6 +457,12 @@ describe('computeStandings — пілот лише в квалі не займа
     // 4 пілоти в квалі → A останній у реверсі (4), NoShow третій
     expect(a.races[0]!.startPos).toBe(4);
     expect(noShow.races[0]!.startPos).toBe(3);
+  });
+
+  it('ЛЛ — фільтр НЕ застосовується (у квалі бувають дублі імен від timing)', () => {
+    const rows = build({ raceRun: true, format: 'light_league' });
+    const a = rows.find(r => r.pilot === 'A')!;
+    expect(a.races[0]!.startPos).toBe(4); // слот NoShow лишається
   });
 });
 
