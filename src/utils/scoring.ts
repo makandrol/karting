@@ -142,14 +142,40 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
   const qualiSorted = [...qualiData.entries()]
     .filter(([p]) => !excludedPilots.has(p))
     .sort((a, b) => byTimeThenTs(a[1].bestTime, a[1].bestTs, b[1].bestTime, b[1].bestTs));
+
+  // Решітка = ті, хто реально вийшов на старт. Пілот, який відкатав квалу, але
+  // на жодну гонку не вийшов, не займає слот (офіційна таблиця робить так само):
+  // інакше він зсуває стартові позиції, роздуває totalPilots і збиває категорію
+  // балів. Застосовуємо лише для ВІДГАНЯНОГО змагання (усі гонки × групи мають
+  // кола і немає live-сесії) — під час події фільтр зрізав би тих, хто ще не їхав.
+  const racedPilots = new Set<string>();
+  for (const rs of sessions) {
+    if (!rs.phase?.startsWith('race_')) continue;
+    for (const l of (sessionLaps.get(rs.sessionId) || [])) {
+      const sec = parseLapSec(l.lap_time);
+      if (sec === null || sec < 38) continue;
+      racedPilots.add(l.pilot);
+    }
+  }
+  const allRacesRun = !liveSessionId && !livePhase && Array.from({ length: raceCount }, (_, i) => i + 1)
+    .every(r => getRaceSessions(r).filter(s => (sessionLaps.get(s.sessionId) || []).length > 0).length >= maxGroups);
+  const gridSorted = (allRacesRun && racedPilots.size > 0)
+    ? qualiSorted.filter(([p]) => racedPilots.has(p))
+    : qualiSorted;
+
   const defaultMaxQualified = FORMAT_DEFAULT_RACE_PILOTS[format] ?? 36;
-  const maxQualified = racePilotCount ?? defaultMaxQualified;
-  const qualifiedPilots = qualiSorted.slice(0, maxQualified).map(([p]) => p);
-  const disqualifiedPilots = new Set(qualiSorted.slice(maxQualified).map(([p]) => p));
+  // Ліміт слотів — лише страховка від сміття в квалі. Коли змагання відгоняне,
+  // фактична кількість стартувальників важливіша за константу формату
+  // (ЛЧ давно їздить по 26-27 при дефолті 24). Явний racePilotCount — пріоритет.
+  const maxQualified = racePilotCount ?? (allRacesRun
+    ? Math.max(defaultMaxQualified, gridSorted.length)
+    : defaultMaxQualified);
+  const qualifiedPilots = gridSorted.slice(0, maxQualified).map(([p]) => p);
+  const disqualifiedPilots = new Set(gridSorted.slice(maxQualified).map(([p]) => p));
   const autoTotalPilots = qualifiedPilots.length;
   const totalPilots = (pilotsLocked && pilotsOverride !== null) ? pilotsOverride : autoTotalPilots;
 
-  qualiSorted.slice(0, 5).forEach(([pilot], i) => {
+  gridSorted.slice(0, 5).forEach(([pilot], i) => {
     const q = qualiData.get(pilot)!;
     q.speedPoints = scoring.speedPoints[i] || 0;
   });
@@ -163,7 +189,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
     });
   });
 
-  let prevRaceTimes: { pilot: string; time: number; ts: number }[] = qualiSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime, ts: d.bestTs }));
+  let prevRaceTimes: { pilot: string; time: number; ts: number }[] = gridSorted.map(([p, d]) => ({ pilot: p, time: d.bestTime, ts: d.bestTs }));
 
   let activePhase: string | null = null;
   if (liveSessionId) {

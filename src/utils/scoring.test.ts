@@ -322,3 +322,63 @@ describe('computeStandings — фініш гонки при timing у режим
   });
 });
 
+describe('computeStandings — пілот лише в квалі не займає стартовий слот', () => {
+  const mkLap = (pilot: string, lap_time: string, ts: number, lap_number = 1): SessionLap =>
+    ({ pilot, kart: 1, lap_number, lap_time, s1: null, s2: null, position: null, ts });
+
+  // Квала: NoShow має 2-й час → у решітці мав би стояти між A і B.
+  // Гонки: NoShow не вийшов. Офіційна таблиця прибирає його з решітки, тож
+  // старти решти НЕ зсуваються, а totalPilots рахує лише стартувальників.
+  const build = (opts: { raceRun: boolean; liveSessionId?: string }) => {
+    const sessionLaps = new Map<string, SessionLap[]>([
+      ['q1', [
+        mkLap('A', '42.000', 1000),
+        mkLap('NoShow', '42.500', 1100),
+        mkLap('B', '43.000', 1200),
+        mkLap('C', '44.000', 1300),
+      ]],
+      ['r1', opts.raceRun ? [
+        mkLap('A', '42.100', 3000), mkLap('A', '42.200', 3100, 2),
+        mkLap('B', '43.100', 3200), mkLap('B', '43.200', 3300, 2),
+        mkLap('C', '44.100', 3400), mkLap('C', '44.200', 3500, 2),
+      ] : []],
+      ['r2', opts.raceRun ? [
+        mkLap('A', '42.150', 5000), mkLap('A', '42.250', 5100, 2),
+        mkLap('B', '43.150', 5200), mkLap('B', '43.250', 5300, 2),
+        mkLap('C', '44.150', 5400), mkLap('C', '44.250', 5500, 2),
+      ] : []],
+    ]);
+    return computeStandings({
+      format: 'light_league',
+      sessions: [
+        { sessionId: 'q1', phase: 'qualifying_1' },
+        { sessionId: 'r1', phase: 'race_1_group_1', isRace: true },
+        { sessionId: 'r2', phase: 'race_2_group_1', isRace: true },
+      ],
+      sessionLaps, scoring: mockScoring, edits: {},
+      excludedPilots: new Set(), maxGroups: 1, pilotsOverride: null, pilotsLocked: false,
+      liveSessionId: opts.liveSessionId ?? null,
+    });
+  };
+
+  it('змагання відгоняне → квала-онлі пілот прибраний з решітки, старти не зсунуті', () => {
+    const rows = build({ raceRun: true });
+    const a = rows.find(r => r.pilot === 'A')!;
+    const b = rows.find(r => r.pilot === 'B')!;
+    const c = rows.find(r => r.pilot === 'C')!;
+    // 3 стартувальники → реверс решітки: C=1, B=2, A=3 (без слота NoShow)
+    expect(c.races[0]!.startPos).toBe(1);
+    expect(b.races[0]!.startPos).toBe(2);
+    expect(a.races[0]!.startPos).toBe(3);
+  });
+
+  it('змагання ще йде (live) → решітка будується по всій квалі (NoShow ще може вийти)', () => {
+    const rows = build({ raceRun: false, liveSessionId: 'r1' });
+    const a = rows.find(r => r.pilot === 'A')!;
+    const noShow = rows.find(r => r.pilot === 'NoShow')!;
+    // 4 пілоти в квалі → A останній у реверсі (4), NoShow третій
+    expect(a.races[0]!.startPos).toBe(4);
+    expect(noShow.races[0]!.startPos).toBe(3);
+  });
+});
+
