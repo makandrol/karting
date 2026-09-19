@@ -1304,15 +1304,23 @@ export const storage = {
     const prev = candidates[0];
     if (!prev) return none;
 
-    // (1) донор мусить бути ОБРІЗАНИМ — коротким, але завершеним. Інакше це
-    //     або звичайна повна квала (далі законно йде гонка), або незакритий
-    //     рядок без end_time, з якого тривалість невідома.
-    const donorDurSec = prev.row.end_time ? Math.round((prev.row.end_time - prev.row.start_time) / 1000) : null;
-    if (donorDurSec == null || donorDurSec > TRUNCATED_MAX_SEC) {
-      return { ...none, donorPhase: prev.q.phase, donorDurSec: donorDurSec ?? 0 };
+    // (1) донор мусить бути ОБРІЗАНИМ — коротким за фактичною їздою. Інакше це
+    //     звичайна повна квала, після якої законно йде гонка з тим самим
+    //     складом, і ми б хибно вважали гонку продовженням.
+    //
+    //     `end_time` може бути NULL (колектор упав / сесія не закрилась) —
+    //     тоді беремо час останнього кола. Саме такий випадок у ЛЧ 16.09:
+    //     обрізана квала гр.2 (17 кіл) лишилась без end_time.
+    const donorLaps = this.getLaps(prev.q.sessionId);
+    const donorLastLap = donorLaps.length ? Math.max(...donorLaps.map(l => l.ts)) : null;
+    const donorEnd = prev.row.end_time ?? donorLastLap;
+    if (donorEnd == null) return { ...none, donorPhase: prev.q.phase };
+    const donorDurSec = Math.round((donorEnd - prev.row.start_time) / 1000);
+    if (donorDurSec > TRUNCATED_MAX_SEC) {
+      return { ...none, donorPhase: prev.q.phase, donorDurSec };
     }
 
-    const prevEnd = prev.row.end_time ?? prev.row.start_time;
+    const prevEnd = donorEnd;
     const gap = thisRow.start_time - prevEnd;
 
     const prevPilots = new Set(
@@ -1792,9 +1800,13 @@ export const storage = {
   hasContinuationFollower(sessionId) {
     const row = stmts.getSessionTimeRow.get(sessionId);
     if (!row) return false;
-    const myEnd = row.end_time ?? row.start_time;
+    // end_time може бути NULL (колектор упав / сесія не закрилась) — тоді
+    // орієнтуємось на останнє коло, інакше вся перевірка ламається.
+    const myLaps = this.getLaps(sessionId);
+    const lastLapTs = myLaps.length ? Math.max(...myLaps.map(l => l.ts)) : row.start_time;
+    const myEnd = row.end_time ?? lastLapTs;
     const myPilots = new Set(
-      this.getLaps(sessionId).map(l => l.resolved_pilot || l.pilot).filter(p => !isKartName(p))
+      myLaps.map(l => l.resolved_pilot || l.pilot).filter(p => !isKartName(p))
     );
     if (myPilots.size === 0) return false;
 
@@ -1824,8 +1836,49 @@ export const storage = {
    * @param {number} fromTs only sessions with start_time >= fromTs
    * @returns {{sessionId:string, action:string, phase:string|null}[]} trace
    */
+  /**
+   * Replay the live poller's competition-linking logic over already-recorded
+   * sessions of a given day, starting at `fromTs`. Викликає ТІ САМІ storage-методи
+   * у тому самому порядку, що й poller.js (autoLink → finalize → auto-unlink),
+   * тож поведінка ідентична live-поллінгу. Уся валідність (skip-empty,
+   * skip-no-real-pilots, unlink-short) — усередині цих методів.
+   *
+   * ВАЖЛИВО (2026-09-19): replay пропускає ПРОКАТ на початку вікна.
+   *
+   * У live-режимі змагання створює `autoStartCompetitionIfTime`, і його правило
+   * «розрив ≥25хв від останнього прокату» саме й відсіює вечірній прокат. Але
+   * під час replay змагання вже існує (його створює `recreate`), тож autoStart
+   * не викликається — і перші ж прокатні заїзди вікна займали слоти квал,
+   * зсуваючи всю структуру.
+   *
+   * Реальний кейс ЛЧ 16.09: replay стартував з 19:50, прокат 19:50 і 20:01
+   * забирали `qualifying_1/2`, а справжні квали 20:25/20:39 ставали гонками —
+   * структура зсувалась на один слот, хоча live-логіка на тих самих даних дає
+   * коректні 10 фаз.
+   *
+   * Тому перед лінкуванням знаходимо ПЕРШИЙ заїзд, що проходить правило
+   * автостарту (`isAutoStartCandidate`), і починаємо з нього.
+   *
+   * @param {string} date "YYYY-MM-DD"
+   * @param {number} fromTs only sessions with start_time >= fromTs
+   * @returns {{sessionId:string, action:string, phase:string|null}[]} trace
+   */
   replayLinkingForDate(date, fromTs) {
-    const rows = stmts.getSessionsByDate.all(date).filter(s => s.start_time >= fromTs);
+    const all = stmts.getSessionsByDate.all(date);
+    let rows = all.filter(s => s.start_time >= fromTs);
+
+    // Зсуваємо початок до першого заїзду, схожого на ПЕРШИЙ ЗАЇЗД ЗМАГАННЯ
+    // (той самий критерій, що застосовує автостарт у лайві).
+    const startIdx = rows.findIndex(s => {
+      const prevRental = this.lastRentalStartBefore(s.start_time, date);
+      return isAutoStartCandidate({ sessionStartTs: s.start_time, prevRentalStartTs: prevRental }).ok;
+    });
+    if (startIdx > 0) {
+      const skipped = rows.slice(0, startIdx);
+      console.log(`⏭️  replay ${date}: пропускаю ${skipped.length} прокатний(х) заїзд(ів) до початку змагання (${skipped.map(s => new Date(s.start_time + 3 * 3600e3).toISOString().slice(11, 16)).join(', ')})`);
+      rows = rows.slice(startIdx);
+    }
+
     const trace = [];
     for (const s of rows) {
       // 1. autoLink на старті сесії (дзеркалить poller: createSession → autoLink).
