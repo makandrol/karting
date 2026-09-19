@@ -143,7 +143,21 @@ export function filterPhases(phases, groupCount, format, opts = {}) {
 }
 
 /**
- * Find next phase to assign — first phase from the ordered list not yet used.
+ * Find next phase to assign — перша НЕВИКОРИСТАНА фаза після останньої зайнятої.
+ *
+ * Якщо після останньої зайнятої фази вільних не лишилось, але в СЕРЕДИНІ
+ * структури є дірка серед RACE-фаз — повертаємо її. Раніше в такому разі
+ * повертався `null`, і колектор переставав лінкувати заїзди взагалі.
+ *
+ * Реальний кейс ЛЧ 16.09: `qualifying_2` помилково реасайнилась у гонку, у
+ * used утворилась дірка, і на кожному наступному заїзді був
+ * «findNextPhase=null ... used phases out of order» — 6 заїздів (уся друга
+ * група) не залінкувалось. Дірку створював інший баг (виправлений окремо),
+ * але сам `findNextPhase` не мусить через неї глухнути.
+ *
+ * ВАЖЛИВО: діри серед `qualifying_*` НЕ заповнюємо — там пропуск легітимний
+ * (ЛЧ їде з 1 або 2 квалами, ЛЛ — з 1-4), і заповнення віддавало б
+ * `qualifying_2` заїзду, який приїхав ПІСЛЯ всіх гонок.
  *
  * @param {string[]} phases ordered list (already filtered by groupCount)
  * @param {Iterable<string>} usedPhases
@@ -156,7 +170,9 @@ export function findNextPhase(phases, usedPhases) {
     const idx = phases.indexOf(p);
     if (idx > lastUsedIdx) lastUsedIdx = idx;
   }
-  return lastUsedIdx < phases.length - 1 ? phases[lastUsedIdx + 1] : null;
+  if (lastUsedIdx < phases.length - 1) return phases[lastUsedIdx + 1];
+  // Хвіст заповнений — шукаємо найранішу дірку серед race-фаз.
+  return phases.find(p => !used.has(p) && !p.startsWith('qualifying')) ?? null;
 }
 
 /**

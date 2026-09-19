@@ -1312,3 +1312,170 @@ describe('storage.finalizeSessionPhaseOnFirstLap (gonzales: "Карт N" рау�
     expect(comp.sessions.find(s => s.sessionId === 'session-1000').phase).toBe('qualifying_1');
   });
 });
+
+// ============================================================
+// Обрізаний таймінгом заїзд (race_number=NULL) не має зсувати структуру
+//
+// Реальний баг ЛЧ 16.09: timing обрізав квалу гр.1 на 232-й секунді, і ті самі
+// 12 пілотів продовжили окремою сесією; квала гр.2 обрізалась на 0с (17 кіл) і
+// продовжилась за 3 хв. `race_number` від API був NULL весь вечір, тож штатний
+// merge-continuation (за race_number) не працював. Наслідки:
+//   1) overlap із квалою = 100% → detect вирішив «це гонка, отже груп = 1»;
+//   2) `qualifying_2` реасайнилась у гонку → у used утворилась ДІРКА;
+//   3) findNextPhase вертав null → 6 заїздів не залінкувались взагалі.
+// Підсумок: 4 заїзди з 10 замість повної структури.
+// ============================================================
+
+describe('обрізаний заїзд без race_number (ЛЧ 16.09)', () => {
+  function rawLap(sessionId, pilot, kart, ts) {
+    storage.addLap(sessionId, {
+      pilot, kart, lapNumber: 1, lastLap: '42.500', s1: '20', s2: '22',
+      bestLap: '42.500', position: 1, ts,
+    });
+  }
+  const G1 = ['Овчарук Антон', 'Ковшар Климентій', 'Маніло Денис', 'Дулін Антон', 'Гузар Артем'];
+  const G2 = ['Міфтахутдінов Ільяс', 'Кушнірук Тимофій', 'Лобанов Ярослав', 'Апанасенко Олексій', 'Сарнацький Артем'];
+
+  /** Заїзд БЕЗ race_number — саме так віддавав API 16.09. */
+  function fill(id, pilots, { startTime, endTime, isRace = 0 }) {
+    insertSession(id, { startTime, endTime, isRace, raceNumber: null });
+    pilots.forEach((p, i) => rawLap(id, p, i + 1, startTime + i));
+  }
+
+  const T = 1_700_000_000_000;
+
+  it('продовження обрізаної квали успадковує її фазу, а не займає новий слот', () => {
+    fill(`session-${T}`, G1, { startTime: T, endTime: T + 200_000 });   // обрізана на 200с
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [{ sessionId: `session-${T}`, phase: 'qualifying_1' }],
+    });
+    fill(`session-${T + 270_000}`, G1, { startTime: T + 270_000, endTime: T + 870_000 });
+
+    expect(storage.autoLinkSessionToActiveCompetition(`session-${T + 270_000}`)?.phase).toBe('qualifying_1');
+  });
+
+  it('продовження НЕ перетворюється в гонку і не фіксує groupCount=1', () => {
+    fill(`session-${T}`, G1, { startTime: T, endTime: T + 200_000 });
+    fill(`session-${T + 270_000}`, G1, { startTime: T + 270_000, endTime: T + 870_000 });
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: `session-${T}`, phase: 'qualifying_1' },
+        { sessionId: `session-${T + 270_000}`, phase: 'qualifying_1' },
+      ],
+    });
+
+    storage.finalizeSessionPhaseOnFirstLap(`session-${T + 270_000}`);
+
+    const comp = storage.getCompetition('c1');
+    expect(comp.sessions.find(s => s.sessionId === `session-${T + 270_000}`).phase).toBe('qualifying_1');
+    expect(comp.results?.autoDetectedGroups ?? null).toBe(null);
+  });
+
+  it('короткий заїзд із колами НЕ відлінковується, якщо має продовження', () => {
+    fill(`session-${T}`, G1, { startTime: T, endTime: T + 600_000 });
+    fill(`session-${T + 700_000}`, G2, { startTime: T + 700_000, endTime: T + 700_500 }); // обрізок 0.5с
+    fill(`session-${T + 880_000}`, G2, { startTime: T + 880_000, endTime: T + 1_480_000 });
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: `session-${T}`, phase: 'qualifying_1' },
+        { sessionId: `session-${T + 700_000}`, phase: 'qualifying_2' },
+      ],
+    });
+
+    storage.finalizeSessionOnEnd(`session-${T + 700_000}`, T + 700_000, T + 700_500);
+    expect(storage.getCompetition('c1').sessions.map(s => s.sessionId)).toContain(`session-${T + 700_000}`);
+  });
+
+  it('короткий заїзд БЕЗ продовження відлінковується (як і раніше)', () => {
+    fill(`session-${T}`, G1, { startTime: T, endTime: T + 600_000 });
+    fill(`session-${T + 700_000}`, G2, { startTime: T + 700_000, endTime: T + 700_500 });
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: `session-${T}`, phase: 'qualifying_1' },
+        { sessionId: `session-${T + 700_000}`, phase: 'qualifying_2' },
+      ],
+    });
+
+    storage.finalizeSessionOnEnd(`session-${T + 700_000}`, T + 700_000, T + 700_500);
+    expect(storage.getCompetition('c1').sessions.map(s => s.sessionId)).not.toContain(`session-${T + 700_000}`);
+  });
+
+  it('ПОВНА квала + гонка з тим самим складом → гонка (не хибне продовження)', () => {
+    fill(`session-${T}`, G1, { startTime: T, endTime: T + 600_000 });  // повна, не обрізок
+    fill(`session-${T + 700_000}`, G1, { startTime: T + 700_000, endTime: T + 1_300_000, isRace: 1 });
+    makeCompetition({
+      id: 'c1', format: 'champions_league',
+      sessions: [
+        { sessionId: `session-${T}`, phase: 'qualifying_1' },
+        { sessionId: `session-${T + 700_000}`, phase: 'qualifying_2' },
+      ],
+    });
+
+    storage.finalizeSessionPhaseOnFirstLap(`session-${T + 700_000}`);
+    expect(storage.getCompetition('c1').sessions.find(s => s.sessionId === `session-${T + 700_000}`).phase)
+      .toBe('race_1_group_1');
+  });
+});
+
+// ============================================================
+// Дублювання кіл після «блимання» таймінгу
+//
+// Реальний баг: timing API на секунди втрачав зв'язок, поллер закривав сесію, а
+// коли дані повертались із ТИМ САМИМ заїздом — створювалась НОВА сесія. API
+// віддає повний список кіл, тож ті самі кола писались у два рядки.
+// Знайдено 8 дублів на 51 змаганні; у ЛЧ 02.09 два рядки мали ідентичні 151
+// коло, а в ЛЛ 23.06 / ЛЧ 24.06 / Гонз 06.07 дублі отримали РІЗНІ фази і
+// зсунули структуру.
+// ============================================================
+
+describe('addLap: захист від дублів', () => {
+  it('не пише те саме коло двічі (session+pilot+ts)', () => {
+    insertSession('session-1000');
+    const lap = { pilot: 'Овчарук Антон', kart: 7, lapNumber: 1, lastLap: '42.5', s1: '20', s2: '22', bestLap: '42.5', position: 1, ts: 1_700_000_000_000 };
+    storage.addLap('session-1000', lap);
+    storage.addLap('session-1000', lap);   // повтор після перепідключення
+    storage.addLap('session-1000', lap);
+
+    expect(storage.getLaps('session-1000')).toHaveLength(1);
+  });
+
+  it('різні кола того ж пілота пишуться (різний ts)', () => {
+    insertSession('session-1000');
+    const base = { pilot: 'Овчарук Антон', kart: 7, lapNumber: 1, lastLap: '42.5', s1: '20', s2: '22', bestLap: '42.5', position: 1 };
+    storage.addLap('session-1000', { ...base, ts: 1_700_000_000_000 });
+    storage.addLap('session-1000', { ...base, lapNumber: 2, ts: 1_700_000_042_500 });
+
+    expect(storage.getLaps('session-1000')).toHaveLength(2);
+  });
+
+  it('те саме коло в РІЗНИХ сесіях — легітимно (не дедуплікуємо між сесіями)', () => {
+    insertSession('session-1000');
+    insertSession('session-2000');
+    const lap = { pilot: 'A', kart: 1, lapNumber: 1, lastLap: '42.5', s1: '20', s2: '22', bestLap: '42.5', position: 1, ts: 1_700_000_000_000 };
+    storage.addLap('session-1000', lap);
+    storage.addLap('session-2000', lap);
+
+    expect(storage.getLaps('session-1000')).toHaveLength(1);
+    expect(storage.getLaps('session-2000')).toHaveLength(1);
+  });
+});
+
+describe('reopenSession', () => {
+  it('скидає end_time, щоб продовжити сесію після блимання', () => {
+    insertSession('session-1000', { startTime: 1000, endTime: 700_000 });
+    storage.reopenSession('session-1000');
+
+    // після reopen сесія знову «активна» → autoFinish не мусить її закривати
+    makeCompetition({
+      id: 'c1', format: 'light_league',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1' }],
+      results: { groupCountOverride: 1 },
+    });
+    // 10 хв після старту — ще не осиротіла, тож змагання лишається live
+    expect(storage.autoFinishCompletedCompetitions(1000 + 10 * 60 * 1000)).toEqual([]);
+  });
+});

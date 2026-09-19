@@ -195,6 +195,7 @@ const stmts = {
     SELECT l.* FROM laps l JOIN sessions s ON s.id = l.session_id WHERE s.date = ?
   `),
   getSessionTimeRow: db.prepare('SELECT start_time, end_time, race_number, date, is_race FROM sessions WHERE id = ?'),
+  lapExists: db.prepare('SELECT 1 FROM laps WHERE session_id = ? AND pilot = ? AND ts = ? LIMIT 1'),
   getSessionEndTime: db.prepare('SELECT end_time FROM sessions WHERE id = ?'),
   getSiblingsByRace: db.prepare('SELECT id, start_time, end_time FROM sessions WHERE date = ? AND race_number = ? AND id != ? ORDER BY start_time'),
   getEvents: db.prepare('SELECT * FROM events WHERE session_id = ? AND ts >= ? ORDER BY ts LIMIT 10000'),
@@ -275,13 +276,35 @@ export const storage = {
     stmts.endSession.run(endTime, id);
   },
 
+  /**
+   * Знову відкрити щойно закриту сесію (скинути `end_time`).
+   *
+   * Потрібно, коли timing API коротко «блимнув» і поллер закрив сесію, а дані
+   * повернулись із тим самим заїздом. Без цього створювалась НОВА сесія, і ті
+   * самі кола писались двічі — 8 дублів на 51 змаганні, причому частина дублів
+   * отримувала РІЗНІ фази і зсувала структуру (ЛЧ 02.09, ЛЛ 23.06, ЛЧ 24.06).
+   *
+   * @param {string} id
+   */
+  reopenSession(id) {
+    db.prepare('UPDATE sessions SET end_time = NULL WHERE id = ?').run(id);
+  },
+
   /** Записати подію */
   addEvent(sessionId, type, ts, data) {
     stmts.insertEvent.run(sessionId, type, ts, data ? JSON.stringify(data) : null);
   },
 
-  /** Записати коло */
+  /**
+   * Записати коло.
+   *
+   * ЗАХИСТ ВІД ДУБЛІВ: timing API віддає повний список кіл заїзду, тож після
+   * перепідключення ті самі кола приходять знову. Коло однозначно ідентифікує
+   * трійка (session, pilot, ts) — якщо таке вже є, не пишемо вдруге.
+   */
   addLap(sessionId, lap) {
+    const dup = stmts.lapExists.get(sessionId, lap.pilot, lap.ts);
+    if (dup) return;
     stmts.insertLap.run(
       sessionId, lap.pilot, lap.kart, lap.lapNumber,
       lap.lastLap, lap.s1, lap.s2, lap.bestLap, lap.position, lap.ts
@@ -1018,19 +1041,42 @@ export const storage = {
     // Тут: якщо нова сесія — продовження вже залінкованої гонки того ж
     // змагання (той самий race_number, розрив < MERGE_GAP_MS), успадковуємо
     // її фазу замість того, щоб брати новий слот.
+    //
+    // FALLBACK за складом пілотів (2026-09-19): timing API інколи віддає
+    // `raceNumber = null` для всього вечора (реальний кейс ЛЧ 16.09 — усі
+    // сесії з race_number=NULL). Тоді єдиний сигнал — майже ідентичний склад
+    // пілотів і мала пауза. Без цього обрізаний заїзд брав ОКРЕМИЙ слот і вся
+    // структура зсувалась: ЛЧ 16.09 отримав 8 фаз замість 10.
     const newRow = stmts.getSessionTimeRow.get(sessionId);
-    if (newRow && newRow.race_number != null) {
+    if (newRow) {
+      const myPilots = new Set(
+        this.getLaps(sessionId).map(l => l.resolved_pilot || l.pilot).filter(p => !isKartName(p))
+      );
+
       for (const linked of liveComp.sessions) {
         const lr = stmts.getSessionTimeRow.get(linked.sessionId);
-        if (!lr || lr.race_number !== newRow.race_number) continue;
+        if (!lr) continue;
         const prevEnd = lr.end_time || lr.start_time;
         const gap = newRow.start_time - prevEnd;
-        if (gap >= 0 && gap < MERGE_GAP_MS) {
-          const sessions = [...liveComp.sessions, { sessionId, phase: linked.phase }];
-          this.updateCompetition(liveComp.id, { sessions });
-          console.log(`🔗 autoLink ${sessionId}: merge-continuation of ${linked.sessionId} (race #${newRow.race_number}, gap ${Math.round(gap / 1000)}s) → успадковано фазу ${linked.phase}`);
-          return { competitionId: liveComp.id, phase: linked.phase };
+        if (gap < 0 || gap >= MERGE_GAP_MS) continue;
+
+        const sameRace = newRow.race_number != null && lr.race_number === newRow.race_number;
+        let sameRoster = false;
+        if (!sameRace && myPilots.size > 0) {
+          const theirs = new Set(
+            this.getLaps(linked.sessionId).map(l => l.resolved_pilot || l.pilot).filter(p => !isKartName(p))
+          );
+          if (theirs.size > 0) {
+            sameRoster = [...myPilots].filter(p => theirs.has(p)).length / myPilots.size >= 0.9;
+          }
         }
+        if (!sameRace && !sameRoster) continue;
+
+        const sessions = [...liveComp.sessions, { sessionId, phase: linked.phase }];
+        this.updateCompetition(liveComp.id, { sessions });
+        const why = sameRace ? `race #${newRow.race_number}` : 'той самий склад пілотів';
+        console.log(`🔗 autoLink ${sessionId}: merge-continuation of ${linked.sessionId} (${why}, gap ${Math.round(gap / 1000)}s) → успадковано фазу ${linked.phase}`);
+        return { competitionId: liveComp.id, phase: linked.phase };
       }
     }
 
@@ -1132,19 +1178,31 @@ export const storage = {
         : qualiSessions.length;
     } else {
       const realPilots = new Set([...newPilots].filter(p => !isKartName(p)));
-      const detection = detectGroupCountFromOverlap({
-        cumulativeQualifyingPilots: cumulativePilots,
-        newPilots: realPilots.size >= 3 ? realPilots : newPilots,
-        qualifyingCount: qualiSessions.length,
-        format: comp.format,
-      });
-      // Action='race' → це гонка (overlap ≥50%), groupCount = qualiCount.
-      // Action='qualifying' → це нова квала, але оскільки сесія залінкована
-      // як quali_(N+1) або race_*, ми не змінюємо тут — recheckSessionPhase
-      // обробляє переназначення; ми лише зберігаємо знайдений groupCount
-      // як підказку для autoLink наступних сесій.
-      if (detection.action === 'race' && detection.groupCount != null) {
-        detectedGroupCount = detection.groupCount;
+
+      // Continuation guard: якщо цей заїзд — фактично ПРОДОВЖЕННЯ попередньої
+      // квали (майже той самий склад пілотів, і йде впритул за нею), то це НЕ
+      // гонка, і groupCount з нього визначати НЕЛЬЗЯ. Деталі — у
+      // `detectQualiContinuation`.
+      const cont = this.detectQualiContinuation(sessionId, qualiSessions, realPilots);
+      if (cont.isContinuation) {
+        console.log(`🔍 detectGroupCount ${sessionId}: продовження ${cont.donorPhase} (склад ${Math.round(cont.sameRatio * 100)}%, розрив ${cont.gapSec}с) → groupCount НЕ визначаю`);
+      }
+
+      if (!cont.isContinuation) {
+        const detection = detectGroupCountFromOverlap({
+          cumulativeQualifyingPilots: cumulativePilots,
+          newPilots: realPilots.size >= 3 ? realPilots : newPilots,
+          qualifyingCount: qualiSessions.length,
+          format: comp.format,
+        });
+        // Action='race' → це гонка (overlap ≥50%), groupCount = qualiCount.
+        // Action='qualifying' → це нова квала, але оскільки сесія залінкована
+        // як quali_(N+1) або race_*, ми не змінюємо тут — recheckSessionPhase
+        // обробляє переназначення; ми лише зберігаємо знайдений groupCount
+        // як підказку для autoLink наступних сесій.
+        if (detection.action === 'race' && detection.groupCount != null) {
+          detectedGroupCount = detection.groupCount;
+        }
       }
     }
 
@@ -1201,6 +1259,77 @@ export const storage = {
       if (realPilots.size === 0) return { skip: true, reason: 'no-real-pilots' };
     }
     return { skip: false, reason: null };
+  },
+
+  /**
+   * Чи є цей заїзд фактичним ПРОДОВЖЕННЯМ попередньої квали?
+   *
+   * Timing інколи обриває заїзд на півдорозі (ЛЧ 16.09: квалу гр.1 обрізало на
+   * 232-й секунді замість ~600), і ті самі пілоти продовжують окремою сесією.
+   * Штатний merge-continuation ловить це за `race_number`, але API інколи
+   * віддає `raceNumber = null` — тоді єдиний надійний сигнал це сукупність:
+   *   1) донор ОБРІЗАНИЙ (тривав значно менше за норму ~10 хв);
+   *   2) склад пілотів майже ідентичний;
+   *   3) пауза між ними мала.
+   *
+   * Пункт (1) критичний: без нього під опис підходить і звичайна ГОНКА — вона
+   * теж іде впритул за квалою з тим самим складом. Саме тому перевіряємо, що
+   * донор не доїхав свою дистанцію.
+   *
+   * Наслідок, якщо не розпізнати: overlap із квалою = 100% → overlap-детектор
+   * вважає заїзд ГОНКОЮ і фіксує `groupCount = к-сть квал` (=1), після чого
+   * `qualifying_2` реасайниться в гонку, у списку used утворюється ДІРКА і
+   * решта заїздів не лінкується (ЛЧ 16.09 втратив 6 заїздів).
+   *
+   * @param {string} sessionId заїзд-кандидат
+   * @param {{sessionId: string, phase: string|null}[]} qualiSessions інші квалі змагання
+   * @param {Set<string>} realPilots реальні імена пілотів цього заїзду
+   * @returns {{ isContinuation: boolean, donorPhase: string|null, sameRatio: number, gapSec: number, donorDurSec: number }}
+   */
+  detectQualiContinuation(sessionId, qualiSessions, realPilots) {
+    /** Заїзд коротший за це — обрізаний таймінгом, а не повноцінний. */
+    const TRUNCATED_MAX_SEC = 300;
+
+    const none = { isContinuation: false, donorPhase: null, sameRatio: 0, gapSec: 0, donorDurSec: 0 };
+    const thisRow = stmts.getSessionTimeRow.get(sessionId);
+    if (!thisRow) return none;
+
+    // Донор — найближчий ПОПЕРЕДНІЙ заїзд, а не просто «останній інший»:
+    // при однаковій фазі (merge-continuation уже спрацював) сортування за ts
+    // могло вибрати сам себе / пізніший заїзд і перевірка провалювалась.
+    const candidates = qualiSessions
+      .map(q => ({ q, row: stmts.getSessionTimeRow.get(q.sessionId) }))
+      .filter(x => x.row && x.row.start_time < thisRow.start_time)
+      .sort((a, b) => b.row.start_time - a.row.start_time);
+    const prev = candidates[0];
+    if (!prev) return none;
+
+    // (1) донор мусить бути ОБРІЗАНИМ — коротким, але завершеним. Інакше це
+    //     або звичайна повна квала (далі законно йде гонка), або незакритий
+    //     рядок без end_time, з якого тривалість невідома.
+    const donorDurSec = prev.row.end_time ? Math.round((prev.row.end_time - prev.row.start_time) / 1000) : null;
+    if (donorDurSec == null || donorDurSec > TRUNCATED_MAX_SEC) {
+      return { ...none, donorPhase: prev.q.phase, donorDurSec: donorDurSec ?? 0 };
+    }
+
+    const prevEnd = prev.row.end_time ?? prev.row.start_time;
+    const gap = thisRow.start_time - prevEnd;
+
+    const prevPilots = new Set(
+      this.getLaps(prev.q.sessionId).map(l => l.resolved_pilot || l.pilot).filter(p => !isKartName(p))
+    );
+    const mine = [...realPilots];
+    const sameRatio = mine.length > 0 && prevPilots.size > 0
+      ? mine.filter(p => prevPilots.has(p)).length / mine.length
+      : 0;
+
+    return {
+      isContinuation: sameRatio >= 0.9 && gap >= 0 && gap < MERGE_GAP_MS,
+      donorPhase: prev.q.phase,
+      sameRatio,
+      gapSec: Math.round(gap / 1000),
+      donorDurSec,
+    };
   },
 
   /**
@@ -1399,6 +1528,15 @@ export const storage = {
         // гонки timing показує "Карт N" поки не підтягне ім'я. Поки реальних
         // імен замало — рішення ненадійне, просимо poller перевірити ще раз.
         if (realPilots.size < 3) return false;
+
+        // Продовження обрізаної квали НЕ перетворюємо в гонку: склад пілотів
+        // той самий, тож overlap=100% і детектор інакше бачить «гонку».
+        // Через це ЛЧ 16.09 втратив 6 заїздів (див. detectQualiContinuation).
+        const cont = this.detectQualiContinuation(sessionId, qualiSessions, realPilots);
+        if (cont.isContinuation) {
+          console.log(`🔗 Finalize ${sessionId}: продовження ${cont.donorPhase} (склад ${Math.round(cont.sameRatio * 100)}%, розрив ${cont.gapSec}с) → лишається квалою`);
+          return true;
+        }
 
         const cumulativePilots = new Set();
         for (const qs of qualiSessions) {
@@ -1604,15 +1742,75 @@ export const storage = {
    * @param {number} startTime
    * @param {number} endTime
    */
+  /**
+   * Фінальні дії на завершенні заїзду: відлінкувати «сміттєвий» заїзд або
+   * доfіналізувати фазу.
+   *
+   * Короткий заїзд (<60с) зазвичай тест/помилка, АЛЕ не завжди: timing інколи
+   * обриває справжній заїзд майже одразу, і пілоти продовжують окремою сесією.
+   * Такий «обрізок» має РЕАЛЬНІ кола, і відлінковувати його НЕЛЬЗЯ — інакше
+   * його фазовий слот дістанеться наступному заїзду (уже іншої групи), і вся
+   * структура зсунеться.
+   *
+   * Реальний кейс ЛЧ 16.09: квала гр.2 обрізалась на 20:39 (0с, але 17 кіл,
+   * 11 пілотів) і продовжилась о 20:43. Відлінкування 20:39 віддавало
+   * `qualifying_2` заїзду 20:30 (продовження квали гр.1) → далі всі гонки
+   * зсунулись на один слот, а останній заїзд 22:18 не отримав фази взагалі.
+   *
+   * @param {string} sessionId
+   * @param {number} startTime
+   * @param {number} endTime
+   */
   finalizeSessionOnEnd(sessionId, startTime, endTime) {
     if (!sessionId || !startTime || !endTime) return;
     const tooShort = (endTime - startTime) < 60000;
-    const hasLaps = this.getLaps(sessionId).length > 0;
+    const laps = this.getLaps(sessionId);
+    const hasLaps = laps.length > 0;
+
     if (tooShort || !hasLaps) {
+      // Обрізок із реальними колами, за яким УПРИТУЛ іде заїзд із тим самим
+      // складом — це початок справжнього заїзду, а не сміття.
+      if (hasLaps && this.hasContinuationFollower(sessionId)) {
+        console.log(`🔗 finalizeOnEnd ${sessionId}: короткий (${Math.round((endTime - startTime) / 1000)}с), але має продовження з тим самим складом → НЕ відлінковую`);
+        return;
+      }
       this.autoUnlinkSession(sessionId);
       return;
     }
     this.finalizeSessionPhaseOnFirstLap(sessionId);
+  },
+
+  /**
+   * Чи існує заїзд-ПРОДОВЖЕННЯ цього (той самий склад пілотів, невелика пауза
+   * після його завершення)? Дзеркальна перевірка до `detectQualiContinuation`,
+   * але дивиться ВПЕРЕД: потрібна на завершенні обрізаного заїзду, коли
+   * продовження вже записане в БД.
+   *
+   * @param {string} sessionId
+   * @returns {boolean}
+   */
+  hasContinuationFollower(sessionId) {
+    const row = stmts.getSessionTimeRow.get(sessionId);
+    if (!row) return false;
+    const myEnd = row.end_time ?? row.start_time;
+    const myPilots = new Set(
+      this.getLaps(sessionId).map(l => l.resolved_pilot || l.pilot).filter(p => !isKartName(p))
+    );
+    if (myPilots.size === 0) return false;
+
+    const date = row.date || new Date(row.start_time).toISOString().slice(0, 10);
+    for (const cand of stmts.getSessionsByDate.all(date)) {
+      if (cand.id === sessionId) continue;
+      const gap = cand.start_time - myEnd;
+      if (gap < 0 || gap >= MERGE_GAP_MS) continue;
+      const theirs = new Set(
+        this.getLaps(cand.id).map(l => l.resolved_pilot || l.pilot).filter(p => !isKartName(p))
+      );
+      if (theirs.size === 0) continue;
+      const same = [...myPilots].filter(p => theirs.has(p)).length / myPilots.size;
+      if (same >= 0.9) return true;
+    }
+    return false;
   },
 
   /**

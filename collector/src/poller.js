@@ -188,10 +188,54 @@ export class TimingPoller {
     }
   }
 
+  /**
+   * Чи можна ВІДНОВИТИ попередню сесію замість створення нової?
+   *
+   * Timing API інколи на секунди «блимає» (порожній список пілотів або
+   * недоступність), і поллер закриває сесію. Коли дані повертаються з ТИМ САМИМ
+   * заїздом, створення нової сесії призводило до ДУБЛЯ: API віддає ті самі
+   * кола, і вони писались у два різні session-рядки.
+   *
+   * Реальні наслідки (знайдено 8 дублів на 51 змаганні): ЛЧ 02.09 мав два
+   * рядки з ідентичними 151 колом; ЛЛ 23.06, ЛЧ 24.06 і Гонз 06.07 —
+   * гірше: дублі отримали РІЗНІ фази, тож зайняли зайвий слот і зсунули
+   * структуру (race_1_group_3 == race_1_group_2 з тими самими колами).
+   *
+   * Умови відновлення: сесія закрилась щойно (< RESUME_WINDOW_MS) і номер
+   * заїзду не змінився.
+   *
+   * @param {number|null} raceNumber
+   * @param {number} now
+   * @returns {string|null} sessionId для відновлення, або null
+   */
+  #resumableSessionId(raceNumber, now) {
+    const RESUME_WINDOW_MS = 3 * 60 * 1000;
+    const last = this.#sessions[this.#sessions.length - 1];
+    if (!last || !last.endTime) return null;
+    if (now - last.endTime > RESUME_WINDOW_MS) return null;
+    // Номер заїзду мусить збігатись; null === null теж підходить (API інколи
+    // не віддає raceNumber зовсім — тоді покладаємось лише на вікно часу).
+    if ((last.raceNumber ?? null) !== (raceNumber ?? null)) return null;
+    return last.id;
+  }
+
   #goOnline(entries, teams, meta, now, raw) {
     const wasOffline = !this.#online;
 
     if (wasOffline) {
+      // Коротке «блимання» таймінгу — продовжуємо ту саму сесію, інакше
+      // отримаємо дубль із тими самими колами (див. #resumableSessionId).
+      const resumeId = this.#resumableSessionId(meta.raceNumber, now);
+      if (resumeId) {
+        console.log(`♻️  Timing ONLINE — продовжую сесію ${resumeId} (блимання ${Math.round((now - (this.#sessions[this.#sessions.length - 1].endTime)) / 1000)}с, race #${meta.raceNumber ?? '?'})`);
+        this.#online = true;
+        this.#sessionId = resumeId;
+        const s = this.#sessions.find(x => x.id === resumeId);
+        if (s) s.endTime = null;
+        try { storage.reopenSession(resumeId); } catch (err) { console.error('reopenSession error:', err.message); }
+        return;
+      }
+
       console.log(`✅ Timing ONLINE — ${entries.length} pilots, race #${meta.raceNumber ?? '?'}`);
       this.#online = true;
       this.#sessionId = `session-${Date.now()}`;

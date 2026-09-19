@@ -781,3 +781,25 @@ describe('getKyivIsoDate', () => {
     expect(getKyivIsoDate(ts)).toBe('2026-06-04');
   });
 });
+
+describe('findNextPhase: дірка в середині структури', () => {
+  it('повертає дірку серед RACE-фаз, коли хвіст заповнений', () => {
+    // ЛЧ 16.09: qualifying_2 помилково реасайнилась у гонку, у used лишилась
+    // дірка, і findNextPhase вертав null → 6 заїздів не залінкувалось.
+    const phases = ['qualifying_1', 'qualifying_2', 'race_1_group_2', 'race_1_group_1', 'race_2_group_2'];
+    const used = ['qualifying_1', 'qualifying_2', 'race_1_group_1', 'race_2_group_2'];
+    expect(findNextPhase(phases, used)).toBe('race_1_group_2');
+  });
+
+  it('НЕ заповнює дірку серед квал — пропуск там легітимний', () => {
+    // ЛЧ їде з 1 або 2 квалами; інакше qualifying_2 дістався б заїзду,
+    // що приїхав ПІСЛЯ всіх гонок.
+    const phases = ['qualifying_1', 'qualifying_2', 'race_1_group_1'];
+    expect(findNextPhase(phases, ['qualifying_1', 'race_1_group_1'])).toBe(null);
+  });
+
+  it('звичайний випадок: наступна фаза за останньою зайнятою', () => {
+    const phases = ['qualifying_1', 'qualifying_2', 'race_1_group_1'];
+    expect(findNextPhase(phases, ['qualifying_1'])).toBe('qualifying_2');
+  });
+});
