@@ -570,9 +570,30 @@ describe('storage.autoFinishCompletedCompetitions', () => {
     expect(storage.getCompetition('c1').status).toBe('finished');
   });
 
-  it('НЕ закриває коли є сесія без end_time', () => {
-    insertSession('session-1000', { startTime: 1000, endTime: 60_000 });
-    insertSession('session-2000', { startTime: 70_000 }); // active
+  it('НЕ закриває коли є справді АКТИВНА сесія (щойно почалась, без end_time)', () => {
+    const t0 = Date.now() - 10 * 60 * 1000; // 10 хв тому
+    insertSession('session-1000', { startTime: t0, endTime: t0 + 60_000 });
+    insertSession(`session-${t0 + 70_000}`, { startTime: t0 + 70_000 }); // активна, ще їде
+    makeCompetition({
+      id: 'c1', format: 'light_league',
+      sessions: [
+        { sessionId: 'session-1000', phase: 'qualifying_1' },
+        { sessionId: `session-${t0 + 70_000}`, phase: 'race_1_group_1' },
+      ],
+      results: { groupCountOverride: 1 },
+    });
+
+    const finishedIds = storage.autoFinishCompletedCompetitions(Date.now());
+    expect(finishedIds).toEqual([]);
+    expect(storage.getCompetition('c1').status).toBe('live');
+  });
+
+  it('ЗАКРИВАЄ коли незакрита сесія давно осиротіла (колектор падав посеред заїзду)', () => {
+    // Реальний кейс: Спринт 05.09 мав сесію без end_time і висів live 11 днів,
+    // через що guard розриву відбивав УСІ наступні змагання (ЛЧ 09.09, 16.09).
+    const t0 = Date.now() - 11 * 24 * 60 * 60 * 1000;
+    insertSession('session-1000', { startTime: t0, endTime: t0 + 60_000 });
+    insertSession('session-2000', { startTime: t0 + 70_000 }); // НЕ закрита, 11 днів тому
     makeCompetition({
       id: 'c1', format: 'light_league',
       sessions: [
@@ -582,9 +603,8 @@ describe('storage.autoFinishCompletedCompetitions', () => {
       results: { groupCountOverride: 1 },
     });
 
-    const finishedIds = storage.autoFinishCompletedCompetitions(Date.now());
-    expect(finishedIds).toEqual([]);
-    expect(storage.getCompetition('c1').status).toBe('live');
+    expect(storage.autoFinishCompletedCompetitions(Date.now())).toContain('c1');
+    expect(storage.getCompetition('c1').status).toBe('finished');
   });
 
   it('НЕ закриває коли last session ended нещодавно і phases incomplete', () => {
@@ -1141,6 +1161,25 @@ describe('storage.autoLinkSessionToActiveCompetition (розрив між заї
     });
 
     expect(storage.autoLinkSessionToActiveCompetition(`session-${soon}`)?.phase).toBe('qualifying_2');
+  });
+
+  it('при завеликому розриві ЗАКРИВАЄ зависле змагання (не блокує лінкування назавжди)', () => {
+    // Реальний кейс: Спринт 05.09 висів live 11 днів (одна сесія без end_time),
+    // і guard розриву відбивав УСІ заїзди наступних змагань — ЛЧ 09.09 та 16.09
+    // втратили частину заїздів («розрив 16276 хв → не лінкую» на кожному).
+    insertSession('session-1000', { startTime: 1000, endTime: 100000 });
+    const nextDay = 100000 + 20 * 60 * 60 * 1000;
+    insertSession(`session-${nextDay}`, { startTime: nextDay });
+
+    makeCompetition({
+      id: 'stuck', format: 'sprint',
+      sessions: [{ sessionId: 'session-1000', phase: 'qualifying_1_group_1' }],
+    });
+
+    // Сам заїзд не залінкується (не час автостарту), АЛЕ зависле змагання
+    // мусить закритись — інакше воно блокуватиме лінкування вічно.
+    storage.autoLinkSessionToActiveCompetition(`session-${nextDay}`);
+    expect(storage.getCompetition('stuck').status).toBe('finished');
   });
 });
 //

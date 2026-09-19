@@ -148,36 +148,75 @@ export function clSheetUrl(gid: string): string {
   return `https://docs.google.com/spreadsheets/d/${CL_BOOK}/export?format=csv&gid=${gid}`;
 }
 
-// CL 2-й сезон — окрема книга (з липня 2026). Tab gid → date label (DD.MM).
+// CL 2-й сезон — окрема книга (літо 2026: 10.06 — 26.08). Tab gid → date label.
+//
+// УВАГА: заголовок A1 у частині вкладок застарілий ("01.04" — скопійована
+// вкладка, де забули оновити титул). Тому мапа зібрана за ПОРЯДКОМ вкладок у
+// книзі, а 9 із 12 підтверджені зчитаним A1 без конфліктів.
 const CL2_BOOK = '1nLvILuqfmx3A8JF8pJXOQv1bggOxoVyZ';
 export const CL2_TABS: Record<string, string> = {
+  '1933389571': '10.06', '653688194': '17.06', '1883084116': '24.06',
   '893766289': '01.07', '262017472': '08.07', '2116051621': '15.07',
   '1761281677': '22.07', '535278949': '29.07', '143761437': '05.08',
-  '1668925189': '12.08',
+  '1668925189': '12.08', '14268182': '19.08', '1191618719': '26.08',
 };
 
 export function cl2SheetUrl(gid: string): string {
   return `https://docs.google.com/spreadsheets/d/${CL2_BOOK}/export?format=csv&gid=${gid}`;
 }
 
+// CL 3-й сезон — окрема книга (осінь 2026, з 02.09). Tab gid → date label.
+//
+// gid `1191618719` тут НЕ той самий, що в книзі 2-го сезону — gid унікальні
+// лише в межах книги, тож розводимо їх окремими мапами.
+const CL3_BOOK = '1cb21qukZ89WcbDIqvrC6Kge2wA0XG-h2';
+export const CL3_TABS: Record<string, string> = {
+  '1191618719': '26.08', '1043407594': '02.09', '1252384735': '09.09',
+  '1345648744': '16.09',
+};
+
+export function cl3SheetUrl(gid: string): string {
+  return `https://docs.google.com/spreadsheets/d/${CL3_BOOK}/export?format=csv&gid=${gid}`;
+}
+
 /**
  * Resolve a sheet CSV URL automatically for a competition by matching its
- * Kyiv-local date (from first session) to the LL/CL workbook tab. Returns null
- * if no matching tab is known (e.g. CL June competitions in a different book).
+ * Kyiv-local date (from first session) to the LL/CL workbook tab.
+ *
+ * ЛЧ має ТРИ книги по сезонах, тож вибір іде за датою змагання, а не лише за
+ * наявністю gid: вкладка `26.08` існує і в літній, і в осінній книзі (осіння
+ * книга починає 3-й сезон саме з неї). Тому спершу пробуємо книгу, чий
+ * сезонний діапазон містить дату, і лише потім — решту як fallback.
+ *
+ * @returns null, якщо вкладка невідома
  */
 export function resolveSheetUrl(format: string, firstSessionTs: number): string | null {
-  const dd = String(new Date(firstSessionTs).getUTCDate()).padStart(2, '0');
-  const mm = String(new Date(firstSessionTs).getUTCMonth() + 1).padStart(2, '0');
+  const d = new Date(firstSessionTs);
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const label = `${dd}.${mm}`;
+  const monthNum = d.getUTCMonth() + 1;
+
   if (format === 'light_league') {
     const gid = Object.entries(LL_TABS).find(([, l]) => l === label)?.[0];
     return gid ? llSheetUrl(gid) : null;
   }
+
   if (format === 'champions_league') {
-    const gid = Object.entries(CL_TABS).find(([, l]) => l === label)?.[0];
-    if (gid) return clSheetUrl(gid);
-    const gid2 = Object.entries(CL2_TABS).find(([, l]) => l === label)?.[0];
-    return gid2 ? cl2SheetUrl(gid2) : null;
+    const inSpring = () => Object.entries(CL_TABS).find(([, l]) => l === label)?.[0];
+    const inSummer = () => Object.entries(CL2_TABS).find(([, l]) => l === label)?.[0];
+    const inAutumn = () => Object.entries(CL3_TABS).find(([, l]) => l === label)?.[0];
+
+    // Вересень+ → 3-й сезон; 26.08 теж належить осінній книзі (старт сезону).
+    const autumnFirst = monthNum >= 9 || label === '26.08';
+    const order: [() => string | undefined, (g: string) => string][] = autumnFirst
+      ? [[inAutumn, cl3SheetUrl], [inSummer, cl2SheetUrl], [inSpring, clSheetUrl]]
+      : [[inSpring, clSheetUrl], [inSummer, cl2SheetUrl], [inAutumn, cl3SheetUrl]];
+
+    for (const [find, toUrl] of order) {
+      const gid = find();
+      if (gid) return toUrl(gid);
+    }
   }
   return null;
 }

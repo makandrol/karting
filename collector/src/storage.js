@@ -982,6 +982,12 @@ export const storage = {
     //
     // Обмежуємо саме РОЗРИВОМ, а не датою: змагання, що починається пізно,
     // легітимно перетікає за північ і тоді дата заїзду вже інша.
+    //
+    // ВАЖЛИВО (2026-09-19): при завеликому розриві МИ ЗАКРИВАЄМО старе змагання
+    // і йдемо далі, а не просто відмовляємо. Інакше одне «зависле» live-змагання
+    // блокувало лінкування НАЗАВЖДИ: Спринт 05.09 (одна сесія без end_time не
+    // давала auto-finish спрацювати) відбивав усі заїзди 09.09 і 16.09 —
+    // у логах «розрив 16276 хв ... → не лінкую» на кожному заїзді.
     if (liveComp.sessions.length > 0) {
       const lastLinkedTs = Math.max(...liveComp.sessions.map(s => {
         const row = stmts.getSessionTimeRow.get(s.sessionId);
@@ -989,8 +995,18 @@ export const storage = {
       }));
       const gap = sessionTs - lastLinkedTs;
       if (lastLinkedTs > 0 && gap > MAX_LINK_GAP_MS) {
-        console.log(`🔗 autoLink ${sessionId}: розрив ${Math.round(gap / 60000)} хв від останнього заїзду ${liveComp.name} (ліміт ${MAX_LINK_GAP_MS / 60000} хв) → не лінкую`);
-        return null;
+        console.log(`🔗 autoLink ${sessionId}: розрив ${Math.round(gap / 60000)} хв від ${liveComp.name} (ліміт ${MAX_LINK_GAP_MS / 60000} хв) → закриваю старе змагання`);
+        this.updateCompetition(liveComp.id, { status: 'finished' });
+
+        // Старе змагання більше не live → пробуємо автостарт нового для цього
+        // заїзду (той самий шлях, що й коли live-змагання не було взагалі).
+        const created = this.autoStartCompetitionIfTime(sessionTs);
+        if (!created) {
+          console.log(`🔗 autoLink ${sessionId}: нове змагання не стартує (не час / не схоже на перший заїзд) → skip`);
+          return null;
+        }
+        liveComp = parseCompetitionRow(stmts.getCompetition.get(created.id));
+        if (!liveComp || liveComp.status !== 'live') return null;
       }
     }
 
@@ -1495,11 +1511,28 @@ export const storage = {
    *
    * Idempotent — calling twice has no extra effect (already finished comps skipped).
    *
+   * ВАЖЛИВО (2026-09-19): «усі сесії завершені» більше НЕ блокує закриття
+   * назавжди. Якщо колектор перезапустився/впав посеред заїзду, той заїзд
+   * лишається з `end_time = NULL` НАВІКИ — і раніше через нього змагання
+   * висіло `live` без кінця.
+   *
+   * Реальний кейс: Спринт 05.09 мав `session-1788590760079` без end_time і
+   * простояв `live` 11 днів. Через нього guard розриву (MAX_LINK_GAP_MS) відбивав
+   * УСІ наступні змагання: ЛЧ 09.09 і 16.09 втратили частину заїздів, бо
+   * autoLink писав «розрив 16276 хв від останнього заїзду Спр, 05.09» і не
+   * лінкував нічого.
+   *
+   * Тому незакриті сесії вважаються завершеними, якщо від їх СТАРТУ пройшло
+   * більше `STALE_SESSION_MS` — жоден реальний заїзд стільки не триває.
+   *
    * @param {number} now unix-ms (defaults to Date.now())
    * @returns {string[]} ids of competitions that were finished by this call
    */
   autoFinishCompletedCompetitions(now = Date.now()) {
     const FINISH_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour after last session
+    // Заїзд триває ~10-20 хв. Якщо сесія «висить» >3 год — це осиротілий рядок
+    // після падіння колектора, а не активний заїзд.
+    const STALE_SESSION_MS = 3 * 60 * 60 * 1000;
     const finishedIds = [];
 
     const comps = this.getAllCompetitionsParsed();
@@ -1509,14 +1542,17 @@ export const storage = {
       if (comp.sessions.length === 0) continue;
 
       const sessionMeta = comp.sessions
-        .map(s => stmts.getSessionEndTime.get(s.sessionId))
+        .map(s => stmts.getSessionTimeRow.get(s.sessionId))
         .filter(Boolean);
       if (sessionMeta.length === 0) continue;
 
-      const allEnded = sessionMeta.every(s => s.end_time != null);
-      if (!allEnded) continue;
+      // Сесія вважається завершеною, якщо має end_time АБО давно осиротіла.
+      const effectiveEnd = s => s.end_time ?? (now - s.start_time > STALE_SESSION_MS ? s.start_time : null);
+      const ends = sessionMeta.map(effectiveEnd);
+      if (ends.some(e => e == null)) continue;   // є справді активний заїзд
 
-      const lastEndTime = Math.max(...sessionMeta.map(s => s.end_time));
+      const staleCount = sessionMeta.filter(s => s.end_time == null).length;
+      const lastEndTime = Math.max(...ends);
       const timedOut = (now - lastEndTime) > FINISH_TIMEOUT_MS;
 
       // Phase-based check: skipped for Gonzales (phase count fuzzy)
@@ -1534,7 +1570,9 @@ export const storage = {
       if (phasesComplete || timedOut) {
         this.updateCompetition(comp.id, { status: 'finished' });
         finishedIds.push(comp.id);
-        console.log(`🏁 Auto-finished competition: ${comp.name} (${phasesComplete ? 'all phases linked' : 'timeout'})`);
+        const why = phasesComplete ? 'all phases linked' : 'timeout';
+        const stale = staleCount > 0 ? `, ${staleCount} незакритих сесій визнано осиротілими` : '';
+        console.log(`🏁 Auto-finished competition: ${comp.name} (${why}${stale})`);
       }
     }
 
