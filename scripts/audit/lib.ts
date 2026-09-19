@@ -383,6 +383,20 @@ export function normalizeName(name: string): string {
     .replace(/ё/g, 'е').replace(/ъ/g, '').replace(/'/g, '').replace(/ʼ/g, '');
 }
 
+/** Порядок слів незначущий: "Ільяс Міфтахутдінов" === "Міфтахутдінов Ільяс". */
+function nameKey(name: string): string {
+  return normalizeName(name).split(' ').sort().join(' ');
+}
+
+/**
+ * Пілоти, чиє ім'я в timing відрізняється від офіційної таблиці.
+ * Ключ — наше ім'я (як пише timing), значення — ім'я в таблиці.
+ * Перевірено звіркою балів/стартів/фінішів по всіх гонках.
+ */
+export const PILOT_ALIASES: Record<string, string> = {
+  'романович': 'Бойко Андрій',
+};
+
 /**
  * Match an "our" pilot name to a sheet pilot name.
  * Prefers full-name match; falls back to surname only when the surname is
@@ -396,12 +410,18 @@ export function buildNameMatcher(ourNames: string[], sheetNames: string[]) {
 
   const sheetByFull = new Map<string, string>();
   for (const n of sheetNames) sheetByFull.set(normalizeName(n), n);
+  const sheetByKey = new Map<string, string>();
+  for (const n of sheetNames) sheetByKey.set(nameKey(n), n);
   const sheetBySurname = new Map<string, string>();
   for (const n of sheetNames) sheetBySurname.set(extractSurname(n), n);
 
   return (ourName: string): string | null => {
     const full = normalizeName(ourName);
     if (sheetByFull.has(full)) return sheetByFull.get(full)!;
+    const alias = PILOT_ALIASES[full];
+    if (alias && sheetByFull.has(normalizeName(alias))) return sheetByFull.get(normalizeName(alias))!;
+    const key = nameKey(ourName);
+    if (sheetByKey.has(key)) return sheetByKey.get(key)!;
     const sur = extractSurname(ourName);
     // safe surname fallback only when unique on both sides
     if ((ourSurnameCount.get(sur) || 0) === 1 && (sheetSurnameCount.get(sur) || 0) === 1) {

@@ -77,6 +77,77 @@ export function byTimeThenTs(timeA: number, tsA: number, timeB: number, tsB: num
   return (tsA ?? Infinity) - (tsB ?? Infinity);
 }
 
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+/**
+ * Скільки кіл насправді містить запис кола. Пропущений сигнал транспондера
+ * склеює 2 (рідше 3) кола в одне: час кола виходить кратним типовому. Timing
+ * тоді вважає пілота на коло позаду і кидає в кінець протоколу, хоча він
+ * фінішував з усіма.
+ *
+ * @param sec час кола, секунди
+ * @param median медіанний час кола цього пілота в сесії
+ */
+export function effectiveLapCount(sec: number, median: number): number {
+  if (!median) return 1;
+  const k = Math.round(sec / median);
+  return (k > 1 && sec / median >= 1.7) ? k : 1;
+}
+
+interface RankableStats { times: number[]; lapCount: number; effLaps: number; mergedLap: boolean; lastTs: number; lastPosition: number }
+
+/**
+ * Проставляє `effLaps` / `mergedLap`: скільки кіл пілот реально проїхав з
+ * урахуванням склеєних (пропущений транспондер) і чи є в нього таке коло.
+ */
+function markMergedLaps(stats: Map<string, RankableStats>): void {
+  for (const st of stats.values()) {
+    const med = median(st.times);
+    let eff = 0;
+    for (const t of st.times) eff += effectiveLapCount(t, med);
+    st.effLaps = eff;
+    st.mergedLap = eff > st.lapCount;
+  }
+}
+
+/**
+ * Порядок фінішу в гонці.
+ *
+ * Пілоти без склеєних кіл ранжуються як завжди (кількість кіл → `position` від
+ * timing → час перетину). Пілота зі склеєним колом timing помилково тримає на
+ * коло позаду (`position` в кінці), тому його не сортуємо разом з рештою, а
+ * ВСТАВЛЯЄМО за часом останнього перетину фінішу — після всіх, хто перетнув
+ * лінію не пізніше за нього.
+ *
+ * @param finishByTs timing був у режимі кваліфікації → `position` рахує best-lap, не фініш
+ */
+function rankRaceFinish<T extends RankableStats>(entries: [string, T][], finishByTs: boolean): [string, T][] {
+  const cmp = (a: [string, T], b: [string, T]) => {
+    if (a[1].effLaps !== b[1].effLaps) return b[1].effLaps - a[1].effLaps;
+    if (!finishByTs && a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
+    return a[1].lastTs - b[1].lastTs;
+  };
+  const clean = entries.filter(e => !e[1].mergedLap).sort(cmp);
+  const merged = entries.filter(e => e[1].mergedLap).sort(cmp);
+  if (merged.length === 0) return clean;
+  const out = [...clean];
+  for (const m of merged) {
+    let idx = out.length;
+    for (let i = 0; i < out.length; i++) {
+      const o = out[i][1];
+      const ahead = o.effLaps > m[1].effLaps || (o.effLaps === m[1].effLaps && o.lastTs <= m[1].lastTs);
+      if (!ahead) { idx = i; break; }
+    }
+    out.splice(idx, 0, m);
+  }
+  return out;
+}
+
 export function getOvertakeRate(scoring: ScoringData, group: number, pos: number, isCL: boolean): number {
   if (group === 3) return scoring.overtakePoints.groupIII;
   if (group === 2) return scoring.overtakePoints.groupII;
@@ -235,19 +306,21 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
       const groupMatch = rs.phase?.match(/group_(\d+)/);
       const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
       const laps = sessionLaps.get(rs.sessionId) || [];
-      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; lapCount: number; lastTs: number; lastPosition: number }>();
+      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; lapCount: number; effLaps: number; mergedLap: boolean; times: number[]; lastTs: number; lastPosition: number }>();
       for (const l of laps) {
         const sec = parseLapSec(l.lap_time);
         if (sec === null || sec < 38) continue;
         const ex = pilotStats.get(l.pilot);
         if (!ex) {
-          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, lapCount: 1, lastTs: l.ts, lastPosition: l.position ?? 99 });
+          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, lapCount: 1, effLaps: 1, mergedLap: false, times: [sec], lastTs: l.ts, lastPosition: l.position ?? 99 });
         } else {
           ex.lapCount++;
+          ex.times.push(sec);
           if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPosition = l.position ?? 99; }
           if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; ex.bestTs = l.ts; }
         }
       }
+      markMergedLaps(pilotStats);
       const isActiveSession = rs.sessionId === liveSessionId && livePositions && livePositions.length > 0;
       if (isActiveSession) {
         for (const lp of livePositions!) {
@@ -261,13 +334,7 @@ export function computeStandings(params: ComputeStandingsParams): PilotRow[] {
       // фінішної лінії на останньому колі (lastTs). Для активної live-сесії
       // довіряємо real-time position (livePositions вище).
       const finishByTs = rs.isRace === false && !isActiveSession;
-      const sorted = [...pilotStats.entries()]
-        .filter(([p]) => !excludedPilots.has(p))
-        .sort((a, b) => {
-          if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
-          if (!finishByTs && a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
-          return a[1].lastTs - b[1].lastTs;
-        });
+      const sorted = rankRaceFinish([...pilotStats.entries()].filter(([p]) => !excludedPilots.has(p)), finishByTs);
       const excludedEntries = [...pilotStats.entries()].filter(([p]) => excludedPilots.has(p));
       sorted.forEach(([pilot, pData], i) => {
         const editKey = `${pilot}|${r}`;
@@ -420,19 +487,21 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
       const groupMatch = rs.phase?.match(/group_(\d+)/);
       const groupNum = groupMatch ? parseInt(groupMatch[1]) : 0;
       const laps = sessionLaps.get(rs.sessionId) || [];
-      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; lapCount: number; lastTs: number; lastPosition: number }>();
+      const pilotStats = new Map<string, { bestTime: number; bestTimeStr: string; bestTs: number; kart: number; lapCount: number; effLaps: number; mergedLap: boolean; times: number[]; lastTs: number; lastPosition: number }>();
       for (const l of laps) {
         const sec = parseLapSec(l.lap_time);
         if (sec === null || sec < 38) continue;
         const ex = pilotStats.get(l.pilot);
         if (!ex) {
-          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, lapCount: 1, lastTs: l.ts, lastPosition: l.position ?? 99 });
+          pilotStats.set(l.pilot, { bestTime: sec, bestTimeStr: l.lap_time!, bestTs: l.ts, kart: l.kart, lapCount: 1, effLaps: 1, mergedLap: false, times: [sec], lastTs: l.ts, lastPosition: l.position ?? 99 });
         } else {
           ex.lapCount++;
+          ex.times.push(sec);
           if (l.ts > ex.lastTs) { ex.lastTs = l.ts; ex.lastPosition = l.position ?? 99; }
           if (sec < ex.bestTime) { ex.bestTime = sec; ex.bestTimeStr = l.lap_time!; ex.bestTs = l.ts; }
         }
       }
+      markMergedLaps(pilotStats);
       const isActiveSession = rs.sessionId === liveSessionId && livePositions && livePositions.length > 0;
       if (isActiveSession) {
         for (const lp of livePositions!) {
@@ -443,16 +512,9 @@ export function computeSprintStandings(params: ComputeStandingsParams): PilotRow
 
       // Коли timing був у режимі кваліфікації (rs.isRace === false), поле position
       // ранжує за best-lap, а не за фінішем → визначаємо фініш за порядком перетину
-      // фінішної лінії на останньому колі (lastTs). Для активної live-сесії
-      // довіряємо real-time position (livePositions вище).
+      // фінішної лінії на останньому колі (lastTs).
       const finishByTs = rs.isRace === false && !isActiveSession;
-      const sorted = [...pilotStats.entries()]
-        .filter(([p]) => !excludedPilots.has(p))
-        .sort((a, b) => {
-          if (a[1].lapCount !== b[1].lapCount) return b[1].lapCount - a[1].lapCount;
-          if (!finishByTs && a[1].lastPosition !== b[1].lastPosition) return a[1].lastPosition - b[1].lastPosition;
-          return a[1].lastTs - b[1].lastTs;
-        });
+      const sorted = rankRaceFinish([...pilotStats.entries()].filter(([p]) => !excludedPilots.has(p)), finishByTs);
 
       sorted.forEach(([pilot, pData], i) => {
         const editKey = `${pilot}|${raceIndex}`;

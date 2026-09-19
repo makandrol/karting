@@ -322,6 +322,49 @@ describe('computeStandings — фініш гонки при timing у режим
   });
 });
 
+describe('computeStandings — склеєне коло (пропущений транспондер)', () => {
+  const mkLap = (pilot: string, lap_number: number, lap_time: string, ts: number, position: number): SessionLap =>
+    ({ pilot, kart: 1, lap_number, lap_time, s1: null, s2: null, position, ts });
+
+  // Лідер C пропустив сигнал транспондера: замість двох кіл по ~43с timing
+  // записав одне 86с і кинув його в кінець протоколу (position=4), хоча він
+  // завершив ту саму дистанцію РАНІШЕ за решту.
+  const rows = computeStandings({
+    format: 'light_league',
+    sessions: [
+      { sessionId: 'q1', phase: 'qualifying_1' },
+      { sessionId: 'r1', phase: 'race_1_group_1', isRace: true },
+      { sessionId: 'r2', phase: 'race_2_group_1', isRace: true },
+    ],
+    sessionLaps: new Map<string, SessionLap[]>([
+      ['q1', [mkLap('A', 1, '43.000', 1000, 1), mkLap('B', 1, '43.500', 1000, 2), mkLap('C', 1, '42.500', 1000, 3)]],
+      ['r1', [
+        mkLap('A', 1, '43.000', 10000, 2), mkLap('A', 2, '43.000', 53000, 2), mkLap('A', 3, '43.000', 96000, 2), mkLap('A', 4, '43.000', 139000, 2),
+        mkLap('B', 1, '43.500', 10000, 3), mkLap('B', 2, '43.500', 53000, 3), mkLap('B', 3, '43.500', 96000, 3), mkLap('B', 4, '43.500', 139000, 3),
+        // C: 3 записи, третій = 85с (два кола) → 4 кола дистанції, завершені на 96с
+        mkLap('C', 1, '42.500', 10000, 1), mkLap('C', 2, '42.500', 53000, 1), mkLap('C', 3, '01:25.000', 96000, 4),
+      ]],
+      ['r2', [
+        mkLap('A', 1, '43.000', 200000, 1), mkLap('B', 1, '43.500', 200000, 2), mkLap('C', 1, '42.500', 200000, 3),
+      ]],
+    ]),
+    scoring: mockScoring, edits: {},
+    excludedPilots: new Set(), maxGroups: 1, pilotsOverride: null, pilotsLocked: false,
+  });
+
+  it('склеєне коло рахується як два → пілот не падає в кінець протоколу', () => {
+    const c = rows.find(r => r.pilot === 'C')!;
+    expect(c.races[0]!.finishPos).toBe(1);
+  });
+
+  it('решта пілотів зберігає порядок за position від timing', () => {
+    const a = rows.find(r => r.pilot === 'A')!;
+    const b = rows.find(r => r.pilot === 'B')!;
+    expect(a.races[0]!.finishPos).toBe(2);
+    expect(b.races[0]!.finishPos).toBe(3);
+  });
+});
+
 describe('computeStandings — пілот лише в квалі не займає стартовий слот', () => {
   const mkLap = (pilot: string, lap_time: string, ts: number, lap_number = 1): SessionLap =>
     ({ pilot, kart: 1, lap_number, lap_time, s1: null, s2: null, position: null, ts });
