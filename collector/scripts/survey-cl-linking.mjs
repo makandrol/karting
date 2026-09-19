@@ -64,16 +64,36 @@ function expectedPhases(groupCount) {
       try { const raw = await get(`/db/laps?session=${s.sessionId}`); laps = Array.isArray(raw) ? raw : (raw.laps || []); } catch {}
       const pilots = [...new Set(laps.map(l => l.resolved_pilot || l.pilot))];
       const real = pilots.filter(p => !KART.test(p.trim()));
-      rows.push({ ...s, ts, laps: laps.length, pilots: pilots.length, real: real.length, pilotNames: pilots, date: new Date(ts).toISOString().slice(0, 10) });
+      const lapSig = laps.length ? laps.map(l => `${l.pilot}|${l.lap_time}|${l.ts}`).sort().join(';') : null;
+      rows.push({ ...s, ts, laps: laps.length, pilots: pilots.length, real: real.length, pilotNames: pilots, lapSig, date: new Date(ts).toISOString().slice(0, 10) });
     }
 
     const issues = [];
 
-    // 1. дублі фаз
-    const phaseCount = {};
-    for (const r of rows) phaseCount[r.phase] = (phaseCount[r.phase] || 0) + 1;
-    const dupes = Object.entries(phaseCount).filter(([, n]) => n > 1);
-    if (dupes.length) issues.push(`дублі фаз: ${dupes.map(([p, n]) => `${p}×${n}`).join(', ')}`);
+    // 1. Дублі фаз. Merge-continuation (розірваний заїзд) — це НОРМА: обидві
+    //    половинки законно мають ту саму фазу. Проблема лише коли ті самі кола
+    //    записані двічі (дубль-сесія) або коли склади пілотів різні.
+    const byPhase = new Map();
+    for (const r of rows) {
+      if (!byPhase.has(r.phase)) byPhase.set(r.phase, []);
+      byPhase.get(r.phase).push(r);
+    }
+    for (const [phase, list] of byPhase) {
+      if (list.length < 2) continue;
+      for (let i = 1; i < list.length; i++) {
+        const a = list[i - 1], b = list[i];
+        const setA = new Set(a.pilotNames.filter(p => !KART.test(p)));
+        const setB = b.pilotNames.filter(p => !KART.test(p));
+        const same = setB.length ? setB.filter(p => setA.has(p)).length / setB.length : 0;
+        const gapMin = Math.round((b.ts - a.ts) / 60000);
+        if (a.lapSig && a.lapSig === b.lapSig) {
+          issues.push(`ДУБЛЬ-СЕСІЯ ${phase}: ${kyiv(a.ts).hhmm} і ${kyiv(b.ts).hhmm} мають ІДЕНТИЧНІ ${a.laps} кіл`);
+        } else if (same < 0.9 || gapMin > 6) {
+          issues.push(`підозрілий дубль ${phase}: ${kyiv(a.ts).hhmm} + ${kyiv(b.ts).hhmm} (склад ${Math.round(same * 100)}%, розрив ${gapMin}хв)`);
+        }
+        // інакше — легітимний розірваний заїзд, не повідомляємо
+      }
+    }
 
     // 2. повнота структури
     if (gc) {
