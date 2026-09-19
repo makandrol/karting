@@ -18,8 +18,16 @@
 #
 # Тепер дампи живуть на ОКРЕМІЙ orphan-гілці `db-backups` (без спільної історії
 # з кодом) і ротуються: щоразу гілка перестворюється з нуля, лишаючи лише
-# KEEP_BACKUPS останніх дампів. Тобто розмір гілки обмежений і не накопичується,
+# KEEP_IN_GIT останніх дампів. Тобто розмір гілки обмежений і не накопичується,
 # а клон коду (`git clone` без --branch) її взагалі не тягне.
+#
+# ВАЖЛИВО (2026-09-19): дамп переріс 100MB — GitHub відхиляє такі файли
+# (`GH001: Large files detected`, ліміт 100MB на файл). БД виросла до 2.1GB,
+# .dump.gz = 118MB. Тому дамп РІЖЕТЬСЯ на частини по CHUNK_SIZE.
+# Відновлення: `cat karting-DATE.dump.gz.part-* | gunzip -c | sqlite3 karting.db`
+#
+# Чому не xz/zstd замість split: на цій машині лише ~430MB вільної RAM, а
+# `xz -9` потребує ~700MB. split працює завжди і не залежить від росту БД.
 
 set -euo pipefail
 
@@ -30,7 +38,9 @@ LOCAL_DIR="$COLLECTOR_DIR/backups-local"
 WORK_DIR="$COLLECTOR_DIR/backup-work"       # окремий worktree для orphan-гілки
 DATE=$(date +%Y-%m-%d)
 BRANCH="db-backups"
-KEEP_BACKUPS=7                               # скільки дампів тримати в гілці
+KEEP_LOCAL=7                                 # датованих копій на сервері
+KEEP_IN_GIT=3                                # дампів у git-гілці (~120MB кожен)
+CHUNK_SIZE=90M                               # < 100MB ліміту GitHub на файл
 
 echo "🔄 Starting backup: $DATE"
 
@@ -52,14 +62,14 @@ DUMP_GZ="$LOCAL_DIR/karting-$DATE.dump.gz"
 sqlite3 "$DB_FILE" ".dump" | gzip -6 > "$DUMP_GZ"
 SIZE=$(du -h "$DUMP_GZ" | cut -f1)
 
-# 2) Локальні датовані копії (швидкий rollback) — лишаємо KEEP_BACKUPS останніх
-ls -t "$LOCAL_DIR"/karting-*.dump.gz 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm --
+# 2) Локальні датовані копії (швидкий rollback) — лишаємо KEEP_LOCAL останніх
+ls -t "$LOCAL_DIR"/karting-*.dump.gz 2>/dev/null | tail -n +$((KEEP_LOCAL + 1)) | xargs -r rm --
 
 # 3) Публікація в git на orphan-гілку `db-backups` з ротацією.
 #
 #    Гілка перестворюється з нуля щоразу (orphan commit), тож історія НЕ росте:
-#    у ній завжди лише останні KEEP_BACKUPS дампів одним комітом.
-echo "☁️  Publishing to branch '$BRANCH' (rotating, keep $KEEP_BACKUPS)..."
+#    у ній завжди лише останні KEEP_IN_GIT дампів одним комітом.
+echo "☁️  Publishing to branch '$BRANCH' (rotating, keep $KEEP_IN_GIT)..."
 
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
@@ -67,30 +77,39 @@ cd "$WORK_DIR"
 git init --quiet
 git remote add origin "$(git -C "$REPO_DIR" remote get-url origin)"
 
-# Підтягуємо наявні дампи з гілки (якщо вона вже є), щоб зберегти попередні.
+# Підтягуємо наявні частини з гілки (якщо вона вже є), щоб зберегти попередні.
 if git fetch --depth 1 origin "$BRANCH" --quiet 2>/dev/null; then
   git checkout --quiet FETCH_HEAD -- . 2>/dev/null || true
 fi
 
-cp "$DUMP_GZ" "./karting-$DATE.dump.gz"
-# Ротація всередині гілки
-ls -t ./karting-*.dump.gz 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm --
+# Ріжемо новий дамп на частини < 100MB (ліміт GitHub на файл).
+split -b "$CHUNK_SIZE" -d -a 2 "$DUMP_GZ" "./karting-$DATE.dump.gz.part-"
+PARTS=$(ls -1 "./karting-$DATE.dump.gz.part-"* | wc -l | tr -d ' ')
+echo "   розбито на $PARTS частин(и) по $CHUNK_SIZE"
+
+# Ротація всередині гілки: лишаємо KEEP_IN_GIT найновіших ДАТ (не файлів).
+for OLD_DATE in $(ls -1 ./karting-*.dump.gz.part-* 2>/dev/null \
+    | sed 's#^\./karting-\(.*\)\.dump\.gz\.part-.*#\1#' | sort -u | sort -r | tail -n +$((KEEP_IN_GIT + 1))); do
+  echo "   ротація: прибираю $OLD_DATE"
+  rm -f "./karting-$OLD_DATE.dump.gz.part-"*
+done
 
 cat > README.md <<'EOF'
 # DB backups (orphan branch)
 
-Щодобові gzip SQL-дампи `karting.db`. Гілка НЕ має спільної історії з кодом і
+Щодобові gzip SQL-дампи `karting.db`, розрізані на частини по 90MB (GitHub не
+приймає файли >100MB). Гілка НЕ має спільної історії з кодом і
 **перестворюється щоразу**, тримаючи лише кілька останніх дампів — щоб історія
 репо не росла (раніше дампи в `dev` роздули .git до 4GB).
 
 Відновлення:
 ```bash
 git fetch origin db-backups && git checkout origin/db-backups -- .
-gunzip -c karting-YYYY-MM-DD.dump.gz | sqlite3 karting.db
+cat karting-YYYY-MM-DD.dump.gz.part-* | gunzip -c | sqlite3 karting.db
 ```
 EOF
 
-git add -f ./karting-*.dump.gz README.md
+git add -f ./karting-*.dump.gz.part-* README.md
 git -c user.name="Karting Collector" -c user.email="collector@karting" \
     commit -m "DB backups (latest $DATE, $SIZE)" --quiet
 
